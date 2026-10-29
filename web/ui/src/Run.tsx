@@ -1,6 +1,6 @@
 // One run: its stages, the questions and refused actions it waits on, its environment, files and live output, and every
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, type RunView } from './api';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, StateTag, stateClass, useApp } from './ui';
 
@@ -47,8 +47,19 @@ export function Run({ slug }: { slug: string }) {
   const [from, setFrom] = useState('');
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
 
+  const questionsSig = v?.questions.map(q => `${q.n}:${q.title}`).join('|') ?? '';
+  const lastQuestionsSig = useRef(questionsSig);
+
+  useEffect(() => {
+    if (lastQuestionsSig.current !== questionsSig || (v && v.state !== 'paused')) {
+      lastQuestionsSig.current = questionsSig;
+      setAnswers({});
+    }
+  }, [questionsSig, v?.state]);
+
   const load = () => api.run(project, slug).then(x => { setV(x); setError(''); }).catch(e => setError((e as Error).message));
   useEffect(() => {
+    setAnswers({});
     load();
     api.brief(project, slug).then(b => setBrief(b.brief)).catch(() => setBrief(null));
     const t = setInterval(load, 2000);
@@ -75,7 +86,7 @@ export function Run({ slug }: { slug: string }) {
 
   const running = v.state === 'running';
   const states = stageStates(v);
-  const unanswered = v.questions.filter(q => !(answers[q.n] ?? q.answer).trim()).length;
+  const unanswered = v.questions.filter(q => !(answers[q.n] !== undefined ? answers[q.n] : q.answer).trim()).length;
   const startLabel = v.state === 'not started' || v.state === 'refused' ? 'Start' : v.resumeFrom ? `Resume from ${STAGES.find(s => s.key === v.resumeFrom)?.name || v.resumeFrom}` : 'Resume';
   const startArgs = ['start', slug, ...(v.resumeFrom && v.state !== 'not started' ? ['--from', v.resumeFrom] : [])];
   const editorLink = v.worktree ? `vscode://file${v.worktree.startsWith('/') ? '' : '/'}${v.worktree}` : '';
@@ -167,7 +178,7 @@ export function Run({ slug }: { slug: string }) {
                     <div class="row" style={{ alignItems: 'flex-start' }}>
                       <button class="btn btn-s" type="button" onClick={() => setAnswers(a => ({ ...a, [q.n]: 'accept' }))}>Use suggested</button>
                       <label class="sr" for={`q${q.n}`}>Answer to Q{q.n}</label>
-                      <textarea id={`q${q.n}`} class="inp" rows={2} style={{ flex: '1 1 320px', width: 'auto' }} placeholder="Your answer ('accept' takes the suggestion)" value={answers[q.n] ?? q.answer} onInput={e => setAnswers(a => ({ ...a, [q.n]: (e.target as HTMLTextAreaElement).value }))} />
+                      <textarea id={`q${q.n}`} class="inp" rows={2} style={{ flex: '1 1 320px', width: 'auto' }} placeholder="Your answer ('accept' takes the suggestion)" value={answers[q.n] !== undefined ? answers[q.n] : q.answer} onInput={e => setAnswers(a => ({ ...a, [q.n]: (e.target as HTMLTextAreaElement).value }))} />
                     </div>
                   </div>
                 ))}
@@ -175,7 +186,7 @@ export function Run({ slug }: { slug: string }) {
                   <button class="btn btn-p" type="button" disabled={!!busy} onClick={() => act('Answers', async () => {
                     const payload: Record<number, string> = {};
                     for (const q of v.questions) {
-                      const val = answers[q.n] ?? q.answer;
+                      const val = answers[q.n] !== undefined ? answers[q.n] : q.answer;
                       if (val !== undefined && val !== '') payload[q.n] = val.trim();
                     }
                     const r = await api.answers(project, slug, payload, envObj);
