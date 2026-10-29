@@ -1,7 +1,7 @@
 // The board: the backlog and one column per stage, live from the server's event stream; tick items and run them.
 import { useEffect, useState } from 'preact/hooks';
 import { api, type Board as BoardData, type RunCard, type RunView } from './api';
-import { Cli, ErrorBox, GLYPH, Panel, stateClass, useApp } from './ui';
+import { Cli, ErrorBox, GLYPH, Panel, Spinner, stateClass, useApp } from './ui';
 
 export const COLUMNS = ['Backlog', 'Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Ship'];
 
@@ -21,7 +21,7 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
   return (
     <div class={`card card-${r.state.replace(' ', '-')} ${on ? 'card-on' : ''}`}>
       <button type="button" class="mono" onClick={select} style={{ all: 'unset', cursor: 'pointer' }} aria-pressed={on}>
-        <span class={stateClass(r.state)}>{GLYPH[r.state]} {r.slug}</span>
+        <span class={stateClass(r.state)}>{r.state === 'running' ? <Spinner /> : GLYPH[r.state]} {r.slug}</span>
       </button>
       <span class="small">{what}</span>
       <span class="mono muted small">{[r.model && `${r.model} · ${r.effort}`, r.changes && `${r.changes.changed} files`].filter(Boolean).join(' · ') || r.state}</span>
@@ -43,7 +43,7 @@ function Drawer({ slug }: { slug: string }) {
   if (!v) return null;
   return (
     <Panel
-      title={<span class="mono"><span class={stateClass(v.state)}>{GLYPH[v.state]}</span> {v.slug} <span class="muted small">{[v.stage, v.model && `${v.model} · ${v.effort}`, v.note].filter(Boolean).join(' · ')}</span></span>}
+      title={<span class="mono"><span class={stateClass(v.state)}>{v.state === 'running' ? <Spinner /> : GLYPH[v.state]}</span> {v.slug} <span class="muted small">{[v.stage, v.model && `${v.model} · ${v.effort}`, v.note].filter(Boolean).join(' · ')}</span></span>}
       extra={<a class="btn btn-s" href={`#/run/${slug}`} onClick={e => { e.preventDefault(); go(`/run/${slug}`); }}>Open run</a>}
     >
       <pre class="code mono" style={{ borderRadius: '0 0 8px 8px', maxHeight: '220px', overflowY: 'auto' }}>{v.tail.slice(-12).join('\n') || 'No output yet.'}</pre>
@@ -102,7 +102,7 @@ export function Board({ board, error }: { board: BoardData | null; error: string
         <label class="row small"><input type="checkbox" checked={showDone} onChange={e => setShowDone((e.target as HTMLInputElement).checked)} /> Show done</label>
         <span class="tag">{board.running} / {board.maxParallel} running</span>
         <a class="btn" href="#/new" onClick={e => { e.preventDefault(); go('/new'); }}>New item</a>
-        <button class="btn btn-p" type="button" disabled={!chosen.length || busy} onClick={runSelected}>{busy ? 'Starting…' : `Run selected (${chosen.length})`}</button>
+        <button class="btn btn-p" type="button" disabled={!chosen.length || busy} onClick={runSelected}>{busy ? <><Spinner /> Starting…</> : `Run selected (${chosen.length})`}</button>
       </div>
       <ErrorBox error={error} />
       {board.items === null && <div class="banner">This project has no backlog index yet. <a href="#/new" onClick={e => { e.preventDefault(); go('/new'); }}>Write the first item</a>; it creates the index.</div>}
