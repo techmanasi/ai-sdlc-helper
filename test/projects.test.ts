@@ -130,6 +130,20 @@ describe('add', () => {
     expect(readRegistry(env)).toEqual([{ ...entry, name: 'renamed' }]);
   });
 
+  test('--yes --commit commits the written files to git', async () => {
+    const env = envWith();
+    const dir = repo({ 'package.json': { name: 'app', scripts: { test: 'vitest' } } });
+    spawnSync('git', ['-C', dir, 'config', 'user.name', 'Test'], { encoding: 'utf8' });
+    spawnSync('git', ['-C', dir, 'config', 'user.email', 'test@example.com'], { encoding: 'utf8' });
+    spawnSync('git', ['-C', dir, 'add', '-A'], { encoding: 'utf8' });
+    spawnSync('git', ['-C', dir, 'commit', '-q', '-m', 'initial'], { encoding: 'utf8' });
+    const r = await cli(['add', dir, '--yes', '--commit'], env);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('Committed');
+    const log = spawnSync('git', ['-C', dir, 'log', '-1', '--oneline'], { encoding: 'utf8' }).stdout;
+    expect(log).toContain('chore: setup ai-sdlc-helper');
+  });
+
   test('refuses a folder outside git, a name in use and a bad --max-parallel; a default name in use gets a number', async () => {
     const env = envWith();
     const plain = fs.realpathSync(project({ 'a.txt': '' }));

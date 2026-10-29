@@ -79,10 +79,26 @@ export function runContext(dir: string, env: NodeJS.ProcessEnv = process.env): R
   };
 }
 
-/** The ref a new branch starts from: SDLC_BASE or git.base, else origin/main, main, HEAD (the first that exists). */
+/** The ref a new branch starts from: SDLC_BASE or git.base, else a valid branch with the settings, else main/master/origin/HEAD. */
 export function pickBase(ctx: RunContext): string {
   if (ctx.base) return ctx.base;
-  return ['origin/main', 'main', 'HEAD'].find(r => gitOk(ctx.root, ['rev-parse', '--verify', '-q', r], ctx.env)) || '';
+  const current = git(ctx.root, ['branch', '--show-current'], ctx.env).stdout.trim();
+  const candidates = [
+    ...(current ? [current] : []),
+    'main',
+    'master',
+    'origin/main',
+    'origin/master',
+    'HEAD',
+  ];
+  const valid = [...new Set(candidates)].filter(r => gitOk(ctx.root, ['rev-parse', '--verify', '-q', r], ctx.env));
+  if (!valid.length) return '';
+  // When sdlc.config.json exists, prefer a base candidate that actually has it committed
+  if (exists(path.join(ctx.root, CONFIG_FILE))) {
+    const withConfig = valid.find(r => committed(ctx, r, CONFIG_FILE));
+    if (withConfig) return withConfig;
+  }
+  return valid[0];
 }
 
 /** True when the item's red-tests commit is already in <base>: it was merged. */
@@ -210,8 +226,9 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
       if (!ctx.env.SDLC_ALLOW_MERGED && isMerged(ctx, slug, base)) {
         return refuse(5, `${slug} is already merged into ${base}. Delete branch ${branch} and its backlog entry, or set SDLC_ALLOW_MERGED=1 to run it again.`);
       }
-      // A worktree has only what is committed: settings that exist only in the working tree would not reach the run.
-      if (exists(path.join(ctx.root, CONFIG_FILE)) && !committed(ctx, branch, CONFIG_FILE) && !committed(ctx, base, CONFIG_FILE)) {
+      // If a specific base was requested (via SDLC_BASE or git.base) that lacks the settings, refuse it.
+      // Otherwise, uncommitted settings in the main working tree will be mirrored into the worktree.
+      if (ctx.base && exists(path.join(ctx.root, CONFIG_FILE)) && !committed(ctx, branch, CONFIG_FILE) && !committed(ctx, base, CONFIG_FILE)) {
         return refuse(1, `${CONFIG_FILE} is not committed on ${base}, which the worktree starts from. Commit it to ${base}, `
           + `or start from a branch that has it: SDLC_BASE=<branch> (or git.base in ${CONFIG_FILE}).`);
       }
@@ -226,7 +243,11 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
       if (add.status !== 0) return refuse(1, `git worktree add ${wt} failed: ${add.stderr.trim().split('\n').pop()}`);
       created = true;
     }
-    // A brief that is not committed on the base yet is copied from the main working tree.
+    // Settings and brief not committed on the base yet are copied from the main working tree.
+    const configPath = path.join(wt, CONFIG_FILE);
+    if (!exists(configPath) && exists(path.join(ctx.root, CONFIG_FILE))) {
+      fs.copyFileSync(path.join(ctx.root, CONFIG_FILE), configPath);
+    }
     const brief = path.join(wt, docs, 'brief.md');
     if (!exists(brief)) {
       if (!exists(path.join(ctx.root, docs, 'brief.md'))) return refuse(1, `Missing ${docs}/brief.md`);
