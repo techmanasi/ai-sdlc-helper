@@ -6,6 +6,7 @@ import {
 } from '../testcheck/checks.js';
 import { runSuites } from '../runners/run.js';
 import { exists } from '../util.js';
+import { answerQuestions, parseQuestions } from '../runs/view.js';
 import { at, stamp, stop, stopIfAborted, tick, type Ctx } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags } from './agent.js';
 import { resultsAt, resultsNow, successCheck, testsPass } from './gates.js';
@@ -37,6 +38,23 @@ export function stage(ctx: Ctx, title: string): void {
 
 const countLines = (file: string, re: RegExp) => (exists(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(l => re.test(l)).length : 0);
 
+export function isAutoAccept(ctx: Ctx): boolean {
+  const val = ctx.env.SDLC_AUTO_ACCEPT;
+  return !!val && val !== '0' && val.toLowerCase() !== 'false';
+}
+
+export function autoAcceptQuestions(file: string): void {
+  const text = fs.readFileSync(file, 'utf8');
+  const qs = parseQuestions(text);
+  if (qs.length > 0) {
+    const answers: Record<string, string> = {};
+    for (const q of qs) answers[String(q.n)] = 'accept';
+    answerQuestions(file, answers);
+  } else {
+    fs.writeFileSync(file, text.replace(/^(\*\*Answer:\*\*)\s*$/gm, '$1 accept'));
+  }
+}
+
 /**
  * An answered questions.md becomes the next round in decisions.md (so nothing is asked twice) and is removed; an
  * unanswered one pauses the run (exit 2).
@@ -62,11 +80,23 @@ function recordAnswers(ctx: Ctx): void {
 export async function specStage(ctx: Ctx): Promise<void> {
   stage(ctx, '1/6 Spec');
   await tick();
+  const questions = at(ctx, `${ctx.docs}/questions.md`);
+  if (exists(questions) && isAutoAccept(ctx)) autoAcceptQuestions(questions);
   recordAnswers(ctx);
-  const round = countLines(at(ctx, `${ctx.docs}/decisions.md`), /^## Round /) + 1;
-  await runAgent(ctx, `spec-${round}`, 'spec');
-  if (exists(at(ctx, `${ctx.docs}/questions.md`))) {
-    stop(ctx, `PAUSED: new questions in ${ctx.docs}/questions.md. Fill each '**Answer:**' (write 'accept' to take the suggestion) and rerun.`, 2);
+  const MAX_SPEC_ROUNDS = 5;
+  while (true) {
+    const round = countLines(at(ctx, `${ctx.docs}/decisions.md`), /^## Round /) + 1;
+    await runAgent(ctx, `spec-${round}`, 'spec');
+    if (exists(questions)) {
+      if (isAutoAccept(ctx) && round < MAX_SPEC_ROUNDS) {
+        ctx.out(`   SDLC_AUTO_ACCEPT: auto-accepting suggestions in ${ctx.docs}/questions.md (round ${round})`);
+        autoAcceptQuestions(questions);
+        recordAnswers(ctx);
+        continue;
+      }
+      stop(ctx, `PAUSED: new questions in ${ctx.docs}/questions.md. Fill each '**Answer:**' (write 'accept' to take the suggestion) and rerun.`, 2);
+    }
+    break;
   }
   if (!exists(at(ctx, `${ctx.docs}/specs-1.md`))) stop(ctx, 'Spec not produced');
 }
@@ -76,10 +106,24 @@ export async function planStage(ctx: Ctx): Promise<void> {
   stage(ctx, '2/6 Plan');
   await tick();
   if (!exists(at(ctx, `${ctx.docs}/specs-1.md`))) stop(ctx, `FROM=${ctx.from} but ${ctx.docs}/specs-1.md is missing: run Spec first`);
-  if (ctx.from === 'plan') recordAnswers(ctx);
-  await runAgent(ctx, 'plan', 'plan');
-  if (exists(at(ctx, `${ctx.docs}/questions.md`))) {
-    stop(ctx, `PAUSED: the Plan agent has open questions in ${ctx.docs}/questions.md. Fill each '**Answer:**' (write 'accept' to take the suggestion) and resume: ${resumeCommand(ctx.slug, 'plan')}`, 2);
+  const questions = at(ctx, `${ctx.docs}/questions.md`);
+  if (ctx.from === 'plan') {
+    if (exists(questions) && isAutoAccept(ctx)) autoAcceptQuestions(questions);
+    recordAnswers(ctx);
+  }
+  const MAX_PLAN_ROUNDS = 5;
+  for (let attempt = 1; attempt <= MAX_PLAN_ROUNDS; attempt++) {
+    await runAgent(ctx, 'plan', 'plan');
+    if (exists(questions)) {
+      if (isAutoAccept(ctx) && attempt < MAX_PLAN_ROUNDS) {
+        ctx.out(`   SDLC_AUTO_ACCEPT: auto-accepting suggestions in ${ctx.docs}/questions.md (plan attempt ${attempt})`);
+        autoAcceptQuestions(questions);
+        recordAnswers(ctx);
+        continue;
+      }
+      stop(ctx, `PAUSED: the Plan agent has open questions in ${ctx.docs}/questions.md. Fill each '**Answer:**' (write 'accept' to take the suggestion) and resume: ${resumeCommand(ctx.slug, 'plan')}`, 2);
+    }
+    break;
   }
   if (!exists(at(ctx, `${ctx.docs}/plan-1.md`))) stop(ctx, 'Plan not produced');
 }
