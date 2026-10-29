@@ -1,0 +1,15 @@
+{
+  "backlogDir": "Docs/backlog",
+  "suites": [
+    {
+      "name": "ai-sdlc-helper",
+      "dir": ".",
+      "runner": "vitest",
+      "testCmd": "npm test",
+      "testGlobs": [
+        "test/**/*.test.ts",
+        "web/test/**/*.test.ts"
+      ]
+    }
+  ]
+}
