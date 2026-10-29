@@ -2,7 +2,7 @@
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
 import { useEffect, useState } from 'preact/hooks';
 import { api, type RunView } from './api';
-import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, StateTag, stateClass, useApp } from './ui';
+import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
 
 const STAGES = [
   { name: 'Spec', key: 'spec' }, { name: 'Plan', key: 'plan' }, { name: 'Red tests', key: 'red-tests' },
@@ -96,24 +96,24 @@ export function Run({ slug }: { slug: string }) {
       {v.message && <div class="error">{v.message}</div>}
 
       <div class="row">
-        <button class="btn btn-p" type="button" disabled={running || !!busy} onClick={() => act(startLabel, () => api.start(project, slug, v.state === 'not started' ? undefined : v.resumeFrom || undefined, envObj))}>{busy === startLabel ? 'Starting…' : startLabel}</button>
+        <button class="btn btn-p" type="button" disabled={running || !!busy} onClick={() => act(startLabel, () => api.start(project, slug, v.state === 'not started' ? undefined : v.resumeFrom || undefined, envObj))}>{busy === startLabel ? <><Spinner /> Starting…</> : startLabel}</button>
         <label class="sr" for="from">Restart from</label>
         <select id="from" class="sel" style={{ minHeight: '40px' }} value={from} onChange={e => setFrom((e.target as HTMLSelectElement).value)} disabled={v.state === 'not started'}>
           <option value="">from the start</option>
           {STAGES.filter(s => s.key).map(s => <option value={s.key}>from {s.name}</option>)}
         </select>
         {confirm === 'restart'
-          ? <><button class="btn btn-d" type="button" onClick={() => act('Restart', () => api.restart(project, slug, from || undefined, envObj))}>Confirm: discard and start again</button><button class="btn" type="button" onClick={() => setConfirm('')}>Keep it</button></>
+          ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Restart', () => api.restart(project, slug, from || undefined, envObj))}>{busy === 'Restart' ? <><Spinner /> Restarting…</> : 'Confirm: discard and start again'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
           : <button class="btn" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('restart')}>Restart…</button>}
-        <button class="btn" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => act(`Resume at ${from || 'start'}`, () => api.start(project, slug, from || undefined, envObj))}>Resume at selected stage</button>
+        <button class="btn" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => act(`Resume at ${from || 'start'}`, () => api.start(project, slug, from || undefined, envObj))}>{busy === `Resume at ${from || 'start'}` ? <><Spinner /> Resuming…</> : 'Resume at selected stage'}</button>
         {confirm === 'stop'
-          ? <><button class="btn btn-d" type="button" onClick={() => act('Stop', () => api.stop(project, slug))}>Confirm stop</button><button class="btn" type="button" onClick={() => setConfirm('')}>Keep running</button></>
+          ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Stop', () => api.stop(project, slug))}>{busy === 'Stop' ? <><Spinner /> Stopping…</> : 'Confirm stop'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep running</button></>
           : <button class="btn" type="button" disabled={!running || !!busy} onClick={() => setConfirm('stop')}>Stop</button>}
         {editorLink && <a class="btn" href={editorLink}>Open worktree in editor</a>}
         {v.worktree && <CopyButton text={v.worktree} label="Copy worktree path" />}
         <button class="btn" type="button" disabled title="Waits on engine request E-10">Merge into base <Future id="E-10" /></button>
         {confirm === 'discard'
-          ? <><button class="btn btn-d" type="button" onClick={() => act('Discard', () => api.discard(project, slug))}>Confirm discard</button><button class="btn" type="button" onClick={() => setConfirm('')}>Keep it</button></>
+          ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Discard', () => api.discard(project, slug))}>{busy === 'Discard' ? <><Spinner /> Discarding…</> : 'Confirm discard'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
           : <button class="btn btn-d" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('discard')}>Discard…</button>}
       </div>
       {confirm === 'discard' && <p class="small s-failed" style={{ margin: 0 }}>Deletes the worktree at {v.worktree || 'its folder'}, the branch {v.branch} (its tip is saved) and the run record.</p>}
@@ -130,7 +130,7 @@ export function Run({ slug }: { slug: string }) {
               const locked = running && st !== 'pending';
               return (
                 <div class={`stage ${st === 'active' ? 'stage-active' : st === 'paused' ? 'stage-paused' : ''}`}>
-                  <strong class={STAGE_CLASS[st]}>{STAGE_GLYPH[st]} {s.name}</strong>
+                  <strong class={STAGE_CLASS[st]}>{st === 'active' ? <Spinner /> : STAGE_GLYPH[st]} {s.name}</strong>
                   {!s.key && <span class="small muted">no agent · commits the cycle's files</span>}
                   {s.key && (locked || running
                     ? <span class="mono small muted">{inUse ? `${inUse.model} · ${inUse.effort}` : 'default'}{st === 'active' ? ' · in use' : ''}</span>
@@ -182,7 +182,7 @@ export function Run({ slug }: { slug: string }) {
                     setAnswers({});
                     toast(r.resumed ? (r.resumed.ok ? 'Answers saved; the run resumed' : `Answers saved; resume refused: ${r.resumed.err.join(' ')}`) : `Saved ${r.answered} of ${r.total} answers`);
                     return {};
-                  })}>{unanswered ? 'Save answers' : 'Submit answers and resume'}</button>
+                  })}>{busy === 'Answers' ? <><Spinner /> Saving…</> : (unanswered ? 'Save answers' : 'Submit answers and resume')}</button>
                   <span class="small muted">{v.questions.length - unanswered} of {v.questions.length} answered · the run resumes once every question has an answer</span>
                 </div>
               </div>
@@ -197,15 +197,15 @@ export function Run({ slug }: { slug: string }) {
                     <div class="code mono" style={{ borderRadius: '6px', padding: '8px 10px' }}>{a.tool}  {a.detail}  <span class="muted">({a.stage})</span></div>
                     {a.protected && <span class="small s-paused">Protected path: allowing it runs the whole {a.stage} stage with permission checks off.</span>}
                     <div class="row">
-                      <button class="btn btn-s btn-p" type="button" disabled={!!busy} onClick={() => act('Allow', () => api.permit(project, slug, String(i), 'allow', envObj))}>{a.protected ? 'Allow (stage runs unchecked)' : `Allow this run (${a.rule})`}</button>
-                      {!a.protected && <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => act('Allow always', () => api.permit(project, slug, String(i), 'always', envObj))}>Allow always</button>}
-                      <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => act('Deny', () => api.permit(project, slug, String(i), 'deny', envObj))}>Deny</button>
+                      <button class="btn btn-s btn-p" type="button" disabled={!!busy} onClick={() => act('Allow', () => api.permit(project, slug, String(i), 'allow', envObj))}>{busy === 'Allow' ? <><Spinner /> Allowing…</> : (a.protected ? 'Allow (stage runs unchecked)' : `Allow this run (${a.rule})`)}</button>
+                      {!a.protected && <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => act('Allow always', () => api.permit(project, slug, String(i), 'always', envObj))}>{busy === 'Allow always' ? <><Spinner /> Allowing…</> : 'Allow always'}</button>}
+                      <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => act('Deny', () => api.permit(project, slug, String(i), 'deny', envObj))}>{busy === 'Deny' ? <><Spinner /> Denying…</> : 'Deny'}</button>
                     </div>
                   </div>
                 ))}
                 <div class="row" style={{ borderTop: '1px solid var(--ln)', paddingTop: '12px' }}>
-                  <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => act('Allow all', () => api.permit(project, slug, 'all', 'allow', envObj))}>Allow all</button>
-                  <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => act('Deny all', () => api.permit(project, slug, 'all', 'deny', envObj))}>Deny all</button>
+                  <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => act('Allow all', () => api.permit(project, slug, 'all', 'allow', envObj))}>{busy === 'Allow all' ? <><Spinner /> Allowing all…</> : 'Allow all'}</button>
+                  <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => act('Deny all', () => api.permit(project, slug, 'all', 'deny', envObj))}>{busy === 'Deny all' ? <><Spinner /> Denying all…</> : 'Deny all'}</button>
                   <span class="mono small muted" style={{ marginLeft: 'auto' }}>$ ai-sdlc-helper permit {slug} allow all</span>
                 </div>
               </div>
@@ -238,7 +238,7 @@ export function Run({ slug }: { slug: string }) {
         <div class="side col">
           <Panel title="This run">
             <dl class="facts pb">
-              <dt class="muted">State</dt><dd class={stateClass(v.state)}>{GLYPH[v.state]} {v.state}</dd>
+              <dt class="muted">State</dt><dd class={stateClass(v.state)}>{v.state === 'running' ? <Spinner /> : GLYPH[v.state]} {v.state}</dd>
               {v.agent && <><dt class="muted">Agent</dt><dd class="mono">{v.agent} {v.model && `· ${v.model} · ${v.effort}`}</dd></>}
               <dt class="muted">Files</dt><dd>{v.changes ? `${v.changes.changed} changed · ${v.changes.uncommitted} uncommitted` : '—'}</dd>
               <dt class="muted">Tests</dt><dd>{v.tests ? `${v.tests.passed} passed · ${v.tests.failed} failing · ${v.tests.total} total` : 'not run yet'}</dd>

@@ -17,8 +17,10 @@ export const GLYPH: Record<ViewState, string> = {
 };
 export const stateClass = (s: ViewState) => `s-${s.replace(' ', '-')}`;
 
+export const Spinner = ({ class: cls = '' }: { class?: string }) => <span class={`spinner ${cls}`.trim()} aria-hidden="true" />;
+
 export function StateTag({ state }: { state: ViewState }) {
-  return <span class={`tag ${stateClass(state)}`} style={{ borderColor: 'currentColor' }}>{GLYPH[state]} {state}</span>;
+  return <span class={`tag ${stateClass(state)}`} style={{ borderColor: 'currentColor' }}>{state === 'running' ? <Spinner /> : GLYPH[state]} {state}</span>;
 }
 
 /** A control the engine cannot back yet: the request it waits on, from docs/web-ui.md. */
