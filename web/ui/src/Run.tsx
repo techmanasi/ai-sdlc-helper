@@ -173,7 +173,13 @@ export function Run({ slug }: { slug: string }) {
                 ))}
                 <div class="row">
                   <button class="btn btn-p" type="button" disabled={!!busy} onClick={() => act('Answers', async () => {
-                    const r = await api.answers(project, slug, answers, envObj);
+                    const payload: Record<number, string> = {};
+                    for (const q of v.questions) {
+                      const val = answers[q.n] ?? q.answer;
+                      if (val !== undefined && val !== '') payload[q.n] = val.trim();
+                    }
+                    const r = await api.answers(project, slug, payload, envObj);
+                    setAnswers({});
                     toast(r.resumed ? (r.resumed.ok ? 'Answers saved; the run resumed' : `Answers saved; resume refused: ${r.resumed.err.join(' ')}`) : `Saved ${r.answered} of ${r.total} answers`);
                     return {};
                   })}>{unanswered ? 'Save answers' : 'Submit answers and resume'}</button>
