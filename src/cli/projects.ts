@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { CONFIG_FILE, exists } from '../util.js';
 import { resolve, type Config } from '../config/settings.js';
 import {
@@ -10,11 +11,13 @@ import { backlogDirOf, doctor, doctorOk } from '../registry/doctor.js';
 import type { ParsedArgs } from './args.js';
 import type { Io } from './main.js';
 
+const git = (root: string, args: string[], env: NodeJS.ProcessEnv) => spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', env });
+
 export const PROJECT_COMMANDS = ['add', 'list', 'remove', 'doctor'];
 export const PROJECT_VALUED = ['--name', '--project', '--worktree-base', '--max-parallel'];
-export const PROJECT_FLAGS = ['--run-tests'];
+export const PROJECT_FLAGS = ['--run-tests', '--commit'];
 
-export const PROJECT_USAGE = `  add [dir] [--name <name>] [--worktree-base <dir>] [--max-parallel <n>] [--yes]
+export const PROJECT_USAGE = `  add [dir] [--name <name>] [--worktree-base <dir>] [--max-parallel <n>] [--yes] [--commit]
                                    register a project (its git root): shows the settings, offers ${CONFIG_FILE} and a backlog index
   list [--json]                    the registered projects
   remove <name>                    forget a registered project (its files are kept)
@@ -35,7 +38,7 @@ Pending items are picked top-down. Format: \`- [ ] \\\`slug\\\` - title\`; each 
 Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 `;
 
-interface AddOptions { name?: string; yes: boolean; overrides: ProjectOverrides }
+interface AddOptions { name?: string; yes: boolean; commit?: boolean; overrides: ProjectOverrides }
 
 async function add(io: Io, env: NodeJS.ProcessEnv, start: string, opts: AddOptions): Promise<number> {
   const root = gitRoot(start, env);
@@ -83,6 +86,21 @@ async function add(io: Io, env: NodeJS.ProcessEnv, start: string, opts: AddOptio
   const latest = withProject(readRegistry(env), { name, path: root, overrides: opts.overrides });
   writeRegistry(latest.entries, env);
   io.out(`${latest.updated ? 'Updated' : 'Registered'} ${name} in ${registryFile(env)}${done.length ? `; wrote ${done.join(', ')}` : ''}.`);
+  if (done.length) {
+    const branch = git(root, ['branch', '--show-current'], env).stdout.trim();
+    let doCommit = opts.commit;
+    if (doCommit === undefined && io.ask && !opts.yes) {
+      doCommit = await confirm(`\nCommit ${done.join(', ')} on ${branch || 'HEAD'}? [y/N]: `);
+    }
+    if (doCommit) {
+      git(root, ['add', ...done], env);
+      const commitRes = git(root, ['commit', '-m', `chore: setup ai-sdlc-helper (${done.join(', ')})`], env);
+      if (commitRes.status === 0) {
+        const sha = git(root, ['rev-parse', '--short', 'HEAD'], env).stdout.trim();
+        io.out(`Committed ${done.join(', ')} on ${branch || 'HEAD'} (${sha}).`);
+      }
+    }
+  }
   return 0;
 }
 
@@ -128,7 +146,7 @@ export async function projects(a: ParsedArgs, io: Io): Promise<number> {
           if (!/^[1-9]\d*$/.test(mp)) { io.err('ERROR: --max-parallel must be a whole number of 1 or more'); return 2; }
           overrides.maxParallel = Number(mp);
         }
-        return await add(io, env, start, { name: a.value('--name'), yes: a.flag('--yes'), overrides });
+        return await add(io, env, start, { name: a.value('--name'), yes: a.flag('--yes'), commit: a.flag('--commit'), overrides });
       }
       case 'list':
         return list(io, env, a.flag('--json'));

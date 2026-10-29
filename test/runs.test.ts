@@ -225,6 +225,20 @@ describe('start', () => {
     await finished('alpha');
   });
 
+  test('uncommitted settings in the working tree are mirrored into the new worktree when no explicit base is given', async () => {
+    git(repo, 'rm', '-q', 'sdlc.config.json');
+    git(repo, 'commit', '-q', '-m', 'clean base without config');
+    fs.writeFileSync(path.join(repo, 'sdlc.config.json'), JSON.stringify({ suites: [] }));
+    fs.mkdirSync(path.join(repo, 'Docs/backlog/mirror-cfg'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'Docs/backlog/mirror-cfg/brief.md'), '# mirror-cfg\n');
+    const r = await cli(['start', 'mirror-cfg']);
+    expect(r.status).toBe(0);
+    const wtConfig = path.join(wts, 'mirror-cfg', 'sdlc.config.json');
+    expect(fs.existsSync(wtConfig)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(wtConfig, 'utf8'))).toEqual({ suites: [] });
+    await finished('mirror-cfg');
+  });
+
   test('refuses a slug already running (exit 4) and more than the cap (exit 3, SDLC_MAX_PARALLEL or maxParallel); two run when the cap allows', async () => {
     expect((await cli(['start', 'slow-one'])).status).toBe(0);
     await sleeping('slow-one');
