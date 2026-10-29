@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { main } from '../src/cli/main.js';
 import { alive, killTree, projectRoot } from '../src/runs/records.js';
 import { repoRulesFile } from '../src/permissions/index.js';
-import { pipelineArgv } from '../src/runs/index.js';
+import { pipelineArgv, pipelineEnv } from '../src/runs/index.js';
 import { tmp as mkTmp } from './helpers.js';
 
 const GIT_ENV = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
@@ -632,6 +632,20 @@ describe('runs of other checkouts of the repository', () => {
     expect(slugs((await cli(['status'])).stdout)).toEqual(['legacy', 'mine']);
     expect(slugs((await cli(['status'], {}, other)).stdout)).toEqual(['theirs']);
     expect(JSON.parse((await cli(['status', '--json'], {}, other)).stdout).map((r: { slug: string }) => r.slug)).toEqual(['theirs']);
+  });
+
+  test('pipelineEnv passes SDLC_AUTO_ACCEPT to the pipeline while stripping CONTROL_ENV', () => {
+    const ctx = {
+      root: repo,
+      env: { SDLC_AUTO_ACCEPT: '1', SDLC_BASE: 'main', SDLC_WT_BASE: '../wts', FROM: 'plan', OTHER_VAR: 'val' },
+    } as any;
+    const env = pipelineEnv(ctx, 'item-slug');
+    expect(env.SDLC_AUTO_ACCEPT).toBe('1');
+    expect(env.OTHER_VAR).toBe('val');
+    expect(env.SDLC_SLUG).toBe('item-slug');
+    expect(env.SDLC_BASE).toBeUndefined();
+    expect(env.SDLC_WT_BASE).toBeUndefined();
+    expect(env.FROM).toBeUndefined();
   });
 });
 
