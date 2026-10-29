@@ -8,6 +8,7 @@ import { envModels, providerEnv, resolveProvider, stageModel, stageModels, type 
 import { manualInput, renderPrompt } from '../src/pipeline/prompts.js';
 import { ship } from '../src/pipeline/ship.js';
 import { Status } from '../src/pipeline/status.js';
+import { autoAcceptQuestions, isAutoAccept } from '../src/pipeline/stages.js';
 import type { AgentRequest } from '../src/pipeline/agent.js';
 import { tmp, write } from './helpers.js';
 import { DOCS, SLUG, fixture, pipeline, read, statusOf } from './pipeline-fixture.js';
@@ -283,5 +284,26 @@ describe('Ship', () => {
     fs.mkdirSync(path.join(dir, '.git/hooks'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.git/hooks/pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     expect(() => doShip(dir)).toThrow(/git commit/);
+  });
+});
+
+describe('auto-accept helpers', () => {
+  test('isAutoAccept returns true for 1, true, yes, and false otherwise', () => {
+    expect(isAutoAccept({ env: { SDLC_AUTO_ACCEPT: '1' } } as any)).toBe(true);
+    expect(isAutoAccept({ env: { SDLC_AUTO_ACCEPT: 'true' } } as any)).toBe(true);
+    expect(isAutoAccept({ env: { SDLC_AUTO_ACCEPT: 'yes' } } as any)).toBe(true);
+    expect(isAutoAccept({ env: { SDLC_AUTO_ACCEPT: '0' } } as any)).toBe(false);
+    expect(isAutoAccept({ env: { SDLC_AUTO_ACCEPT: 'false' } } as any)).toBe(false);
+    expect(isAutoAccept({ env: {} } as any)).toBe(false);
+  });
+
+  test('autoAcceptQuestions fills every Answer line with accept', () => {
+    const qFile = path.join(tmp('sdlc-auto-'), 'questions.md');
+    fs.mkdirSync(path.dirname(qFile), { recursive: true });
+    fs.writeFileSync(qFile, '### Q1: Database\nWhich DB?\n**Suggested:** Postgres\n**Answer:**\n\n### Q2: Port\nWhich port?\n**Suggested:** 3000\n**Answer:**\n');
+    autoAcceptQuestions(qFile);
+    const content = fs.readFileSync(qFile, 'utf8');
+    expect(content).toContain('### Q1: Database\nWhich DB?\n**Suggested:** Postgres\n**Answer:** accept');
+    expect(content).toContain('### Q2: Port\nWhich port?\n**Suggested:** 3000\n**Answer:** accept');
   });
 });
