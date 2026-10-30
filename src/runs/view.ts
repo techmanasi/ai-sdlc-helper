@@ -59,6 +59,7 @@ export interface RunView {
   pr?: string | null;
   prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null;
   hasPrComments?: boolean;
+  testIssues?: string | null;
 }
 
 const readText = (file: string): string | null => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
@@ -111,12 +112,13 @@ export function answerQuestions(file: string, answers: Record<string, string>): 
   return { total: after.length, answered: after.filter(q => q.answer).length };
 }
 
-/** The stage a run resumes at: Plan and Red tests at their own stage, the later ones at Implement, else the start. */
-export function resumeStage(stage: string): string {
+/** The stage a run resumes at: Plan and Red tests at their own stage, Test repair if claims exist, else Implement. */
+export function resumeStage(stage: string, hasTestIssues = false): string {
   if (stage === 'Finalise' || stage === 'finalise') return 'finalise';
-  if (stage === 'Review') return 'review';
-  if (['Implement', 'Test repair'].includes(stage)) return 'implement';
-  return stage === 'Plan' ? 'plan' : stage === 'Red tests' ? 'red-tests' : '';
+  if (stage === 'Review' || stage === 'review') return 'review';
+  if (stage === 'Test repair' || stage === 'test-repair') return hasTestIssues === true ? 'test-repair' : 'implement';
+  if (stage === 'Implement' || stage === 'implement') return 'implement';
+  return stage === 'Plan' || stage === 'plan' ? 'plan' : stage === 'Red tests' || stage === 'red-tests' ? 'red-tests' : '';
 }
 
 function viewState(rec: Partial<RunRecord> | null, status: any): ViewState {
@@ -217,7 +219,8 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
     tail: dir ? tail(path.join(logs, 'run.out'), opts.tailLines ?? 40) : [],
     docs: docFiles(docsDir),
     discarded,
-    resumeFrom: resumeStage(stage),
+    resumeFrom: resumeStage(stage, exists(path.join(docsDir, 'test-issues.md'))),
+    testIssues: exists(path.join(docsDir, 'test-issues.md')) ? readText(path.join(docsDir, 'test-issues.md')) : null,
     createPr: (() => {
       const optFile = path.join(logs, 'finalise-options.json');
       if (fs.existsSync(optFile)) {

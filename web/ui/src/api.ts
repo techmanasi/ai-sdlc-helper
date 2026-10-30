@@ -23,6 +23,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   changes: { changed: number; uncommitted: number; files: string[] } | null;
   tail: string[]; docs: string[]; discarded: string; resumeFrom: string;
   createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean;
+  testIssues?: string | null;
 }
 export interface CompletedTask {
   slug: string;
@@ -149,6 +150,9 @@ export const api = {
     call<{ pr: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; markdown: string | null }>('GET', `${r(project, slug)}/pr`),
   syncRunPrComments: (project: string, slug: string) =>
     call<{ ok: boolean; pr?: string | null; markdown: string; count: number; err?: string[] }>('POST', `${r(project, slug)}/pr-sync`, {}),
+  testIssues: (project: string, slug: string) => call<{ slug: string; text: string | null }>('GET', `${r(project, slug)}/test-issues`),
+  saveTestIssues: (project: string, slug: string, text: string, resume = true) =>
+    call<{ ok: boolean; text: string; resumed: Outcome | null }>('POST', `${r(project, slug)}/test-issues`, { text, resume }),
   completed: (project: string) => call<{ completed: CompletedTask[] }>('GET', `${p(project)}/completed`),
   completedTask: (project: string, slug: string) => call<CompletedTaskDetail>('GET', `${p(project)}/completed/${encodeURIComponent(slug)}`),
   createCompletedPr: (project: string, slug: string) =>
