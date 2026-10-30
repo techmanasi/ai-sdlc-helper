@@ -35,7 +35,7 @@ export {
   runContext, start, stop, restart, discard, statusLines, statusRecords, watchFrame, runChanges, allChanges, runWorktree, pickBase,
   pipelineArgv, pipelineEnv, type RunContext, type Outcome,
 } from './runs/index.js';
-export { readRecord, recordedSlugs, registryDir, runState, type RunRecord } from './runs/records.js';
+export { alive, killTree, readRecord, recordedSlugs, registryDir, runState, type RunRecord } from './runs/records.js';
 export {
   answerQuestions, boardView, parseQuestions, resumeStage, runView, type BoardView, type Question, type RunCard, type RunView,
   type TestCounts, type ViewState,
@@ -46,5 +46,10 @@ export { ship, type ShipOptions } from './pipeline/ship.js';
 export { STAGE_DEFAULTS, resolveProvider, stageModel, providerEnv, type Provider } from './pipeline/models.js';
 export { FROM_STAGES, AGENT_STAGES, type From, type AgentStage } from './pipeline/context.js';
 export type { StatusLine } from './pipeline/status.js';
-export { triage, triagePrompt, indexItems, commitTriage, type RunClaude, type TriageResult } from './triage.js';
+export {
+  triage, triagePrompt, indexItems, commitTriage, triageTools, TRIAGE_DIR, newRunId, triageRunDir, createTriageWorktree, removeTriageWorktree,
+  triageSplitPrompt, triageItemPrompt, triageAnsweredMessage, triageContinueMessage, parseTriageItems, buildTriageDraft,
+  pendingTriageQuestions, answerTriageQuestions, parseStreamLine,
+  type RunClaude, type TriageResult, type TriageItem, type TriageDraft, type TriageQuestion, type TriageState, type DraftStatus, type TriageStreamPart,
+} from './triage.js';
 export * from './pipeline/harness/index.js';

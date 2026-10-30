@@ -4,6 +4,6 @@ Pending items are picked top-down. Format: `- [ ] \`slug\` - title`; each item n
 
 Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 
-- [ ] `add-ui-triage-agent` - Feature: run the triage agent in the web UI (E-8)
+- [x] `add-ui-triage-agent` - Feature: run the triage agent in the web UI (E-8)
 - [ ] `add-setup-branch-pr` - Feature: commit `add` setup files on a chore/sdlc-setup branch from main, then optionally push and open a PR
 - [ ] `stage-files-tree-viewer` - Feature: collapsible tree viewer for files changed per stage in web UI

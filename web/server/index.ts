@@ -12,6 +12,7 @@ import {
   restart, runContext, runView, start, stop, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
+import { triageRoutes } from './triage.js';
 
 export interface ServerOptions {
   /** The port to listen on; taken, the next free one (up to 20 more). 0: any free port. Default 4477. */
@@ -27,6 +28,8 @@ export interface ServerOptions {
   cli?: string[];
   /** How often the live board is read, in ms (default 2000). */
   pollMs?: number;
+  /** The claude command triage runs spawn (tests); default 'claude'. */
+  claude?: string;
 }
 
 export interface RunningServer {
@@ -127,11 +130,15 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     return file;
   }
 
+  const triage = triageRoutes({ env, claude: opts.claude || 'claude', project, projects, contextFor });
+
   async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
     const parts = url.pathname.split('/').filter(Boolean).slice(1).map(decodeURIComponent); // after "api"
     const method = req.method || 'GET';
     const body = method === 'POST' ? await readBody(req) : {};
     const send = (status: number, v: unknown) => sendJson(res, status, v);
+    // Triage runs check their input (400) before the project is looked up (404).
+    if (parts[0] === 'projects' && parts[1] && parts[2] === 'triage') return triage.handle(req, res, parts, url, body);
 
     if (parts[0] === 'session' && method === 'GET') {
       let version = 'unknown';
@@ -296,9 +303,10 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   }
   port = (server.address() as { port: number }).port;
   const url = `http://127.0.0.1:${port}`;
+  await triage.recover();
   return {
     url, port, token,
     openUrl: `${url}/?t=${token}`,
-    close: () => new Promise(res => { server.closeAllConnections?.(); server.close(() => res()); }),
+    close: () => new Promise(res => { triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
   };
 }
