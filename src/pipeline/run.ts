@@ -18,7 +18,7 @@ import { PROMPTS_DIR } from './prompts.js';
 import { Status, finalState } from './status.js';
 import { resultsAt } from './gates.js';
 import {
-  implementStage, markStage, planStage, redTestsStage, refuseRedone, resumeAtTests, reviewStage, shipStage, specStage,
+  implementStage, markStage, planStage, redTestsStage, refuseRedone, resumeAtTests, reviewStage, finaliseStage, shipStage, specStage,
   testRepairStage,
 } from './stages.js';
 
@@ -82,7 +82,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
   const callerEnv = opts.env || process.env;
   const from = (opts.from || callerEnv.FROM || 'spec') as From;
   if (!FROM_STAGES.includes(from)) {
-    out(`ERROR: unknown FROM=${from} (use spec, plan, red-tests, implement, test-repair, review or ship)`);
+    out(`ERROR: unknown FROM=${from} (use spec, plan, red-tests, implement, test-repair, review or finalise)`);
     return 1;
   }
   // FROM says where THIS run starts; nothing it starts (tests, agents, pipelines the tests start) inherits it.
@@ -199,5 +199,5 @@ async function stages(ctx: Ctx): Promise<void> {
     }
   }
   if (fromN <= 6) await reviewStage(ctx);
-  await shipStage(ctx);
+  await finaliseStage(ctx);
 }

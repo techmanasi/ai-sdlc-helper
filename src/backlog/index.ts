@@ -18,6 +18,8 @@ export interface BacklogItem {
   title: string;
   note: string;
   hasBrief: boolean;
+  archived?: boolean;
+  pr?: string | null;
 }
 /** Where the backlog lives: the project root, the backlog folder in it, and the branch prefix of pipeline runs. */
 export interface BacklogPlace { root: string; backlogDir: string; branchPrefix: string }
@@ -65,15 +67,27 @@ export function parseTitle(rest: string): { type: string | null; title: string; 
 // A slug is used as a folder name and in a git ref pattern: reject separators, "..", and glob characters.
 const safeSlug = (slug: string): boolean => !/[\\/*?[\]]/.test(slug) && slug !== '..' && slug !== '.';
 
-export function parseBrief(place: Pick<BacklogPlace, 'root' | 'backlogDir'>, slug: string): { hasBrief: boolean; type: string | null; priority: string | null } {
-  if (!safeSlug(slug)) return { hasBrief: false, type: null, priority: null };
+export { archiveTask, unarchiveTask, archiveCompleted, type ArchiveOptions } from './archive.js';
+
+export function parseBrief(place: Pick<BacklogPlace, 'root' | 'backlogDir'>, slug: string): { hasBrief: boolean; type: string | null; priority: string | null; pr: string | null } {
+  if (!safeSlug(slug)) return { hasBrief: false, type: null, priority: null, pr: null };
   const file = path.join(place.root, place.backlogDir, slug, 'brief.md');
-  if (!fs.existsSync(file)) return { hasBrief: false, type: null, priority: null };
+  if (!fs.existsSync(file)) return { hasBrief: false, type: null, priority: null, pr: null };
   const text = fs.readFileSync(file, 'utf8');
   const typeLine = text.match(/^\s*Type:[ \t]*(\S+)/im);
   const priLine = text.match(/^\s*Priority:[ \t]*(.*)$/im);
   const pri = priLine && priLine[1].match(/\bP[0-3]\b/);
-  return { hasBrief: true, type: typeLine ? typeLine[1].toLowerCase() : null, priority: pri ? pri[0] : null };
+  const fmM = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  let pr: string | null = null;
+  if (fmM) {
+    const prLine = fmM[1].match(/^pr:\s*(\S+)/im);
+    if (prLine) pr = prLine[1].trim();
+  }
+  if (!pr) {
+    const prBody = text.match(/^(?:PR|pr):\s*(https?:\/\/\S+)/im);
+    if (prBody) pr = prBody[1].trim();
+  }
+  return { hasBrief: true, type: typeLine ? typeLine[1].toLowerCase() : null, priority: pri ? pri[0] : null, pr };
 }
 
 /** Whether a local or origin branch <branchPrefix><slug> exists. <refs> holds the repository's refs, read once on first use. */
@@ -108,6 +122,7 @@ function deriveItem(entry: IndexEntry, place: BacklogPlace, refs: { names?: Set<
     title,
     note: [blockedReason || parkedReason, brief.hasBrief ? null : 'no brief'].filter(Boolean).join('; '),
     hasBrief: brief.hasBrief,
+    pr: brief.pr,
   };
 }
 
@@ -186,9 +201,21 @@ export const formatJson = (items: BacklogItem[]): string => JSON.stringify(items
 export function backlogItems(place: BacklogPlace): { items: BacklogItem[]; entries: IndexEntry[] } | null {
   const indexFile = path.join(place.root, place.backlogDir, 'index.md');
   if (!fs.existsSync(indexFile)) return null;
-  const entries = parseIndex(fs.readFileSync(indexFile, 'utf8'));
+  const text = fs.readFileSync(indexFile, 'utf8');
+  const entries = parseIndex(text);
+  const archiveIndex = text.search(/^##\s+Archive/im);
   const refs = {};
-  return { items: entries.map(e => deriveItem(e, place, refs)), entries };
+  return {
+    items: entries.map(e => {
+      const item = deriveItem(e, place, refs);
+      if (archiveIndex !== -1) {
+        const itemPos = text.indexOf(`\`${e.slug}\``);
+        if (itemPos > archiveIndex) item.archived = true;
+      }
+      return item;
+    }),
+    entries,
+  };
 }
 
 export interface NewItem { slug: string; type: 'feature' | 'bug'; title: string; brief: string }

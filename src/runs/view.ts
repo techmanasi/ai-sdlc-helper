@@ -8,6 +8,7 @@ import { backlogItems, type BacklogItem } from '../backlog/index.js';
 import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.js';
 import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { projectSlugs, runChanges, runWorktree, type RunContext } from './index.js';
+import { getPrFromBrief } from '../pipeline/finalise.js';
 
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused';
 
@@ -19,7 +20,7 @@ export interface TestCounts { passed: number; failed: number; skipped: number; t
 export interface RunView {
   slug: string;
   state: ViewState;
-  /** The stage status.json names (Spec, Plan, Red tests, Implement, Test repair, Review, Commit), '' before the first. */
+  /** The stage status.json names (Spec, Plan, Red tests, Implement, Test repair, Review, Finalise), '' before the first. */
   stage: string;
   agent: string;
   model: string;
@@ -54,6 +55,8 @@ export interface RunView {
   discarded: string;
   /** The --from value that resumes the run where it stopped ('' for the start). */
   resumeFrom: string;
+  createPr?: boolean;
+  pr?: string | null;
 }
 
 const readText = (file: string): string | null => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
@@ -108,7 +111,7 @@ export function answerQuestions(file: string, answers: Record<string, string>): 
 
 /** The stage a run resumes at: Plan and Red tests at their own stage, the later ones at Implement, else the start. */
 export function resumeStage(stage: string): string {
-  if (stage === 'Commit' || stage === 'Ship') return 'ship';
+  if (stage === 'Finalise' || stage === 'finalise') return 'finalise';
   if (stage === 'Review') return 'review';
   if (['Implement', 'Test repair'].includes(stage)) return 'implement';
   return stage === 'Plan' ? 'plan' : stage === 'Red tests' ? 'red-tests' : '';
@@ -213,6 +216,14 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
     docs: docFiles(docsDir),
     discarded,
     resumeFrom: resumeStage(stage),
+    createPr: (() => {
+      const optFile = path.join(logs, 'finalise-options.json');
+      if (fs.existsSync(optFile)) {
+        try { return JSON.parse(fs.readFileSync(optFile, 'utf8')).createPr === true; } catch { /* ignore */ }
+      }
+      return false;
+    })(),
+    pr: getPrFromBrief(readText(path.join(docsDir, 'brief.md')) || ''),
   };
 }
 

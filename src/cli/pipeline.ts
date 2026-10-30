@@ -8,10 +8,10 @@ export const PIPELINE_COMMANDS = ['pipeline'];
 export const PIPELINE_VALUED = ['--from', '--cwd'];
 export const PIPELINE_FLAGS: string[] = [];
 
-export const PIPELINE_USAGE = `  pipeline [slug] [--from spec|plan|red-tests|implement|test-repair|review] [--cwd <checkout>]
+export const PIPELINE_USAGE = `  pipeline [slug] [--from spec|plan|red-tests|implement|test-repair|review|finalise] [--cwd <checkout>]
                                    run the SDLC pipeline for a backlog item (default: the first pending one) in the
                                    checkout (default: the current folder); FROM=<stage> in the environment works too.
-                                   Exit 0 shipped, 1 failed, 2 paused (questions to answer, refused actions to decide)`;
+                                   Exit 0 finalised, 1 failed, 2 paused (questions to answer, refused actions to decide)`;
 
 const SIGNALS: Record<string, number> = { SIGINT: 2, SIGTERM: 15, SIGHUP: 1 };
 

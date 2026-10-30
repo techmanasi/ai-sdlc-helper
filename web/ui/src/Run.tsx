@@ -8,7 +8,7 @@ import { buildDocTree, type DocTreeNode } from './tree';
 const STAGES = [
   { name: 'Spec', key: 'spec' }, { name: 'Plan', key: 'plan' }, { name: 'Red tests', key: 'red-tests' },
   { name: 'Implement', key: 'implement' }, { name: 'Test repair', key: 'test-repair' }, { name: 'Review', key: 'review' },
-  { name: 'Ship', key: 'ship' },
+  { name: 'Finalise', key: 'finalise' },
 ];
 const MODELS = ['', 'opus', 'sonnet', 'haiku', 'fable'];
 const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -25,7 +25,7 @@ function saveEnv(project: string, slug: string, rows: [string, string][]): void 
 type StageState = 'done' | 'active' | 'paused' | 'failed' | 'pending';
 function stageStates(v: RunView): StageState[] {
   const stageName = v.stage || (v.state === 'running' && v.record?.from ? (STAGES.find(s => s.key === v.record?.from)?.name || '') : '');
-  const at = v.state === 'done' ? STAGES.length : Math.max(0, STAGES.findIndex(s => s.name === stageName || (s.name === 'Ship' && (stageName === 'Commit' || stageName === 'Ship'))));
+  const at = v.state === 'done' ? STAGES.length : Math.max(0, STAGES.findIndex(s => s.name === stageName || (s.name === 'Finalise' && (stageName === 'Finalise' || stageName === '6/6 Finalise' || stageName === 'Commit' || stageName === 'Ship'))));
   return STAGES.map((_, i) => {
     if (v.state === 'done' || i < at) return 'done';
     if (i > at || v.state === 'not started' || (!v.stage && !v.record?.from && v.state !== 'running')) return 'pending';
@@ -150,6 +150,7 @@ export function Run({ slug }: { slug: string }) {
   const [confirm, setConfirm] = useState('');
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [env, setEnv] = useState<[string, string][]>(() => loadEnv(project, slug));
+  const [createPr, setCreatePr] = useState(false);
   const [from, setFrom] = useState('');
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
@@ -163,6 +164,24 @@ export function Run({ slug }: { slug: string }) {
       setAnswers({});
     }
   }, [questionsSig, v?.state]);
+
+  useEffect(() => {
+    if (v && v.createPr !== undefined) setCreatePr(v.createPr);
+    else if (envObj.SDLC_CREATE_PR === '1') setCreatePr(true);
+  }, [v?.createPr]);
+
+  const handleToggleCreatePr = async (checked: boolean) => {
+    setCreatePr(checked);
+    setEnvVar('SDLC_CREATE_PR', checked ? '1' : '0');
+    if (v && v.state !== 'not started') {
+      try {
+        await api.setOptions(project, slug, { createPr: checked });
+        toast(checked ? 'PR creation enabled for Finalise' : 'PR creation disabled');
+      } catch (e) {
+        toast((e as Error).message);
+      }
+    }
+  };
 
   const load = () => api.run(project, slug).then(x => { setV(x); setError(''); }).catch(e => setError((e as Error).message));
   useEffect(() => {
@@ -210,6 +229,7 @@ export function Run({ slug }: { slug: string }) {
         {v.stage && <span class="tag">at {v.stage}</span>}
         {v.state !== 'not started' && <span class="tag">branch {v.branch}</span>}
         {v.base && <span class="tag">base {v.base}</span>}
+        {v.pr && <a href={v.pr} target="_blank" rel="noreferrer" class="tag s-done mono" style={{ textDecoration: 'underline' }}>PR ↗</a>}
         {v.note && <span class="tag s-paused">{v.note}</span>}
       </div>
       <ErrorBox error={error} />
@@ -261,8 +281,22 @@ export function Run({ slug }: { slug: string }) {
               return (
                 <div class={`stage ${st === 'active' ? 'stage-active' : st === 'paused' ? 'stage-paused' : ''}`}>
                   <strong class={STAGE_CLASS[st]}>{st === 'active' ? <Spinner /> : STAGE_GLYPH[st]} {s.name}</strong>
-                  {s.key === 'ship' && <span class="small muted">no agent · commits the cycle's files</span>}
-                  {s.key && s.key !== 'ship' && (locked || running
+                  {s.key === 'finalise' && (
+                    <div class="col" style={{ gap: '4px' }}>
+                      <span class="small muted">no agent · commits files</span>
+                      <label class="row small" style={{ gap: '6px', alignItems: 'center', cursor: (st !== 'pending') ? 'not-allowed' : 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={createPr}
+                          disabled={st !== 'pending'}
+                          onChange={e => handleToggleCreatePr((e.target as HTMLInputElement).checked)}
+                        />
+                        <span>Create PR</span>
+                      </label>
+                      {v.pr && <a href={v.pr} target="_blank" rel="noreferrer" class="small s-done mono" style={{ textDecoration: 'underline' }}>View PR ↗</a>}
+                    </div>
+                  )}
+                  {s.key && s.key !== 'finalise' && (locked || running
                     ? <span class="mono small muted">{inUse ? `${inUse.model} · ${inUse.effort}` : 'default'}{st === 'active' ? ' · in use' : ''}</span>
                     : (
                       <div class="row" style={{ gap: '4px' }}>
@@ -276,8 +310,8 @@ export function Run({ slug }: { slug: string }) {
                     ))}
                   {s.key === 'test-repair' && v.models['test-audit'] && <span class="mono small muted">audit: {v.models['test-audit'].model} · {v.models['test-audit'].effort}</span>}
                   {v.stageFiles[s.name] && <span class="small muted">{v.stageFiles[s.name].length} files</span>}
-                  {s.name === 'Ship' && v.deniedPermissions && v.deniedPermissions.length > 0 && <span class="small s-failed">{v.deniedPermissions.length} denied</span>}
-                  {s.key && s.key !== 'implement' && s.key !== 'ship' && <span class="small"><Future id="E-7" /> skip</span>}
+                  {s.name === 'Finalise' && v.deniedPermissions && v.deniedPermissions.length > 0 && <span class="small s-failed">{v.deniedPermissions.length} denied</span>}
+                  {s.key && s.key !== 'implement' && s.key !== 'finalise' && <span class="small"><Future id="E-7" /> skip</span>}
                 </div>
               );
             })}

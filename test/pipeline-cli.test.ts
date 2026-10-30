@@ -51,12 +51,12 @@ describe('the pipeline command', () => {
     for (const from of ['bogus', 'Implement', 'test_repair', 'TEST-REPAIR', 'Review']) {
       const r = await run(['pipeline', SLUG], cliEnv(f, { FROM: from }), f.dir);
       expect([from, r.status]).toEqual([from, 1]);
-      expect(r.stdout).toContain(`ERROR: unknown FROM=${from} (use spec, plan, red-tests, implement, test-repair, review or ship)`);
+      expect(r.stdout).toContain(`ERROR: unknown FROM=${from} (use spec, plan, red-tests, implement, test-repair, review or finalise)`);
       expect(fs.existsSync(path.join(f.dir, LOG))).toBe(false);
       expect(git(f.dir, 'branch', '--list')).toBe('* main');
     }
     expect((await run(['pipeline', SLUG, '--from', 'nope'], cliEnv(f), f.dir)).stdout).toContain('ERROR: unknown FROM=nope');
-    for (const from of ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'review', 'ship']) {
+    for (const from of ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'review', 'finalise']) {
       const r = await run(['pipeline', SLUG, '--from', from], cliEnv(f), f.dir);
       expect([from, r.status, r.stdout]).toEqual([from, 1, `Missing ${DOCS}/brief.md\n`]);
     }

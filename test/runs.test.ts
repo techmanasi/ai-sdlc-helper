@@ -164,7 +164,7 @@ describe('start', () => {
 
     const bad = await cli(['start', 'alpha', '--from', 'bogus']);
     expect(bad.status).toBe(2);
-    expect(bad.stderr).toContain('--from must be one of spec, plan, red-tests, implement, test-repair, review, ship');
+    expect(bad.stderr).toContain('--from must be one of spec, plan, red-tests, implement, test-repair, review, finalise');
   });
 
   test('records failing and paused exit codes; copies a brief not committed yet', async () => {

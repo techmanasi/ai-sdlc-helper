@@ -8,7 +8,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  addBacklogItem, answerQuestions, boardView, decide, discard, doctor, main, readRegistry, repoRulesFile, resolve,
+  addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
+  decide, discard, doctor, getCompletedTaskDetail, listCompletedTasks, main, readRegistry, repoRulesFile, resolve,
   restart, runContext, runView, start, stop, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
@@ -201,6 +202,22 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       if (action === 'stop') return send(200, outcome(await stop(ctx, slug)));
       if (action === 'discard') return send(200, outcome(await discard(ctx, slug, { yes: true, stop: body.stop === true })));
       if (action === 'restart') return send(200, outcome(await restart(ctx, slug, { yes: true, from: fromOf(body.from) })));
+      if (action === 'options') {
+        const v = runView(ctx, slug, { changes: false, tailLines: 0 });
+        if (v.stage === 'Finalise' || v.state === 'done') {
+          throw new HttpError(400, 'Finalise stage has already started; cannot modify PR creation setting');
+        }
+        const optDir = path.join(v.dir || ctx.root, ctx.backlogDir, slug, 'logs');
+        fs.mkdirSync(optDir, { recursive: true });
+        const optFile = path.join(optDir, 'finalise-options.json');
+        let existing: Record<string, unknown> = {};
+        try { existing = JSON.parse(fs.readFileSync(optFile, 'utf8')); } catch { /* ignore */ }
+        if (typeof body.createPr === 'boolean') {
+          existing.createPr = body.createPr;
+        }
+        fs.writeFileSync(optFile, JSON.stringify(existing, null, 2) + '\n');
+        return send(200, { ok: true, createPr: existing.createPr === true });
+      }
       if (action === 'answers') {
         const v = runView(ctx, slug, { changes: false, tailLines: 0 });
         if (!v.dir) throw new HttpError(404, `${slug} has no run with questions`);
@@ -221,7 +238,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const isFromDenied = whichStr.startsWith('denied:');
         const hasActions = isFromDenied ? (v.deniedPermissions && v.deniedPermissions.length > 0) : v.permissions.length > 0;
         if (!v.dir || !hasActions) throw new HttpError(404, `${slug} has no ${isFromDenied ? 'denied' : 'refused'} actions to decide`);
-        const stage = isFromDenied ? (v.deniedPermissions[0]?.stage || 'ship') : v.permissions[0].stage;
+        const stage = isFromDenied ? (v.deniedPermissions[0]?.stage || 'finalise') : v.permissions[0].stage;
         let pending: number;
         try {
           pending = decide(path.join(v.dir, ctx.backlogDir, slug, 'logs', 'permissions.json'), whichStr, String(body.choice ?? ''), repoRulesFile(ctx.root));
@@ -231,6 +248,36 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const shouldResume = isFromDenied ? (body.resume === true) : (body.resume !== false && pending === 0);
         const resumed = shouldResume ? outcome(start(ctx, slug, { from })) : null;
         return send(200, { ok: true, pending, resumed });
+      }
+    }
+    if (what === 'completed') {
+      const ctx = contextFor(p);
+      if (method === 'GET' && !parts[3]) {
+        return send(200, { completed: listCompletedTasks(ctx) });
+      }
+      if (parts[3]) {
+        const slug = slugOf(parts[3]);
+        if (method === 'GET' && parts.length === 4) {
+          return send(200, getCompletedTaskDetail(ctx, slug));
+        }
+        if (method === 'POST' && parts[4] === 'pr') {
+          const r = createPrForCompleted(ctx, slug);
+          return send(r.ok ? 200 : 400, r);
+        }
+      }
+    }
+    if (what === 'archive') {
+      const ctx = contextFor(p);
+      if (method === 'POST' && parts[3]) {
+        const slug = slugOf(parts[3]);
+        const ok = archiveTask({ root: ctx.root, backlogDir: ctx.backlogDir }, slug);
+        return send(ok ? 200 : 400, { ok, archived: ok });
+      }
+      if (method === 'POST' && parts.length === 3) {
+        const olderThanDays = typeof body.olderThanDays === 'number' ? body.olderThanDays : undefined;
+        const all = body.all === true || olderThanDays === undefined;
+        const r = archiveCompleted({ root: ctx.root, backlogDir: ctx.backlogDir }, { all, olderThanDays });
+        return send(200, { ok: true, ...r });
       }
     }
     throw new HttpError(404, 'no such API');

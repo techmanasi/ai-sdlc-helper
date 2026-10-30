@@ -164,12 +164,22 @@ export function extract({ jsonFile, logFile, stateFile, stage, cwd, errFile, all
   return state.pending.length;
 }
 
+export const FINALISE_PERMISSIONS = [
+  'Bash(git push:*)',
+  'Bash(gh pr create:*)',
+  'Bash(gh pr view:*)',
+  'Bash(gh pr list:*)',
+  'Bash(gh pr:*)',
+  'Bash(gh:*)',
+];
+
 /** Allow rules for a stage's run: this run's decisions plus the repository's saved ones. */
-export function rulesFor(docsDir: string, repoFile: string): string[] {
+export function rulesFor(docsDir: string, repoFile: string, stage?: string): string[] {
   const run = loadState(path.join(docsDir, 'logs', 'permissions.json')).allow;
   const repo = readJson(repoFile, {});
   const saved: string[] = Array.isArray(repo.allow) ? repo.allow.filter((r: unknown) => typeof r === 'string') : [];
-  return [...new Set([...saved, ...run])];
+  const stageSpecific = stage === 'finalise' ? FINALISE_PERMISSIONS : [];
+  return [...new Set([...saved, ...run, ...stageSpecific])];
 }
 
 /** The permission mode a stage's agent runs with: bypassPermissions once a protected path was allowed for it. */
