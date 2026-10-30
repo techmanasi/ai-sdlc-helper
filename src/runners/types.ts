@@ -54,7 +54,7 @@ export function relTo(root: string, file: string | null | undefined): string | n
 }
 
 /** A test name with Jest's "›", Vitest's ">", or "->" hierarchy separators and runs of whitespace collapsed to single spaces. */
-export const norm = (s: unknown): string => String(s || '').replace(/\s*(?:›|>|->)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+export const norm = (s: unknown): string => String(s || '').replace(/\s*›\s*|\s+(?:>|->)\s+/g, ' ').replace(/\s+/g, ' ').trim();
 
 /** A suite as the adapters need it (a resolved Suite has all of it; runCmd falls back to testCmd). */
 export interface RunSuite {
