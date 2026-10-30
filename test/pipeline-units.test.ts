@@ -8,7 +8,7 @@ import { envModels, providerEnv, resolveProvider, stageModel, stageModels, type 
 import { manualInput, renderPrompt } from '../src/pipeline/prompts.js';
 import { ship } from '../src/pipeline/ship.js';
 import { Status } from '../src/pipeline/status.js';
-import { autoAcceptQuestions, isAutoAccept } from '../src/pipeline/stages.js';
+import { autoAcceptQuestions, formatCheckFailures, isAutoAccept } from '../src/pipeline/stages.js';
 import type { AgentRequest } from '../src/pipeline/agent.js';
 import { tmp, write } from './helpers.js';
 import { DOCS, SLUG, fixture, pipeline, read, statusOf } from './pipeline-fixture.js';
@@ -305,5 +305,35 @@ describe('auto-accept helpers', () => {
     const content = fs.readFileSync(qFile, 'utf8');
     expect(content).toContain('### Q1: Database\nWhich DB?\n**Suggested:** Postgres\n**Answer:** accept');
     expect(content).toContain('### Q2: Port\nWhich port?\n**Suggested:** 3000\n**Answer:** accept');
+  });
+});
+
+describe('failure reason reporting', () => {
+  test('formatCheckFailures extracts failed tests and suite errors from tests.json', () => {
+    const dir = tmp('sdlc-fail-');
+    const log = path.join(dir, 'logs');
+    fs.mkdirSync(log, { recursive: true });
+    const testsJson = path.join(log, 'tests.json');
+    fs.writeFileSync(testsJson, JSON.stringify({
+      suiteErrors: [{ file: 'test/bad.test.ts', message: 'SyntaxError: Unexpected token' }],
+      tests: [
+        { file: 'test/a.test.ts', name: 'adds numbers', status: 'passed' },
+        { file: 'test/b.test.ts', name: 'handles error', status: 'failed', message: 'AssertionError: expected 1 to be 2\n  at ...' },
+      ],
+    }));
+    const ctx = { root: dir, log: 'logs', failLog: '' } as any;
+    const fails = formatCheckFailures(ctx);
+    expect(fails).toHaveLength(2);
+    expect(fails[0]).toBe('ERROR: suite test/bad.test.ts failed to run: SyntaxError: Unexpected token');
+    expect(fails[1]).toContain('FAIL: test/b.test.ts :: handles error (AssertionError: expected 1 to be 2)');
+  });
+
+  test('formatCheckFailures falls back to failLog when tests.json is missing or empty', () => {
+    const dir = tmp('sdlc-fail-');
+    const failFile = path.join(dir, 'test.err');
+    fs.writeFileSync(failFile, 'FAIL: test/c.test.ts\nAssertionError: boom\n');
+    const ctx = { root: dir, log: 'logs', failLog: 'test.err' } as any;
+    const fails = formatCheckFailures(ctx);
+    expect(fails).toContain('FAIL: test/c.test.ts');
   });
 });

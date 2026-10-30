@@ -39,6 +39,44 @@ export function stage(ctx: Ctx, title: string): void {
 
 const countLines = (file: string, re: RegExp) => (exists(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(l => re.test(l)).length : 0);
 
+export function formatCheckFailures(ctx: Ctx): string[] {
+  const testsJson = at(ctx, `${ctx.log}/tests.json`);
+  const lines: string[] = [];
+  if (exists(testsJson)) {
+    try {
+      const res = JSON.parse(fs.readFileSync(testsJson, 'utf8'));
+      if (res && Array.isArray(res.suiteErrors)) {
+        for (const e of res.suiteErrors) {
+          const msg = String(e.message || '').trim().split('\n')[0];
+          lines.push(`ERROR: suite ${e.file || '(unknown)'} failed to run${msg ? `: ${msg}` : ''}`);
+        }
+      }
+      if (res && Array.isArray(res.tests)) {
+        const failed = res.tests.filter((t: any) => t.status === 'failed');
+        for (const t of failed) {
+          const msg = String(t.message || '').trim().split('\n')[0];
+          lines.push(`FAIL: ${t.file} :: ${t.name}${msg ? ` (${msg})` : ''}`);
+        }
+      }
+    } catch { /* best effort */ }
+  }
+  if (!lines.length && ctx.failLog) {
+    const failFile = at(ctx, ctx.failLog);
+    if (exists(failFile)) {
+      const raw = fs.readFileSync(failFile, 'utf8').trim().split('\n');
+      const sample = raw.filter(l => /^(ERROR|FAIL|AssertionError)/.test(l.trim())).slice(0, 5);
+      if (sample.length) {
+        for (const s of sample) lines.push(s.trim());
+      } else {
+        lines.push(`checks failed (see ${ctx.failLog})`);
+      }
+    } else {
+      lines.push(`checks failed (see ${ctx.failLog})`);
+    }
+  }
+  return lines;
+}
+
 export function isAutoAccept(ctx: Ctx): boolean {
   const val = ctx.env.SDLC_AUTO_ACCEPT;
   return !!val && val !== '0' && val.toLowerCase() !== 'false';
@@ -87,6 +125,8 @@ export async function specStage(ctx: Ctx): Promise<void> {
   const MAX_SPEC_ROUNDS = 5;
   while (true) {
     const round = countLines(at(ctx, `${ctx.docs}/decisions.md`), /^## Round /) + 1;
+    ctx.status.attempt = `${round}/${MAX_SPEC_ROUNDS}`;
+    ctx.status.write();
     await runAgent(ctx, `spec-${round}`, 'spec');
     if (exists(questions)) {
       if (isAutoAccept(ctx) && round < MAX_SPEC_ROUNDS) {
@@ -114,6 +154,8 @@ export async function planStage(ctx: Ctx): Promise<void> {
   }
   const MAX_PLAN_ROUNDS = 5;
   for (let attempt = 1; attempt <= MAX_PLAN_ROUNDS; attempt++) {
+    ctx.status.attempt = `${attempt}/${MAX_PLAN_ROUNDS}`;
+    ctx.status.write();
     await runAgent(ctx, 'plan', 'plan');
     if (exists(questions)) {
       if (isAutoAccept(ctx) && attempt < MAX_PLAN_ROUNDS) {
@@ -134,6 +176,8 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   stage(ctx, '3/6 Red tests (red gate)');
   await tick();
   if (!exists(at(ctx, `${ctx.docs}/plan-1.md`))) stop(ctx, `FROM=${ctx.from} but ${ctx.docs}/plan-1.md is missing: run Plan first`);
+  ctx.status.attempt = '1/1';
+  ctx.status.write();
   await runAgent(ctx, 'tests', 'red-tests');
   await tick();
   if (testsPass(ctx)) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
@@ -190,6 +234,17 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
     await tick();
     if (await successCheck(ctx)) { ctx.out(' tests and integration green'); return true; }
     await tick();
+    const fails = formatCheckFailures(ctx);
+    if (fails.length) {
+      ctx.out(`   !! attempt ${i} failed: ${fails.length} failing check${fails.length > 1 ? 's' : ''}`);
+      for (const f of fails.slice(0, 8)) ctx.out(`      ${f}`);
+      if (fails.length > 8) ctx.out(`      ... and ${fails.length - 8} more`);
+    } else {
+      ctx.out(`   !! attempt ${i} failed (see ${ctx.failLog || `${ctx.log}/tests.log`})`);
+    }
+    if (exists(issues)) {
+      ctx.out(`   agent claimed test defect in ${ctx.docs}/test-issues.md`);
+    }
   }
   return false;
 }
@@ -250,6 +305,8 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   }
   if (rejects(pre)) reject('claims fail pre-check (see above)', true);
   const srcBefore = ctx.git.sourceHash(ctx.layout.sourceDirs, specs, ctx.config.backlogDir);
+  ctx.status.attempt = '1/1';
+  ctx.status.write();
   await runAgent(ctx, 'test-repair', 'test-repair');
   await tick();
   const report = at(ctx, `${ctx.docs}/test-repair-1.md`);
@@ -287,6 +344,8 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
 export async function reviewStage(ctx: Ctx): Promise<void> {
   stage(ctx, '5/6 Review');
   await tick();
+  ctx.status.attempt = '1/1';
+  ctx.status.write();
   await runAgent(ctx, 'review', 'review');
   await tick();
   if (ctx.git.testsChangedSince(ctx.lockSha, ctx.layout.testPathspecs).length) stop(ctx, 'GUARD FAILED: review modified tests');
@@ -298,6 +357,8 @@ export async function reviewStage(ctx: Ctx): Promise<void> {
 export async function finaliseStage(ctx: Ctx): Promise<void> {
   stage(ctx, '6/6 Finalise');
   await tick();
+  ctx.status.attempt = '1/1';
+  ctx.status.write();
   let createPr = ctx.env.SDLC_CREATE_PR === '1' || ctx.env.CREATE_PR === '1';
   const optFile = path.join(ctx.root, ctx.log, 'finalise-options.json');
   if (fs.existsSync(optFile)) {
