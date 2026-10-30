@@ -119,6 +119,10 @@ function saveRun(run: RunJson): void {
 /** Whether <slug> has a draft; `in` would also see Object.prototype keys such as `constructor`, which are valid slugs. */
 const hasDraft = (run: RunJson, slug: string) => Object.prototype.hasOwnProperty.call(run.drafts, slug);
 
+/** The recorded Claude session id of <slug>'s item session, with the same own-property guard as `hasDraft`. */
+const itemSession = (run: RunJson, slug: string): string | undefined =>
+  Object.prototype.hasOwnProperty.call(run.sessions.items, slug) ? run.sessions.items[slug] : undefined;
+
 const summary = (run: RunJson) => ({
   runId: run.runId, state: run.state, worktree: run.worktree, slugs: run.kept,
   drafts: run.kept.filter(s => hasDraft(run, s)).map(s => ({ slug: s, status: run.drafts[s] })),
@@ -221,7 +225,7 @@ export function triageRoutes(host: TriageHost) {
     const onLine = (line: string) => {
       const part = parseStreamLine(line);
       if (part.sessionId) {
-        const known = current.phase === 'split' ? run.sessions.split : run.sessions.items[current.slug];
+        const known = current.phase === 'split' ? run.sessions.split : itemSession(run, current.slug);
         if (known !== part.sessionId) {
           if (current.phase === 'split') run.sessions.split = part.sessionId; else run.sessions.items[current.slug] = part.sessionId;
           saveRun(run);
@@ -287,6 +291,8 @@ export function triageRoutes(host: TriageHost) {
   function startItem(e: Live, slug: string, extra = ''): Promise<void> {
     const { run } = e;
     const item = run.items.find(i => i.slug === slug);
+    // Current before anything can fail, so Resume retries this item rather than the one drafted before it.
+    run.current = { phase: 'item', slug };
     let prompt: string;
     try {
       if (!item) throw new Error(`'${slug}' was not proposed`);
@@ -487,7 +493,7 @@ export function triageRoutes(host: TriageHost) {
       if (run.state !== 'waiting' || run.current?.phase !== 'item' || run.current.slug !== slug) throw new HttpError(409, `run ${run.runId} is ${run.state}, not waiting`);
       try { answerTriageQuestions(file, body.answers as Record<string, string>); } catch (err) { throw new HttpError(400, (err as Error).message); }
       // Without a recorded session id there is nothing to continue: the item's session starts afresh, pointed at the answers.
-      const id = run.sessions.items[slug];
+      const id = itemSession(run, slug);
       void (id ? runSession(e, { phase: 'item', slug }, triageAnsweredMessage(rel), id) : startItem(e, slug, triageAnsweredMessage(rel)));
       return send({ ok: true, run: summary(run) });
     }
@@ -530,7 +536,7 @@ export function triageRoutes(host: TriageHost) {
         const id = run.sessions.split;
         began = id ? runSession(e, cur, triageContinueMessage(), id) : startSplit(e);
       } else {
-        const id = run.sessions.items[cur.slug];
+        const id = itemSession(run, cur.slug);
         began = id ? runSession(e, cur, triageContinueMessage(), id) : startItem(e, cur.slug);
       }
       await began;

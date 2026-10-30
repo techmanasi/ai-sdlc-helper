@@ -4,64 +4,47 @@ Diff reviewed: `git diff 54f1656` against `specs-1.md`.
 
 ## Blockers
 
-None. No test reads or asserts on documentation text. The prompt tests in `test/triage-run.test.ts` check the output of
-`triageSplitPrompt` / `triageItemPrompt`, which is code output, not docs. Everything `docs/web-ui.md` describes is
-implemented in `src/triage.ts`, `web/server/triage.ts`, `web/ui/src/api.ts` and `web/ui/src/NewItem.tsx`.
+None.
+- No test reads or asserts on documentation text. `test/triage-run.test.ts` checks the output of `triageSplitPrompt` /
+  `triageItemPrompt` (code output) and writes fixture backlog files; `web/test/triage.test.ts` drives the real server with
+  a stand-in `claude`.
+- Everything `docs/web-ui.md` describes has code: `src/triage.ts`, `web/server/triage.ts`, `web/server/index.ts`,
+  `web/ui/src/api.ts`, `web/ui/src/NewItem.tsx`, and the prompt texts in `assets/prompts/triage-*.md`.
 
 ## Fixed in this review
 
-1. **Slugs that are `Object.prototype` keys** (`web/server/triage.ts`). Draft lookups used `slug in run.drafts`, so a
-   valid slug such as `constructor` or `tostring` counted as already drafted. `nextItem` skipped it, `allMarked` treated
-   it as marked, and `saved`/`skip` on an unknown slug of that name returned 409 instead of 404. Lookups now use an
-   own-property check (`hasDraft`).
-2. **The drawer never showed the item choice or the questions during a live run** (`web/ui/src/NewItem.tsx`). The client
-   state only changed on `done`, so after `items` / `question` it stayed `running`. The UI for `choosing` and `waiting`
-   only appeared after a page reload. `items`, `question` and `draft` now re-read the run summary.
-3. **Resume doubled the log** (`NewItem.tsx`). A stream already open on a stopped/failed run stayed attached, and the new
-   events stream replayed everything into the same log. Resume now closes the old streams and rebuilds the log from the
-   replay.
-4. **Drawer statuses went stale after Save** (`NewItem.tsx`). Once the stream had closed on `ready`, a Save marked the
-   draft on the server but the drawer still showed it as `pending` and still offered Load/Skip. The form's run summary is
-   now passed to the drawer and its statuses are synced. Save also only calls `/triage/saved` for a draft that is still
-   `pending`, so it no longer gets a 409 toast.
-5. **Zero kept items returned the old summary** (`web/server/triage.ts`). It returned state `choosing`; it now returns
-   `done`.
-6. **An agent that outlived an earlier server could not be stopped** (`web/server/triage.ts`). If a run was `running`
-   with a live recorded pid after a restart, there was no session object, so Stop and Discard killed nothing. They now
-   kill the recorded pid.
-7. Formatting: `const p =(` in `web/ui/src/api.ts`.
-8. **Discard could signal a reused pid** (`web/server/triage.ts`). A session object stayed on the run after its agent
-   exited, so Discard in `choosing`, `waiting` or `ready` sent SIGKILL to the old pid's process tree. If the system had
-   reused that pid, an unrelated process was killed. A session is now cleared when its process closes or fails to start.
-9. **Two marks racing could finish the run twice** (`web/server/triage.ts`). `saved`/`skip` await their `marked` event
-   before checking `allMarked`. Two requests that mark the last two drafts could both see every draft marked, so each
-   ran `finishDone`: two `done` events, and a second worktree, branch and pointer removal. `finishDone` now returns if the
-   run is already `done`.
-10. **Answers with no recorded session id** (`web/server/triage.ts`). If the item session never printed a `session_id`,
-   `/triage/answer` started a new session with only the "questions answered" message, so the agent had no item prompt.
-   The item's session now starts afresh from its full prompt followed by the "questions answered" message.
+1. **Resume retried the wrong item** (`web/server/triage.ts`, `startItem`). If building an item's prompt failed (for
+   example the triage skill or `report.md` became unreadable), the run went `failed` with `current` still naming the
+   item drafted before it. Resume then continued that finished session, re-emitted its draft and reset its status to
+   `pending`, even if it was already saved. `current` is now set before anything can fail.
+2. **Item session ids read through the prototype** (`web/server/triage.ts`). `run.sessions.items[slug]` for the valid
+   slug `constructor` returned `Object`'s constructor when no id was recorded, so Answer and Resume passed a function to
+   `--resume` and the spawn threw. Lookups now use an own-property check (`itemSession`), like `hasDraft`.
+3. **An empty `Type:` or `Priority:` line took the next line** (`src/triage.ts`, `buildTriageDraft`). `\s*` crossed the
+   newline, so `Priority:` followed by `## Summary` gave the priority `## Summary`. The patterns now use `[ \t]*`.
+
+Earlier fixes already in the diff (own-property `hasDraft`, live `choosing`/`waiting` in the drawer, Resume not doubling
+the log, drawer statuses after Save, zero kept items returning `done`, Stop/Discard of an agent that outlived the server,
+clearing ended sessions so a reused pid is never signalled, `finishDone` idempotent under racing marks, answers with no
+session id) were re-checked and hold.
 
 ## Acceptance criteria coverage
 
 - 1–4: `test/triage-run.test.ts` (the spec names `test/triage.test.ts`).
-- 5–22: `web/test/triage.test.ts` (the spec names `web/test/server.test.ts`). All of them run the real server with a
-  stand-in `claude`.
+- 5–22: `web/test/triage.test.ts` (the spec names `web/test/server.test.ts`), real server and stand-in `claude`.
 - 23–25: manual, not run.
 
 Gaps (not blockers):
-- AC 17: Resume is tested from `stopped` and `failed`, but not from `interrupted`.
-- §6: the 400 for a missing triage prompt has no server test.
-- §6 check order: `/triage/answer` checks 409 (not waiting) before 400 (unanswered), because the 400 check needs the
-  run's file. This is reasonable, but it differs from the spec's 400 → 404 → 409 order.
-- `docs/web-ui.md` names the branch `sdlc/triage-<runId>`. The code uses `<branchPrefix>triage-<runId>`, and `sdlc/` is
-  only the default prefix.
-
-- §5.8: a `GET /triage/events` stream on a `ready`, `stopped` or `failed` run replays the earlier `done` and stays open,
-  so it receives the events after a Resume. This follows §5.7 ("replays ... then streams new events") but not the
-  "streams close after a `done` event" rule of §5.8. The two rules conflict for a replayed `done`.
-- Fixes 8–10 have no test: the pid-reuse and mark race depend on timing, and the stand-in `claude` always prints a session id.
+- AC 17: Resume is tested from `stopped` and `failed`, not from `interrupted`.
+- §6: the 400 for a missing triage prompt has no server test; fixes 1–3 above have no test.
+- §6 check order: `/triage/answer` returns 409 (not waiting) before 400 (unanswered), since the 400 needs the run's file.
+  Saved/skip on a `done` run return 404 (its pointer is gone), not 409.
+- §5.8: a `GET /triage/events` stream on a `ready`/`stopped`/`failed` run replays the earlier `done` and stays open, so it
+  sees events after a Resume. This follows §5.7 but not "streams close after a `done`"; the two rules conflict on replay.
+- After a restart, a run whose recorded agent is still alive stays `running` with no session tracking its exit; Stop
+  (which kills the recorded pid) then Resume recovers it.
 
 ## Verification
 
-After the fixes: `ai-sdlc-helper run --file web/test/triage.test.ts`: 29 passed. `ai-sdlc-helper run --file test/triage-run.test.ts`:
-31 passed. The full suite, lint and typecheck (`npm run check`) were not run here and must be run before commit.
+`ai-sdlc-helper run --file test/triage-run.test.ts`: 31 passed. `ai-sdlc-helper run --file web/test/triage.test.ts`:
+29 passed. `npm run check` (lint, typecheck, full suite) was not run here and must be run before commit.

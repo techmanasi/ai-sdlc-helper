@@ -207,11 +207,12 @@ export function buildTriageDraft(worktree: string, backlogDir: string, slug: str
   const briefFile = path.join(worktree, briefRel);
   if (!exists(briefFile)) throw new Error(`${slug}: ${briefRel} is missing`);
   const brief = fs.readFileSync(briefFile, 'utf8');
-  const type = (/^Type:\s*(\S+)/m.exec(brief)?.[1] || '').toLowerCase();
+  // [ \t]*, not \s*: an empty `Type:` or `Priority:` line must not take the next line's text.
+  const type = (/^Type:[ \t]*(\S+)/m.exec(brief)?.[1] || '').toLowerCase();
   if (type !== 'bug' && type !== 'feature') throw new Error(`${slug}: ${briefRel} has Type '${type}', not bug or feature`);
   const entry = indexItems(read(path.join(worktree, backlogDir, 'index.md'))).find(i => i.slug === slug);
   if (!entry) throw new Error(`${slug}: ${backlogDir}/index.md has no line for ${slug}`);
-  const priority = (/^Priority:\s*(.+)$/m.exec(brief)?.[1] || '').trim();
+  const priority = (/^Priority:[ \t]*(.*)$/m.exec(brief)?.[1] || '').trim();
   return { slug, type, priority, title: entry.title.replace(/^(bug|feature):\s*/i, ''), brief };
 }
 
