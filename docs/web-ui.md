@@ -243,6 +243,38 @@ Spec questions, allows a refused command, sees it ship, and discards another run
 - **Pull requests:** open a pull request for a shipped run through `gh` when it is installed, and show its CI.
 - Remote access behind an explicit `--host` with the token required, for a dev box reached over SSH or a tunnel.
 
+## Triage in the dashboard
+
+**New item → Draft with the triage agent** opens a drawer above the form. Paste a report and start; tick **Quick** to
+draft every item without questions.
+
+1. A *split* session reads the report and the backlog and writes the proposed items (`items.json`). In an interactive run
+   you pick the items to draft; a quick run drafts all of them.
+2. Each item is drafted by its own session. In an interactive run the agent may write questions
+   (`<slug>-questions.md`); the drawer shows them with **Use suggested**, and the answers resume the same session.
+3. Every draft appears in the drawer with **Load into form** (the form asks before it replaces text you have typed) and
+   **Skip**. A saved item is marked automatically. When every draft is saved or skipped, the run ends and its worktree and
+   branch are removed. A draft whose priority is not P0–P3 loads as P2 with a note.
+
+The agent works in its own worktree on the branch `sdlc/triage-<runId>`, made from the base without committing anything
+(uncommitted settings, the backlog index and briefs are copied in). Its files are in
+`<backlogDir>/.triage/<runId>/` there (`report.md`, `items.json`, `run.json`, `events.jsonl`, git-ignored). The active run
+is named in `<git dir>/sdlc-runs/triage.json`, so a reload, or a restart of the server (the run becomes *interrupted*),
+finds it again. One run per project at a time.
+
+| Route | Does |
+|---|---|
+| `POST /api/projects/:name/triage` `{ report, quick?, model? }` | starts a run; the response is an event stream |
+| `GET …/triage` | the active run, or `{ run: null }` |
+| `GET …/triage/events?runId=` | replays the stored events, then streams new ones |
+| `POST …/triage/items` `{ runId, slugs }` | the items to draft |
+| `POST …/triage/answer` `{ runId, slug, answers }` | answers a waiting item (`Q1`, `Q2` …; `accept` takes the suggestion) |
+| `POST …/triage/saved`, `…/skip` `{ runId, slug }` | marks a draft |
+| `POST …/triage/stop`, `…/resume`, `…/discard` `{ runId }` | stops the agent, continues its session, or removes the run |
+
+Events: `started`, `text`, `tool`, `items`, `question`, `draft`, `marked`, `error`, `done` (`code` 0 finished, 130 stopped,
+127 `claude` not found, other: its exit code).
+
 ## Engine support requests
 
 What the UI needs from `src/`. Until a request lands, its controls are drawn disabled and tagged `Future · E-n`.
@@ -259,7 +291,7 @@ What the UI needs from `src/`. Until a request lands, its controls are drawn dis
 | E-5 | Skill overrides, as E-1 | Prompts: skills editor | 3 |
 | E-6 | Stage input gate; stop one stage, add input, restart it | Run: gate screen, Stop stage | 3 |
 | E-7 | Skip a stage or a gate for one run | Run: Skip on the stage rail | 3 |
-| E-8 | Triage and interview agent runs with a streamed conversation | New item: Draft with the triage agent | 3 |
+| E-8 | Triage agent runs with a streamed conversation (done: see [Triage in the dashboard](#triage-in-the-dashboard); the interview agent is not part of it) | New item: Draft with the triage agent | 3 |
 | E-9 | Tokens and duration per stage in `status.json`; `history.jsonl` on finish | Run: Usage; history and cost | 3 |
 | E-14 | Read an issue (GitHub through `gh`) into a draft brief | New item: Import from issue URL | 3 |
 | E-12 | A pipeline definition in settings: stage order, stages on or off, custom agent stages | Settings: Pipeline stages | later |

@@ -1,0 +1,1 @@
+The questions in `{{QUESTIONS_FILE}}` are answered (an answer of "accept" means the Suggested value). Use the answers and finish this item's brief and its index line. If something is still open, write new questions to the same file after the answered ones, and end your turn.

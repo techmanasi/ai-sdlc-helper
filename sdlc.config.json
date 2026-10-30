@@ -1,5 +1,5 @@
 {
-  "backlogDir": "Docs/backlog",
+  "backlogDir": "docs/backlog",
   "suites": [
     {
       "name": "ai-sdlc-helper",
