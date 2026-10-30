@@ -8,7 +8,7 @@ import { buildDocTree, type DocTreeNode } from './tree';
 const STAGES = [
   { name: 'Spec', key: 'spec' }, { name: 'Plan', key: 'plan' }, { name: 'Red tests', key: 'red-tests' },
   { name: 'Implement', key: 'implement' }, { name: 'Test repair', key: 'test-repair' }, { name: 'Review', key: 'review' },
-  { name: 'Ship', key: '' },
+  { name: 'Ship', key: 'ship' },
 ];
 const MODELS = ['', 'opus', 'sonnet', 'haiku', 'fable'];
 const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -25,7 +25,7 @@ function saveEnv(project: string, slug: string, rows: [string, string][]): void 
 type StageState = 'done' | 'active' | 'paused' | 'failed' | 'pending';
 function stageStates(v: RunView): StageState[] {
   const stageName = v.stage || (v.state === 'running' && v.record?.from ? (STAGES.find(s => s.key === v.record?.from)?.name || '') : '');
-  const at = v.state === 'done' ? STAGES.length : Math.max(0, STAGES.findIndex(s => s.name === stageName || (s.name === 'Ship' && stageName === 'Commit')));
+  const at = v.state === 'done' ? STAGES.length : Math.max(0, STAGES.findIndex(s => s.name === stageName || (s.name === 'Ship' && (stageName === 'Commit' || stageName === 'Ship'))));
   return STAGES.map((_, i) => {
     if (v.state === 'done' || i < at) return 'done';
     if (i > at || v.state === 'not started' || (!v.stage && !v.record?.from && v.state !== 'running')) return 'pending';
@@ -261,8 +261,8 @@ export function Run({ slug }: { slug: string }) {
               return (
                 <div class={`stage ${st === 'active' ? 'stage-active' : st === 'paused' ? 'stage-paused' : ''}`}>
                   <strong class={STAGE_CLASS[st]}>{st === 'active' ? <Spinner /> : STAGE_GLYPH[st]} {s.name}</strong>
-                  {!s.key && <span class="small muted">no agent · commits the cycle's files</span>}
-                  {s.key && (locked || running
+                  {s.key === 'ship' && <span class="small muted">no agent · commits the cycle's files</span>}
+                  {s.key && s.key !== 'ship' && (locked || running
                     ? <span class="mono small muted">{inUse ? `${inUse.model} · ${inUse.effort}` : 'default'}{st === 'active' ? ' · in use' : ''}</span>
                     : (
                       <div class="row" style={{ gap: '4px' }}>
@@ -276,7 +276,8 @@ export function Run({ slug }: { slug: string }) {
                     ))}
                   {s.key === 'test-repair' && v.models['test-audit'] && <span class="mono small muted">audit: {v.models['test-audit'].model} · {v.models['test-audit'].effort}</span>}
                   {v.stageFiles[s.name] && <span class="small muted">{v.stageFiles[s.name].length} files</span>}
-                  {s.key && s.key !== 'implement' && <span class="small"><Future id="E-7" /> skip</span>}
+                  {s.name === 'Ship' && v.deniedPermissions && v.deniedPermissions.length > 0 && <span class="small s-failed">{v.deniedPermissions.length} denied</span>}
+                  {s.key && s.key !== 'implement' && s.key !== 'ship' && <span class="small"><Future id="E-7" /> skip</span>}
                 </div>
               );
             })}
@@ -347,6 +348,29 @@ export function Run({ slug }: { slug: string }) {
                   <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => act('Allow all', () => api.permit(project, slug, 'all', 'allow', envObj))}>{busy === 'Allow all' ? <><Spinner /> Allowing all…</> : 'Allow all'}</button>
                   <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => act('Deny all', () => api.permit(project, slug, 'all', 'deny', envObj))}>{busy === 'Deny all' ? <><Spinner /> Denying all…</> : 'Deny all'}</button>
                   <span class="mono small muted" style={{ marginLeft: 'auto' }}>$ ai-sdlc-helper permit {slug} allow all</span>
+                </div>
+              </div>
+            </Panel>
+          )}
+
+          {v.deniedPermissions && v.deniedPermissions.length > 0 && (
+            <Panel title={<span class="s-failed">{v.deniedPermissions.length} denied permission{v.deniedPermissions.length > 1 ? 's' : ''}</span>} extra={<span class="mono small muted">logs/permissions.json · .claude/sdlc-permissions.json</span>}>
+              <div class="pb col">
+                {v.deniedPermissions.map((a, i) => (
+                  <div class="col" style={{ gap: '8px' }}>
+                    <div class="code mono" style={{ borderRadius: '6px', padding: '8px 10px' }}>{a.tool}  {a.detail}  {a.stage && <span class="muted">({a.stage})</span>}</div>
+                    {a.protected && <span class="small s-paused">Protected path: allowing it runs the whole {a.stage || 'stage'} stage with permission checks off.</span>}
+                    <div class="row">
+                      <button class="btn btn-s btn-p" type="button" disabled={!!busy} onClick={() => act('Allow', () => api.permit(project, slug, `denied:${i}`, 'allow', envObj))}>{busy === 'Allow' ? <><Spinner /> Allowing…</> : (a.protected ? 'Allow (stage runs unchecked)' : `Allow this run (${a.rule})`)}</button>
+                      {!a.protected && <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => act('Allow always', () => api.permit(project, slug, `denied:${i}`, 'always', envObj))}>{busy === 'Allow always' ? <><Spinner /> Allowing…</> : 'Allow always'}</button>}
+                      <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => act('Deny', () => api.permit(project, slug, `denied:${i}`, 'deny', envObj))}>{busy === 'Deny' ? <><Spinner /> Denying…</> : 'Keep denied'}</button>
+                    </div>
+                  </div>
+                ))}
+                <div class="row" style={{ borderTop: '1px solid var(--ln)', paddingTop: '12px' }}>
+                  <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => act('Allow all', () => api.permit(project, slug, 'denied:all', 'allow', envObj))}>{busy === 'Allow all' ? <><Spinner /> Allowing all…</> : 'Allow all'}</button>
+                  <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => act('Deny all', () => api.permit(project, slug, 'denied:all', 'deny', envObj))}>{busy === 'Deny all' ? <><Spinner /> Denying all…</> : 'Keep all denied'}</button>
+                  <span class="mono small muted" style={{ marginLeft: 'auto' }}>$ ai-sdlc-helper permit {slug} denied:all allow</span>
                 </div>
               </div>
             </Panel>

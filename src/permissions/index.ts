@@ -13,7 +13,8 @@ export const CHOICES = ['allow', 'always', 'deny'] as const;
 export type Choice = typeof CHOICES[number];
 
 export interface Ask { stage: string; tool: string; detail: string; rule: string; protected: boolean }
-export interface PermissionState { pending: Ask[]; allow: string[]; bypass: string[]; denied: { tool: string; detail: string }[] }
+export interface DeniedAsk { tool: string; detail: string; stage?: string; rule?: string; protected?: boolean }
+export interface PermissionState { pending: Ask[]; allow: string[]; bypass: string[]; denied: DeniedAsk[] }
 
 const readJson = (file: string | undefined, fallback: any): any => {
   try { return JSON.parse(fs.readFileSync(file!, 'utf8')); } catch { return fallback; }
@@ -183,23 +184,52 @@ export const modeFor = (docsDir: string, stage: string): 'bypassPermissions' | '
 export function decide(stateFile: string, which: string, choice: string, repoFile?: string): number {
   if (!(CHOICES as readonly string[]).includes(choice)) throw new Error(`choice must be allow, always or deny, not '${choice}'`);
   const state = loadState(stateFile);
-  const picked = which === 'all' ? state.pending.map((_, i) => i) : [Number(which)];
-  if (picked.some(i => !Number.isInteger(i) || i < 0 || i >= state.pending.length)) throw new Error(`no pending request '${which}'`);
+  const fromDenied = which.startsWith('denied:');
+  const rawWhich = fromDenied ? which.slice('denied:'.length) : which;
+  const list = fromDenied ? state.denied : state.pending;
+  const picked = rawWhich === 'all' ? list.map((_, i) => i) : [Number(rawWhich)];
+  if (picked.some(i => !Number.isInteger(i) || i < 0 || i >= list.length)) {
+    throw new Error(`no ${fromDenied ? 'denied' : 'pending'} request '${rawWhich}'`);
+  }
   const repo = readJson(repoFile, {});
   const saved: string[] = Array.isArray(repo.allow) ? repo.allow : [];
   let isSaved = false;
   for (const i of picked) {
-    const ask = state.pending[i];
-    if (choice === 'deny') {
-      state.denied.push({ tool: ask.tool, detail: ask.detail });
-    } else if (ask.protected) {
-      if (!state.bypass.includes(ask.stage)) state.bypass.push(ask.stage);
+    const item = list[i] as any;
+    const ask: Ask = {
+      stage: ('stage' in item && typeof item.stage === 'string' && item.stage) || '',
+      tool: item.tool,
+      detail: item.detail,
+      rule: ('rule' in item && typeof item.rule === 'string' && item.rule) || ruleFor(item.tool, { command: item.detail }, path.dirname(stateFile), state.allow),
+      protected: ('protected' in item && typeof item.protected === 'boolean') ? item.protected : isProtected(item.tool, item.detail),
+    };
+    if (fromDenied) {
+      if (choice === 'allow' || choice === 'always') {
+        if (ask.protected) {
+          if (ask.stage && !state.bypass.includes(ask.stage)) state.bypass.push(ask.stage);
+        } else {
+          if (!state.allow.includes(ask.rule)) state.allow.push(ask.rule);
+          if (choice === 'always' && !saved.includes(ask.rule)) { saved.push(ask.rule); isSaved = true; }
+        }
+      }
     } else {
-      if (!state.allow.includes(ask.rule)) state.allow.push(ask.rule);
-      if (choice === 'always' && !saved.includes(ask.rule)) { saved.push(ask.rule); isSaved = true; }
+      if (choice === 'deny') {
+        state.denied.push({ tool: ask.tool, detail: ask.detail });
+      } else if (ask.protected) {
+        if (!state.bypass.includes(ask.stage)) state.bypass.push(ask.stage);
+      } else {
+        if (!state.allow.includes(ask.rule)) state.allow.push(ask.rule);
+        if (choice === 'always' && !saved.includes(ask.rule)) { saved.push(ask.rule); isSaved = true; }
+      }
     }
   }
-  state.pending = state.pending.filter((_, i) => !picked.includes(i));
+  if (fromDenied) {
+    if (choice === 'allow' || choice === 'always') {
+      state.denied = state.denied.filter((_, i) => !picked.includes(i));
+    }
+  } else {
+    state.pending = state.pending.filter((_, i) => !picked.includes(i));
+  }
   saveState(stateFile, state);
   if (isSaved && repoFile) {
     fs.mkdirSync(path.dirname(repoFile), { recursive: true });

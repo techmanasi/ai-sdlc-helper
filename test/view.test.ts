@@ -81,7 +81,7 @@ describe('runView', () => {
       'questions.md': QUESTIONS,
       'specs-1.md': '# spec',
       'logs/status.json': { slug: 'add-tokens', state: 'paused', stage: 'Spec', agent: 'spec-1', model: 'opus', effort: 'medium', models: { spec: { model: 'opus', effort: 'medium' } }, note: '', updated: '2026-10-19T10:06:00', pid: 0 },
-      'logs/permissions.json': { pending: [{ stage: 'spec', tool: 'Bash', detail: 'psql -c 1', rule: 'Bash(psql:*)', protected: false }], allow: [], bypass: [], denied: [] },
+      'logs/permissions.json': { pending: [{ stage: 'spec', tool: 'Bash', detail: 'psql -c 1', rule: 'Bash(psql:*)', protected: false }], allow: [], bypass: [], denied: [{ tool: 'Bash', detail: 'rm -rf /' }] },
       'logs/tests.json': { tests: [{ status: 'passed' }, { status: 'passed' }, { status: 'failed' }, { status: 'skipped' }], suiteErrors: [{ file: null, message: 'x' }] },
       'logs/stage-files.json': { marker: null, stages: { Spec: ['Docs/backlog/add-tokens/specs-1.md'] } },
       'logs/run.out': `${out}\n`,
@@ -94,6 +94,7 @@ describe('runView', () => {
     expect(v.branch).toBe('sdlc/add-tokens');
     expect(v.questions.map(q => q.n)).toEqual([1, 2]);
     expect(v.permissions).toEqual([expect.objectContaining({ tool: 'Bash', rule: 'Bash(psql:*)' })]);
+    expect(v.deniedPermissions).toEqual([expect.objectContaining({ tool: 'Bash', detail: 'rm -rf /' })]);
     expect(v.tests).toEqual({ passed: 2, failed: 2, skipped: 1, total: 4 });
     expect(v.stageFiles).toEqual({ Spec: ['Docs/backlog/add-tokens/specs-1.md'] });
     expect(v.tail).toHaveLength(40);
@@ -120,9 +121,9 @@ describe('runView', () => {
     expect(runView(repoWithRun('a', null).ctx, 'a', { changes: false }).state).toBe('not started');
   });
 
-  test('resumeStage: Plan and Red tests resume at their stage, later stages at Implement, the rest at the start', () => {
-    expect(['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Commit', ''].map(resumeStage))
-      .toEqual(['', 'plan', 'red-tests', 'implement', 'implement', 'implement', 'implement', '']);
+  test('resumeStage: Plan and Red tests resume at their stage, Review at review, Ship/Commit at ship, others at Implement', () => {
+    expect(['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Commit', 'Ship', ''].map(resumeStage))
+      .toEqual(['', 'plan', 'red-tests', 'implement', 'implement', 'review', 'ship', 'ship', '']);
   });
 });
 

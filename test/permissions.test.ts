@@ -119,6 +119,21 @@ describe('decide', () => {
     expect(s.allow).toEqual([]);
     expect(s.bypass).toEqual([]);
   });
+
+  test('deciding a denied permission allows or always-allows it, removing from denied', () => {
+    ask();
+    decide(files.state, 'all', 'deny', files.repo);
+    expect(loadState(files.state).denied).toHaveLength(2);
+
+    decide(files.state, 'denied:0', 'allow', files.repo);
+    let s = loadState(files.state);
+    expect(s.denied).toHaveLength(1);
+    expect(s.allow).toContain('Bash(git push:*)');
+
+    decide(files.state, 'denied:0', 'always', files.repo);
+    s = loadState(files.state);
+    expect(s.denied).toHaveLength(0);
+  });
 });
 
 describe('ruleFor', () => {

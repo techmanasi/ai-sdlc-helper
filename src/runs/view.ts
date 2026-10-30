@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { exists } from '../util.js';
 import { backlogItems, type BacklogItem } from '../backlog/index.js';
-import { loadState, type Ask } from '../permissions/index.js';
+import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.js';
 import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { projectSlugs, runChanges, runWorktree, type RunContext } from './index.js';
 
@@ -41,6 +41,8 @@ export interface RunView {
   questions: Question[];
   /** Refused actions waiting for Allow or Deny. */
   permissions: Ask[];
+  /** Previously denied actions that may be allowed or re-decided. */
+  deniedPermissions: Ask[];
   tests: TestCounts | null;
   stageFiles: Record<string, string[]>;
   changes: { changed: number; uncommitted: number; files: string[] } | null;
@@ -106,7 +108,9 @@ export function answerQuestions(file: string, answers: Record<string, string>): 
 
 /** The stage a run resumes at: Plan and Red tests at their own stage, the later ones at Implement, else the start. */
 export function resumeStage(stage: string): string {
-  if (['Implement', 'Test repair', 'Review', 'Commit'].includes(stage)) return 'implement';
+  if (stage === 'Commit' || stage === 'Ship') return 'ship';
+  if (stage === 'Review') return 'review';
+  if (['Implement', 'Test repair'].includes(stage)) return 'implement';
   return stage === 'Plan' ? 'plan' : stage === 'Red tests' ? 'red-tests' : '';
 }
 
@@ -166,6 +170,7 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
   const status = dir ? readJson(path.join(logs, 'status.json')) : null;
   const s = status && typeof status === 'object' ? status : {};
   const questions = parseQuestions(readText(path.join(docsDir, 'questions.md')) || '');
+  const permState = dir ? loadState(path.join(logs, 'permissions.json')) : null;
   const stageFiles = readJson(path.join(logs, 'stage-files.json'));
   let changes: RunView['changes'] = null;
   if (opts.changes !== false && worktree) {
@@ -193,7 +198,14 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
     base: rec?.base || '',
     message: rec?.message || '',
     questions,
-    permissions: dir ? loadState(path.join(logs, 'permissions.json')).pending : [],
+    permissions: permState ? permState.pending : [],
+    deniedPermissions: permState ? permState.denied.map(d => ({
+      stage: d.stage || '',
+      tool: d.tool,
+      detail: d.detail,
+      rule: d.rule || ruleFor(d.tool, { command: d.detail }, dir || ctx.root, permState.allow),
+      protected: typeof d.protected === 'boolean' ? d.protected : isProtected(d.tool, d.detail),
+    })) : [],
     tests: dir ? testCounts(readJson(path.join(logs, 'tests.json'))) : null,
     stageFiles: stageFiles && stageFiles.stages && typeof stageFiles.stages === 'object' ? stageFiles.stages : {},
     changes,
@@ -208,6 +220,7 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
 export type RunCard = Pick<RunView, 'slug' | 'state' | 'stage' | 'agent' | 'model' | 'effort' | 'note' | 'updated' | 'message' | 'tests' | 'branch'> & {
   questions: number;
   permissions: number;
+  deniedPermissions?: number;
   changes: { changed: number; uncommitted: number } | null;
 };
 
@@ -227,6 +240,7 @@ export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): Bo
     return {
       slug, state: v.state, stage: v.stage, agent: v.agent, model: v.model, effort: v.effort, note: v.note, updated: v.updated,
       message: v.message, tests: v.tests, branch: v.branch, questions: v.questions.length, permissions: v.permissions.length,
+      deniedPermissions: v.deniedPermissions.length,
       changes: v.changes && { changed: v.changes.changed, uncommitted: v.changes.uncommitted },
     };
   });

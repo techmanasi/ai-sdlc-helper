@@ -82,7 +82,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
   const callerEnv = opts.env || process.env;
   const from = (opts.from || callerEnv.FROM || 'spec') as From;
   if (!FROM_STAGES.includes(from)) {
-    out(`ERROR: unknown FROM=${from} (use spec, plan, red-tests, implement, review or test-repair)`);
+    out(`ERROR: unknown FROM=${from} (use spec, plan, red-tests, implement, test-repair, review or ship)`);
     return 1;
   }
   // FROM says where THIS run starts; nothing it starts (tests, agents, pipelines the tests start) inherits it.
@@ -198,6 +198,6 @@ async function stages(ctx: Ctx): Promise<void> {
       await testRepairStage(ctx);
     }
   }
-  await reviewStage(ctx);
+  if (fromN <= 6) await reviewStage(ctx);
   await shipStage(ctx);
 }

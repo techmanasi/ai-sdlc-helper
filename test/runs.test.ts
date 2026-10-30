@@ -162,9 +162,9 @@ describe('start', () => {
     await until(() => ranLines(path.join(wts, 'alpha')).length === 2);
     expect(ranLines(path.join(wts, 'alpha'))[1]).toMatch(/args=--from implement .*leaked=$/);
 
-    const bad = await cli(['start', 'alpha', '--from', 'ship']);
+    const bad = await cli(['start', 'alpha', '--from', 'bogus']);
     expect(bad.status).toBe(2);
-    expect(bad.stderr).toContain('--from must be one of spec, plan, red-tests, implement, test-repair, review');
+    expect(bad.stderr).toContain('--from must be one of spec, plan, red-tests, implement, test-repair, review, ship');
   });
 
   test('records failing and paused exit codes; copies a brief not committed yet', async () => {

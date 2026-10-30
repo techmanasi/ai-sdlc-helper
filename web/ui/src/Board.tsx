@@ -17,7 +17,8 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
   const { go } = useApp();
   const what = r.questions ? `${r.questions} question${r.questions > 1 ? 's' : ''} to answer`
     : r.permissions ? `${r.permissions} refused action${r.permissions > 1 ? 's' : ''}`
-      : r.note || r.message || (r.tests ? `tests ${r.tests.passed} / ${r.tests.total}` : r.state);
+      : r.deniedPermissions ? `${r.deniedPermissions} denied permission${r.deniedPermissions > 1 ? 's' : ''}`
+        : r.note || r.message || (r.tests ? `tests ${r.tests.passed} / ${r.tests.total}` : r.state);
   return (
     <div class={`card card-${r.state.replace(' ', '-')} ${on ? 'card-on' : ''}`}>
       <button type="button" class="mono" onClick={select} style={{ all: 'unset', cursor: 'pointer' }} aria-pressed={on}>

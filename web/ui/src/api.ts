@@ -7,7 +7,7 @@ export interface BacklogItem { status: string; slug: string; type: string | null
 export interface TestCounts { passed: number; failed: number; skipped: number; total: number }
 export interface RunCard {
   slug: string; state: ViewState; stage: string; agent: string; model: string; effort: string; note: string; updated: string;
-  message: string; tests: TestCounts | null; branch: string; questions: number; permissions: number;
+  message: string; tests: TestCounts | null; branch: string; questions: number; permissions: number; deniedPermissions?: number;
   changes: { changed: number; uncommitted: number } | null;
 }
 export interface Board { items: BacklogItem[] | null; runs: RunCard[]; maxParallel: number; running: number }
@@ -18,7 +18,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   agentStarted: string; runStarted: string;
   record: Record<string, unknown> | null;
   dir: string | null; worktree: string | null; base: string;
-  questions: Question[]; permissions: Ask[];
+  questions: Question[]; permissions: Ask[]; deniedPermissions?: Ask[];
   stageFiles: Record<string, string[]>;
   changes: { changed: number; uncommitted: number; files: string[] } | null;
   tail: string[]; docs: string[]; discarded: string; resumeFrom: string;
