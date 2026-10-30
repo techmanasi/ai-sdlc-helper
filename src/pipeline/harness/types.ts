@@ -41,7 +41,7 @@ export interface StageCompileOptions {
   stage: StageName;
   model: string;
   effort?: string;
-  mode: 'acceptEdits' | 'bypass';
+  mode: 'acceptEdits' | 'bypass' | 'bypassPermissions';
   allowedCommands: string[];
   maxTurns?: number;
   env?: NodeJS.ProcessEnv;

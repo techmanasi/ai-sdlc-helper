@@ -35,7 +35,7 @@ export class ClaudeHarness implements AgentHarness {
     if (opts.mode === 'acceptEdits') {
       args.push('--permission-mode', 'acceptEdits');
     } else {
-      args.push('--dangerously-skip-permissions');
+      args.push('--permission-mode', opts.mode || 'bypass');
     }
 
     if (opts.allowedCommands.length > 0) {
@@ -56,9 +56,10 @@ export class ClaudeHarness implements AgentHarness {
   }
 
   compileAuditArgs(opts: { prompt: string; model: string; effort?: string; cwd?: string }): HarnessInvocation {
-    const args: string[] = ['-p', opts.prompt, '--permission-mode', 'bypass', '--output-format', 'json'];
+    const args: string[] = ['-p', opts.prompt];
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--effort', opts.effort);
+    args.push('--allowedTools', 'Read', 'Glob', 'Grep', '--max-turns', '15');
     return { command: this.defaultBinary, args, env: {} };
   }
 

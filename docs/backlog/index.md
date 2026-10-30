@@ -8,3 +8,4 @@ Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 - [ ] `add-setup-branch-pr` - Feature: commit `add` setup files on a chore/sdlc-setup branch from main, then optionally push and open a PR
 - [ ] `stage-files-tree-viewer` - Feature: collapsible tree viewer for files changed per stage in web UI
 - [ ] `non-node-ecosystem-support` - Feature: support non-Node/non-TypeScript ecosystems (Python, Go, Rust) for test detection, red-checks, and execution
+- [ ] `ui-code-indexer-setup` - Feature: interactive UI button to configure and build graft/graphify code indexers

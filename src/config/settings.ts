@@ -35,7 +35,7 @@ export interface Config {
   lint: string | null;
   worktree: { base: string; link: string[] };
   git: { branchPrefix: string; base: string | null; conflictSuffixStart: number };
-  agent: { allowCommands: string[]; codeSearch: string; codeIndexer: CodeIndexer | null };
+  agent: { harness: 'claude' | 'agy' | 'codex'; allowCommands: string[]; codeSearch: string; codeIndexer: CodeIndexer | null };
   finalise: { envExample: boolean; maxFileBytes: number };
   ship: { envExample: boolean; maxFileBytes: number };
   ui: { timezone: string };
@@ -93,7 +93,7 @@ export const SCHEMA: Json = {
   lint: 'string',
   worktree: { base: 'string', link: 'string[]' },
   git: { branchPrefix: 'string', base: 'string', conflictSuffixStart: 'integer' },
-  agent: { allowCommands: 'string[]', codeSearch: 'string', codeSearchOrder: 'string[]', codeIndexers: { '*': INDEXER_SCHEMA } },
+  agent: { harness: ['claude', 'agy', 'codex'], allowCommands: 'string[]', codeSearch: 'string', codeSearchOrder: 'string[]', codeIndexers: { '*': INDEXER_SCHEMA } },
   finalise: { envExample: 'boolean', maxFileBytes: 'integer' },
   ship: { envExample: 'boolean', maxFileBytes: 'integer' },
   ui: { timezone: 'string' },
@@ -236,6 +236,7 @@ export function resolve(root: string, { env = process.env }: { env?: NodeJS.Proc
       conflictSuffixStart: (file.git && file.git.conflictSuffixStart) || 10001,
     },
     agent: {
+      harness: (file.agent && file.agent.harness) || (env.SDLC_AGENT as 'claude' | 'agy' | 'codex') || 'claude',
       allowCommands: (file.agent && file.agent.allowCommands) || [],
       codeSearch: search.codeSearch,
       codeIndexer: search.indexer,

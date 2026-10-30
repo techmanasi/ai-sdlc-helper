@@ -66,12 +66,39 @@ export function doctor(dir: string, opts: DoctorOptions = {}): Check[] {
   add({ name: 'git repository', ok: isRepo, required: true, detail: isRepo ? root : `${dir} is not in a git repository`,
     fix: `run git init in ${dir}, or point doctor at a git repository` });
 
-  const claude = (opts.which || ((name, e) => which(name, { env: e })))('claude', env);
-  add({ name: 'claude CLI', ok: claude !== null, required: true,
-    detail: claude !== null ? claude : 'the claude command is not on PATH',
-    fix: 'install Claude Code (npm install -g @anthropic-ai/claude-code) and make sure claude is on PATH' });
-
   const { config, errors, warnings } = resolve(root, { env });
+  const whichFn = (opts.which || ((name, e) => which(name, { env: e })));
+  const harness = config?.agent?.harness || env.SDLC_AGENT;
+
+  if (harness === 'codex') {
+    const codex = whichFn('codex', env);
+    add({
+      name: 'codex CLI', ok: codex !== null, required: true,
+      detail: codex !== null ? codex : 'the codex command is not on PATH',
+      fix: 'install OpenAI Codex CLI and make sure codex is on PATH',
+    });
+  } else if (harness === 'agy') {
+    const agy = whichFn('agy', env);
+    add({
+      name: 'agy CLI', ok: agy !== null, required: true,
+      detail: agy !== null ? agy : 'the agy command is not on PATH',
+      fix: 'install Google Antigravity CLI and make sure agy is on PATH',
+    });
+  } else {
+    const claude = whichFn('claude', env);
+    const codex = whichFn('codex', env);
+    const agy = whichFn('agy', env);
+    if (!claude && codex) {
+      add({ name: 'codex CLI', ok: true, required: true, detail: codex, fix: '' });
+    } else if (!claude && agy) {
+      add({ name: 'agy CLI', ok: true, required: true, detail: agy, fix: '' });
+    } else {
+      add({ name: 'claude CLI', ok: claude !== null, required: true,
+        detail: claude !== null ? claude : 'the claude command is not on PATH',
+        fix: 'install Claude Code (npm install -g @anthropic-ai/claude-code) and make sure claude is on PATH' });
+    }
+  }
+
   add({ name: 'settings', ok: !errors.length && config !== null, required: true,
     detail: errors.length ? errors.join('; ') : `settings resolve${warnings.length ? ` (${warnings.length} warning${warnings.length > 1 ? 's' : ''})` : ''}`,
     fix: `fix sdlc.config.json (see: ai-sdlc-helper show ${root}); without tests, see: ai-sdlc-helper suggest ${root}` });

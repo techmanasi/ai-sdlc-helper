@@ -39,6 +39,8 @@ export interface PipelineOptions {
   testFileCmd?: string;
   /** Aborts the running agent or command (the run then fails). */
   signal?: AbortSignal;
+  /** Primary coding agent harness: claude, agy, or codex */
+  agent?: 'claude' | 'agy' | 'codex';
 }
 
 const numberEnv = (env: NodeJS.ProcessEnv, name: string, fallback: number): number => {
@@ -126,6 +128,7 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
     for (const e of errors) out(`ERROR: ${e}`);
     return stop(say, 'ERROR: fix the project settings above (ai-sdlc-helper show)');
   }
+  if (opts.agent) config.agent.harness = opts.agent;
   const lay = layout(config);
   const backlog = `${config.backlogDir}/index.md`;
   const slug = opts.slug || firstPending(path.join(root, backlog));
