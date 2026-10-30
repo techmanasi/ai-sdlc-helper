@@ -236,6 +236,16 @@ export function Run({ slug }: { slug: string }) {
           : <button class="btn btn-d" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('discard')}>Discard…</button>}
       </div>
       {confirm === 'discard' && <p class="small s-failed" style={{ margin: 0 }}>Deletes the worktree at {v.worktree || 'its folder'}, the branch {v.branch} (its tip is saved) and the run record.</p>}
+      <div class="row" style={{ alignItems: 'center', gap: '8px', margin: '4px 0' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
+          <input
+            type="checkbox"
+            checked={envObj.SDLC_AUTO_ACCEPT === '1'}
+            onChange={e => setEnvVar('SDLC_AUTO_ACCEPT', (e.target as HTMLInputElement).checked ? '1' : '')}
+          />
+          <span>Auto-accept suggested answers (Spec, Plan, Triage)</span>
+        </label>
+      </div>
       <Cli args={startArgs} />
       {envArgs.length > 0 && <p class="mono small muted" style={{ margin: 0 }}>with {envArgs.join(' ')}</p>}
       {v.discarded && <p class="small muted" style={{ margin: 0 }}>Discarded before. To get that branch back: <span class="mono">{v.discarded}</span></p>}
@@ -302,6 +312,16 @@ export function Run({ slug }: { slug: string }) {
                     toast(r.resumed ? (r.resumed.ok ? 'Answers saved; the run resumed' : `Answers saved; resume refused: ${r.resumed.err.join(' ')}`) : `Saved ${r.answered} of ${r.total} answers`);
                     return {};
                   })}>{busy === 'Answers' ? <><Spinner /> Saving…</> : (unanswered ? 'Save answers' : 'Submit answers and resume')}</button>
+                  <button class="btn" type="button" disabled={!!busy} onClick={() => act('Auto-accept', async () => {
+                    const payload: Record<number, string> = {};
+                    for (const q of v.questions) payload[q.n] = 'accept';
+                    setEnvVar('SDLC_AUTO_ACCEPT', '1');
+                    const effectiveEnv = { ...envObj, SDLC_AUTO_ACCEPT: '1' };
+                    const r = await api.answers(project, slug, payload, effectiveEnv);
+                    setAnswers({});
+                    toast(r.resumed ? (r.resumed.ok ? 'All suggestions accepted; the run resumed' : `Suggestions accepted; resume refused: ${r.resumed.err.join(' ')}`) : `Accepted all suggestions (${r.answered} of ${r.total})`);
+                    return {};
+                  })}>{busy === 'Auto-accept' ? <><Spinner /> Resuming…</> : 'Auto-accept all suggestions and resume'}</button>
                   <span class="small muted">{v.questions.length - unanswered} of {v.questions.length} answered · the run resumes once every question has an answer</span>
                 </div>
               </div>
@@ -369,6 +389,14 @@ export function Run({ slug }: { slug: string }) {
 
           <Panel title="Environment for this run" extra={<span class="small muted">applies on start, resume and restart</span>}>
             <div class="pb col" style={{ gap: '6px' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', marginBottom: '4px' }}>
+                <input
+                  type="checkbox"
+                  checked={envObj.SDLC_AUTO_ACCEPT === '1'}
+                  onChange={e => setEnvVar('SDLC_AUTO_ACCEPT', (e.target as HTMLInputElement).checked ? '1' : '')}
+                />
+                <span class="small">Auto-accept suggested answers (Spec, Plan, Triage)</span>
+              </label>
               {env.map(([k, val], i) => (
                 <div class="row" style={{ flexWrap: 'nowrap' }}>
                   <input class="inp mono" aria-label="Name" value={k} placeholder="NAME" onInput={e => setEnv(rows => rows.map((r, j) => (j === i ? [(e.target as HTMLInputElement).value, r[1]] : r)))} />
@@ -378,7 +406,7 @@ export function Run({ slug }: { slug: string }) {
               ))}
               <div class="row">
                 <button class="btn btn-s" type="button" onClick={() => setEnv(rows => [...rows, ['', '']])}>Add variable</button>
-                {['SDLC_BASE', 'SDLC_LIMIT_MAX_WAIT', 'SDLC_DEP_SCRIPTS', 'SDLC_ALLOW_MERGED'].filter(k => !envObj[k]).map(k => <button class="btn btn-s" type="button" onClick={() => setEnv(rows => [...rows, [k, '']])}>{k}</button>)}
+                {['SDLC_AUTO_ACCEPT', 'SDLC_BASE', 'SDLC_LIMIT_MAX_WAIT', 'SDLC_DEP_SCRIPTS', 'SDLC_ALLOW_MERGED'].filter(k => !envObj[k]).map(k => <button class="btn btn-s" type="button" onClick={() => setEnvVar(k, k === 'SDLC_AUTO_ACCEPT' ? '1' : '')}>{k}</button>)}
               </div>
             </div>
           </Panel>

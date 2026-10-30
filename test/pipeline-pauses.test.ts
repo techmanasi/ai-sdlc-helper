@@ -52,6 +52,26 @@ describe('pauses for the developer', () => {
     expect(read(f.dir, `${DOCS}/decisions.md`)).toContain('**Answer:** accept');
   });
 
+  test('SDLC_AUTO_ACCEPT=1 auto-accepts Spec questions and advances without pausing', async () => {
+    const f = fixture({ spec: asking('specs-1.md') });
+    const r = await pipeline(f, { SDLC_AUTO_ACCEPT: '1' });
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    expect(r.stdout).toContain(`SDLC_AUTO_ACCEPT: auto-accepting suggestions in ${DOCS}/questions.md (round 1)`);
+    expect(r.stdout).toContain(`   recorded round 1 answers in ${DOCS}/decisions.md\n   -> agent: spec-2`);
+    expect(read(f.dir, `${DOCS}/decisions.md`)).toContain('**Answer:** accept');
+    expect(fs.existsSync(path.join(f.dir, DOCS, 'questions.md'))).toBe(false);
+  });
+
+  test('SDLC_AUTO_ACCEPT=1 auto-accepts Plan questions and re-runs plan without pausing', async () => {
+    const f = fixture({ plan: asking('plan-1.md') });
+    const r = await pipeline(f, { SDLC_AUTO_ACCEPT: '1' });
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    expect(r.stdout).toContain(`SDLC_AUTO_ACCEPT: auto-accepting suggestions in ${DOCS}/questions.md (plan attempt 1)`);
+    expect(r.stdout).toContain(`   recorded round 1 answers in ${DOCS}/decisions.md`);
+    expect(read(f.dir, `${DOCS}/decisions.md`)).toContain('**Answer:** accept');
+    expect(fs.existsSync(path.join(f.dir, DOCS, 'questions.md'))).toBe(false);
+  });
+
   test('a refused action pauses the run (exit 2); once allowed, the resumed stage gets the rule', async () => {
     const f = fixture();
     fs.writeFileSync(path.join(f.fake, 'plan.deny'), 'Bash(git push:*)');
