@@ -13,7 +13,7 @@ export interface RunCard {
 export interface Board { items: BacklogItem[] | null; runs: RunCard[]; maxParallel: number; running: number }
 export interface Question { n: number; title: string; body: string; suggested: string; answer: string }
 export interface Ask { stage: string; tool: string; detail: string; rule: string; protected: boolean }
-export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'changes'> {
+export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'changes' | 'deniedPermissions'> {
   models: Record<string, { model: string; effort: string }>;
   agentStarted: string; runStarted: string;
   record: Record<string, unknown> | null;
