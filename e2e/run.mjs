@@ -193,7 +193,7 @@ function checkShipped(c, dir, env, stubLog, output) {
   const dirty = git(dir, 'status', '--porcelain');
   check(dirty === '', `files left uncommitted after Ship:\n${dirty}`);
 
-  check(fs.existsSync(path.join(dir, docs, 'logs', 'ship-skipped.md')), `${docs}/logs/ship-skipped.md is missing`);
+  check(fs.existsSync(path.join(dir, docs, 'logs', 'finalise-skipped.md')), `${docs}/logs/finalise-skipped.md is missing`);
   const red_ = path.join(dir, docs, 'logs', 'red.json');
   check(fs.existsSync(red_) && readJson(red_).ok === false, 'logs/red.json does not record failing tests at the Red tests commit');
 

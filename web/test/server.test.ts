@@ -195,6 +195,40 @@ describe('running a pipeline from the browser', () => {
     expect((await run('ask-one')).state).toBe('not started');
     expect(fs.existsSync(path.join(base, 'wts', 'ask-one'))).toBe(false);
   });
+
+  test('runs options endpoint saves PR creation setting and refuses if Finalise already started', async () => {
+    await post('/api/projects/shop/runs/ask-one/start');
+    await until(() => run('ask-one'), v => v.state === 'paused');
+    const optRes = await post('/api/projects/shop/runs/ask-one/options', { createPr: true });
+    expect(optRes.status).toBe(200);
+    expect(optRes.json.createPr).toBe(true);
+
+    const v = await run('ask-one');
+    expect(v.createPr).toBe(true);
+  });
+
+  test('completed tasks and archiving endpoints', async () => {
+    // Mark ask-one completed in index.md
+    const indexPath = path.join(repo, 'Docs/backlog/index.md');
+    fs.writeFileSync(indexPath, '# Backlog\n\n- [x] `ask-one` - Feature: Completed ask\n- [ ] `perm-one` - Feature: Other\n');
+
+    const completed = await get('/api/projects/shop/completed');
+    expect(completed.status).toBe(200);
+    expect(completed.json.completed.some((c: any) => c.slug === 'ask-one')).toBe(true);
+
+    const detail = await get('/api/projects/shop/completed/ask-one');
+    expect(detail.status).toBe(200);
+    expect(detail.json.slug).toBe('ask-one');
+    expect(detail.json.archived).toBe(false);
+
+    // Archive ask-one
+    const arc = await post('/api/projects/shop/archive/ask-one');
+    expect(arc.status).toBe(200);
+    expect(arc.json.ok).toBe(true);
+
+    const afterArc = await get('/api/projects/shop/completed/ask-one');
+    expect(afterArc.json.archived).toBe(true);
+  });
 });
 
 test('the board streams as Server-Sent Events', async () => {

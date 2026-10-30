@@ -1,5 +1,6 @@
 // The stages: Spec, Plan, Red tests, Implement, Test repair, Review and Ship, each with its gate.
 import fs from 'node:fs';
+import path from 'node:path';
 import { mark } from '../changes/index.js';
 import {
   diffcheck, mergeRetry, namecheck, precheck, redcheck, resumecheck, retryArgs, unclaimed,
@@ -12,7 +13,7 @@ import { promptValues, runAgent, runAudit, stageFlags } from './agent.js';
 import { resultsAt, resultsNow, successCheck, testsPass } from './gates.js';
 import { renderPrompt } from './prompts.js';
 import { resumeCommand, resumeHint } from './hints.js';
-import { ship } from './ship.js';
+import { finalise } from './finalise.js';
 import { installDeps } from './deps.js';
 
 const short = (sha: string) => sha.slice(0, 7);
@@ -156,8 +157,8 @@ export function resumeAtTests(ctx: Ctx): void {
     const errs = resumecheck(ctx.keys, ctx.redSha, `${ctx.docs}/test-issues.md`, ctx.slug, ctx.lockSha);
     if (errs.length) { ctx.err(errs.map(e => `REJECT: ${e}`).join('\n')); stop(ctx, null); }
   } else {
-    // Review and Ship resume from the latest locked tests (the red-tests commit, or the Test repair commit after it).
-    ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug), ...(ctx.from === 'review' || ctx.from === 'ship' ? [repairPattern(ctx.slug)] : [])]);
+    // Review and Finalise resume from the latest locked tests (the red-tests commit, or the Test repair commit after it).
+    ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug), ...(ctx.from === 'review' || ctx.from === 'finalise' || (ctx.from as string) === 'ship' ? [repairPattern(ctx.slug)] : [])]);
     if (!ctx.redSha) stop(ctx, `FROM=${ctx.from} but no red-tests commit found for ${ctx.slug}`);
   }
   ctx.out(`Resuming at ${ctx.from} from tests commit ${short(ctx.redSha)}`);
@@ -293,16 +294,32 @@ export async function reviewStage(ctx: Ctx): Promise<void> {
   if (!(await successCheck(ctx))) stop(ctx, `Checks broke after review. See ${ctx.failLog}`);
 }
 
-/** Ship: commits the cycle's files and ticks the backlog item. */
-export async function shipStage(ctx: Ctx): Promise<void> {
-  stage(ctx, '6/6 Commit');
+/** Finalise: commits the cycle's files, ticks the backlog item, and optionally creates a PR. */
+export async function finaliseStage(ctx: Ctx): Promise<void> {
+  stage(ctx, '6/6 Finalise');
   await tick();
-  ship({
+  let createPr = ctx.env.SDLC_CREATE_PR === '1' || ctx.env.CREATE_PR === '1';
+  const optFile = path.join(ctx.root, ctx.log, 'finalise-options.json');
+  if (fs.existsSync(optFile)) {
+    try {
+      const d = JSON.parse(fs.readFileSync(optFile, 'utf8'));
+      if (typeof d.createPr === 'boolean') createPr = d.createPr;
+    } catch { /* best effort */ }
+  }
+  const res = finalise({
     git: ctx.git, slug: ctx.slug, docs: ctx.docs, baseline: `${ctx.log}/baseline.json`, backlog: ctx.backlog,
-    maxBytes: ctx.config.ship.maxFileBytes, envExample: ctx.config.ship.envExample, out: l => ctx.out(l), err: l => ctx.err(l),
+    maxBytes: ctx.config.finalise.maxFileBytes, envExample: ctx.config.finalise.envExample,
+    createPr, baseBranch: ctx.config.git.base || undefined,
+    out: l => ctx.out(l), err: l => ctx.err(l),
   });
-  ctx.out(`Review with: git log --oneline ${ctx.redSha}~1..HEAD ; then open a PR.`);
+  if (res.pr) {
+    ctx.out(`Review pull request: ${res.pr}`);
+  } else {
+    ctx.out(`Review with: git log --oneline ${ctx.redSha}~1..HEAD ; then open a PR.`);
+  }
 }
+
+export const shipStage = finaliseStage;
 
 /** Plan and Red tests refuse to run again once the red-tests commit exists. */
 export function refuseRedone(ctx: Ctx): void {

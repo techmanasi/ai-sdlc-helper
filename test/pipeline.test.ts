@@ -21,7 +21,7 @@ describe('a full run', () => {
     expect([r.status, r.stderr]).toEqual([0, '']);
     expect(r.stdout).toContain(`SDLC: ${SLUG} on branch feature/${SLUG}\n`);
     expect(r.stdout).toContain('\n== 1/6 Spec\n   -> agent: spec-1\n   model=opus effort=medium\n');
-    expect(r.stdout).toContain(`DONE: ${SLUG} on feature/${SLUG}. Committed 2 file(s), skipped 0 (see ${LOG}/ship-skipped.md).`);
+    expect(r.stdout).toContain(`DONE: ${SLUG} on feature/${SLUG}. Committed 2 file(s), skipped 0 (see ${LOG}/finalise-skipped.md).`);
     expect(r.calls).toEqual(['spec', 'plan', 'red-tests', 'implement', 'review']);
     expect(git(f.dir, 'branch', '--show-current')).toBe(`feature/${SLUG}`);
     expect(subjects(f.dir)).toEqual([
@@ -31,7 +31,7 @@ describe('a full run', () => {
     expect(filesIn(f.dir, 'HEAD~2')).toEqual(['src/sum.test.mjs', `${DOCS}/manual-inputs.md`, `${DOCS}/plan-1.md`, `${DOCS}/specs-1.md`, `${DOCS}/test-cases-1.md`]);
     expect(filesIn(f.dir, 'HEAD~1')).toEqual(['src/sum.mjs', `${DOCS}/review-1.md`]);
     expect(read(f.dir, 'work/items/index.md')).toContain(`- [x] \`${SLUG}\``);
-    expect(read(f.dir, `${LOG}/ship-skipped.md`)).toBe('');
+    expect(read(f.dir, `${LOG}/finalise-skipped.md`)).toBe('');
 
     // the tests at the red commit: the new file failed to load, the old tests passed
     const red = JSON.parse(read(f.dir, `${LOG}/red.json`));
@@ -64,7 +64,7 @@ describe('a full run', () => {
 
     const st = statusOf(f.dir);
     expect(Object.keys(st)).toEqual(['slug', 'state', 'stage', 'agent', 'model', 'effort', 'models', 'attempt', 'agent_started', 'run_started', 'updated', 'pid', 'note']);
-    expect(st).toMatchObject({ slug: SLUG, state: 'done', stage: 'Commit', agent: '', model: '', effort: '', attempt: '', pid: process.pid });
+    expect(st).toMatchObject({ slug: SLUG, state: 'done', stage: 'Finalise', agent: '', model: '', effort: '', attempt: '', pid: process.pid });
     expect(st.models).toEqual({
       spec: { model: 'opus', effort: 'medium' }, plan: { model: 'opus', effort: 'medium' }, 'red-tests': { model: 'sonnet', effort: 'medium' },
       implement: { model: 'sonnet', effort: 'medium' }, 'test-repair': { model: 'sonnet', effort: 'medium' },

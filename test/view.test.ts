@@ -121,9 +121,9 @@ describe('runView', () => {
     expect(runView(repoWithRun('a', null).ctx, 'a', { changes: false }).state).toBe('not started');
   });
 
-  test('resumeStage: Plan and Red tests resume at their stage, Review at review, Ship/Commit at ship, others at Implement', () => {
-    expect(['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Commit', 'Ship', ''].map(resumeStage))
-      .toEqual(['', 'plan', 'red-tests', 'implement', 'implement', 'review', 'ship', 'ship', '']);
+  test('resumeStage: Plan and Red tests resume at their stage, Review at review, Finalise at finalise, others at Implement', () => {
+    expect(['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise', ''].map(resumeStage))
+      .toEqual(['', 'plan', 'red-tests', 'implement', 'implement', 'review', 'finalise', '']);
   });
 });
 

@@ -144,6 +144,41 @@ export function extract({ jsonFile, logFile, stateFile, stage, cwd, errFile, all
   try { data = JSON.parse(raw); } catch { data = null; }
   const state = loadState(stateFile);
   if (!data || typeof data !== 'object') {
+    const lines = raw.split('\n').filter(l => l.trim().length > 0);
+    const jsonlEvents: any[] = [];
+    let codexText = '';
+    for (const line of lines) {
+      try {
+        const ev = JSON.parse(line);
+        jsonlEvents.push(ev);
+        if (ev.type === 'message' || ev.type === 'response') {
+          if (typeof ev.content === 'string') codexText = ev.content;
+          else if (ev.message?.content) codexText = String(ev.message.content);
+        }
+      } catch {
+        /* ignore non-JSON */
+      }
+    }
+    if (jsonlEvents.length > 0) {
+      fs.writeFileSync(logFile, `${codexText}${codexText.endsWith('\n') ? '' : '\n'}${err}`);
+      for (const ev of jsonlEvents) {
+        if (ev.type === 'tool_denial' || ev.action === 'denied') {
+          const tool = String(ev.tool || 'command');
+          const detail = String(ev.command || ev.detail || '');
+          const ask: Ask = {
+            stage, tool, detail,
+            rule: ruleFor(tool, { command: detail }, cwd, [...allowed, ...state.allow]),
+            protected: isProtected(tool, detail),
+          };
+          const same = (a: { tool: string; detail: string }) => a.tool === ask.tool && a.detail === ask.detail;
+          if (state.denied.some(same) || state.pending.some(a => same(a) && a.stage === stage)) continue;
+          if (!ask.protected && (state.allow.includes(ask.rule) || decidedLine(tool, { command: detail }, allowed, state.allow))) continue;
+          state.pending.push(ask);
+        }
+      }
+      saveState(stateFile, state);
+      return state.pending.length;
+    }
     fs.writeFileSync(logFile, raw + err);
     return state.pending.length;
   }
@@ -164,12 +199,22 @@ export function extract({ jsonFile, logFile, stateFile, stage, cwd, errFile, all
   return state.pending.length;
 }
 
+export const FINALISE_PERMISSIONS = [
+  'Bash(git push:*)',
+  'Bash(gh pr create:*)',
+  'Bash(gh pr view:*)',
+  'Bash(gh pr list:*)',
+  'Bash(gh pr:*)',
+  'Bash(gh:*)',
+];
+
 /** Allow rules for a stage's run: this run's decisions plus the repository's saved ones. */
-export function rulesFor(docsDir: string, repoFile: string): string[] {
+export function rulesFor(docsDir: string, repoFile: string, stage?: string): string[] {
   const run = loadState(path.join(docsDir, 'logs', 'permissions.json')).allow;
   const repo = readJson(repoFile, {});
   const saved: string[] = Array.isArray(repo.allow) ? repo.allow.filter((r: unknown) => typeof r === 'string') : [];
-  return [...new Set([...saved, ...run])];
+  const stageSpecific = stage === 'finalise' ? FINALISE_PERMISSIONS : [];
+  return [...new Set([...saved, ...run, ...stageSpecific])];
 }
 
 /** The permission mode a stage's agent runs with: bypassPermissions once a protected path was allowed for it. */

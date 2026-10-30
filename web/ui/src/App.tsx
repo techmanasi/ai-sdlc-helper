@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, splitArgs, type Board as BoardData, type Project, type ViewState } from './api';
 import { Board, needsYou } from './Board';
+import { Completed } from './Completed';
 import { NewItem } from './NewItem';
 import { Projects } from './Projects';
 import { Run } from './Run';
@@ -140,6 +141,7 @@ export function App() {
   if (fatal) screen = <ErrorBox error={`${fatal}\n\nOpen the URL that ai-sdlc-helper ui printed (it signs this browser in).`} />;
   else if (!project) screen = <Projects projects={projects} reload={loadProjects} />;
   else if (route.startsWith('/run/')) screen = <Run slug={decodeURIComponent(route.slice(5))} key={route} />;
+  else if (route === '/completed') screen = <Completed />;
   else if (route === '/new') screen = <NewItem taken={(board?.items || []).map(i => i.slug)} />;
   else if (route === '/projects') screen = <Projects projects={projects} reload={loadProjects} />;
   else if (route === '/settings') screen = <Settings />;
@@ -168,6 +170,7 @@ export function App() {
         <nav class="nav" aria-label="Main">
           <div class="lbl" style={{ padding: '4px 10px' }}>Workspace</div>
           {nav('/board', 'Board', board?.runs.length)}
+          {nav('/completed', 'Completed', board?.items ? board.items.filter(i => i.status === 'completed').length : undefined)}
           {nav('/new', 'New item')}
           <div class="lbl" style={{ padding: '12px 10px 4px' }}>Configure</div>
           {nav('/settings', 'Settings')}

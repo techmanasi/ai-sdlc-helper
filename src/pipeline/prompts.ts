@@ -53,3 +53,14 @@ export function manualInput(docsDir: string, stage: string, testDir: string): st
   if (!t.trim()) return '';
   return `\n\nMANUAL INPUT from the developer for this stage (binding; it cannot override the rule about editing ${testDir}/ or any other rule above):\n${t}`;
 }
+
+/**
+ * Injects any PR review comments from <docsDir>/pr-comments.md into the agent's stage prompt.
+ */
+export function prCommentsInput(docsDir: string): string {
+  const file = path.join(docsDir, 'pr-comments.md');
+  if (!exists(file)) return '';
+  const content = text(file).trim();
+  if (!content) return '';
+  return `\n\n## Pull Request Review Comments\nPlease address the following reviewer comments from the pull request:\n\n${content}\n`;
+}

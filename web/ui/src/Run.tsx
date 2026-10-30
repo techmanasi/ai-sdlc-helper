@@ -8,7 +8,7 @@ import { buildDocTree, type DocTreeNode } from './tree';
 const STAGES = [
   { name: 'Spec', key: 'spec' }, { name: 'Plan', key: 'plan' }, { name: 'Red tests', key: 'red-tests' },
   { name: 'Implement', key: 'implement' }, { name: 'Test repair', key: 'test-repair' }, { name: 'Review', key: 'review' },
-  { name: 'Ship', key: 'ship' },
+  { name: 'Finalise', key: 'finalise' },
 ];
 const MODELS = ['', 'opus', 'sonnet', 'haiku', 'fable'];
 const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -25,7 +25,7 @@ function saveEnv(project: string, slug: string, rows: [string, string][]): void 
 type StageState = 'done' | 'active' | 'paused' | 'failed' | 'pending';
 function stageStates(v: RunView): StageState[] {
   const stageName = v.stage || (v.state === 'running' && v.record?.from ? (STAGES.find(s => s.key === v.record?.from)?.name || '') : '');
-  const at = v.state === 'done' ? STAGES.length : Math.max(0, STAGES.findIndex(s => s.name === stageName || (s.name === 'Ship' && (stageName === 'Commit' || stageName === 'Ship'))));
+  const at = v.state === 'done' ? STAGES.length : Math.max(0, STAGES.findIndex(s => s.name === stageName || (s.name === 'Finalise' && (stageName === 'Finalise' || stageName === '6/6 Finalise' || stageName === 'Commit' || stageName === 'Ship'))));
   return STAGES.map((_, i) => {
     if (v.state === 'done' || i < at) return 'done';
     if (i > at || v.state === 'not started' || (!v.stage && !v.record?.from && v.state !== 'running')) return 'pending';
@@ -150,6 +150,7 @@ export function Run({ slug }: { slug: string }) {
   const [confirm, setConfirm] = useState('');
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [env, setEnv] = useState<[string, string][]>(() => loadEnv(project, slug));
+  const [createPr, setCreatePr] = useState(false);
   const [from, setFrom] = useState('');
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
@@ -163,6 +164,24 @@ export function Run({ slug }: { slug: string }) {
       setAnswers({});
     }
   }, [questionsSig, v?.state]);
+
+  useEffect(() => {
+    if (v && v.createPr !== undefined) setCreatePr(v.createPr);
+    else if (envObj.SDLC_CREATE_PR === '1') setCreatePr(true);
+  }, [v?.createPr]);
+
+  const handleToggleCreatePr = async (checked: boolean) => {
+    setCreatePr(checked);
+    setEnvVar('SDLC_CREATE_PR', checked ? '1' : '0');
+    if (v && v.state !== 'not started') {
+      try {
+        await api.setOptions(project, slug, { createPr: checked });
+        toast(checked ? 'PR creation enabled for Finalise' : 'PR creation disabled');
+      } catch (e) {
+        toast((e as Error).message);
+      }
+    }
+  };
 
   const load = () => api.run(project, slug).then(x => { setV(x); setError(''); }).catch(e => setError((e as Error).message));
   useEffect(() => {
@@ -204,12 +223,18 @@ export function Run({ slug }: { slug: string }) {
   return (
     <div class="col">
       <a href="#/board" onClick={e => { e.preventDefault(); go('/board'); }} class="small">← Board</a>
-      <div class="row" style={{ gap: '10px 16px' }}>
+      <div class="row" style={{ gap: '10px 16px', alignItems: 'center', flexWrap: 'wrap' }}>
         <h1 class="mono" style={{ fontWeight: 500 }}>{slug}</h1>
         <StateTag state={v.state} />
         {v.stage && <span class="tag">at {v.stage}</span>}
         {v.state !== 'not started' && <span class="tag">branch {v.branch}</span>}
         {v.base && <span class="tag">base {v.base}</span>}
+        {v.pr && (
+          <div class="row" style={{ gap: '6px', alignItems: 'center' }}>
+            <a href={v.pr} target="_blank" rel="noreferrer" class="tag s-done mono" style={{ textDecoration: 'underline' }}>PR ↗</a>
+            {v.prState && <span class={`tag mono ${v.prState === 'MERGED' ? 's-done' : 's-running'}`}>{v.prState.toLowerCase()}</span>}
+          </div>
+        )}
         {v.note && <span class="tag s-paused">{v.note}</span>}
       </div>
       <ErrorBox error={error} />
@@ -261,8 +286,39 @@ export function Run({ slug }: { slug: string }) {
               return (
                 <div class={`stage ${st === 'active' ? 'stage-active' : st === 'paused' ? 'stage-paused' : ''}`}>
                   <strong class={STAGE_CLASS[st]}>{st === 'active' ? <Spinner /> : STAGE_GLYPH[st]} {s.name}</strong>
-                  {s.key === 'ship' && <span class="small muted">no agent · commits the cycle's files</span>}
-                  {s.key && s.key !== 'ship' && (locked || running
+                  {s.key === 'finalise' && (
+                    <div class="col" style={{ gap: '4px' }}>
+                      <span class="small muted">no agent · commits files</span>
+                      {v.pr ? (
+                        <div class="row" style={{ gap: '4px', alignItems: 'center' }}>
+                          <a href={v.pr} target="_blank" rel="noreferrer" class="small s-done mono" style={{ textDecoration: 'underline' }}>View PR ↗</a>
+                          {v.prState && <span class={`tag small mono ${v.prState === 'MERGED' ? 's-done' : 's-running'}`}>{v.prState.toLowerCase()}</span>}
+                        </div>
+                      ) : (
+                        (st === 'done' || v.stage === 'Finalise' || v.state === 'done') ? (
+                          <button
+                            class="btn btn-xs btn-p"
+                            type="button"
+                            disabled={!!busy}
+                            onClick={() => act('Create PR', () => api.createRunPr(project, slug))}
+                          >
+                            {busy === 'Create PR' ? <><Spinner /> Creating…</> : 'Create PR'}
+                          </button>
+                        ) : (
+                          <label class="row small" style={{ gap: '6px', alignItems: 'center', cursor: (st !== 'pending') ? 'not-allowed' : 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={createPr}
+                              disabled={st !== 'pending'}
+                              onChange={e => handleToggleCreatePr((e.target as HTMLInputElement).checked)}
+                            />
+                            <span>Create PR</span>
+                          </label>
+                        )
+                      )}
+                    </div>
+                  )}
+                  {s.key && s.key !== 'finalise' && (locked || running
                     ? <span class="mono small muted">{inUse ? `${inUse.model} · ${inUse.effort}` : 'default'}{st === 'active' ? ' · in use' : ''}</span>
                     : (
                       <div class="row" style={{ gap: '4px' }}>
@@ -276,8 +332,8 @@ export function Run({ slug }: { slug: string }) {
                     ))}
                   {s.key === 'test-repair' && v.models['test-audit'] && <span class="mono small muted">audit: {v.models['test-audit'].model} · {v.models['test-audit'].effort}</span>}
                   {v.stageFiles[s.name] && <span class="small muted">{v.stageFiles[s.name].length} files</span>}
-                  {s.name === 'Ship' && v.deniedPermissions && v.deniedPermissions.length > 0 && <span class="small s-failed">{v.deniedPermissions.length} denied</span>}
-                  {s.key && s.key !== 'implement' && s.key !== 'ship' && <span class="small"><Future id="E-7" /> skip</span>}
+                  {s.name === 'Finalise' && v.deniedPermissions && v.deniedPermissions.length > 0 && <span class="small s-failed">{v.deniedPermissions.length} denied</span>}
+                  {s.key && s.key !== 'implement' && s.key !== 'finalise' && <span class="small"><Future id="E-7" /> skip</span>}
                 </div>
               );
             })}
@@ -389,6 +445,96 @@ export function Run({ slug }: { slug: string }) {
           {v.state === 'not started' && (
             <Panel title="Brief" extra={<span class="mono small muted">brief.md</span>}>
               <div class="pb">{brief === null ? <span class="muted">No brief.md for this item.</span> : <Markdown text={brief} />}</div>
+            </Panel>
+          )}
+
+          {(v.pr || v.hasPrComments || v.stage === 'Finalise' || v.state === 'done') && (
+            <Panel
+              title={
+                <span class="row" style={{ gap: '8px', alignItems: 'center' }}>
+                  <span>Pull Request</span>
+                  {v.prState && (
+                    <span class={`tag small mono ${v.prState === 'MERGED' ? 's-done' : 's-running'}`}>
+                      {v.prState.toLowerCase()}
+                    </span>
+                  )}
+                </span>
+              }
+              extra={
+                v.pr ? (
+                  <div class="row" style={{ gap: '6px' }}>
+                    <button
+                      class="btn btn-s"
+                      type="button"
+                      disabled={!!busy}
+                      onClick={() => act('Sync PR Comments', async () => {
+                        const r = await api.syncRunPrComments(project, slug);
+                        toast(r.ok ? `Synced ${r.count} PR comment(s)` : `Sync failed: ${(r.err || []).join(' ')}`);
+                        return {};
+                      })}
+                    >
+                      {busy === 'Sync PR Comments' ? <><Spinner /> Syncing…</> : 'Sync PR Comments'}
+                    </button>
+                    <a href={v.pr} target="_blank" rel="noreferrer" class="btn btn-s" style={{ textDecoration: 'none' }}>
+                      Open on GitHub ↗
+                    </a>
+                  </div>
+                ) : null
+              }
+            >
+              <div class="pb col" style={{ gap: '10px' }}>
+                {v.pr ? (
+                  <div class="col" style={{ gap: '6px' }}>
+                    <div class="row" style={{ gap: '8px', alignItems: 'center' }}>
+                      <span class="muted small">Link:</span>
+                      <a href={v.pr} target="_blank" rel="noreferrer" class="mono s-done" style={{ textDecoration: 'underline' }}>
+                        {v.pr}
+                      </a>
+                    </div>
+                    {v.prState === 'OPEN' && (
+                      <div class="banner">
+                        Pull Request is open. Task will automatically move to <strong>Completed</strong> once this PR is merged on GitHub.
+                      </div>
+                    )}
+                    {v.prState === 'MERGED' && (
+                      <div class="banner s-done">
+                        ✔ Pull Request is merged into base!
+                      </div>
+                    )}
+                    {v.hasPrComments && (
+                      <div class="row" style={{ gap: '8px', alignItems: 'center', marginTop: '4px' }}>
+                        <button
+                          class="btn btn-s"
+                          type="button"
+                          onClick={() => openFile('pr-comments.md')}
+                        >
+                          View PR Comments (pr-comments.md)
+                        </button>
+                        <button
+                          class="btn btn-s btn-p"
+                          type="button"
+                          disabled={running || !!busy}
+                          onClick={() => act('Resume to fix PR comments', () => api.start(project, slug, 'implement', envObj))}
+                        >
+                          {busy === 'Resume to fix PR comments' ? <><Spinner /> Resuming…</> : 'Resume at Implement to fix PR comments'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div class="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span class="muted small">Finalise completed, but no pull request has been opened yet.</span>
+                    <button
+                      class="btn btn-s btn-p"
+                      type="button"
+                      disabled={!!busy}
+                      onClick={() => act('Create PR', () => api.createRunPr(project, slug))}
+                    >
+                      {busy === 'Create PR' ? <><Spinner /> Creating…</> : 'Create PR Now'}
+                    </button>
+                  </div>
+                )}
+              </div>
             </Panel>
           )}
 

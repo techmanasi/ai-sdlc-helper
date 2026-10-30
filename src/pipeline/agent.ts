@@ -6,8 +6,11 @@ import { extract, modeFor, rulesFor } from '../permissions/index.js';
 import { testDir, testFramework } from '../config/settings.js';
 import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from './context.js';
 import { modelFlags, providerEnv, stageModel } from './models.js';
-import { manualInput, renderPrompt } from './prompts.js';
+import { manualInput, prCommentsInput, renderPrompt } from './prompts.js';
 import { resumeHint } from './hints.js';
+import { DefaultHarnessRegistry } from './harness/registry.js';
+
+const defaultRegistry = new DefaultHarnessRegistry();
 
 /**
  * The reset text ("resets 1:10am (Asia/Dubai)") when an agent's `--output-format json` result says it hit the account's
@@ -15,10 +18,30 @@ import { resumeHint } from './hints.js';
  */
 export function usageLimit(jsonFile: string): string | null {
   try {
-    const d = JSON.parse(fs.readFileSync(jsonFile, 'utf8'));
-    if (d.api_error !== 'usage_limit_reached') return null;
-    const m = /resets[^\n"\\]*/.exec(String(d.result || ''));
-    return m ? m[0].trim() : 'resets later';
+    const raw = fs.readFileSync(jsonFile, 'utf8');
+    try {
+      const d = JSON.parse(raw);
+      if (d.api_error === 'usage_limit_reached') {
+        const m = /resets[^\n"\\]*/.exec(String(d.result || ''));
+        return m ? m[0].trim() : 'resets later';
+      }
+      if (d.error?.code === 'rate_limit_exceeded' || d.code === 'rate_limit') {
+        return 'rate limit reached';
+      }
+    } catch {
+      const lines = raw.split('\n').filter(l => l.trim().length > 0);
+      for (const line of lines) {
+        try {
+          const event = JSON.parse(line);
+          if (event.error?.code === 'rate_limit_exceeded' || event.code === 'rate_limit') {
+            return 'rate limit reached';
+          }
+        } catch {
+          /* ignore non-JSON */
+        }
+      }
+    }
+    return null;
   } catch { return null; }
 }
 
@@ -38,8 +61,9 @@ const sleep = (seconds: number, signal?: AbortSignal) => new Promise<void>(resol
 /** Plan reads the published docs and type definitions of a new library from the web (it is installed only in Implement). */
 export const PLAN_TOOLS = ['WebFetch', 'WebSearch', 'mcp__context7'];
 
-/** One agent process: claude's arguments, and the files its output goes to (one file when both are the same). */
+/** One agent process: command, arguments, and the files its output goes to (one file when both are the same). */
 export interface AgentRequest {
+  command?: string;
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
@@ -51,7 +75,7 @@ export interface AgentRequest {
 /** Starts an agent and resolves with its exit code. Tests pass a stand-in. */
 export type AgentSpawn = (req: AgentRequest) => Promise<number>;
 
-/** Runs `claude` (from the request environment's PATH). */
+/** Runs an agent process (`claude`, `codex`, `agy`, etc. from the request environment's PATH). */
 export const spawnClaude: AgentSpawn = req => new Promise(resolve => {
   const out = fs.openSync(req.stdout, 'w');
   const err = req.stderr === req.stdout ? out : fs.openSync(req.stderr, 'w');
@@ -63,7 +87,8 @@ export const spawnClaude: AgentSpawn = req => new Promise(resolve => {
     if (err !== out) fs.closeSync(err);
     resolve(code);
   };
-  const child = spawn('claude', req.args, { cwd: req.cwd, env: req.env, stdio: ['ignore', out, err], signal: req.signal });
+  const bin = req.command || 'claude';
+  const child = spawn(bin, req.args, { cwd: req.cwd, env: req.env, stdio: ['ignore', out, err], signal: req.signal });
   child.on('error', e => { try { fs.writeSync(err, `${e.message}\n`); } catch { /* closed */ } finish(127); });
   child.on('close', code => finish(code === null ? 1 : code));
 });
@@ -77,12 +102,12 @@ export function promptValues(ctx: Ctx): Record<string, string> {
 }
 
 /** The model flags and provider environment of <stage>; prints the model line and records it in the status. */
-export function stageFlags(ctx: Ctx, stage: AgentStage): { args: string[]; env: Record<string, string> } {
+export function stageFlags(ctx: Ctx, stage: AgentStage): { args: string[]; env: Record<string, string>; model: string; effort: string; hasEffort: boolean } {
   const sm = stageModel(stage, { env: ctx.env, fromFile: ctx.envModels, registryFile: ctx.registryFile });
   ctx.status.model = sm.model;
   ctx.status.effort = sm.effort;
   ctx.out(sm.provider.effortFlag ? `   model=${sm.model} effort=${sm.effort}` : `   model=${sm.model} (provider without effort)`);
-  return { args: modelFlags(sm), env: providerEnv(sm.provider) };
+  return { args: modelFlags(sm), env: providerEnv(sm.provider), model: sm.provider.model, effort: sm.effort, hasEffort: sm.provider.effortFlag };
 }
 
 /**
@@ -92,7 +117,10 @@ export function stageFlags(ctx: Ctx, stage: AgentStage): { args: string[]; env: 
 export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promise<void> {
   stopIfAborted(ctx);
   let prompt = renderPrompt(stage, promptValues(ctx), ctx.guide, ctx.promptsDir);
-  if (stage !== 'test-repair' && stage !== 'test-audit') prompt += manualInput(at(ctx, ctx.docs), stage, testDir(ctx.config.suites[0]));
+  if (stage !== 'test-repair' && stage !== 'test-audit') {
+    prompt += manualInput(at(ctx, ctx.docs), stage, testDir(ctx.config.suites[0]));
+    prompt += prCommentsInput(at(ctx, ctx.docs));
+  }
   ctx.out(`   -> agent: ${name}`);
   const flags = stageFlags(ctx, stage);
   ctx.status.agent = name;
@@ -103,14 +131,42 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   const mode = modeFor(at(ctx, ctx.docs), stage);
   if (mode !== 'acceptEdits') ctx.out('   (permission checks are off for this stage: you allowed a protected path)');
   const base = at(ctx, `${ctx.log}/${name}`);
+
+  const harnessId = ctx.config.agent?.harness || (ctx.env.SDLC_AGENT as any) || 'claude';
+  const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
+
+  let model = flags.model;
+  const effort = flags.effort;
+  if (harnessId === 'codex') {
+    if (model === 'opus') model = 'o1';
+    else if (model === 'sonnet') model = 'o3-mini';
+    else if (model === 'haiku') model = 'gpt-4o';
+  } else if (harnessId === 'agy') {
+    if (model === 'opus') model = 'gemini-3.8-pro';
+    else if (model === 'sonnet') model = 'gemini-3.8-flash-high';
+    else if (model === 'haiku') model = 'gemini-3.8-flash-medium';
+  }
+
+  const invocation = harness.compileStageArgs({
+    prompt,
+    stage,
+    model,
+    effort: flags.hasEffort ? effort : undefined,
+    mode,
+    allowedCommands: allowed,
+    cwd: ctx.root,
+    maxTurns: ctx.limits.maxTurns,
+  });
+
   // A usage limit is not the agent's failure: wait for the reset and run the same agent again.
   const { retry, maxWait } = limitWait(ctx.env);
   let waited = 0;
   let rc: number;
   for (;;) {
     rc = await ctx.spawnAgent({
-      args: ['-p', prompt, ...flags.args, '--permission-mode', mode, '--allowedTools', ...allowed, '--output-format', 'json', '--max-turns', String(ctx.limits.maxTurns)],
-      cwd: ctx.root, env: { ...ctx.env, ...flags.env }, stdout: `${base}.json`, stderr: `${base}.err`, signal: ctx.signal,
+      command: invocation.command,
+      args: invocation.args,
+      cwd: ctx.root, env: { ...ctx.env, ...flags.env, ...invocation.env }, stdout: `${base}.json`, stderr: `${base}.err`, signal: ctx.signal,
     });
     await tick();
     const limit = usageLimit(`${base}.json`);
@@ -146,10 +202,27 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
 }
 
 /** The independent test auditor: read-only tools, its stdout and stderr in <log>/test-audit.log. Resolves its exit code. */
-export async function runAudit(ctx: Ctx, prompt: string, flags: { args: string[]; env: Record<string, string> }): Promise<number> {
+export async function runAudit(ctx: Ctx, prompt: string, flags: { args: string[]; env: Record<string, string>; model?: string; effort?: string }): Promise<number> {
   const logFile = at(ctx, `${ctx.log}/test-audit.log`);
+  const harnessId = ctx.config.agent?.harness || (ctx.env.SDLC_AGENT as any) || 'claude';
+  const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
+  let model = flags.model || 'sonnet';
+  if (harnessId === 'codex') {
+    if (model === 'opus') model = 'o1';
+    else if (model === 'sonnet') model = 'o3-mini';
+  } else if (harnessId === 'agy') {
+    if (model === 'opus') model = 'gemini-3.8-pro';
+    else if (model === 'sonnet') model = 'gemini-3.8-flash-high';
+  }
+  const inv = harness.compileAuditArgs({
+    prompt,
+    model,
+    effort: flags.effort,
+    cwd: ctx.root,
+  });
   return ctx.spawnAgent({
-    args: ['-p', prompt, ...flags.args, '--allowedTools', 'Read', 'Glob', 'Grep', '--max-turns', '15'],
-    cwd: ctx.root, env: { ...ctx.env, ...flags.env }, stdout: logFile, stderr: logFile, signal: ctx.signal,
+    command: inv.command,
+    args: inv.args,
+    cwd: ctx.root, env: { ...ctx.env, ...flags.env, ...inv.env }, stdout: logFile, stderr: logFile, signal: ctx.signal,
   });
 }

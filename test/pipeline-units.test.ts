@@ -227,7 +227,7 @@ describe('Ship', () => {
     expect(sh(dir, 'status', '--porcelain').stdout).toBe('');
     expect(r.n).toBe(3);
     expect(r.out).toContain('DONE: alpha on ');
-    expect(r.out).toContain('Committed 3 file(s), skipped 0 (see Docs/backlog/alpha/logs/ship-skipped.md).');
+    expect(r.out).toContain('Committed 3 file(s), skipped 0 (see Docs/backlog/alpha/logs/finalise-skipped.md).');
   });
 
   test('files dirty or staged before the run stay as they were; .env.local is skipped and listed; new .env keys reach .env.example', () => {
@@ -244,7 +244,7 @@ describe('Ship', () => {
     const r = doShip(dir);
     expect(sh(dir, 'status', '--porcelain').stdout.split('\n').filter(Boolean).sort()).toEqual([' M dev.txt', '?? mine.txt', '?? server/.env.local', 'A  staged.txt'].sort());
     expect(sh(dir, 'show', '--name-only', '--format=', 'HEAD~1').stdout).not.toContain('staged.txt');
-    expect(read(dir, 'Docs/backlog/alpha/logs/ship-skipped.md')).toBe('- server/.env.local: sensitive file\n');
+    expect(read(dir, 'Docs/backlog/alpha/logs/finalise-skipped.md')).toBe('- server/.env.local: sensitive file\n');
     expect(r.out).toContain('Skipped:\n- server/.env.local: sensitive file\n');
     const example = sh(dir, 'show', 'HEAD~1:.env.example').stdout;
     expect(example).toContain('TOKEN=change-me');

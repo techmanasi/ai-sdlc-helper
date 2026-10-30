@@ -3,11 +3,11 @@ import { useEffect, useState } from 'preact/hooks';
 import { api, type Board as BoardData, type RunCard, type RunView } from './api';
 import { Cli, ErrorBox, GLYPH, Panel, Spinner, stateClass, useApp } from './ui';
 
-export const COLUMNS = ['Backlog', 'Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Ship'];
+export const COLUMNS = ['Backlog', 'Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise'];
 
-/** The column a run's card sits in: its stage; Ship when done or committing; Backlog before any stage. */
+/** The column a run's card sits in: its stage; Finalise when done, committing, or finalising; Backlog before any stage. */
 export function columnOf(r: RunCard): string {
-  if (r.state === 'done' || r.stage === 'Commit') return 'Ship';
+  if (r.state === 'done' || r.stage === 'Finalise' || r.stage === '6/6 Finalise' || r.stage === 'Commit' || r.stage === 'Ship') return 'Finalise';
   return COLUMNS.includes(r.stage) ? r.stage : 'Backlog';
 }
 
