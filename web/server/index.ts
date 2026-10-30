@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, getCompletedTaskDetail, listCompletedTasks, main, readRegistry, repoRulesFile, resolve,
-  restart, runContext, runView, start, stop, type Outcome, type RunContext,
+  restart, runContext, runView, start, stop, syncPrComments, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -196,6 +196,13 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const file = itemFile(contextFor(p), slug, url.searchParams.get('path') || '');
         return send(200, { path: url.searchParams.get('path'), text: fs.readFileSync(file, 'utf8') });
       }
+      if (action === 'pr' && method === 'GET') {
+        const ctx = contextFor(p);
+        const v = runView(ctx, slug, { changes: false, tailLines: 0 });
+        const prCommentsFile = path.join(v.dir || ctx.root, ctx.backlogDir, slug, 'pr-comments.md');
+        const markdown = fs.existsSync(prCommentsFile) ? fs.readFileSync(prCommentsFile, 'utf8') : null;
+        return send(200, { pr: v.pr || null, state: v.prState || null, markdown });
+      }
       if (method !== 'POST') throw new HttpError(405, 'use POST');
       const ctx = contextFor(p, envOf(body.env));
       if (action === 'start') return send(200, outcome(start(ctx, slug, { from: fromOf(body.from) })));
@@ -249,6 +256,14 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const resumed = shouldResume ? outcome(start(ctx, slug, { from })) : null;
         return send(200, { ok: true, pending, resumed });
       }
+      if (action === 'pr') {
+        const r = createPrForCompleted(ctx, slug);
+        return send(r.ok ? 200 : 400, r);
+      }
+      if (action === 'pr-sync') {
+        const r = syncPrComments(ctx, slug);
+        return send(r.ok ? 200 : 400, r);
+      }
     }
     if (what === 'completed') {
       const ctx = contextFor(p);
@@ -262,6 +277,10 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         }
         if (method === 'POST' && parts[4] === 'pr') {
           const r = createPrForCompleted(ctx, slug);
+          return send(r.ok ? 200 : 400, r);
+        }
+        if (method === 'POST' && parts[4] === 'sync') {
+          const r = syncPrComments(ctx, slug);
           return send(r.ok ? 200 : 400, r);
         }
       }

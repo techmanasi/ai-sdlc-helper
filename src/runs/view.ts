@@ -8,7 +8,7 @@ import { backlogItems, type BacklogItem } from '../backlog/index.js';
 import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.js';
 import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { projectSlugs, runChanges, runWorktree, type RunContext } from './index.js';
-import { getPrFromBrief } from '../pipeline/finalise.js';
+import { getPrFromBrief, getPrStatus } from '../pipeline/finalise.js';
 
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused';
 
@@ -57,6 +57,8 @@ export interface RunView {
   resumeFrom: string;
   createPr?: boolean;
   pr?: string | null;
+  prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null;
+  hasPrComments?: boolean;
 }
 
 const readText = (file: string): string | null => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
@@ -224,6 +226,13 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
       return false;
     })(),
     pr: getPrFromBrief(readText(path.join(docsDir, 'brief.md')) || ''),
+    prState: (() => {
+      const p = getPrFromBrief(readText(path.join(docsDir, 'brief.md')) || '');
+      const b = rec?.branch || `${ctx.branchPrefix}${slug}`;
+      const st = getPrStatus(ctx.root, p || b, ctx.env);
+      return st ? st.state : null;
+    })(),
+    hasPrComments: fs.existsSync(path.join(docsDir, 'pr-comments.md')),
   };
 }
 

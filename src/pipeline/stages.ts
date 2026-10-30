@@ -13,7 +13,7 @@ import { promptValues, runAgent, runAudit, stageFlags } from './agent.js';
 import { resultsAt, resultsNow, successCheck, testsPass } from './gates.js';
 import { renderPrompt } from './prompts.js';
 import { resumeCommand, resumeHint } from './hints.js';
-import { finalise, ship } from './finalise.js';
+import { finalise } from './finalise.js';
 import { installDeps } from './deps.js';
 
 const short = (sha: string) => sha.slice(0, 7);

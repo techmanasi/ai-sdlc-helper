@@ -46,7 +46,7 @@ export {
   FINALISE_PERMISSIONS,
 } from './permissions/index.js';
 export {
-  listCompletedTasks, getCompletedTaskDetail, createPrForCompleted, isArchivedInIndex,
+  listCompletedTasks, getCompletedTaskDetail, createPrForCompleted, isArchivedInIndex, syncPrComments,
   type CompletedTask, type CompletedTaskDetail, type CommitInfo, type FileChange,
 } from './runs/completed.js';
 export {
@@ -54,7 +54,7 @@ export {
 } from './backlog/archive.js';
 export {
   finalise, type FinaliseOptions, type FinaliseResult, ship, type ShipOptions,
-  getPrFromBrief, recordPrInBrief, createOrGetPr,
+  getPrFromBrief, recordPrInBrief, createOrGetPr, getPrStatus, fetchPrComments, type PrStatus, type PrComment,
 } from './pipeline/finalise.js';
 export { STAGE_DEFAULTS, resolveProvider, stageModel, providerEnv, type Provider } from './pipeline/models.js';
 export { FROM_STAGES, AGENT_STAGES, type From, type AgentStage } from './pipeline/context.js';

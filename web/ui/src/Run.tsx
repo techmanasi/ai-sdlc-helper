@@ -223,13 +223,18 @@ export function Run({ slug }: { slug: string }) {
   return (
     <div class="col">
       <a href="#/board" onClick={e => { e.preventDefault(); go('/board'); }} class="small">← Board</a>
-      <div class="row" style={{ gap: '10px 16px' }}>
+      <div class="row" style={{ gap: '10px 16px', alignItems: 'center', flexWrap: 'wrap' }}>
         <h1 class="mono" style={{ fontWeight: 500 }}>{slug}</h1>
         <StateTag state={v.state} />
         {v.stage && <span class="tag">at {v.stage}</span>}
         {v.state !== 'not started' && <span class="tag">branch {v.branch}</span>}
         {v.base && <span class="tag">base {v.base}</span>}
-        {v.pr && <a href={v.pr} target="_blank" rel="noreferrer" class="tag s-done mono" style={{ textDecoration: 'underline' }}>PR ↗</a>}
+        {v.pr && (
+          <div class="row" style={{ gap: '6px', alignItems: 'center' }}>
+            <a href={v.pr} target="_blank" rel="noreferrer" class="tag s-done mono" style={{ textDecoration: 'underline' }}>PR ↗</a>
+            {v.prState && <span class={`tag mono ${v.prState === 'MERGED' ? 's-done' : 's-running'}`}>{v.prState.toLowerCase()}</span>}
+          </div>
+        )}
         {v.note && <span class="tag s-paused">{v.note}</span>}
       </div>
       <ErrorBox error={error} />
@@ -284,16 +289,33 @@ export function Run({ slug }: { slug: string }) {
                   {s.key === 'finalise' && (
                     <div class="col" style={{ gap: '4px' }}>
                       <span class="small muted">no agent · commits files</span>
-                      <label class="row small" style={{ gap: '6px', alignItems: 'center', cursor: (st !== 'pending') ? 'not-allowed' : 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={createPr}
-                          disabled={st !== 'pending'}
-                          onChange={e => handleToggleCreatePr((e.target as HTMLInputElement).checked)}
-                        />
-                        <span>Create PR</span>
-                      </label>
-                      {v.pr && <a href={v.pr} target="_blank" rel="noreferrer" class="small s-done mono" style={{ textDecoration: 'underline' }}>View PR ↗</a>}
+                      {v.pr ? (
+                        <div class="row" style={{ gap: '4px', alignItems: 'center' }}>
+                          <a href={v.pr} target="_blank" rel="noreferrer" class="small s-done mono" style={{ textDecoration: 'underline' }}>View PR ↗</a>
+                          {v.prState && <span class={`tag small mono ${v.prState === 'MERGED' ? 's-done' : 's-running'}`}>{v.prState.toLowerCase()}</span>}
+                        </div>
+                      ) : (
+                        (st === 'done' || v.stage === 'Finalise' || v.state === 'done') ? (
+                          <button
+                            class="btn btn-xs btn-p"
+                            type="button"
+                            disabled={!!busy}
+                            onClick={() => act('Create PR', () => api.createRunPr(project, slug))}
+                          >
+                            {busy === 'Create PR' ? <><Spinner /> Creating…</> : 'Create PR'}
+                          </button>
+                        ) : (
+                          <label class="row small" style={{ gap: '6px', alignItems: 'center', cursor: (st !== 'pending') ? 'not-allowed' : 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={createPr}
+                              disabled={st !== 'pending'}
+                              onChange={e => handleToggleCreatePr((e.target as HTMLInputElement).checked)}
+                            />
+                            <span>Create PR</span>
+                          </label>
+                        )
+                      )}
                     </div>
                   )}
                   {s.key && s.key !== 'finalise' && (locked || running
@@ -423,6 +445,96 @@ export function Run({ slug }: { slug: string }) {
           {v.state === 'not started' && (
             <Panel title="Brief" extra={<span class="mono small muted">brief.md</span>}>
               <div class="pb">{brief === null ? <span class="muted">No brief.md for this item.</span> : <Markdown text={brief} />}</div>
+            </Panel>
+          )}
+
+          {(v.pr || v.hasPrComments || v.stage === 'Finalise' || v.state === 'done') && (
+            <Panel
+              title={
+                <span class="row" style={{ gap: '8px', alignItems: 'center' }}>
+                  <span>Pull Request</span>
+                  {v.prState && (
+                    <span class={`tag small mono ${v.prState === 'MERGED' ? 's-done' : 's-running'}`}>
+                      {v.prState.toLowerCase()}
+                    </span>
+                  )}
+                </span>
+              }
+              extra={
+                v.pr ? (
+                  <div class="row" style={{ gap: '6px' }}>
+                    <button
+                      class="btn btn-s"
+                      type="button"
+                      disabled={!!busy}
+                      onClick={() => act('Sync PR Comments', async () => {
+                        const r = await api.syncRunPrComments(project, slug);
+                        toast(r.ok ? `Synced ${r.count} PR comment(s)` : `Sync failed: ${(r.err || []).join(' ')}`);
+                        return {};
+                      })}
+                    >
+                      {busy === 'Sync PR Comments' ? <><Spinner /> Syncing…</> : 'Sync PR Comments'}
+                    </button>
+                    <a href={v.pr} target="_blank" rel="noreferrer" class="btn btn-s" style={{ textDecoration: 'none' }}>
+                      Open on GitHub ↗
+                    </a>
+                  </div>
+                ) : null
+              }
+            >
+              <div class="pb col" style={{ gap: '10px' }}>
+                {v.pr ? (
+                  <div class="col" style={{ gap: '6px' }}>
+                    <div class="row" style={{ gap: '8px', alignItems: 'center' }}>
+                      <span class="muted small">Link:</span>
+                      <a href={v.pr} target="_blank" rel="noreferrer" class="mono s-done" style={{ textDecoration: 'underline' }}>
+                        {v.pr}
+                      </a>
+                    </div>
+                    {v.prState === 'OPEN' && (
+                      <div class="banner">
+                        Pull Request is open. Task will automatically move to <strong>Completed</strong> once this PR is merged on GitHub.
+                      </div>
+                    )}
+                    {v.prState === 'MERGED' && (
+                      <div class="banner s-done">
+                        ✔ Pull Request is merged into base!
+                      </div>
+                    )}
+                    {v.hasPrComments && (
+                      <div class="row" style={{ gap: '8px', alignItems: 'center', marginTop: '4px' }}>
+                        <button
+                          class="btn btn-s"
+                          type="button"
+                          onClick={() => openFile('pr-comments.md')}
+                        >
+                          View PR Comments (pr-comments.md)
+                        </button>
+                        <button
+                          class="btn btn-s btn-p"
+                          type="button"
+                          disabled={running || !!busy}
+                          onClick={() => act('Resume to fix PR comments', () => api.start(project, slug, 'implement', envObj))}
+                        >
+                          {busy === 'Resume to fix PR comments' ? <><Spinner /> Resuming…</> : 'Resume at Implement to fix PR comments'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div class="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span class="muted small">Finalise completed, but no pull request has been opened yet.</span>
+                    <button
+                      class="btn btn-s btn-p"
+                      type="button"
+                      disabled={!!busy}
+                      onClick={() => act('Create PR', () => api.createRunPr(project, slug))}
+                    >
+                      {busy === 'Create PR' ? <><Spinner /> Creating…</> : 'Create PR Now'}
+                    </button>
+                  </div>
+                )}
+              </div>
             </Panel>
           )}
 

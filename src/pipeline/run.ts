@@ -18,7 +18,7 @@ import { PROMPTS_DIR } from './prompts.js';
 import { Status, finalState } from './status.js';
 import { resultsAt } from './gates.js';
 import {
-  implementStage, markStage, planStage, redTestsStage, refuseRedone, resumeAtTests, reviewStage, finaliseStage, shipStage, specStage,
+  implementStage, markStage, planStage, redTestsStage, refuseRedone, resumeAtTests, reviewStage, finaliseStage, specStage,
   testRepairStage,
 } from './stages.js';
 

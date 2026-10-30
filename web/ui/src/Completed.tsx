@@ -98,6 +98,23 @@ export function Completed() {
     }
   };
 
+  const handleSyncComments = async (slug: string) => {
+    setBusyAction(`sync-${slug}`);
+    try {
+      const res = await api.syncCompletedPrComments(project, slug);
+      if (res.ok) {
+        toast(`Synced ${res.count} PR comment(s)`);
+        await loadDetail(slug);
+      } else {
+        toast(`Sync failed: ${(res.err || []).join(' ')}`);
+      }
+    } catch (e) {
+      toast(`Sync error: ${(e as Error).message}`);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const filteredTasks = tasks.filter(t => {
     if (filter === 'active' && t.archived) return false;
     if (filter === 'archived' && !t.archived) return false;
@@ -107,6 +124,18 @@ export function Completed() {
     }
     return true;
   });
+
+  // Automatically select the first task when loading completes or filters change
+  useEffect(() => {
+    if (!loading && filteredTasks.length > 0) {
+      if (!selectedSlug || !filteredTasks.some(t => t.slug === selectedSlug)) {
+        loadDetail(filteredTasks[0].slug);
+      }
+    } else if (!loading && filteredTasks.length === 0) {
+      setSelectedSlug(null);
+      setDetail(null);
+    }
+  }, [filteredTasks.length, loading, selectedSlug]);
 
   return (
     <div class="col" style={{ gap: '16px' }}>
@@ -164,37 +193,50 @@ export function Completed() {
               class={`card ${selectedSlug === t.slug ? 'selected' : ''}`}
               style={{
                 cursor: 'pointer',
-                padding: '12px',
-                border: selectedSlug === t.slug ? '1px solid var(--ac)' : '1px solid var(--bd)',
+                padding: '14px',
+                border: selectedSlug === t.slug ? '1.5px solid var(--ac)' : '1px solid var(--bd)',
                 borderRadius: '8px',
                 backgroundColor: selectedSlug === t.slug ? 'var(--bg-card-selected, var(--sub))' : 'var(--bg-card)',
+                boxShadow: selectedSlug === t.slug ? '0 0 0 1px var(--ac)' : 'none',
+                transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+                marginBottom: '8px',
               }}
               onClick={() => loadDetail(t.slug)}
             >
-              <div class="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div class="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
                 <strong class="mono" style={{ fontSize: '1.05em' }}>{t.slug}</strong>
-                <div class="row" style={{ gap: '4px' }}>
-                  {t.archived && <span class="tag muted">Archived</span>}
-                  {t.pr ? (
-                    <a
-                      href={t.pr}
-                      target="_blank"
-                      rel="noreferrer"
-                      class="tag s-done mono"
-                      onClick={e => e.stopPropagation()}
-                    >
-                      PR ↗
-                    </a>
-                  ) : (
-                    <button
-                      class="btn btn-xs"
-                      type="button"
-                      disabled={busyAction === `pr-${t.slug}`}
-                      onClick={e => { e.stopPropagation(); handleCreatePr(t.slug); }}
-                    >
-                      {busyAction === `pr-${t.slug}` ? 'Creating…' : 'Create PR'}
-                    </button>
-                  )}
+                <div class="col" style={{ gap: '4px', alignItems: 'flex-end' }}>
+                  <button
+                    class="btn btn-xs"
+                    type="button"
+                    style={{ fontSize: '0.75rem', padding: '2px 8px' }}
+                    onClick={e => { e.stopPropagation(); loadDetail(t.slug); }}
+                  >
+                    Show details
+                  </button>
+                  <div class="row" style={{ gap: '4px' }}>
+                    {t.archived && <span class="tag muted">Archived</span>}
+                    {t.pr ? (
+                      <a
+                        href={t.pr}
+                        target="_blank"
+                        rel="noreferrer"
+                        class="tag s-done mono"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        PR ↗ {t.prState ? `(${t.prState.toLowerCase()})` : ''}
+                      </a>
+                    ) : (
+                      <button
+                        class="btn btn-xs"
+                        type="button"
+                        disabled={busyAction === `pr-${t.slug}`}
+                        onClick={e => { e.stopPropagation(); handleCreatePr(t.slug); }}
+                      >
+                        {busyAction === `pr-${t.slug}` ? 'Creating…' : 'Create PR'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
               <p style={{ margin: '6px 0', fontSize: '0.9em' }}>{t.title}</p>
@@ -258,9 +300,24 @@ export function Completed() {
                   <div class="row" style={{ gap: '10px', alignItems: 'center', marginTop: '6px' }}>
                     <strong>Pull Request:</strong>
                     {detail.pr ? (
-                      <a href={detail.pr} target="_blank" rel="noreferrer" class="mono s-done" style={{ textDecoration: 'underline' }}>
-                        {detail.pr} ↗
-                      </a>
+                      <div class="row" style={{ gap: '8px', alignItems: 'center' }}>
+                        <a href={detail.pr} target="_blank" rel="noreferrer" class="mono s-done" style={{ textDecoration: 'underline' }}>
+                          {detail.pr} ↗
+                        </a>
+                        {detail.prState && (
+                          <span class={`tag small mono ${detail.prState === 'MERGED' ? 's-done' : 's-running'}`}>
+                            {detail.prState.toLowerCase()}
+                          </span>
+                        )}
+                        <button
+                          class="btn btn-xs"
+                          type="button"
+                          disabled={busyAction === `sync-${detail.slug}`}
+                          onClick={() => handleSyncComments(detail.slug)}
+                        >
+                          {busyAction === `sync-${detail.slug}` ? <><Spinner /> Syncing…</> : 'Sync PR Comments'}
+                        </button>
+                      </div>
                     ) : (
                       <div class="row" style={{ gap: '8px', alignItems: 'center' }}>
                         <span class="muted small">No PR linked</span>
@@ -277,6 +334,14 @@ export function Completed() {
                   </div>
                 </div>
               </Panel>
+
+              {detail.prComments && (
+                <Panel title="Pull Request Review Comments">
+                  <div class="pb">
+                    <Markdown text={detail.prComments} />
+                  </div>
+                </Panel>
+              )}
 
               {detail.commits && detail.commits.length > 0 && (
                 <Panel title={`Commits (${detail.commits.length})`}>

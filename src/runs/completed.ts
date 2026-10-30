@@ -3,10 +3,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { backlogItems, parseBrief, parseIndex, type BacklogPlace } from '../backlog/index.js';
-import { readRecord, type RunRecord } from './records.js';
-import { pickBase, type RunContext } from './index.js';
-import { createOrGetPr, getPrFromBrief, recordPrInBrief } from '../pipeline/finalise.js';
+import { backlogItems, parseBrief, parseIndex } from '../backlog/index.js';
+import { readRecord } from './records.js';
+import { pickBase, runWorktree, type RunContext } from './index.js';
+import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, recordPrInBrief } from '../pipeline/finalise.js';
 
 export interface CompletedTask {
   slug: string;
@@ -16,6 +16,7 @@ export interface CompletedTask {
   branch: string;
   base: string;
   pr: string | null;
+  prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null;
   archived: boolean;
   date: string | null;
 }
@@ -39,6 +40,7 @@ export interface CompletedTaskDetail extends CompletedTask {
   commits: CommitInfo[];
   files: FileChange[];
   diffStat: string;
+  prComments?: string | null;
 }
 
 const git = (cwd: string, args: string[], env: NodeJS.ProcessEnv = process.env) =>
@@ -91,15 +93,39 @@ export function listCompletedTasks(ctx: RunContext): CompletedTask[] {
 
   for (const slug of completedSlugs) {
     const item = itemMap.get(slug);
+    const entry = entries.find(e => e.slug === slug);
     const rec = readRecord(ctx.reg, slug);
     const docsDir = path.join(ctx.root, ctx.backlogDir, slug);
     const briefFile = path.join(docsDir, 'brief.md');
     const briefText = fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '';
-    const pr = getPrFromBrief(briefText);
+    let pr = getPrFromBrief(briefText);
     const briefMeta = parseBrief({ root: ctx.root, backlogDir: ctx.backlogDir }, slug);
     const branch = (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
     const base = (rec && rec.base) || defaultBase;
     const archived = isArchivedInIndex(indexText, slug);
+
+    // Query live PR status
+    const prStatus = getPrStatus(ctx.root, pr || branch, ctx.env);
+    if (!pr && prStatus?.url) {
+      pr = prStatus.url;
+      try {
+        const updated = recordPrInBrief(briefText, pr);
+        fs.writeFileSync(briefFile, updated);
+      } catch { /* best effort */ }
+    }
+
+    const prState = prStatus ? prStatus.state : null;
+    const isMarkedDoneInIndex = entry && (entry.marker.toLowerCase() === 'x' || isArchivedInIndex(indexText, slug));
+
+    // RULE: A task with a PR is only completed once the PR is MERGED into base.
+    // If GitHub reports the PR as OPEN or CLOSED (not merged), it is not completed.
+    if (pr && prStatus && prStatus.state !== 'MERGED') {
+      continue;
+    }
+    // If a PR exists but cannot be checked (e.g. offline/mock in tests), only accept if explicitly marked in index.md
+    if (pr && !prStatus && !isMarkedDoneInIndex) {
+      continue;
+    }
 
     // Derive date
     let date = (rec && (rec.finished || rec.started)) || null;
@@ -116,6 +142,7 @@ export function listCompletedTasks(ctx: RunContext): CompletedTask[] {
       branch,
       base,
       pr,
+      prState,
       archived,
       date,
     });
@@ -209,6 +236,10 @@ export function getCompletedTaskDetail(ctx: RunContext, slug: string): Completed
     }
   }
 
+  const prCommentsFile = path.join(docsDir, 'pr-comments.md');
+  const prComments = fs.existsSync(prCommentsFile) ? fs.readFileSync(prCommentsFile, 'utf8') : null;
+  const prStatus = getPrStatus(ctx.root, pr || branch, ctx.env);
+
   return {
     slug,
     title: item ? item.title : slug,
@@ -216,14 +247,49 @@ export function getCompletedTaskDetail(ctx: RunContext, slug: string): Completed
     priority: (item && item.priority) || briefMeta.priority,
     branch,
     base,
-    pr,
+    pr: pr || prStatus?.url || null,
+    prState: prStatus ? prStatus.state : null,
     archived,
     date,
     brief: briefText,
     commits,
     files,
     diffStat,
+    prComments,
   };
+}
+
+/** Fetches discussion comments and inline diff comments from GitHub and saves them to pr-comments.md. */
+export function syncPrComments(
+  ctx: RunContext,
+  slug: string,
+): { ok: boolean; pr?: string | null; markdown: string; count: number; err?: string[] } {
+  const docsDir = path.join(ctx.root, ctx.backlogDir, slug);
+  const briefFile = path.join(docsDir, 'brief.md');
+  const briefText = fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '';
+  const pr = getPrFromBrief(briefText);
+  const rec = readRecord(ctx.reg, slug);
+  const branch = (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
+
+  const target = pr || branch;
+  const res = fetchPrComments(ctx.root, target, ctx.env);
+  if (!res.ok) {
+    return { ok: false, markdown: '', count: 0, err: res.err };
+  }
+
+  // Save to pr-comments.md in docsDir
+  fs.mkdirSync(docsDir, { recursive: true });
+  fs.writeFileSync(path.join(docsDir, 'pr-comments.md'), res.markdown);
+
+  // If worktree exists, also write there
+  const worktree = runWorktree(ctx, slug);
+  if (worktree) {
+    const wtDocs = path.join(worktree, ctx.backlogDir, slug);
+    fs.mkdirSync(wtDocs, { recursive: true });
+    fs.writeFileSync(path.join(wtDocs, 'pr-comments.md'), res.markdown);
+  }
+
+  return { ok: true, pr: res.pr, markdown: res.markdown, count: res.comments.length };
 }
 
 /** Creates a PR for a completed task that does not have one yet. */
@@ -266,10 +332,15 @@ export function createPrForCompleted(
     const updated = recordPrInBrief(fs.readFileSync(briefFile, 'utf8'), prUrl);
     fs.writeFileSync(briefFile, updated);
     const briefRel = path.relative(ctx.root, briefFile);
-    git(ctx.root, ['add', '--', briefRel], ctx.env);
-    git(ctx.root, ['commit', '-q', '-m', `chore(${slug}): link pull request`, '--', briefRel], ctx.env);
-    git(ctx.root, ['push', 'origin', branch], ctx.env);
-    out.push('Updated brief.md and committed PR link to branch.');
+    const curBranch = git(ctx.root, ['rev-parse', '--abbrev-ref', 'HEAD'], ctx.env).stdout.trim();
+    if (curBranch === branch) {
+      git(ctx.root, ['add', '--', briefRel], ctx.env);
+      git(ctx.root, ['commit', '-q', '-m', `chore(${slug}): link pull request`, '--', briefRel], ctx.env);
+      git(ctx.root, ['push', 'origin', branch], ctx.env);
+      out.push('Updated brief.md and committed PR link to branch.');
+    } else {
+      out.push('Updated brief.md with PR link.');
+    }
   }
 
   return { ok: true, pr: prUrl, out, err };

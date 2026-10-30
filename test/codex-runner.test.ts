@@ -8,7 +8,6 @@ import { extract } from '../src/permissions/index.js';
 import { Status } from '../src/pipeline/status.js';
 import { Git } from '../src/pipeline/git.js';
 import { Keys } from '../src/testcheck/keys.js';
-import type { Ctx } from '../src/pipeline/context.js';
 
 describe('Codex Runner Integration', () => {
   let tmpDir: string;

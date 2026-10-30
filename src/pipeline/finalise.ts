@@ -88,11 +88,164 @@ export function createOrGetPr(cwd: string, branch: string, title: string, body: 
   return null;
 }
 
+export interface PrStatus {
+  url: string;
+  state: 'OPEN' | 'MERGED' | 'CLOSED';
+  number?: number;
+}
+
+/** Queries live GitHub PR status using gh CLI. */
+export function getPrStatus(
+  cwd: string,
+  branchOrUrl: string,
+  env: NodeJS.ProcessEnv = process.env,
+): PrStatus | null {
+  try {
+    const view = spawnSync('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number'], {
+      cwd, encoding: 'utf8', env, timeout: 6000,
+    });
+    if (view.status === 0 && view.stdout.trim()) {
+      const data = JSON.parse(view.stdout.trim());
+      if (data && data.url) {
+        return {
+          url: data.url,
+          state: (data.state || 'OPEN').toUpperCase() as 'OPEN' | 'MERGED' | 'CLOSED',
+          number: typeof data.number === 'number' ? data.number : undefined,
+        };
+      }
+    }
+  } catch { /* best effort */ }
+
+  return null;
+}
+
+export interface PrComment {
+  author: string;
+  body: string;
+  createdAt: string;
+  path?: string;
+  line?: number;
+  diffHunk?: string;
+}
+
+/** Fetches discussion comments, reviews, and inline diff comments from GitHub. */
+export function fetchPrComments(
+  cwd: string,
+  branchOrUrl: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { ok: boolean; pr: string | null; state: string | null; comments: PrComment[]; markdown: string; err?: string[] } {
+  const err: string[] = [];
+  const status = getPrStatus(cwd, branchOrUrl, env);
+  if (!status) {
+    err.push(`No PR found for ${branchOrUrl}`);
+    return { ok: false, pr: null, state: null, comments: [], markdown: '', err };
+  }
+
+  const comments: PrComment[] = [];
+
+  // 1. Fetch reviews and discussion comments via gh pr view
+  try {
+    const view = spawnSync('gh', ['pr', 'view', branchOrUrl, '--json', 'comments,reviews'], {
+      cwd, encoding: 'utf8', env, timeout: 8000,
+    });
+    if (view.status === 0 && view.stdout.trim()) {
+      const data = JSON.parse(view.stdout.trim());
+      if (Array.isArray(data.reviews)) {
+        for (const rev of data.reviews) {
+          if (rev.body && rev.body.trim()) {
+            comments.push({
+              author: rev.author?.login || 'reviewer',
+              body: rev.body.trim(),
+              createdAt: rev.submittedAt || '',
+            });
+          }
+        }
+      }
+      if (Array.isArray(data.comments)) {
+        for (const c of data.comments) {
+          if (c.body && c.body.trim()) {
+            comments.push({
+              author: c.author?.login || 'commenter',
+              body: c.body.trim(),
+              createdAt: c.createdAt || '',
+            });
+          }
+        }
+      }
+    }
+  } catch { /* best effort */ }
+
+  // 2. Fetch inline review comments if PR number is available
+  if (status.number) {
+    try {
+      const apiRes = spawnSync('gh', ['api', `repos/:owner/:repo/pulls/${status.number}/comments`], {
+        cwd, encoding: 'utf8', env, timeout: 8000,
+      });
+      if (apiRes.status === 0 && apiRes.stdout.trim()) {
+        const list = JSON.parse(apiRes.stdout.trim());
+        if (Array.isArray(list)) {
+          for (const item of list) {
+            if (item.body && item.body.trim()) {
+              comments.push({
+                author: item.user?.login || 'reviewer',
+                body: item.body.trim(),
+                createdAt: item.created_at || '',
+                path: item.path,
+                line: item.line || item.original_line,
+                diffHunk: item.diff_hunk,
+              });
+            }
+          }
+        }
+      }
+    } catch { /* best effort */ }
+  }
+
+  // 3. Format into a structured markdown document
+  const mdLines: string[] = [
+    '# Pull Request Review Comments',
+    '',
+    `PR: ${status.url}`,
+    `State: ${status.state}`,
+    `Total comments: ${comments.length}`,
+    '',
+  ];
+
+  if (comments.length === 0) {
+    mdLines.push('No review comments found on this pull request.');
+  } else {
+    const inline = comments.filter(c => c.path);
+    const general = comments.filter(c => !c.path);
+
+    if (inline.length > 0) {
+      mdLines.push('## Inline Review Comments', '');
+      for (const c of inline) {
+        mdLines.push(`### @${c.author} on \`${c.path}${c.line ? `:${c.line}` : ''}\``);
+        if (c.diffHunk) {
+          mdLines.push('```diff', c.diffHunk, '```');
+        }
+        mdLines.push('', c.body, '');
+      }
+    }
+
+    if (general.length > 0) {
+      mdLines.push('## Discussion & Review Comments', '');
+      for (const c of general) {
+        mdLines.push(`### @${c.author} (${c.createdAt.split('T')[0] || 'review'})`, '', c.body, '');
+      }
+    }
+  }
+
+  const markdown = mdLines.join('\n');
+  return { ok: true, pr: status.url, state: status.state, comments, markdown };
+}
+
 /**
  * Commits the cycle's files (compared with the baseline) in one feat commit and ticks the backlog item in its own. The
  * developer's own earlier changes, secrets, editor and agent configuration, generated and large files are skipped and
  * listed in <docs>/logs/finalise-skipped.md. Nothing to commit and a slug missing from the backlog are warnings.
  * When createPr is enabled, pushes the branch to origin, creates a GitHub PR if needed, and links it in brief.md.
+ * If a PR is created or open, the backlog item is only marked completed [x] once the PR is merged into base.
  * Returns the finalise result (committed count and PR URL).
  */
 export function finalise(o: FinaliseOptions): FinaliseResult {
@@ -113,20 +266,6 @@ export function finalise(o: FinaliseOptions): FinaliseResult {
   else {
     o.git.run('add', '-A', '--', ...include);
     o.git.run('commit', '-q', '-m', `feat(${o.slug}): implement per ${o.docs}/specs-1.md`, '-m', include.slice(0, 50).join('\n'), '--', ...include);
-  }
-
-  const backlogFile = path.join(root, o.backlog);
-  const item = `- [ ] \`${o.slug}\``;
-  const text = fs.existsSync(backlogFile) ? fs.readFileSync(backlogFile, 'utf8') : null;
-  if (text !== null && text.split('\n').some(l => l.startsWith(item))) {
-    fs.writeFileSync(backlogFile, text.split('\n').map(l => (l.startsWith(item) ? `- [x] ${l.slice(6)}` : l)).join('\n'));
-    if (backlogDirty) o.out(`WARNING: ${o.backlog} had local changes before the run; ticked ${o.slug} but not committed`);
-    else {
-      o.git.run('add', '--', o.backlog);
-      o.git.run('commit', '-q', '-m', `chore(backlog): mark ${o.slug} done`, '--', o.backlog);
-    }
-  } else {
-    o.out(`WARNING: ${o.slug} not found in ${o.backlog}; not ticked`);
   }
 
   const lines = skipped.map(s => `- ${s.path}: ${s.reason}`);
@@ -174,6 +313,30 @@ export function finalise(o: FinaliseOptions): FinaliseResult {
     } else {
       o.err('WARNING: could not create or detect PR (ensure gh is installed and authenticated)');
     }
+  }
+
+  // Backlog marking: If a PR exists or was created, check whether it is merged.
+  // The task is only ticked [x] once the PR is merged into base (or if no PR is used).
+  const prStatus = prUrl ? getPrStatus(root, prUrl) : null;
+  const isPrMerged = prStatus ? prStatus.state === 'MERGED' : false;
+  const shouldTickDone = !prUrl || isPrMerged;
+
+  const backlogFile = path.join(root, o.backlog);
+  const item = `- [ ] \`${o.slug}\``;
+  const text = fs.existsSync(backlogFile) ? fs.readFileSync(backlogFile, 'utf8') : null;
+  if (text !== null && text.split('\n').some(l => l.startsWith(item))) {
+    if (shouldTickDone) {
+      fs.writeFileSync(backlogFile, text.split('\n').map(l => (l.startsWith(item) ? `- [x] ${l.slice(6)}` : l)).join('\n'));
+      if (backlogDirty) o.out(`WARNING: ${o.backlog} had local changes before the run; ticked ${o.slug} but not committed`);
+      else {
+        o.git.run('add', '--', o.backlog);
+        o.git.run('commit', '-q', '-m', `chore(backlog): mark ${o.slug} done`, '--', o.backlog);
+      }
+    } else {
+      o.out(`PR created (${prUrl}). Backlog item will be marked completed once the PR is merged into main.`);
+    }
+  } else if (shouldTickDone) {
+    o.out(`WARNING: ${o.slug} not found in ${o.backlog}; not ticked`);
   }
 
   return { committed: include.length, pr: prUrl };

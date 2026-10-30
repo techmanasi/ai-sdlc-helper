@@ -22,7 +22,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   stageFiles: Record<string, string[]>;
   changes: { changed: number; uncommitted: number; files: string[] } | null;
   tail: string[]; docs: string[]; discarded: string; resumeFrom: string;
-  createPr?: boolean; pr?: string | null;
+  createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean;
 }
 export interface CompletedTask {
   slug: string;
@@ -32,6 +32,7 @@ export interface CompletedTask {
   branch: string;
   base: string;
   pr: string | null;
+  prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null;
   archived: boolean;
   date?: string | null;
 }
@@ -55,6 +56,7 @@ export interface CompletedTaskDetail extends CompletedTask {
   commits: CommitInfo[];
   files: FileChange[];
   diffStat: string;
+  prComments?: string | null;
 }
 
 export interface Outcome { ok: boolean; code: number; out: string[]; err: string[] }
@@ -141,10 +143,18 @@ export const api = {
     call<{ pending: number; resumed: Outcome | null }>('POST', `${r(project, slug)}/permissions`, { which, choice, env }),
   setOptions: (project: string, slug: string, options: { createPr?: boolean }) =>
     call<{ ok: boolean; createPr: boolean }>('POST', `${r(project, slug)}/options`, options),
+  createRunPr: (project: string, slug: string) =>
+    call<{ ok: boolean; pr: string | null; out: string[]; err: string[] }>('POST', `${r(project, slug)}/pr`, {}),
+  getRunPr: (project: string, slug: string) =>
+    call<{ pr: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; markdown: string | null }>('GET', `${r(project, slug)}/pr`),
+  syncRunPrComments: (project: string, slug: string) =>
+    call<{ ok: boolean; pr?: string | null; markdown: string; count: number; err?: string[] }>('POST', `${r(project, slug)}/pr-sync`, {}),
   completed: (project: string) => call<{ completed: CompletedTask[] }>('GET', `${p(project)}/completed`),
   completedTask: (project: string, slug: string) => call<CompletedTaskDetail>('GET', `${p(project)}/completed/${encodeURIComponent(slug)}`),
   createCompletedPr: (project: string, slug: string) =>
     call<{ ok: boolean; pr: string | null; out: string[]; err: string[] }>('POST', `${p(project)}/completed/${encodeURIComponent(slug)}/pr`, {}),
+  syncCompletedPrComments: (project: string, slug: string) =>
+    call<{ ok: boolean; pr?: string | null; markdown: string; count: number; err?: string[] }>('POST', `${p(project)}/completed/${encodeURIComponent(slug)}/sync`, {}),
   archiveTask: (project: string, slug: string) => call<{ ok: boolean; archived: boolean }>('POST', `${p(project)}/archive/${encodeURIComponent(slug)}`, {}),
   archiveAll: (project: string, opts?: { olderThanDays?: number }) => call<{ ok: boolean; count: number }>('POST', `${p(project)}/archive`, opts || {}),
   command: (project: string, args: string[]) => call<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }>('POST', `${p(project)}/command`, { args }),

@@ -155,7 +155,9 @@ export function extract({ jsonFile, logFile, stateFile, stage, cwd, errFile, all
           if (typeof ev.content === 'string') codexText = ev.content;
           else if (ev.message?.content) codexText = String(ev.message.content);
         }
-      } catch {}
+      } catch {
+        /* ignore non-JSON */
+      }
     }
     if (jsonlEvents.length > 0) {
       fs.writeFileSync(logFile, `${codexText}${codexText.endsWith('\n') ? '' : '\n'}${err}`);

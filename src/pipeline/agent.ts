@@ -6,7 +6,7 @@ import { extract, modeFor, rulesFor } from '../permissions/index.js';
 import { testDir, testFramework } from '../config/settings.js';
 import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from './context.js';
 import { modelFlags, providerEnv, stageModel } from './models.js';
-import { manualInput, renderPrompt } from './prompts.js';
+import { manualInput, prCommentsInput, renderPrompt } from './prompts.js';
 import { resumeHint } from './hints.js';
 import { DefaultHarnessRegistry } from './harness/registry.js';
 
@@ -36,7 +36,9 @@ export function usageLimit(jsonFile: string): string | null {
           if (event.error?.code === 'rate_limit_exceeded' || event.code === 'rate_limit') {
             return 'rate limit reached';
           }
-        } catch {}
+        } catch {
+          /* ignore non-JSON */
+        }
       }
     }
     return null;
@@ -115,7 +117,10 @@ export function stageFlags(ctx: Ctx, stage: AgentStage): { args: string[]; env: 
 export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promise<void> {
   stopIfAborted(ctx);
   let prompt = renderPrompt(stage, promptValues(ctx), ctx.guide, ctx.promptsDir);
-  if (stage !== 'test-repair' && stage !== 'test-audit') prompt += manualInput(at(ctx, ctx.docs), stage, testDir(ctx.config.suites[0]));
+  if (stage !== 'test-repair' && stage !== 'test-audit') {
+    prompt += manualInput(at(ctx, ctx.docs), stage, testDir(ctx.config.suites[0]));
+    prompt += prCommentsInput(at(ctx, ctx.docs));
+  }
   ctx.out(`   -> agent: ${name}`);
   const flags = stageFlags(ctx, stage);
   ctx.status.agent = name;
@@ -131,7 +136,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
 
   let model = flags.model;
-  let effort = flags.effort;
+  const effort = flags.effort;
   if (harnessId === 'codex') {
     if (model === 'opus') model = 'o1';
     else if (model === 'sonnet') model = 'o3-mini';

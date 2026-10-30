@@ -5,14 +5,14 @@ import { describe, expect, test } from 'vitest';
 import { Git } from '../src/pipeline/git.js';
 import { snapshot } from '../src/changes/index.js';
 import {
-  finalise, getPrFromBrief, recordPrInBrief, createOrGetPr,
+  finalise, getPrFromBrief, recordPrInBrief,
 } from '../src/pipeline/finalise.js';
 import {
-  archiveCompleted, archiveTask, unarchiveTask, splitIndexSections, joinIndexSections,
+  archiveCompleted, archiveTask, unarchiveTask,
 } from '../src/backlog/archive.js';
-import { backlogItems, parseIndex } from '../src/backlog/index.js';
+import { backlogItems } from '../src/backlog/index.js';
 import {
-  listCompletedTasks, getCompletedTaskDetail, createPrForCompleted, isArchivedInIndex,
+  listCompletedTasks, getCompletedTaskDetail, isArchivedInIndex,
 } from '../src/runs/completed.js';
 import { runContext } from '../src/runs/index.js';
 import { main } from '../src/cli/main.js';
@@ -85,6 +85,7 @@ Type: feature
     });
 
     expect(res.committed).toBe(1);
+    expect(err).toBe('');
     expect(out).toContain(`DONE: ${slug} on main. Committed 1 file(s)`);
     // Backlog item ticked
     const indexText = fs.readFileSync(path.join(repo, 'Docs/backlog/index.md'), 'utf8');
@@ -156,6 +157,7 @@ describe('Task Archiving in Docs/backlog/index.md', () => {
 
     const code = await main(['archive', 'task-one'], io);
     expect(code).toBe(0);
+    expect(err).toBe('');
     expect(out).toContain('Archived task-one');
 
     out = '';
