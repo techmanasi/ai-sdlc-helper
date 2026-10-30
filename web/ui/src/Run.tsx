@@ -24,10 +24,11 @@ function saveEnv(project: string, slug: string, rows: [string, string][]): void 
 
 type StageState = 'done' | 'active' | 'paused' | 'failed' | 'pending';
 function stageStates(v: RunView): StageState[] {
-  const at = v.state === 'done' ? STAGES.length : Math.max(0, STAGES.findIndex(s => s.name === v.stage || (s.name === 'Ship' && v.stage === 'Commit')));
+  const stageName = v.stage || (v.state === 'running' && v.record?.from ? (STAGES.find(s => s.key === v.record?.from)?.name || '') : '');
+  const at = v.state === 'done' ? STAGES.length : Math.max(0, STAGES.findIndex(s => s.name === stageName || (s.name === 'Ship' && stageName === 'Commit')));
   return STAGES.map((_, i) => {
     if (v.state === 'done' || i < at) return 'done';
-    if (i > at || v.state === 'not started' || (!v.stage && v.state !== 'running')) return 'pending';
+    if (i > at || v.state === 'not started' || (!v.stage && !v.record?.from && v.state !== 'running')) return 'pending';
     if (v.state === 'running') return 'active';
     if (v.state === 'paused') return 'paused';
     return 'failed';
