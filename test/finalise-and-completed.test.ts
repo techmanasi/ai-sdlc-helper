@@ -26,6 +26,8 @@ function gitCmd(cwd: string, ...args: string[]) {
 
 function makeRepo(dir: string, slug = 'task-one') {
   gitCmd(dir, 'init', '-q', '-b', 'main');
+  gitCmd(dir, 'config', 'user.name', 'test');
+  gitCmd(dir, 'config', 'user.email', 'test@example.com');
   fs.mkdirSync(path.join(dir, 'Docs/backlog', slug), { recursive: true });
   fs.writeFileSync(path.join(dir, 'Docs/backlog/index.md'), `# Backlog\n\n- [ ] \`${slug}\` - Feature: Test task\n`);
   fs.writeFileSync(path.join(dir, 'Docs/backlog', slug, 'brief.md'), `# ${slug}\n\nType: feature\nPriority: P1\n`);
