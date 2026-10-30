@@ -197,7 +197,12 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       if (action === 'answers') {
         const v = runView(ctx, slug, { changes: false, tailLines: 0 });
         if (!v.dir) throw new HttpError(404, `${slug} has no run with questions`);
-        const answers = body.answers && typeof body.answers === 'object' ? body.answers : {};
+        const qNums = new Set(v.questions.map(q => String(q.n)));
+        const rawAnswers = body.answers && typeof body.answers === 'object' ? body.answers as Record<string, unknown> : {};
+        const answers: Record<string, string> = {};
+        for (const [k, val] of Object.entries(rawAnswers)) {
+          if (qNums.has(String(k)) && typeof val === 'string') answers[k] = val;
+        }
         let counts: { total: number; answered: number };
         try { counts = answerQuestions(path.join(v.dir, ctx.backlogDir, slug, 'questions.md'), answers); } catch (e) { throw new HttpError(400, (e as Error).message); }
         const resumed = body.resume !== false && counts.answered === counts.total ? outcome(start(ctx, slug, { from: v.resumeFrom || undefined })) : null;
