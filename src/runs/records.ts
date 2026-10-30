@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 export const SLUG = /^[a-z0-9][a-z0-9-]*$/;
-export const STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'review'] as const;
+export const STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'review', 'ship'] as const;
 
 export interface RunRecord {
   slug: string;

@@ -217,15 +217,19 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       }
       if (action === 'permissions') {
         const v = runView(ctx, slug, { changes: false, tailLines: 0 });
-        if (!v.dir || !v.permissions.length) throw new HttpError(404, `${slug} has no refused actions to decide`);
-        const stage = v.permissions[0].stage;
+        const whichStr = String(body.which ?? '');
+        const isFromDenied = whichStr.startsWith('denied:');
+        const hasActions = isFromDenied ? (v.deniedPermissions && v.deniedPermissions.length > 0) : v.permissions.length > 0;
+        if (!v.dir || !hasActions) throw new HttpError(404, `${slug} has no ${isFromDenied ? 'denied' : 'refused'} actions to decide`);
+        const stage = isFromDenied ? (v.deniedPermissions[0]?.stage || 'ship') : v.permissions[0].stage;
         let pending: number;
         try {
-          pending = decide(path.join(v.dir, ctx.backlogDir, slug, 'logs', 'permissions.json'), String(body.which ?? ''), String(body.choice ?? ''), repoRulesFile(ctx.root));
+          pending = decide(path.join(v.dir, ctx.backlogDir, slug, 'logs', 'permissions.json'), whichStr, String(body.choice ?? ''), repoRulesFile(ctx.root));
         } catch (e) { throw new HttpError(400, (e as Error).message); }
         // The stage that was refused runs again (Spec from the start, the test audit as part of Implement).
         const from = stage === 'spec' ? undefined : stage === 'test-audit' ? 'implement' : stage;
-        const resumed = body.resume !== false && pending === 0 ? outcome(start(ctx, slug, { from })) : null;
+        const shouldResume = isFromDenied ? (body.resume === true) : (body.resume !== false && pending === 0);
+        const resumed = shouldResume ? outcome(start(ctx, slug, { from })) : null;
         return send(200, { ok: true, pending, resumed });
       }
     }

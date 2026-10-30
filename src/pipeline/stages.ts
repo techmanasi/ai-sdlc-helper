@@ -156,8 +156,8 @@ export function resumeAtTests(ctx: Ctx): void {
     const errs = resumecheck(ctx.keys, ctx.redSha, `${ctx.docs}/test-issues.md`, ctx.slug, ctx.lockSha);
     if (errs.length) { ctx.err(errs.map(e => `REJECT: ${e}`).join('\n')); stop(ctx, null); }
   } else {
-    // Review resumes from the latest locked tests (the red-tests commit, or the Test repair commit after it).
-    ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug), ...(ctx.from === 'review' ? [repairPattern(ctx.slug)] : [])]);
+    // Review and Ship resume from the latest locked tests (the red-tests commit, or the Test repair commit after it).
+    ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug), ...(ctx.from === 'review' || ctx.from === 'ship' ? [repairPattern(ctx.slug)] : [])]);
     if (!ctx.redSha) stop(ctx, `FROM=${ctx.from} but no red-tests commit found for ${ctx.slug}`);
   }
   ctx.out(`Resuming at ${ctx.from} from tests commit ${short(ctx.redSha)}`);
