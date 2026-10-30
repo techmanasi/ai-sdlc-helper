@@ -1,8 +1,9 @@
 // One run: its stages, the questions and refused actions it waits on, its environment, files and live output, and every
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, type RunView } from './api';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
+import { buildDocTree, type DocTreeNode } from './tree';
 
 const STAGES = [
   { name: 'Spec', key: 'spec' }, { name: 'Plan', key: 'plan' }, { name: 'Red tests', key: 'red-tests' },
@@ -35,6 +36,110 @@ function stageStates(v: RunView): StageState[] {
 const STAGE_GLYPH: Record<StageState, string> = { done: '✔', active: '●', paused: '⏸', failed: '✘', pending: '○' };
 const STAGE_CLASS: Record<StageState, string> = { done: 's-done', active: 's-running', paused: 's-paused', failed: 's-failed', pending: 's-not-started' };
 
+function DocTreeNodeView({
+  node,
+  openFile,
+  openDirs,
+  onToggleDir,
+}: {
+  node: DocTreeNode;
+  openFile: (path: string) => void;
+  openDirs: Record<string, boolean>;
+  onToggleDir: (path: string, isOpen: boolean) => void;
+}) {
+  if (!node.isDir) {
+    return (
+      <div
+        class="row"
+        style={{
+          justifyContent: 'space-between',
+          padding: '2px 0',
+          minHeight: '28px',
+          flexWrap: 'nowrap',
+          width: '100%',
+        }}
+      >
+        <span
+          class="mono small"
+          title={node.path}
+          style={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            marginRight: '8px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            minWidth: 0,
+          }}
+        >
+          <span class="muted" aria-hidden="true" style={{ flexShrink: 0 }}>📄</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.name}</span>
+        </span>
+        <button
+          class="btn btn-s"
+          type="button"
+          style={{ flexShrink: 0 }}
+          onClick={() => openFile(node.path)}
+        >
+          Open
+        </button>
+      </div>
+    );
+  }
+
+  // Directory node: folders containing multiple files/nodes default to closed
+  const defaultOpen = node.children.length <= 1;
+  const isOpen = openDirs[node.path] !== undefined ? openDirs[node.path] : defaultOpen;
+
+  return (
+    <details
+      open={isOpen}
+      onToggle={(e) => {
+        e.stopPropagation();
+        const target = e.currentTarget as HTMLDetailsElement;
+        onToggleDir(node.path, target.open);
+      }}
+      style={{ width: '100%' }}
+    >
+      <summary
+        class="mono small"
+        style={{
+          cursor: 'pointer',
+          userSelect: 'none',
+          padding: '3px 0',
+          display: 'list-item',
+        }}
+      >
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span aria-hidden="true">📁</span>
+          <span style={{ fontWeight: 500 }}>{node.name}</span>
+          <span class="muted" style={{ fontSize: '11px' }}>({node.children.length})</span>
+        </span>
+      </summary>
+      <div
+        style={{
+          paddingLeft: '14px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '3px',
+          marginTop: '2px',
+        }}
+      >
+        {node.children.map((child) => (
+          <DocTreeNodeView
+            key={child.path}
+            node={child}
+            openFile={openFile}
+            openDirs={openDirs}
+            onToggleDir={onToggleDir}
+          />
+        ))}
+      </div>
+    </details>
+  );
+}
+
 export function Run({ slug }: { slug: string }) {
   const { project, go, toast } = useApp();
   const [v, setV] = useState<RunView | null>(null);
@@ -46,6 +151,7 @@ export function Run({ slug }: { slug: string }) {
   const [env, setEnv] = useState<[string, string][]>(() => loadEnv(project, slug));
   const [from, setFrom] = useState('');
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
+  const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
 
   const questionsSig = v?.questions.map(q => `${q.n}:${q.title}`).join('|') ?? '';
   const lastQuestionsSig = useRef(questionsSig);
@@ -60,6 +166,7 @@ export function Run({ slug }: { slug: string }) {
   const load = () => api.run(project, slug).then(x => { setV(x); setError(''); }).catch(e => setError((e as Error).message));
   useEffect(() => {
     setAnswers({});
+    setOpenDirs({});
     load();
     api.brief(project, slug).then(b => setBrief(b.brief)).catch(() => setBrief(null));
     const t = setInterval(load, 2000);
@@ -91,6 +198,7 @@ export function Run({ slug }: { slug: string }) {
   const startArgs = ['start', slug, ...(v.resumeFrom && v.state !== 'not started' ? ['--from', v.resumeFrom] : [])];
   const editorLink = v.worktree ? `vscode://file${v.worktree.startsWith('/') ? '' : '/'}${v.worktree}` : '';
   const openFile = async (p: string) => { try { setFile({ path: p, text: (await api.file(project, slug, p)).text }); } catch (e) { toast((e as Error).message); } };
+  const docTree = useMemo(() => (v ? buildDocTree(v.docs) : []), [v?.docs.join('|')]);
 
   return (
     <div class="col">
@@ -289,10 +397,18 @@ export function Run({ slug }: { slug: string }) {
           )}
 
           <Panel title="Documents" extra={<span class="mono small muted">its folder in the backlog</span>}>
-            <ul style={{ listStyle: 'none', margin: 0, padding: '8px 14px 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {v.docs.map(d => <li class="row" style={{ justifyContent: 'space-between' }}><span class="mono small">{d}</span><button class="btn btn-s" type="button" onClick={() => openFile(d)}>Open</button></li>)}
-              {!v.docs.length && <li class="muted small">No files yet.</li>}
-            </ul>
+            <div style={{ padding: '8px 14px 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {docTree.map(node => (
+                <DocTreeNodeView
+                  key={node.path}
+                  node={node}
+                  openFile={openFile}
+                  openDirs={openDirs}
+                  onToggleDir={(path, open) => setOpenDirs(prev => (prev[path] === open ? prev : { ...prev, [path]: open }))}
+                />
+              ))}
+              {!v.docs.length && <span class="muted small">No files yet.</span>}
+            </div>
           </Panel>
 
           {v.record && (
