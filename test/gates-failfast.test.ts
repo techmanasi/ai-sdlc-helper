@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, test, vi, afterEach } from 'vitest';
 import * as runners from '../src/runners/run.js';
 import * as filesModule from '../src/runners/files.js';
+import type { RunResult } from '../src/runners/types.js';
 import { targetTestFiles, testsPass, successCheck } from '../src/pipeline/gates.js';
 import type { Ctx } from '../src/pipeline/context.js';
 import { tmp } from './helpers.js';
@@ -14,6 +15,7 @@ function makeCtx(dir: string, overrides: Partial<Ctx> = {}): Ctx {
     root: dir,
     log: 'logs',
     docs: 'docs',
+    backlog: 'docs/backlog',
     slug: 'my-feature',
     from: 'implement',
     fromN: 4,
@@ -21,7 +23,7 @@ function makeCtx(dir: string, overrides: Partial<Ctx> = {}): Ctx {
     env: {},
     envModels: {},
     registryFile: '',
-    limits: { maxAttempts: 4, maxTurns: 10, maxRepairs: 2 },
+    limits: { maxAttempts: 4, maxTurns: 10, maxRepairTests: 2 },
     git: {
       lines: vi.fn().mockReturnValue([]),
     } as any,
@@ -74,7 +76,7 @@ function makeCtx(dir: string, overrides: Partial<Ctx> = {}): Ctx {
 }
 
 function mockRunResult(ok: boolean, files: string[] = ['test/a.test.ts']): runners.RunAll {
-  const result: runners.RunResult = {
+  const result: RunResult = {
     runner: 'vitest',
     suite: 'unit',
     ok,

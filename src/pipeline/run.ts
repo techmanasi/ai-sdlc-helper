@@ -108,7 +108,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
   } finally {
     if (ctx) {
       markStage(ctx, ctx.status.stage);
-      Object.assign(ctx.status, { state: finalState(code), agent: '', model: '', effort: '' });
+      Object.assign(ctx.status, { state: finalState(code), agent: '', model: '', effort: '', attempt: '' });
       ctx.status.write();
     }
   }
