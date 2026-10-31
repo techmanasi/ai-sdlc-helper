@@ -123,8 +123,13 @@ describe('runView', () => {
   });
 
   test('resumeStage: Plan and Red tests resume at their stage, Review at review, Finalise at finalise, others at Implement', () => {
-    expect(['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise', ''].map(resumeStage))
+    expect(['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise', ''].map(s => resumeStage(s)))
       .toEqual(['', 'plan', 'red-tests', 'implement', 'implement', 'review', 'finalise', '']);
+  });
+
+  test('resumeStage: resumes at test-repair when test-issues exist', () => {
+    expect(resumeStage('Test repair', true)).toBe('test-repair');
+    expect(resumeStage('Test repair', false)).toBe('implement');
   });
 });
 

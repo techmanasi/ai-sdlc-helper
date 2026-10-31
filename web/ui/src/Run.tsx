@@ -154,6 +154,12 @@ export function Run({ slug }: { slug: string }) {
   const [from, setFrom] = useState('');
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
+  const [issuesDraft, setIssuesDraft] = useState<string | null>(null);
+
+  const testIssuesRejects = useMemo(() => {
+    if (!v?.tail) return [];
+    return v.tail.filter(l => l.startsWith('REJECT:') || l.startsWith('TEST REPAIR REJECTED:'));
+  }, [v?.tail]);
 
   const questionsSig = v?.questions.map(q => `${q.n}:${q.title}`).join('|') ?? '';
   const lastQuestionsSig = useRef(questionsSig);
@@ -449,6 +455,73 @@ export function Run({ slug }: { slug: string }) {
 
           {v.state === 'paused' && !v.questions.length && !v.permissions.length && (
             <div class="banner">Paused at {v.stage || 'the start'} with nothing left to answer or decide: press {startLabel} to continue.</div>
+          )}
+
+          {(v.testIssues !== undefined && v.testIssues !== null || v.stage === 'Test repair' || v.resumeFrom === 'test-repair') && (
+            <Panel
+              title={
+                <span class={v.state === 'failed' ? 's-failed' : 's-running'}>
+                  Test defect claims (test-issues.md)
+                </span>
+              }
+              extra={<span class="mono small muted">test-issues.md</span>}
+            >
+              <div class="pb col" style={{ gap: '10px' }}>
+                <p class="small muted" style={{ margin: 0 }}>
+                  Format: <span class="mono">&lt;test file&gt; :: &lt;full test name&gt; :: &lt;why citing spec/plan/isolation&gt;</span>
+                </p>
+                {testIssuesRejects.length > 0 && (
+                  <div class="error" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
+                    {testIssuesRejects.join('\n')}
+                  </div>
+                )}
+                <textarea
+                  class="inp mono small"
+                  rows={4}
+                  style={{ width: '100%', resize: 'vertical' }}
+                  placeholder="test/example.test.ts :: my test name :: why citing spec..."
+                  value={issuesDraft !== null ? issuesDraft : (v.testIssues || '')}
+                  onInput={e => setIssuesDraft((e.target as HTMLTextAreaElement).value)}
+                />
+                <div class="row">
+                  <button
+                    class="btn btn-p"
+                    type="button"
+                    disabled={!!busy}
+                    onClick={() => act('Save & Resume Test repair', async () => {
+                      const text = issuesDraft !== null ? issuesDraft : (v.testIssues || '');
+                      const r = await api.saveTestIssues(project, slug, text, true);
+                      setIssuesDraft(null);
+                      toast(r.resumed?.ok ? 'Claims saved; Test repair resumed' : 'Claims saved');
+                      return {};
+                    })}
+                  >
+                    {busy === 'Save & Resume Test repair' ? <><Spinner /> Resuming…</> : 'Save claims & Resume Test repair'}
+                  </button>
+                  <button
+                    class="btn"
+                    type="button"
+                    disabled={!!busy}
+                    onClick={() => act('Save claims', async () => {
+                      const text = issuesDraft !== null ? issuesDraft : (v.testIssues || '');
+                      await api.saveTestIssues(project, slug, text, false);
+                      toast('Claims saved to test-issues.md');
+                      return {};
+                    })}
+                  >
+                    {busy === 'Save claims' ? <><Spinner /> Saving…</> : 'Save claims only'}
+                  </button>
+                  <button
+                    class="btn"
+                    type="button"
+                    disabled={running || !!busy}
+                    onClick={() => act('Resume at Test repair', () => api.start(project, slug, 'test-repair', envObj))}
+                  >
+                    {busy === 'Resume at Test repair' ? <><Spinner /> Resuming…</> : 'Resume at Test repair'}
+                  </button>
+                </div>
+              </div>
+            </Panel>
           )}
 
           {(v.state === 'failed' || v.state === 'stopped') && v.tail.length > 0 && (

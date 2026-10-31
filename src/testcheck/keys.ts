@@ -114,7 +114,7 @@ export class Keys {
     const abs = path.resolve(this.cwd, file);
     if (!fs.existsSync(abs)) return [];
     return fs.readFileSync(abs, 'utf8').split('\n')
-      .map(l => l.replace(/^[-*]\s*/, '').split(' :: ').map(s => s.trim()))
+      .map(l => l.replace(/^[-*]\s*/, '').split(/\s*::\s*/).map(s => s.trim()))
       .filter(p => p.length >= 3 && p[0] && p[1] && p[2])
       .map(([f, name, ...why]) => ({ file: this.rel(f), name, why: why.join(' :: '), key: `${this.rel(f)}::${norm(name)}` }));
   }

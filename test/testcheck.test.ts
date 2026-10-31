@@ -268,6 +268,19 @@ describe('testcheck reads RunResult files like Jest output', () => {
     expect(await pre('run.json')).toContain(`${NOT_CLAIMED}: __tests__/broken.test.js::<suite failed to run>`);
   });
 
+  test('precheck matches Vitest hierarchical test names with > delimiters', async () => {
+    writeJson('run.json', {
+      tests: [
+        { file: 'server/__tests__/a.test.js', name: 'suite name a test in suite', status: 'failed', message: 'nope' },
+      ],
+      suiteErrors: [],
+    });
+    claimsFile(['server/__tests__/a.test.js :: suite name > a test in suite :: contradicts spec-1.md']);
+    const pre = await run('precheck', 'run.json', 'test-issues.md', '3');
+    expect(pre.status).toBe(0);
+    expect(pre.stderr).toBe('');
+  });
+
   test('namecheck and redcheck reject a removed test and one that no longer fails at red', async () => {
     setup();
     writeJson('fewer.json', { ...runOut(), tests: runOut().tests.slice(1).map(t => ({ ...t, status: 'passed' })), suiteErrors: [] });

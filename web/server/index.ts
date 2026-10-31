@@ -203,6 +203,13 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const markdown = fs.existsSync(prCommentsFile) ? fs.readFileSync(prCommentsFile, 'utf8') : null;
         return send(200, { pr: v.pr || null, state: v.prState || null, markdown });
       }
+      if (action === 'test-issues' && method === 'GET') {
+        const ctx = contextFor(p);
+        const v = runView(ctx, slug, { changes: false, tailLines: 0 });
+        if (!v.dir) throw new HttpError(404, `${slug} has no run directory`);
+        const issuesFile = path.join(v.dir, ctx.backlogDir, slug, 'test-issues.md');
+        return send(200, { slug, text: fs.existsSync(issuesFile) ? fs.readFileSync(issuesFile, 'utf8') : null });
+      }
       if (method !== 'POST') throw new HttpError(405, 'use POST');
       const ctx = contextFor(p, envOf(body.env));
       if (action === 'start') return send(200, outcome(start(ctx, slug, { from: fromOf(body.from) })));
@@ -255,6 +262,16 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const shouldResume = isFromDenied ? (body.resume === true) : (body.resume !== false && pending === 0);
         const resumed = shouldResume ? outcome(start(ctx, slug, { from })) : null;
         return send(200, { ok: true, pending, resumed });
+      }
+      if (action === 'test-issues') {
+        const v = runView(ctx, slug, { changes: false, tailLines: 0 });
+        if (!v.dir) throw new HttpError(404, `${slug} has no run directory`);
+        const issuesFile = path.join(v.dir, ctx.backlogDir, slug, 'test-issues.md');
+        if (typeof body.text !== 'string') throw new HttpError(400, 'text is required');
+        fs.mkdirSync(path.dirname(issuesFile), { recursive: true });
+        fs.writeFileSync(issuesFile, body.text);
+        const resumed = body.resume !== false ? outcome(start(ctx, slug, { from: 'test-repair' })) : null;
+        return send(200, { ok: true, text: body.text, resumed });
       }
       if (action === 'pr') {
         const r = createPrForCompleted(ctx, slug);
