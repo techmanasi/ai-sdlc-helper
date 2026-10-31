@@ -1,6 +1,6 @@
 {
   "name": "ai-sdlc-helper",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run an AI-driven SDLC pipeline (Spec, Plan, Red tests, Implement, Review, Ship) on any project, with Claude Code agents.",
   "keywords": [
     "sdlc",
