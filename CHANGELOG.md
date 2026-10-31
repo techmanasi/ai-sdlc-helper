@@ -8,10 +8,16 @@ change commands or settings in ways that are not backward compatible.
 The release workflow publishes the section whose heading matches the tag (`## [0.1.0]` for `v0.1.0`) as the GitHub
 release notes. Keep new work under `## [Unreleased]`, and rename that heading to the version before tagging.
 
-## [Unreleased]
+## [0.1.0] - 2026-11-01
 
 ### Added
 
+- **Node.js & TypeScript Zero Dead-End Recovery System.** Guaranteed forward progress across all 7 pipeline stages
+  (Spec, Plan, Red tests, Implement, Test repair, Review, Finalise). Every pause, refusal, or failure produces a
+  structured diagnosis and 3 actionable resolution paths: Autonomous (1-click / flag fix), Human-in-the-Loop (guided
+  pointers to questions.md, test-issues.md, etc.), and Escape Hatch (stage rewinds, bypasses, or git checkpoint recovery).
+- **Web UI Stage Recovery Action Card.** Displays high-visibility diagnostics on paused, failed, or refused runs with
+  one-click resolution buttons, file inspection links, and bailout controls.
 - **The web app: `ai-sdlc-helper ui`.** A local server (127.0.0.1, token-protected) and a browser app to run the whole
   pipeline without the terminal: a live board, runs with their questions, refused actions, output and files, start,
   resume, restart, stop and discard, per-run environment (model and effort per stage), new backlog items, projects and
@@ -87,5 +93,5 @@ command that works on any Node or TypeScript project.
 - A library entry point (`import { detect, resolve } from 'ai-sdlc-helper'`) for settings, detection, test framework
   set-up and code search.
 
-[Unreleased]: https://github.com/imaimai86/ai-sdlc-helper/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/imaimai86/ai-sdlc-helper/releases/tag/v0.1.0
+[Unreleased]: https://github.com/techmanasi/ai-sdlc-helper/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/techmanasi/ai-sdlc-helper/releases/tag/v0.1.0

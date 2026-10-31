@@ -38,11 +38,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/imaimai86/ai-sdlc-helper.git"
+    "url": "git+https://github.com/techmanasi/ai-sdlc-helper.git"
   },
-  "homepage": "https://github.com/imaimai86/ai-sdlc-helper#readme",
+  "homepage": "https://github.com/techmanasi/ai-sdlc-helper#readme",
   "bugs": {
-    "url": "https://github.com/imaimai86/ai-sdlc-helper/issues"
+    "url": "https://github.com/techmanasi/ai-sdlc-helper/issues"
   },
   "publishConfig": {
     "access": "public",
