@@ -170,7 +170,7 @@ function docFiles(docsDir: string): string[] {
 }
 
 /** Everything the run screen shows of <slug>; `changes: false` skips the git calls that count its files. */
-export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean; tailLines?: number } = {}): RunView {
+export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean; tailLines?: number; checkPr?: boolean } = {}): RunView {
   const rec = readRecord(ctx.reg, slug);
   const worktree = runWorktree(ctx, slug);
   const inPlace = exists(path.join(ctx.root, ctx.backlogDir, slug, 'logs', 'status.json')) ? ctx.root : null;
@@ -236,6 +236,12 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
     ...(() => {
       const p = getPrFromBrief(readText(path.join(docsDir, 'brief.md')) || '')
         || getPrFromBrief(readText(path.join(ctx.root, ctx.backlogDir, slug, 'brief.md')) || '');
+      if (opts.checkPr === false || (!p && state !== 'done' && stage.toLowerCase() !== 'finalise')) {
+        return {
+          pr: p || null,
+          prState: null,
+        };
+      }
       const b = rec?.branch || `${ctx.branchPrefix}${slug}`;
       const st = getPrStatus(ctx.root, p || b, ctx.env);
       return {
@@ -280,7 +286,7 @@ export interface BoardView {
 export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): BoardView {
   const backlog = backlogItems({ root: ctx.root, backlogDir: ctx.backlogDir, branchPrefix: ctx.branchPrefix });
   const runs = projectSlugs(ctx).map((slug): RunCard => {
-    const v = runView(ctx, slug, { changes: opts.changes, tailLines: 0 });
+    const v = runView(ctx, slug, { changes: opts.changes, tailLines: 0, checkPr: false });
     return {
       slug, state: v.state, stage: v.stage, agent: v.agent, model: v.model, effort: v.effort, attempt: v.attempt, note: v.note, updated: v.updated,
       message: v.message, tests: v.tests, branch: v.branch, questions: v.questions.length, permissions: v.permissions.length,
