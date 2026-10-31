@@ -3,7 +3,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { runSuites, summary } from '../runners/run.js';
+import { runSuites, summary, holds, type RunAll } from '../runners/run.js';
+import { suiteFiles } from '../runners/files.js';
 import { testRunDefaults } from '../config/settings.js';
 import { spawnShell } from '../shell.js';
 import type { RunResult } from '../runners/types.js';
@@ -29,16 +30,8 @@ const testRuns = (ctx: Ctx) => {
   return { retry: d.retry, maxWorkers: d.maxWorkers ?? undefined };
 };
 
-/**
- * The unit tests of every suite, in the working tree, with tests.maxWorkers. Unless tests.retry is false, a failure is
- * run once more (the failed files) before it counts;
- * tests that failed and then passed are reported as flaky (WARNING, and a line in <log>/flaky-tests.md). Writes
- * <log>/tests.log (what the agents read) and <log>/tests.json (the RunResult).
- */
-export function testsPass(ctx: Ctx): boolean {
-  const logFile = at(ctx, `${ctx.log}/tests.log`);
-  const r = runSuites(ctx.config, { root: ctx.root, ...testRuns(ctx), env: ctx.env });
-  if ('error' in r) { fs.writeFileSync(logFile, `ERROR: ${r.error}\n`); return false; }
+/** Writes test output to tests.log and tests.json, reporting any flaky tests. */
+function recordResults(ctx: Ctx, r: RunAll, logFile: string): void {
   fs.writeFileSync(logFile, resultText(r.results));
   fs.writeFileSync(at(ctx, `${ctx.log}/tests.json`), `${JSON.stringify(r.merged)}\n`);
   const flaky = r.merged.retried?.flaky || [];
@@ -46,6 +39,87 @@ export function testsPass(ctx: Ctx): boolean {
   if (flaky.length) {
     fs.appendFileSync(at(ctx, `${ctx.log}/flaky-tests.md`), flaky.map(f => `${f.file} :: ${f.name} :: first run: failed :: re-run: passed\n`).join(''));
   }
+}
+
+/**
+ * Test files that are known to fail or were introduced/modified for this feature:
+ * 1. Failing tests or suite errors recorded in <log>/red.json.
+ * 2. Failing tests or suite errors recorded in the previous attempt's <log>/tests.json.
+ * 3. Test files modified or added in ctx.redSha.
+ */
+export function targetTestFiles(ctx: Ctx): string[] {
+  const files = new Set<string>();
+
+  const redPath = at(ctx, `${ctx.log}/red.json`);
+  if (fs.existsSync(redPath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(redPath, 'utf8'));
+      for (const t of data.tests || []) {
+        if (t.status === 'failed' && t.file) files.add(t.file);
+      }
+      for (const e of data.suiteErrors || []) {
+        if (e.file) files.add(e.file);
+      }
+    } catch { /* ignore corrupted */ }
+  }
+
+  const testsJsonPath = at(ctx, `${ctx.log}/tests.json`);
+  if (fs.existsSync(testsJsonPath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(testsJsonPath, 'utf8'));
+      for (const t of data.tests || []) {
+        if (t.status === 'failed' && t.file) files.add(t.file);
+      }
+      for (const e of data.suiteErrors || []) {
+        if (e.file) files.add(e.file);
+      }
+    } catch { /* ignore corrupted */ }
+  }
+
+  if (ctx.redSha && ctx.git) {
+    try {
+      const changed = ctx.git.lines('diff', '--name-only', `${ctx.redSha}^`, ctx.redSha, '--', ...(ctx.layout?.testPathspecs || []));
+      for (const f of changed) {
+        if (f.trim()) files.add(f.trim());
+      }
+    } catch { /* if redSha has no parent or git error, ignore */ }
+  }
+
+  return [...files].filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f)));
+}
+
+/**
+ * The unit tests of every suite, in the working tree, with tests.maxWorkers. Unless tests.retry is false, a failure is
+ * run once more (the failed files) before it counts;
+ * tests that failed and then passed are reported as flaky (WARNING, and a line in <log>/flaky-tests.md). Writes
+ * <log>/tests.log (what the agents read) and <log>/tests.json (the RunResult).
+ *
+ * When opts.targetFiles is provided and non-empty:
+ * Executes target files first (fail-fast gate). If any target test fails, records results and returns false
+ * immediately without running the full test suite. Only when target tests pass (or if all suites were covered)
+ * does it proceed to run the full suite for zero-trust verification.
+ */
+export function testsPass(ctx: Ctx, opts: { targetFiles?: string[] } = {}): boolean {
+  const logFile = at(ctx, `${ctx.log}/tests.log`);
+  const targets = (opts.targetFiles || []).filter(f => ctx.config.suites.some(s => holds(s, f)));
+
+  if (targets.length > 0) {
+    const fast = runSuites(ctx.config, { root: ctx.root, ...testRuns(ctx), files: targets, env: ctx.env });
+    if ('error' in fast) { fs.writeFileSync(logFile, `ERROR: ${fast.error}\n`); return false; }
+    if (!fast.merged.ok) {
+      recordResults(ctx, fast, logFile);
+      return false;
+    }
+    const allFiles = ctx.config.suites.flatMap(s => suiteFiles(ctx.root, s));
+    if (allFiles.length > 0 && allFiles.every(f => targets.includes(f))) {
+      recordResults(ctx, fast, logFile);
+      return true;
+    }
+  }
+
+  const r = runSuites(ctx.config, { root: ctx.root, ...testRuns(ctx), env: ctx.env });
+  if ('error' in r) { fs.writeFileSync(logFile, `ERROR: ${r.error}\n`); return false; }
+  recordResults(ctx, r, logFile);
   return r.merged.ok;
 }
 
@@ -79,9 +153,10 @@ export async function integrationPass(ctx: Ctx): Promise<boolean> {
 }
 
 /** The unit tests, then the integration suite; ctx.failLog names the log of the check that failed. */
-export async function successCheck(ctx: Ctx): Promise<boolean> {
+export async function successCheck(ctx: Ctx, opts: { targetFiles?: string[] } = {}): Promise<boolean> {
   await tick();
-  const unit = testsPass(ctx);
+  const targets = opts.targetFiles ?? targetTestFiles(ctx);
+  const unit = testsPass(ctx, { targetFiles: targets });
   await tick();
   if (!unit) { ctx.failLog = `${ctx.log}/tests.log`; return false; }
   if (!(await integrationPass(ctx))) { ctx.failLog = `${ctx.log}/integration.log`; return false; }

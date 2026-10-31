@@ -10,7 +10,7 @@ import { exists } from '../util.js';
 import { answerQuestions, parseQuestions } from '../runs/view.js';
 import { at, stamp, stop, stopIfAborted, tick, type Ctx } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags } from './agent.js';
-import { resultsAt, resultsNow, successCheck, testsPass } from './gates.js';
+import { resultsAt, resultsNow, successCheck, targetTestFiles, testsPass } from './gates.js';
 import { renderPrompt } from './prompts.js';
 import { resumeCommand, resumeHint } from './hints.js';
 import { finalise } from './finalise.js';
@@ -219,7 +219,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
   installDeps(ctx);
   await tick();
   // A resumed run never trusts a previous run's test log: the first attempt reads one from this run.
-  if (ctx.fromN === 4) { testsPass(ctx); await tick(); }
+  if (ctx.fromN === 4) { testsPass(ctx, { targetFiles: targetTestFiles(ctx) }); await tick(); }
   for (let i = 1; i <= maxAttempts; i++) {
     ctx.out(` attempt ${i}`);
     ctx.status.attempt = `${i}/${maxAttempts}`;
