@@ -16,6 +16,7 @@ import { Git } from './git.js';
 import { envModels, registryFile, stageModels } from './models.js';
 import { PROMPTS_DIR } from './prompts.js';
 import { Status, finalState } from './status.js';
+import { formatRecoveryCli, stageRecoveryHint } from './hints.js';
 import { resultsAt } from './gates.js';
 import {
   implementStage, markStage, planStage, redTestsStage, refuseRedone, resumeAtTests, reviewStage, finaliseStage, specStage,
@@ -110,6 +111,20 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
       markStage(ctx, ctx.status.stage);
       Object.assign(ctx.status, { state: finalState(code), agent: '', model: '', effort: '', attempt: '' });
       ctx.status.write();
+      if (code !== 0) {
+        try {
+          const hint = stageRecoveryHint({
+            slug: ctx.slug,
+            stage: ctx.status.stage,
+            state: finalState(code),
+            exitCode: code,
+            docsDir: ctx.docs,
+            runOut: ctx.failLog && fs.existsSync(ctx.failLog) ? fs.readFileSync(ctx.failLog, 'utf8').split('\n') : [],
+            hasTestIssues: fs.existsSync(path.join(ctx.docs, 'test-issues.md')),
+          });
+          out(formatRecoveryCli(hint));
+        } catch { /* ignore recovery format error */ }
+      }
     }
   }
   return code;

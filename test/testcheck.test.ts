@@ -290,6 +290,36 @@ describe('testcheck reads RunResult files like Jest output', () => {
     expect(red.stderr).toContain('REJECT: test failed at red but now PASSES on the unimplemented source (no longer detects the bug): __tests__/a.test.js::a breaks');
   });
 
+  test('redcheck scopes validation to claimed tests in test-issues.md, ignoring unrelated suite flakes', async () => {
+    setup();
+    // In stillFailing.json: a breaks still fails, but broken.test.js suite error passed (e.g. was a timeout at red)
+    writeJson('stillFailing.json', {
+      ...runOut(),
+      tests: [
+        { file: 'server/__tests__/a.test.js', name: 'a works', status: 'passed', message: null },
+        { file: 'server/__tests__/a.test.js', name: 'a breaks', status: 'failed', message: 'nope' },
+      ],
+      suiteErrors: [], // broken.test.js now passes on base
+    });
+    // With test-issues.md (which only claims a breaks), broken.test.js passing does NOT cause rejection:
+    const redScoped = await run('redcheck', 'run.json', 'stillFailing.json', 'test-issues.md');
+    expect(redScoped.status).toBe(0);
+    expect(redScoped.stderr).toBe('');
+
+    // If a breaks was repaired to pass on base (vacuous repair), it is still rejected even when scoped:
+    writeJson('vacuousRepair.json', {
+      ...runOut(),
+      tests: [
+        { file: 'server/__tests__/a.test.js', name: 'a works', status: 'passed', message: null },
+        { file: 'server/__tests__/a.test.js', name: 'a breaks', status: 'passed', message: null },
+      ],
+      suiteErrors: [],
+    });
+    const redVacuous = await run('redcheck', 'run.json', 'vacuousRepair.json', 'test-issues.md');
+    expect(redVacuous.status).toBe(1);
+    expect(redVacuous.stderr).toContain('REJECT: test failed at red but now PASSES on the unimplemented source (no longer detects the bug): __tests__/a.test.js::a breaks');
+  });
+
   test('merge-retry marks an unclaimed failure that passed on re-run as flaky in a RunResult file', async () => {
     setup();
     writeJson('retry.json', { tests: [{ file: 'server/__tests__/broken.test.js', name: 'x', status: 'passed' }], suiteErrors: [] });

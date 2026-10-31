@@ -114,9 +114,12 @@ export function namecheck(k: Keys, redJson: string, nowJson: string): string[] {
 }
 
 /** A test that detected the missing behaviour at red must still detect it after repair (on the red source). */
-export function redcheck(k: Keys, redJson: string, repairedOnRedJson: string): string[] {
-  const nowFailed = k.results(repairedOnRedJson).failed;
-  return [...k.results(redJson).failed].filter(key => !nowFailed.has(key))
+export function redcheck(k: Keys, redJson: string, repairedOnRedJson: string, issuesFile?: string): string[] {
+  const redResults = k.results(redJson);
+  const repResults = k.results(repairedOnRedJson);
+  const claimedKeys = issuesFile ? new Set(k.claims(issuesFile).map(x => x.key)) : null;
+  const redFailed = [...redResults.failed].filter(key => (claimedKeys ? claimedKeys.has(key) : true));
+  return redFailed.filter(key => !repResults.failed.has(key))
     .map(key => `test failed at red but now PASSES on the unimplemented source (no longer detects the bug): ${key}`);
 }
 

@@ -141,6 +141,78 @@ function DocTreeNodeView({
   );
 }
 
+function RecoveryCard({
+  recovery,
+  busy,
+  onAutoAction,
+  onOpenFile,
+  onEscapeHatch,
+}: {
+  recovery: NonNullable<RunView['recovery']>;
+  busy: string;
+  onAutoAction: () => void;
+  onOpenFile: (file: string) => void;
+  onEscapeHatch: () => void;
+}) {
+  return (
+    <div
+      class="panel"
+      style={{
+        border: '1px solid var(--accent, #e53e3e)',
+        backgroundColor: 'rgba(229, 62, 62, 0.05)',
+        borderRadius: '8px',
+        margin: '10px 0',
+      }}
+    >
+      <div class="ph" style={{ borderBottom: '1px solid rgba(229, 62, 62, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <strong>Stage Recovery: {recovery.stage}</strong>
+        <span class="tag s-paused">Guaranteed Forward Progress</span>
+      </div>
+      <div class="pb col" style={{ gap: '10px' }}>
+        <p style={{ margin: 0, fontWeight: 500 }}>{recovery.diagnosis}</p>
+        <div class="row" style={{ gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {recovery.autoAction && (
+            <button
+              class="btn btn-p"
+              type="button"
+              disabled={!!busy}
+              onClick={onAutoAction}
+              title={recovery.autoAction.command}
+            >
+              {busy ? <Spinner /> : null} 1. Auto: {recovery.autoAction.label}
+            </button>
+          )}
+          {recovery.manualAction && (
+            <div class="row" style={{ gap: '6px', alignItems: 'center' }}>
+              <span class="small">2. Manual: {recovery.manualAction.instruction}</span>
+              {recovery.manualAction.file && (
+                <button
+                  class="btn btn-s"
+                  type="button"
+                  onClick={() => onOpenFile(recovery.manualAction!.file!)}
+                >
+                  Open {recovery.manualAction.file}
+                </button>
+              )}
+            </div>
+          )}
+          {recovery.escapeHatch && (
+            <button
+              class="btn btn-d"
+              type="button"
+              disabled={!!busy}
+              onClick={onEscapeHatch}
+              title={recovery.escapeHatch.command}
+            >
+              3. Bailout: {recovery.escapeHatch.label}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Run({ slug }: { slug: string }) {
   const { project, go, toast } = useApp();
   const [v, setV] = useState<RunView | null>(null);
@@ -250,6 +322,43 @@ export function Run({ slug }: { slug: string }) {
       </div>
       <ErrorBox error={error} />
       {v.message && <div class="error">{v.message}</div>}
+
+      {v.recovery && ['paused', 'failed', 'refused'].includes(v.state) && (
+        <RecoveryCard
+          recovery={v.recovery}
+          busy={busy}
+          onAutoAction={() => {
+            const auto = v.recovery!.autoAction;
+            if (!auto) return;
+            const customEnv = auto.env ? { ...envObj, ...auto.env } : envObj;
+            if (auto.command.includes('--from spec')) {
+              act(auto.label, () => api.start(project, slug, 'spec', customEnv));
+            } else if (auto.command.includes('--from plan')) {
+              act(auto.label, () => api.start(project, slug, 'plan', customEnv));
+            } else if (auto.command.includes('--from red-tests')) {
+              act(auto.label, () => api.start(project, slug, 'red-tests', customEnv));
+            } else if (auto.command.includes('--from implement')) {
+              act(auto.label, () => api.start(project, slug, 'implement', customEnv));
+            } else if (auto.command.includes('--from test-repair')) {
+              act(auto.label, () => api.start(project, slug, 'test-repair', customEnv));
+            } else if (auto.command.includes('--from review')) {
+              act(auto.label, () => api.start(project, slug, 'review', customEnv));
+            } else if (auto.command.includes('--from finalise')) {
+              act(auto.label, () => api.start(project, slug, 'finalise', customEnv));
+            } else {
+              act(auto.label, () => api.start(project, slug, v.resumeFrom || undefined, customEnv));
+            }
+          }}
+          onOpenFile={openFile}
+          onEscapeHatch={() => {
+            const esc = v.recovery!.escapeHatch;
+            if (!esc) return;
+            const fromMatch = esc.command.match(/--from (\S+)/);
+            const targetFrom = fromMatch ? fromMatch[1] : undefined;
+            act(esc.label, () => api.start(project, slug, targetFrom, envObj));
+          }}
+        />
+      )}
 
       <div class="row">
         <button class="btn btn-p" type="button" disabled={running || !!busy} onClick={() => act(startLabel, () => api.start(project, slug, v.state === 'not started' ? undefined : v.resumeFrom || undefined, envObj))}>{busy === startLabel ? <><Spinner /> Starting…</> : startLabel}</button>
