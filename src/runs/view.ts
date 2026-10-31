@@ -9,6 +9,7 @@ import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.
 import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { projectSlugs, runChanges, runWorktree, type RunContext } from './index.js';
 import { getPrFromBrief, getPrStatus } from '../pipeline/finalise.js';
+import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused';
 
@@ -61,6 +62,7 @@ export interface RunView {
   prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null;
   hasPrComments?: boolean;
   testIssues?: string | null;
+  recovery?: StageRecovery | null;
 }
 
 const readText = (file: string): string | null => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
@@ -187,9 +189,10 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
   }
   const discarded = (readText(path.join(ctx.reg, `${slug}.discarded`)) || '').trim();
   const stage = typeof s.stage === 'string' ? s.stage : '';
+  const state = viewState(rec, status);
   return {
     slug,
-    state: viewState(rec, status),
+    state,
     stage,
     agent: s.agent || '',
     model: s.model || '',
@@ -238,6 +241,19 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
       return st ? st.state : null;
     })(),
     hasPrComments: fs.existsSync(path.join(docsDir, 'pr-comments.md')),
+    recovery: ['paused', 'failed', 'refused', 'stopped', 'interrupted'].includes(state)
+      ? stageRecoveryHint({
+          slug,
+          stage,
+          state,
+          exitCode: rec?.exit_code ? Number(rec.exit_code) : undefined,
+          docsDir,
+          runOut: dir ? tail(path.join(logs, 'run.out'), 40) : [],
+          questions,
+          permissions: permState ? permState.pending : [],
+          hasTestIssues: exists(path.join(docsDir, 'test-issues.md')),
+        })
+      : null,
   };
 }
 

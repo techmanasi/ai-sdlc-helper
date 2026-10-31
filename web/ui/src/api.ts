@@ -13,6 +13,13 @@ export interface RunCard {
 export interface Board { items: BacklogItem[] | null; runs: RunCard[]; maxParallel: number; running: number }
 export interface Question { n: number; title: string; body: string; suggested: string; answer: string }
 export interface Ask { stage: string; tool: string; detail: string; rule: string; protected: boolean }
+export interface StageRecovery {
+  stage: string;
+  diagnosis: string;
+  autoAction?: { label: string; command: string; env?: Record<string, string> };
+  manualAction?: { file?: string; instruction: string };
+  escapeHatch?: { label: string; command: string };
+}
 export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'changes' | 'deniedPermissions'> {
   models: Record<string, { model: string; effort: string }>;
   agentStarted: string; runStarted: string;
@@ -24,6 +31,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   tail: string[]; docs: string[]; discarded: string; resumeFrom: string;
   createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean;
   testIssues?: string | null;
+  recovery?: StageRecovery | null;
 }
 export interface CompletedTask {
   slug: string;
