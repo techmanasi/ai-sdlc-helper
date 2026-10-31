@@ -8,7 +8,11 @@ change commands or settings in ways that are not backward compatible.
 The release workflow publishes the section whose heading matches the tag (`## [0.1.0]` for `v0.1.0`) as the GitHub
 release notes. Keep new work under `## [Unreleased]`, and rename that heading to the version before tagging.
 
+## [Unreleased]
+
 ## [0.1.0] - 2026-11-01
+
+The first release: the SDLC pipeline rewritten in TypeScript as a CLI and web app that works on any Node or TypeScript project, with guaranteed forward progress and zero dead-ends.
 
 ### Added
 
@@ -54,14 +58,6 @@ release notes. Keep new work under `## [Unreleased]`, and rename that heading to
 - A refused command line such as `cd x; sed …` asks for the rule of the part that was not allowed (`sed`), not an
   allowed one, and is not asked again once allowed.
 - The files per stage credit a stage with an earlier stage's file that it changed and committed.
-
-## [0.1.0] - Unreleased
-
-The first release: the SDLC pipeline from `production-retail-and-wholesale`, rewritten in TypeScript as a global
-command that works on any Node or TypeScript project.
-
-### Added
-
 - **Settings and detection** (#1). The `ai-sdlc-helper` command reads `sdlc.config.json` from your project, then
   detects what it can, then falls back to defaults. It finds Jest, Vitest, Mocha, node:test and any runner that writes
   JUnit XML (`generic-junit`), with their test files and test command.
