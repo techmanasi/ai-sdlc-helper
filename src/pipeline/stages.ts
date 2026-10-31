@@ -321,7 +321,7 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   const changedTests = [...new Set([...ctx.git.testsChangedSince(ctx.lockSha, specs), ...ctx.git.lines('ls-files', '--others', '--exclude-standard', '--', ...specs)])].sort();
   resultsAt(ctx, ctx.origRedSha, `${ctx.log}/repaired-on-red.json`, changedTests);
   await tick();
-  if (rejects(() => redcheck(ctx.keys, `${ctx.log}/red.json`, `${ctx.log}/repaired-on-red.json`))) reject('a repaired test no longer fails on the unimplemented source');
+  if (rejects(() => redcheck(ctx.keys, `${ctx.log}/red.json`, `${ctx.log}/repaired-on-red.json`, issues))) reject('a repaired test no longer fails on the unimplemented source');
 
   const flags = stageFlags(ctx, 'test-audit');
   const auditPrompt = renderPrompt('test-audit', promptValues(ctx), ctx.guide, ctx.promptsDir);

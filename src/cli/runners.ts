@@ -30,7 +30,7 @@ export const RUNNER_USAGE = `  run [dir] [--file <f>]... [--test <full name>]...
                                    a runner's own report as RunResult tests and suiteErrors (JSON)
   testcheck <check> ...            Test repair checks (exit 1 with REJECT lines): precheck <now.json> <test-issues.md> <max>,
                                    diffcheck <red_sha> <test-issues.md>, namecheck <red.json> <now.json>,
-                                   redcheck <red.json> <repaired.json>, claimed <test-issues.md>,
+                                   redcheck <red.json> <repaired.json> [<test-issues.md>], claimed <test-issues.md>,
                                    unclaimed <now.json> <test-issues.md>, retry-plan [key]..., retry-args [key]...,
                                    merge-retry <now.json> <test-issues.md> <flaky.md> <retry.json>...,
                                    resumecheck <red_sha> <test-issues.md> <slug> [<lock_sha>]
@@ -121,7 +121,7 @@ const CHECK_ARGS: Record<string, [number, string]> = {
   precheck: [2, '<now.json> <test-issues.md> [max]'],
   diffcheck: [2, '<red_sha> <test-issues.md>'],
   namecheck: [2, '<red.json> <now.json>'],
-  redcheck: [2, '<red.json> <repaired-on-red.json>'],
+  redcheck: [2, '<red.json> <repaired-on-red.json> [<test-issues.md>]'],
   resumecheck: [3, '<red_sha> <test-issues.md> <slug> [<lock_sha>]'],
 };
 
@@ -152,7 +152,7 @@ function testcheckCommand(io: Io & { stdin?: () => string }, argv: string[], cwd
       case 'precheck': return reject(precheck(k, a, b, Number(c || 3)));
       case 'diffcheck': return reject(diffcheck(k, a, b));
       case 'namecheck': return reject(namecheck(k, a, b));
-      case 'redcheck': return reject(redcheck(k, a, b));
+      case 'redcheck': return reject(redcheck(k, a, b, c));
       default: return reject(resumecheck(k, a, b, c, args[3]));
     }
   } catch (e) { io.err(`ERROR: ${(e as Error).message}`); return 1; }
