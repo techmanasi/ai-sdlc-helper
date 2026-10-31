@@ -25,7 +25,7 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
         <span class={stateClass(r.state)}>{r.state === 'running' ? <Spinner /> : GLYPH[r.state]} {r.slug}</span>
       </button>
       <span class="small">{what}</span>
-      <span class="mono muted small">{[r.model && `${r.model} · ${r.effort}`, r.changes && `${r.changes.changed} files`].filter(Boolean).join(' · ') || r.state}</span>
+      <span class="mono muted small">{[r.attempt && (r.state === 'running' ? `running iteration ${r.attempt}` : `iteration ${r.attempt}`), r.model && `${r.model} · ${r.effort}`, r.changes && `${r.changes.changed} files`].filter(Boolean).join(' · ') || r.state}</span>
       <a href={`#/run/${r.slug}`} onClick={e => { e.preventDefault(); go(`/run/${r.slug}`); }} class="small">Open</a>
     </div>
   );
@@ -44,7 +44,7 @@ function Drawer({ slug }: { slug: string }) {
   if (!v) return null;
   return (
     <Panel
-      title={<span class="mono"><span class={stateClass(v.state)}>{v.state === 'running' ? <Spinner /> : GLYPH[v.state]}</span> {v.slug} <span class="muted small">{[v.stage, v.model && `${v.model} · ${v.effort}`, v.note].filter(Boolean).join(' · ')}</span></span>}
+      title={<span class="mono"><span class={stateClass(v.state)}>{v.state === 'running' ? <Spinner /> : GLYPH[v.state]}</span> {v.slug} <span class="muted small">{[v.stage, v.attempt && (v.state === 'running' ? `running iteration ${v.attempt}` : `iteration ${v.attempt}`), v.model && `${v.model} · ${v.effort}`, v.note].filter(Boolean).join(' · ')}</span></span>}
       extra={<a class="btn btn-s" href={`#/run/${slug}`} onClick={e => { e.preventDefault(); go(`/run/${slug}`); }}>Open run</a>}
     >
       <pre class="code mono" style={{ borderRadius: '0 0 8px 8px', maxHeight: '220px', overflowY: 'auto' }}>{v.tail.slice(-12).join('\n') || 'No output yet.'}</pre>

@@ -26,6 +26,7 @@ export interface RunView {
   model: string;
   effort: string;
   models: Record<string, { model: string; effort: string }>;
+  attempt: string;
   /** Why a running run waits, for example a usage limit; '' otherwise. */
   note: string;
   agentStarted: string;
@@ -192,6 +193,7 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
     model: s.model || '',
     effort: s.effort || '',
     models: s.models && typeof s.models === 'object' ? s.models : {},
+    attempt: s.attempt || '',
     note: s.note || '',
     agentStarted: s.agent_started || '',
     runStarted: s.run_started || '',
@@ -237,7 +239,7 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
 }
 
 /** One card of the board: a run in short. */
-export type RunCard = Pick<RunView, 'slug' | 'state' | 'stage' | 'agent' | 'model' | 'effort' | 'note' | 'updated' | 'message' | 'tests' | 'branch'> & {
+export type RunCard = Pick<RunView, 'slug' | 'state' | 'stage' | 'agent' | 'model' | 'effort' | 'attempt' | 'note' | 'updated' | 'message' | 'tests' | 'branch'> & {
   questions: number;
   permissions: number;
   deniedPermissions?: number;
@@ -258,7 +260,7 @@ export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): Bo
   const runs = projectSlugs(ctx).map((slug): RunCard => {
     const v = runView(ctx, slug, { changes: opts.changes, tailLines: 0 });
     return {
-      slug, state: v.state, stage: v.stage, agent: v.agent, model: v.model, effort: v.effort, note: v.note, updated: v.updated,
+      slug, state: v.state, stage: v.stage, agent: v.agent, model: v.model, effort: v.effort, attempt: v.attempt, note: v.note, updated: v.updated,
       message: v.message, tests: v.tests, branch: v.branch, questions: v.questions.length, permissions: v.permissions.length,
       deniedPermissions: v.deniedPermissions.length,
       changes: v.changes && { changed: v.changes.changed, uncommitted: v.changes.uncommitted },

@@ -227,6 +227,11 @@ export function Run({ slug }: { slug: string }) {
         <h1 class="mono" style={{ fontWeight: 500 }}>{slug}</h1>
         <StateTag state={v.state} />
         {v.stage && <span class="tag">at {v.stage}</span>}
+        {v.attempt && (
+          <span class={`tag ${v.state === 'running' ? 's-running' : v.state === 'paused' ? 's-paused' : ''}`}>
+            {v.state === 'running' ? `running iteration ${v.attempt}` : `iteration ${v.attempt}`}
+          </span>
+        )}
         {v.state !== 'not started' && <span class="tag">branch {v.branch}</span>}
         {v.base && <span class="tag">base {v.base}</span>}
         {v.pr && (
@@ -286,6 +291,16 @@ export function Run({ slug }: { slug: string }) {
               return (
                 <div class={`stage ${st === 'active' ? 'stage-active' : st === 'paused' ? 'stage-paused' : ''}`}>
                   <strong class={STAGE_CLASS[st]}>{st === 'active' ? <Spinner /> : STAGE_GLYPH[st]} {s.name}</strong>
+                  {v.attempt && st === 'active' && (
+                    <span class="tag small s-running" style={{ marginTop: '2px', fontSize: '11px', padding: '2px 6px', alignSelf: 'flex-start' }}>
+                      running iteration {v.attempt}
+                    </span>
+                  )}
+                  {v.attempt && st === 'paused' && (
+                    <span class="tag small s-paused" style={{ marginTop: '2px', fontSize: '11px', padding: '2px 6px', alignSelf: 'flex-start' }}>
+                      iteration {v.attempt}
+                    </span>
+                  )}
                   {s.key === 'finalise' && (
                     <div class="col" style={{ gap: '4px' }}>
                       <span class="small muted">no agent · commits files</span>

@@ -6,7 +6,7 @@ export interface Project { name: string; path: string; registered: boolean }
 export interface BacklogItem { status: string; slug: string; type: string | null; priority: string | null; title: string; note: string; hasBrief: boolean }
 export interface TestCounts { passed: number; failed: number; skipped: number; total: number }
 export interface RunCard {
-  slug: string; state: ViewState; stage: string; agent: string; model: string; effort: string; note: string; updated: string;
+  slug: string; state: ViewState; stage: string; agent: string; model: string; effort: string; attempt?: string; note: string; updated: string;
   message: string; tests: TestCounts | null; branch: string; questions: number; permissions: number; deniedPermissions?: number;
   changes: { changed: number; uncommitted: number } | null;
 }

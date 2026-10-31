@@ -80,7 +80,7 @@ describe('runView', () => {
     const { ctx, wt } = repoWithRun('add-tokens', { state: 'exited', exit_code: '2' }, {
       'questions.md': QUESTIONS,
       'specs-1.md': '# spec',
-      'logs/status.json': { slug: 'add-tokens', state: 'paused', stage: 'Spec', agent: 'spec-1', model: 'opus', effort: 'medium', models: { spec: { model: 'opus', effort: 'medium' } }, note: '', updated: '2026-10-19T10:06:00', pid: 0 },
+      'logs/status.json': { slug: 'add-tokens', state: 'paused', stage: 'Spec', agent: 'spec-1', model: 'opus', effort: 'medium', models: { spec: { model: 'opus', effort: 'medium' } }, attempt: '1/5', note: '', updated: '2026-10-19T10:06:00', pid: 0 },
       'logs/permissions.json': { pending: [{ stage: 'spec', tool: 'Bash', detail: 'psql -c 1', rule: 'Bash(psql:*)', protected: false }], allow: [], bypass: [], denied: [{ tool: 'Bash', detail: 'rm -rf /' }] },
       'logs/tests.json': { tests: [{ status: 'passed' }, { status: 'passed' }, { status: 'failed' }, { status: 'skipped' }], suiteErrors: [{ file: null, message: 'x' }] },
       'logs/stage-files.json': { marker: null, stages: { Spec: ['Docs/backlog/add-tokens/specs-1.md'] } },
@@ -90,6 +90,7 @@ describe('runView', () => {
     expect(v.state).toBe('paused');
     expect(v.stage).toBe('Spec');
     expect(v.model).toBe('opus');
+    expect(v.attempt).toBe('1/5');
     expect(v.worktree).toBe(wt);
     expect(v.branch).toBe('sdlc/add-tokens');
     expect(v.questions.map(q => q.n)).toEqual([1, 2]);
@@ -128,10 +129,10 @@ describe('runView', () => {
 });
 
 test('boardView lists the backlog and a card per recorded run', () => {
-  const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '2' }, { 'questions.md': QUESTIONS, 'logs/status.json': { state: 'paused', stage: 'Spec' } });
+  const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '2' }, { 'questions.md': QUESTIONS, 'logs/status.json': { state: 'paused', stage: 'Spec', attempt: '2/5' } });
   const b = boardView(ctx, { changes: false });
   expect(b.items!.map(i => [i.slug, i.type])).toEqual([['add-tokens', 'feature'], ['other', 'bug']]);
-  expect(b.runs).toEqual([expect.objectContaining({ slug: 'add-tokens', state: 'paused', stage: 'Spec', questions: 2, permissions: 0 })]);
+  expect(b.runs).toEqual([expect.objectContaining({ slug: 'add-tokens', state: 'paused', stage: 'Spec', attempt: '2/5', questions: 2, permissions: 0 })]);
   expect(b.maxParallel).toBe(2);
   expect(b.running).toBe(0);
 });
