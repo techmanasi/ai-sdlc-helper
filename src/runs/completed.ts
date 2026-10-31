@@ -343,5 +343,15 @@ export function createPrForCompleted(
     }
   }
 
+  const wt = runWorktree(ctx, slug);
+  if (wt) {
+    const wtBriefFile = path.join(wt, ctx.backlogDir, slug, 'brief.md');
+    if (fs.existsSync(wtBriefFile)) {
+      try {
+        fs.writeFileSync(wtBriefFile, recordPrInBrief(fs.readFileSync(wtBriefFile, 'utf8'), prUrl));
+      } catch { /* best effort */ }
+    }
+  }
+
   return { ok: true, pr: prUrl, out, err };
 }
