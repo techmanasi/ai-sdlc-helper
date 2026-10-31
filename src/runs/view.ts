@@ -233,12 +233,15 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
       }
       return false;
     })(),
-    pr: getPrFromBrief(readText(path.join(docsDir, 'brief.md')) || ''),
-    prState: (() => {
-      const p = getPrFromBrief(readText(path.join(docsDir, 'brief.md')) || '');
+    ...(() => {
+      const p = getPrFromBrief(readText(path.join(docsDir, 'brief.md')) || '')
+        || getPrFromBrief(readText(path.join(ctx.root, ctx.backlogDir, slug, 'brief.md')) || '');
       const b = rec?.branch || `${ctx.branchPrefix}${slug}`;
       const st = getPrStatus(ctx.root, p || b, ctx.env);
-      return st ? st.state : null;
+      return {
+        pr: p || (st ? st.url : null),
+        prState: st ? st.state : null,
+      };
     })(),
     hasPrComments: fs.existsSync(path.join(docsDir, 'pr-comments.md')),
     recovery: ['paused', 'failed', 'refused', 'stopped', 'interrupted'].includes(state)
