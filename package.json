@@ -59,7 +59,10 @@
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepare": "npm run build",
     "prepublishOnly": "npm run clean && npm run build && npm run check",
-    "ui": "npm run build && node dist/bin.js ui"
+    "ui": "npm run build && node dist/bin.js ui",
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "node scripts/dev.mjs --server",
+    "dev:ui": "node scripts/dev.mjs --ui"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
