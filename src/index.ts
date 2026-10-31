@@ -66,3 +66,5 @@ export {
   type RunClaude, type TriageResult, type TriageItem, type TriageDraft, type TriageQuestion, type TriageState, type DraftStatus, type TriageStreamPart,
 } from './triage.js';
 export * from './pipeline/harness/index.js';
+export * from './profiler/index.js';
+export * from './optimizer/index.js';
