@@ -81,7 +81,10 @@ export function createOrGetPr(cwd: string, branch: string, title: string, body: 
     const create = spawnSync('gh', args, { cwd, encoding: 'utf8' });
     if (create.status === 0) {
       const match = (create.stdout + '\n' + create.stderr).match(/https?:\/\/[^\s]+/);
-      if (match) return match[0].trim();
+      if (match) {
+        clearPrCache();
+        return match[0].trim();
+      }
     }
   } catch { /* best effort */ }
 
@@ -94,20 +97,37 @@ export interface PrStatus {
   number?: number;
 }
 
-/** Queries live GitHub PR status using gh CLI. */
+const prCache = new Map<string, { time: number; val: PrStatus | null }>();
+const PR_CACHE_TTL_MS = 60_000;
+
+/** Clears the in-memory PR cache (e.g. after creating or updating a PR). */
+export function clearPrCache(): void {
+  prCache.clear();
+}
+
+/** Queries live GitHub PR status using gh CLI with in-memory TTL caching to avoid blocking event loop. */
 export function getPrStatus(
   cwd: string,
   branchOrUrl: string,
   env: NodeJS.ProcessEnv = process.env,
 ): PrStatus | null {
+  if (!branchOrUrl || !branchOrUrl.trim()) return null;
+  const key = `${cwd}::${branchOrUrl.trim()}`;
+  const now = Date.now();
+  const hit = prCache.get(key);
+  if (hit && now - hit.time < PR_CACHE_TTL_MS) {
+    return hit.val;
+  }
+
+  let result: PrStatus | null = null;
   try {
     const view = spawnSync('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number'], {
-      cwd, encoding: 'utf8', env, timeout: 6000,
+      cwd, encoding: 'utf8', env, timeout: 3000,
     });
     if (view.status === 0 && view.stdout.trim()) {
       const data = JSON.parse(view.stdout.trim());
       if (data && data.url) {
-        return {
+        result = {
           url: data.url,
           state: (data.state || 'OPEN').toUpperCase() as 'OPEN' | 'MERGED' | 'CLOSED',
           number: typeof data.number === 'number' ? data.number : undefined,
@@ -116,7 +136,8 @@ export function getPrStatus(
     }
   } catch { /* best effort */ }
 
-  return null;
+  prCache.set(key, { time: now, val: result });
+  return result;
 }
 
 export interface PrComment {
