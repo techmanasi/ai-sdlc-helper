@@ -10,6 +10,12 @@ release notes. Keep new work under `## [Unreleased]`, and rename that heading to
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-01
+
+### Fixed
+
+- **UI performance & mobile hotspot load times.** Eliminated synchronous `gh pr view` network calls from the board polling loop, added a 60-second in-memory TTL cache for PR status lookups, and made Google Fonts non-blocking so the web UI renders instantly offline and on cellular connections.
+
 ## [0.1.0] - 2026-11-01
 
 The first release: the SDLC pipeline rewritten in TypeScript as a CLI and web app that works on any Node or TypeScript project, with guaranteed forward progress and zero dead-ends.
@@ -89,5 +95,6 @@ The first release: the SDLC pipeline rewritten in TypeScript as a CLI and web ap
 - A library entry point (`import { detect, resolve } from 'ai-sdlc-helper'`) for settings, detection, test framework
   set-up and code search.
 
-[Unreleased]: https://github.com/techmanasi/ai-sdlc-helper/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/techmanasi/ai-sdlc-helper/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/techmanasi/ai-sdlc-helper/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/techmanasi/ai-sdlc-helper/releases/tag/v0.1.0
