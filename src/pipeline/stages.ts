@@ -17,7 +17,7 @@ import { finalise } from './finalise.js';
 import { installDeps } from './deps.js';
 
 const short = (sha: string) => sha.slice(0, 7);
-const redPattern = (slug: string) => `^test(${slug}): add failing tests`;
+export const redPattern = (slug: string) => `^test(${slug}): add failing tests`;
 const repairPattern = (slug: string) => `^test(${slug}): repair invalid tests`;
 
 /** Credits the files changed since the last mark to <stage> (<log>/stage-files.json, shown per stage in the pane). */

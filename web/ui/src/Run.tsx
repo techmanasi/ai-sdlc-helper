@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, type RunView, type SettingsView } from './api';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
+import { defaultPick, resumeCommand, resumeOptions } from './resume';
 import { buildDocTree, type DocTreeNode } from './tree';
 
 const STAGES = [
@@ -226,7 +227,8 @@ export function Run({ slug }: { slug: string }) {
   const [createPr, setCreatePr] = useState(false);
   const [catalog, setCatalog] = useState<SettingsView | null>(null);
   useEffect(() => { api.settings(project).then(setCatalog).catch(() => setCatalog(null)); }, [project]);
-  const [from, setFrom] = useState('');
+  const [picking, setPicking] = useState(false);
+  const [pick, setPick] = useState('');
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
   const [issuesDraft, setIssuesDraft] = useState<string | null>(null);
@@ -298,7 +300,16 @@ export function Run({ slug }: { slug: string }) {
   // A run with no recorded stage resumes at Spec, named and sent as such: no button starts without saying where.
   const resumeKey = v.resumeFrom || 'spec';
   const startLabel = v.state === 'not started' || v.state === 'refused' ? 'Start' : `Resume from ${STAGES.find(s => s.key === resumeKey)?.name || resumeKey}`;
-  const resumeAt = `Resume at ${STAGES.find(s => s.key === (from || 'spec'))?.name || from}`;
+  const options = resumeOptions({ redCommit: v.redCommit, hasTestIssues: v.testIssues != null, resumeFrom: v.resumeFrom });
+  // The recovery card's Auto action already resumes at this stage: one button for it, not two.
+  const autoStage = v.recovery?.autoAction?.command.match(/--from (\S+)/)?.[1];
+  const primaryDuplicated = !!v.recovery && ['paused', 'failed'].includes(v.state) && autoStage === resumeKey;
+  const runOptionSummary = [
+    envObj.SDLC_AUTO_ACCEPT === '1' && 'auto-accept',
+    envObj.SDLC_FORCE_AGENT && `agent ${envObj.SDLC_FORCE_AGENT}`,
+    envObj.SDLC_FORCE_MODEL && `model ${envObj.SDLC_FORCE_MODEL}`,
+    envObj.SDLC_FORCE_EFFORT && `effort ${envObj.SDLC_FORCE_EFFORT}`,
+  ].filter(Boolean).join(', ');
   const startArgs = ['start', slug, ...(v.resumeFrom && v.state !== 'not started' ? ['--from', v.resumeFrom] : [])];
   const editorLink = v.worktree ? `vscode://file${v.worktree.startsWith('/') ? '' : '/'}${v.worktree}` : '';
   const openFile = async (p: string) => { try { setFile({ path: p, text: (await api.file(project, slug, p)).text }); } catch (e) { toast((e as Error).message); } };
@@ -372,59 +383,81 @@ export function Run({ slug }: { slug: string }) {
         />
       )}
 
-      <div class="row">
-        <button class="btn btn-p" type="button" disabled={running || !!busy} onClick={() => act(startLabel, () => api.start(project, slug, v.state === 'not started' ? undefined : v.state === 'refused' ? v.resumeFrom || undefined : resumeKey, envObj))}>{busy === startLabel ? <><Spinner /> Starting…</> : startLabel}</button>
-        <label class="sr" for="from">Restart from</label>
-        <select id="from" class="sel" style={{ minHeight: '40px' }} value={from} onChange={e => setFrom((e.target as HTMLSelectElement).value)} disabled={v.state === 'not started'}>
-          <option value="">from the start</option>
-          {STAGES.filter(s => s.key).map(s => <option value={s.key}>from {s.name}</option>)}
-        </select>
-        {confirm === 'restart'
-          ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Restart', () => api.restart(project, slug, from || undefined, envObj))}>{busy === 'Restart' ? <><Spinner /> Restarting…</> : 'Confirm: discard and start again'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
-          : <button class="btn" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('restart')}>Restart…</button>}
-        <button class="btn" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => act(resumeAt, () => api.start(project, slug, from || 'spec', envObj))}>{busy === resumeAt ? <><Spinner /> Resuming…</> : resumeAt}</button>
-        {confirm === 'stop'
-          ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Stop', () => api.stop(project, slug))}>{busy === 'Stop' ? <><Spinner /> Stopping…</> : 'Confirm stop'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep running</button></>
-          : <button class="btn" type="button" disabled={!running || !!busy} onClick={() => setConfirm('stop')}>Stop</button>}
-        {editorLink && <a class="btn" href={editorLink}>Open worktree in editor</a>}
-        {v.worktree && <CopyButton text={v.worktree} label="Copy worktree path" />}
-        <button class="btn" type="button" disabled title="Waits on engine request E-10">Merge into base <Future id="E-10" /></button>
-        {confirm === 'discard'
-          ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Discard', () => api.discard(project, slug))}>{busy === 'Discard' ? <><Spinner /> Discarding…</> : 'Confirm discard'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
-          : <button class="btn btn-d" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('discard')}>Discard…</button>}
-      </div>
-      {confirm === 'discard' && <p class="small s-failed" style={{ margin: 0 }}>Deletes the worktree at {v.worktree || 'its folder'}, the branch {v.branch} (its tip is saved) and the run record.</p>}
-      <div class="row" style={{ alignItems: 'center', gap: '8px', margin: '4px 0' }}>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
-          <input
-            type="checkbox"
-            checked={envObj.SDLC_AUTO_ACCEPT === '1'}
-            onChange={e => setEnvVar('SDLC_AUTO_ACCEPT', (e.target as HTMLInputElement).checked ? '1' : '')}
-          />
-          <span>Auto-accept suggested answers (Spec, Plan, Triage)</span>
-        </label>
-      </div>
-      {catalog && !running && (
-        <div class="row" style={{ alignItems: 'center', gap: '6px', margin: '4px 0', flexWrap: 'wrap' }}>
-          <span class="small muted">This run, every stage:</span>
-          <select class="sel" aria-label="run agent" value={envObj.SDLC_FORCE_AGENT || ''} onChange={e => {
-            const h = (e.target as HTMLSelectElement).value;
-            setEnvVar('SDLC_FORCE_AGENT', h);
-            if (envObj.SDLC_FORCE_MODEL && !(catalog.models[h || catalog.config?.agent?.harness || 'claude'] || []).some(m => m.id === envObj.SDLC_FORCE_MODEL)) setEnvVar('SDLC_FORCE_MODEL', '');
-          }}>
-            <option value="">agent: project's</option>
-            {catalog.harnesses.map(h => <option value={h}>{h}</option>)}
-          </select>
-          <select class="sel" aria-label="run model" value={envObj.SDLC_FORCE_MODEL || ''} onChange={e => setEnvVar('SDLC_FORCE_MODEL', (e.target as HTMLSelectElement).value)}>
-            <option value="">model: per stage</option>
-            {(catalog.models[envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'] || []).map(m => <option value={m.id}>{m.id}</option>)}
-          </select>
-          <select class="sel" aria-label="run effort" value={envObj.SDLC_FORCE_EFFORT || ''} onChange={e => setEnvVar('SDLC_FORCE_EFFORT', (e.target as HTMLSelectElement).value)}>
-            <option value="">effort: per stage</option>
-            {catalog.efforts.map(x => <option value={x}>{x}</option>)}
-          </select>
+      <div class="col" style={{ gap: '10px' }}>
+        <div class="row" style={{ alignItems: 'center' }}>
+          {!primaryDuplicated && (
+            <button class="btn btn-p" type="button" disabled={running || !!busy} onClick={() => act(startLabel, () => api.start(project, slug, v.state === 'not started' ? undefined : v.state === 'refused' ? v.resumeFrom || undefined : resumeKey, envObj))}>{busy === startLabel ? <><Spinner /> Starting…</> : startLabel}</button>
+          )}
+          <button class="btn" type="button" id="open-pick" aria-expanded={picking} aria-controls="resume-pick" disabled={v.state === 'not started' || !!busy} onClick={() => { setPick(defaultPick(options)); setPicking(!picking); }}>Resume at… {picking ? '▴' : '▾'}</button>
+          {confirm === 'stop'
+            ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Stop', () => api.stop(project, slug))}>{busy === 'Stop' ? <><Spinner /> Stopping…</> : 'Confirm stop'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep running</button></>
+            : <button class="btn" type="button" disabled={!running || !!busy} onClick={() => setConfirm('stop')}>Stop</button>}
+          {editorLink && <a class="btn" href={editorLink}>Open in editor</a>}
+          {v.worktree && <CopyButton text={v.worktree} label="Copy path" />}
         </div>
-      )}
+        {picking && (
+          <fieldset id="resume-pick" class="panel col" style={{ gap: '6px', margin: 0 }} onKeyDown={e => { if ((e as KeyboardEvent).key === 'Escape') setPicking(false); }}>
+            <legend class="small muted">Resume the existing branch at</legend>
+            {options.map(o => (
+              <label style={{ display: 'flex', gap: '8px', alignItems: 'baseline', opacity: o.enabled ? 1 : 0.6, cursor: o.enabled ? 'pointer' : 'not-allowed' }}>
+                <input type="radio" name="resume-stage" value={o.key} checked={pick === o.key} disabled={!o.enabled} onChange={() => setPick(o.key)} />
+                <span>{o.name}</span>
+                {o.note && <span class="small muted">{o.enabled ? o.note : o.note.startsWith('refused') ? `${o.name} ${o.note}` : o.note}</span>}
+              </label>
+            ))}
+            <div class="row" style={{ alignItems: 'center' }}>
+              <button class="btn btn-p" type="button" disabled={!pick || !!busy || running} onClick={() => { const key = pick; const name = STAGES.find(s => s.key === key)?.name || key; act(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj); setPicking(false); return o; }); }}>{busy.startsWith('Resume at') ? <><Spinner /> Resuming…</> : 'Go'}</button>
+              <button class="btn" type="button" onClick={() => { setPicking(false); document.getElementById('open-pick')?.focus(); }}>Cancel</button>
+              {pick && <span class="mono small muted">{resumeCommand(slug, pick)}</span>}
+            </div>
+          </fieldset>
+        )}
+        <details class="small">
+          <summary style={{ cursor: 'pointer' }}>Run options: {runOptionSummary || 'project defaults, no auto-accept'}</summary>
+          <div class="col" style={{ gap: '6px', marginTop: '8px' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={envObj.SDLC_AUTO_ACCEPT === '1'}
+                onChange={e => setEnvVar('SDLC_AUTO_ACCEPT', (e.target as HTMLInputElement).checked ? '1' : '')}
+              />
+              <span>Auto-accept suggested answers (Spec, Plan, Triage)</span>
+            </label>
+            {catalog && !running && (
+              <div class="row" style={{ alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <span class="small muted">This run, every stage:</span>
+                <select class="sel" aria-label="run agent" value={envObj.SDLC_FORCE_AGENT || ''} onChange={e => {
+                  const h = (e.target as HTMLSelectElement).value;
+                  setEnvVar('SDLC_FORCE_AGENT', h);
+                  if (envObj.SDLC_FORCE_MODEL && !(catalog.models[h || catalog.config?.agent?.harness || 'claude'] || []).some(m => m.id === envObj.SDLC_FORCE_MODEL)) setEnvVar('SDLC_FORCE_MODEL', '');
+                }}>
+                  <option value="">agent: project's</option>
+                  {catalog.harnesses.map(h => <option value={h}>{h}</option>)}
+                </select>
+                <select class="sel" aria-label="run model" value={envObj.SDLC_FORCE_MODEL || ''} onChange={e => setEnvVar('SDLC_FORCE_MODEL', (e.target as HTMLSelectElement).value)}>
+                  <option value="">model: per stage</option>
+                  {(catalog.models[envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'] || []).map(m => <option value={m.id}>{m.id}</option>)}
+                </select>
+                <select class="sel" aria-label="run effort" value={envObj.SDLC_FORCE_EFFORT || ''} onChange={e => setEnvVar('SDLC_FORCE_EFFORT', (e.target as HTMLSelectElement).value)}>
+                  <option value="">effort: per stage</option>
+                  {catalog.efforts.map(x => <option value={x}>{x}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+        </details>
+        <div class="row" style={{ alignItems: 'center' }}>
+          <span class="small s-failed">Discards work</span>
+          {confirm === 'restart'
+            ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Restart', () => api.restart(project, slug, undefined, envObj))}>{busy === 'Restart' ? <><Spinner /> Restarting…</> : 'Confirm: discard and start again'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
+            : <button class="btn btn-d" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('restart')}>Restart from Spec…</button>}
+          {confirm === 'discard'
+            ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Discard', () => api.discard(project, slug))}>{busy === 'Discard' ? <><Spinner /> Discarding…</> : 'Confirm discard'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
+            : <button class="btn btn-d" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('discard')}>Discard run…</button>}
+        </div>
+        {confirm === 'restart' && <p class="small s-failed" style={{ margin: 0 }}>Deletes the worktree at {v.worktree || 'its folder'} and the branch {v.branch} (its tip is saved), then starts over from Spec.</p>}
+        {confirm === 'discard' && <p class="small s-failed" style={{ margin: 0 }}>Deletes the worktree at {v.worktree || 'its folder'}, the branch {v.branch} (its tip is saved) and the run record.</p>}
+      </div>
       <Cli args={startArgs} />
       {envArgs.length > 0 && <p class="mono small muted" style={{ margin: 0 }}>with {envArgs.join(' ')}</p>}
       {v.discarded && <p class="small muted" style={{ margin: 0 }}>Discarded before. To get that branch back: <span class="mono">{v.discarded}</span></p>}

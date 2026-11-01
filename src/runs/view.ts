@@ -10,6 +10,8 @@ import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { projectSlugs, runChanges, runWorktree, type RunContext } from './index.js';
 import { getPrFromBrief, getPrStatus } from '../pipeline/finalise.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
+import { Git } from '../pipeline/git.js';
+import { redPattern } from '../pipeline/stages.js';
 
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused';
 
@@ -57,6 +59,8 @@ export interface RunView {
   discarded: string;
   /** The --from value that resumes the run where it stopped ('' for the start). */
   resumeFrom: string;
+  /** The short sha of the red-tests commit on the run's branch, '' when there is none (Plan and Red tests are refused once it exists). */
+  redCommit: string;
   createPr?: boolean;
   pr?: string | null;
   prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null;
@@ -169,6 +173,11 @@ function docFiles(docsDir: string): string[] {
   return [...list('').sort(), ...list('logs').sort()];
 }
 
+/** The red-tests commit of <slug> in <worktree> ('' when none or git cannot say). */
+function redCommitOf(worktree: string, slug: string): string {
+  try { return new Git(worktree).findCommit([redPattern(slug)], '%h'); } catch { return ''; }
+}
+
 /** Everything the run screen shows of <slug>; `changes: false` skips the git calls that count its files. */
 export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean; tailLines?: number; checkPr?: boolean } = {}): RunView {
   const rec = readRecord(ctx.reg, slug);
@@ -224,6 +233,7 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
     tail: dir ? tail(path.join(logs, 'run.out'), opts.tailLines ?? 40) : [],
     docs: docFiles(docsDir),
     discarded,
+    redCommit: worktree ? redCommitOf(worktree, slug) : '',
     resumeFrom: resumeStage(stage, exists(path.join(docsDir, 'test-issues.md'))),
     testIssues: exists(path.join(docsDir, 'test-issues.md')) ? readText(path.join(docsDir, 'test-issues.md')) : null,
     createPr: (() => {

@@ -46,7 +46,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   questions: Question[]; permissions: Ask[]; deniedPermissions?: Ask[];
   stageFiles: Record<string, string[]>;
   changes: { changed: number; uncommitted: number; files: string[] } | null;
-  tail: string[]; docs: string[]; discarded: string; resumeFrom: string;
+  tail: string[]; docs: string[]; discarded: string; resumeFrom: string; redCommit: string;
   createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean;
   testIssues?: string | null;
   recovery?: StageRecovery | null;
