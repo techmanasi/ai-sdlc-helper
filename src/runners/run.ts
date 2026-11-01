@@ -56,8 +56,10 @@ function runOnce(suite: RunSuite, opts: RunOptions): RunResult {
     wrap: cmd => (node && node.switchTo && node.manager ? wrapCommand(cmd, node.switchTo, node.manager) : cmd),
     sh: (command, where = cwd, extraEnv = {}) => {
       const a = shellArgv(command, { env });
+      const runnerEnv = { ...env, ...extraEnv };
+      delete runnerEnv.WATCH_REPORT_DEPENDENCIES;
       const r = spawn(a.file, a.args, {
-        cwd: where, encoding: 'utf8', env: { ...env, ...extraEnv }, maxBuffer: 256 * 1024 * 1024, windowsVerbatimArguments: a.windowsVerbatimArguments,
+        cwd: where, encoding: 'utf8', env: runnerEnv, maxBuffer: 256 * 1024 * 1024, windowsVerbatimArguments: a.windowsVerbatimArguments,
       });
       return { status: r.status === null ? 1 : r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
     },
