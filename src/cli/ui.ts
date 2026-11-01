@@ -10,7 +10,8 @@ export const UI_COMMANDS = ['ui'];
 export const UI_VALUED = ['--port'];
 export const UI_FLAGS = ['--no-open'];
 
-export const UI_USAGE = `  ui [--port <n>] [--no-open]      the local web app on 127.0.0.1 (default port 4477, the next free one if taken): the
+export const UI_USAGE = `  ui [--port <n>] [--no-open]      the local web app on 127.0.0.1 (default 4477, tries the next free port if busy;
+                                   --port and SDLC_UI_PORT use a fixed port): the
                                    board, runs, questions, refused actions, backlog and settings; prints its URL and
                                    opens it unless --no-open. Runs go on when it stops (Ctrl-C).`;
 
@@ -31,14 +32,15 @@ function openBrowser(url: string): void {
 export async function ui(argv: string[], valued: string[], io: Io, opts: { file?: string; stopSignal?: Promise<void> } = {}): Promise<number> {
   const a = parseArgs(argv, valued);
   if (a.positional.length > 1) { io.err(`ERROR: ui takes no arguments, got: ${a.positional.slice(1).join(' ')}`); return 2; }
-  const portArg = a.value('--port');
+  const env = io.env || process.env;
+  const portArg = a.value('--port') ?? env.SDLC_UI_PORT;
   if (portArg !== undefined && !/^\d+$/.test(portArg)) { io.err('ERROR: --port needs a number'); return 2; }
   const file = opts.file || serverFile();
   if (!fs.existsSync(file)) { io.err(`ERROR: the web app is not built (${file} is missing). Run: npm run build`); return 1; }
   const { startServer } = await import(pathToFileURL(file).href) as { startServer: StartServer };
   let server: WebServer;
   try {
-    server = await startServer({ port: portArg === undefined ? undefined : Number(portArg), env: io.env || process.env, cwd: io.cwd || process.cwd() });
+    server = await startServer({ port: portArg === undefined ? undefined : Number(portArg), env, cwd: io.cwd || process.cwd() });
   } catch (e) {
     io.err(`ERROR: could not start the web app: ${(e as Error).message}`);
     return 1;
