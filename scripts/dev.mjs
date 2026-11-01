@@ -115,7 +115,7 @@ function startUiServer() {
   const ui = spawn('node', ['--watch', '--watch-path=dist/web/server', 'dist/bin.js', 'ui', '--no-open'], {
     cwd: root,
     stdio: ['inherit', 'pipe', 'inherit'],
-    env: { ...process.env, SDLC_DEV: '1' },
+    env: { ...process.env, SDLC_DEV: '1', SDLC_UI_SIGNIN_FILE: signInFile },
   });
   procs.push(ui);
   uiProc = ui;
@@ -140,7 +140,6 @@ function startUiServer() {
         stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
         env: {
           ...process.env,
-          SDLC_DEV: '1',
           SDLC_UI_API: process.env.SDLC_UI_API || apiUrl,
           SDLC_UI_SIGNIN_FILE: signInFile,
         },
