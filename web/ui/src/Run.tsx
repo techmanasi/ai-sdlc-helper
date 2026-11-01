@@ -199,7 +199,7 @@ function RecoveryCard({
           )}
           {recovery.escapeHatch && (
             <button
-              class="btn btn-d"
+              class="btn"
               type="button"
               disabled={!!busy}
               onClick={onEscapeHatch}
@@ -295,7 +295,10 @@ export function Run({ slug }: { slug: string }) {
   const running = v.state === 'running';
   const states = stageStates(v);
   const unanswered = v.questions.filter(q => !(answers[q.n] !== undefined ? answers[q.n] : q.answer).trim()).length;
-  const startLabel = v.state === 'not started' || v.state === 'refused' ? 'Start' : v.resumeFrom ? `Resume from ${STAGES.find(s => s.key === v.resumeFrom)?.name || v.resumeFrom}` : 'Resume';
+  // A run with no recorded stage resumes at Spec, named and sent as such: no button starts without saying where.
+  const resumeKey = v.resumeFrom || 'spec';
+  const startLabel = v.state === 'not started' || v.state === 'refused' ? 'Start' : `Resume from ${STAGES.find(s => s.key === resumeKey)?.name || resumeKey}`;
+  const resumeAt = `Resume at ${STAGES.find(s => s.key === (from || 'spec'))?.name || from}`;
   const startArgs = ['start', slug, ...(v.resumeFrom && v.state !== 'not started' ? ['--from', v.resumeFrom] : [])];
   const editorLink = v.worktree ? `vscode://file${v.worktree.startsWith('/') ? '' : '/'}${v.worktree}` : '';
   const openFile = async (p: string) => { try { setFile({ path: p, text: (await api.file(project, slug, p)).text }); } catch (e) { toast((e as Error).message); } };
@@ -334,7 +337,9 @@ export function Run({ slug }: { slug: string }) {
             const auto = v.recovery!.autoAction;
             if (!auto) return;
             const customEnv = auto.env ? { ...envObj, ...auto.env } : envObj;
-            if (auto.command.includes('--from spec')) {
+            if (auto.command.includes(' permit ')) {
+              act(auto.label, () => api.permit(project, slug, 'all', 'allow', envObj));
+            } else if (auto.command.includes('--from spec')) {
               act(auto.label, () => api.start(project, slug, 'spec', customEnv));
             } else if (auto.command.includes('--from plan')) {
               act(auto.label, () => api.start(project, slug, 'plan', customEnv));
@@ -357,14 +362,18 @@ export function Run({ slug }: { slug: string }) {
             const esc = v.recovery!.escapeHatch;
             if (!esc) return;
             const fromMatch = esc.command.match(/--from (\S+)/);
-            const targetFrom = fromMatch ? fromMatch[1] : undefined;
-            act(esc.label, () => api.start(project, slug, targetFrom, envObj));
+            // A command without a stage (push the branch by hand) is not something to start: copy it for the terminal.
+            if (!fromMatch) {
+              navigator.clipboard.writeText(esc.command).then(() => toast(`Copied: ${esc.command}`), () => toast(`Run in a terminal: ${esc.command}`));
+              return;
+            }
+            act(esc.label, () => api.start(project, slug, fromMatch[1], envObj));
           }}
         />
       )}
 
       <div class="row">
-        <button class="btn btn-p" type="button" disabled={running || !!busy} onClick={() => act(startLabel, () => api.start(project, slug, v.state === 'not started' ? undefined : v.resumeFrom || undefined, envObj))}>{busy === startLabel ? <><Spinner /> Starting…</> : startLabel}</button>
+        <button class="btn btn-p" type="button" disabled={running || !!busy} onClick={() => act(startLabel, () => api.start(project, slug, v.state === 'not started' ? undefined : v.state === 'refused' ? v.resumeFrom || undefined : resumeKey, envObj))}>{busy === startLabel ? <><Spinner /> Starting…</> : startLabel}</button>
         <label class="sr" for="from">Restart from</label>
         <select id="from" class="sel" style={{ minHeight: '40px' }} value={from} onChange={e => setFrom((e.target as HTMLSelectElement).value)} disabled={v.state === 'not started'}>
           <option value="">from the start</option>
@@ -373,7 +382,7 @@ export function Run({ slug }: { slug: string }) {
         {confirm === 'restart'
           ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Restart', () => api.restart(project, slug, from || undefined, envObj))}>{busy === 'Restart' ? <><Spinner /> Restarting…</> : 'Confirm: discard and start again'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
           : <button class="btn" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('restart')}>Restart…</button>}
-        <button class="btn" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => act(`Resume at ${from || 'start'}`, () => api.start(project, slug, from || undefined, envObj))}>{busy === `Resume at ${from || 'start'}` ? <><Spinner /> Resuming…</> : 'Resume at selected stage'}</button>
+        <button class="btn" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => act(resumeAt, () => api.start(project, slug, from || 'spec', envObj))}>{busy === resumeAt ? <><Spinner /> Resuming…</> : resumeAt}</button>
         {confirm === 'stop'
           ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Stop', () => api.stop(project, slug))}>{busy === 'Stop' ? <><Spinner /> Stopping…</> : 'Confirm stop'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep running</button></>
           : <button class="btn" type="button" disabled={!running || !!busy} onClick={() => setConfirm('stop')}>Stop</button>}

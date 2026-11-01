@@ -50,8 +50,11 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
   const unansweredCount = (ctx.questions || []).filter(q => !q.answer?.trim()).length;
   const pendingPermsCount = (ctx.permissions || []).length;
 
-  // Resuming at Plan or Red tests once the red-tests commit exists is refused before any stage starts (no stage is recorded).
-  const refused = normStage ? null : /FROM=(\S+) but the red-tests commit \w+ already exists/.exec(tailText);
+  // Resuming at Plan or Red tests once the red-tests commit exists is refused before any stage starts. Only the output of the
+  // latest run counts (it starts at its "SDLC: <slug> on branch" line): an older refusal in the tail is not this failure.
+  const lines = ctx.runOut || [];
+  const latest = lines.slice(Math.max(0, lines.map(l => l.startsWith('SDLC: ')).lastIndexOf(true))).join('\n');
+  const refused = /FROM=(\S+) but the red-tests commit \w+ already exists/.exec(latest);
   if (refused) {
     const was = refused[1] === 'plan' ? 'Plan' : 'Red tests';
     return {
@@ -316,7 +319,7 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
       instruction: 'Inspect log/run.out for root cause details.',
     },
     escapeHatch: {
-      label: 'Restart pipeline from Spec',
+      label: 'Resume pipeline from Spec',
       command: resumeCommand(ctx.slug, 'spec'),
     },
   };

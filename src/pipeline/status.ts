@@ -51,5 +51,10 @@ export class Status {
   }
 }
 
+/** The stage a status file names ('' when there is none): a resume that stops before its first stage keeps the one it had. */
+export function previousStage(file: string): string {
+  try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return typeof j.stage === 'string' ? j.stage : ''; } catch { return ''; }
+}
+
 /** The final state for an exit code: done (0), paused for answers (2), failed (anything else). */
 export const finalState = (code: number): RunState => (code === 0 ? 'done' : code === 2 ? 'paused' : 'failed');
