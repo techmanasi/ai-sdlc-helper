@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  AGENT_STAGES, DefaultHarnessRegistry, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
+  AGENT_STAGES, DefaultHarnessRegistry, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetail, hashOf, listCompletedTasks, main, readRegistry, repoRulesFile, resolve,
   restart, runContext, runView, start, stop, syncPrComments, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
@@ -181,8 +181,14 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       const file = path.join(p.path, 'sdlc.config.json');
       const raw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
       const entry = readRegistry(env).find(e => e.name === p.name);
+      let fileJson: Record<string, any> = {};
+      try { fileJson = raw ? JSON.parse(raw) : {}; } catch { /* the settings errors already say so */ }
+      const fileAgent = Object.fromEntries(Object.entries((fileJson.agent || {}) as Record<string, unknown>).filter(([k]) => ['harness', 'model', 'effort', 'stages'].includes(k)));
+      const personalAgent = (entry?.overrides?.agent || undefined) as Record<string, any> | undefined;
       return send(200, {
         ...r, raw, hash: hashOf(raw ?? ''), overrides: entry?.overrides || {}, registered: Boolean(entry),
+        fileAgent, personalAgent: personalAgent || {}, sources: agentSources(mergeAgent(fileAgent, personalAgent), personalAgent),
+        files: { project: path.join(p.path, 'sdlc.config.json'), personal: registryFile(env) },
         harnesses: [...HARNESS_IDS], stages: [...AGENT_STAGES], efforts: [...EFFORT_LEVELS], stageDefaults: STAGE_DEFAULTS,
         models: await harnessModels(), activeRuns: activeRuns(p),
       });

@@ -309,6 +309,23 @@ describe('editing a project\'s setup', () => {
     expect((await get(settingsUrl)).json.overrides).toEqual({});
   });
 
+  test('personal agent settings sit above the file, are saved in the registry, and each setting says which one it comes from', async () => {
+    await post(settingsUrl, { patch: { agent: { harness: 'claude', model: 'sonnet' } } });
+    await post('/api/projects', { path: repo });
+    const saved = await post('/api/projects/shop/overrides', { patch: { agent: { model: 'haiku', stages: { review: { harness: 'codex' } } } } });
+    expect(saved.json.ok).toBe(true);
+    const s = (await get(settingsUrl)).json;
+    expect(s.config.agent).toMatchObject({ harness: 'claude', model: 'haiku', stages: { review: { harness: 'codex' } } });
+    expect(s.fileAgent).toEqual({ harness: 'claude', model: 'sonnet' });
+    expect(s.personalAgent).toEqual({ model: 'haiku', stages: { review: { harness: 'codex' } } });
+    expect(s.sources).toEqual({ harness: 'project', model: 'personal', stages: { review: { harness: 'personal' } } });
+    expect(s.files).toEqual({ project: path.join(repo, 'sdlc.config.json'), personal: path.join(base, 'config', 'projects.json') });
+    expect(JSON.parse(fs.readFileSync(path.join(repo, 'sdlc.config.json'), 'utf8')).agent.model).toBe('sonnet');
+    const bad = await post('/api/projects/shop/overrides', { patch: { agent: { harness: 'gpt' } } });
+    expect(bad.status).toBe(400);
+    expect(bad.json.errors).toEqual(['agent.harness: must be one of claude, agy, codex (got "gpt")']);
+  });
+
   test('a run that is paused is named as keeping the old setup', async () => {
     await post('/api/projects', { path: repo });
     await post('/api/projects/shop/runs/ask-one/start', {});

@@ -10,6 +10,7 @@ import { INDEXER_SCHEMA, codeSearchErrors, codeSearchFor, type CodeIndexer } fro
 import { expandGlob, globToRegex } from './globs.js';
 import { NODE_MANAGERS, nodeRun, wrapCommand, type NodeRun } from './node.js';
 import { AGENT_STAGES } from '../pipeline/context.js';
+import { PERSONAL_KEYS, mergeAgent, personalAgentOf } from './personal.js';
 
 /** The coding agent harnesses a project can name (the built-in ones; the harness registry registers the same ids). */
 export const HARNESS_IDS = ['claude', 'agy', 'codex'] as const;
@@ -136,6 +137,12 @@ export const SCHEMA: Json = {
   node: { version: 'string', manager: ['auto', ...NODE_MANAGERS, 'none'] },
 };
 
+/** Every way personal agent settings (harness, model, effort, stages) break the agent schema or name an unknown stage. */
+export function personalErrors(agent: Json): string[] {
+  const errors = Object.keys(agent).filter(k => !(PERSONAL_KEYS as readonly string[]).includes(k)).map(k => `agent.${k}: not a personal setting`);
+  return errors.length ? errors : fileErrors({ agent });
+}
+
 /** Every way a whole sdlc.config.json breaks the schema, the code search rules, or the stage names of agent.stages. */
 export function fileErrors(file: Json): string[] {
   const errors = validate(file, SCHEMA, '', []);
@@ -230,6 +237,14 @@ export function resolve(root: string, { env = process.env }: { env?: NodeJS.Proc
     }
     errors.push(...fileErrors(file));
     if (errors.length) return { config: null, errors: errors.map(e => `${CONFIG_FILE}: ${e}`), warnings, file: fileName };
+  }
+
+  // Personal agent settings (this machine only) go on top of the file's, before anything reads them.
+  const personal = personalAgentOf(root, env);
+  if (personal) {
+    const bad = personalErrors(personal);
+    if (bad.length) return { config: null, errors: bad.map(e => `personal settings: ${e}`), warnings, file: fileName };
+    file = { ...file, agent: mergeAgent(file.agent, personal) };
   }
 
   let suites: (Omit<Suite, 'runCmd'> | null)[];

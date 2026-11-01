@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CONFIG_FILE, exists, readSettings } from '../util.js';
 import { shellArgv } from '../shell.js';
+import { PERSONAL_ENV, personalAgentOf } from '../config/personal.js';
 import { forceEnv, resolve, worktreeBase, type Force } from '../config/settings.js';
 import { findContaining, readRegistry, type ProjectOverrides } from '../registry/projects.js';
 import { worktreeChanges } from '../changes/index.js';
@@ -160,6 +161,10 @@ export function pipelineEnv(ctx: RunContext, slug: string): NodeJS.ProcessEnv {
   const plugins = ctx.env.SDLC_PLUGIN_DIRS ?? (isDir(guard) ? guard : '');
   if (plugins) env.CLAUDE_CODE_PLUGIN_DIRS = plugins;
   env.SDLC_SLUG = slug;
+  // The run's worktree is not the registered folder: hand it the personal agent settings of the project.
+  delete env[PERSONAL_ENV];
+  const personal = personalAgentOf(ctx.root, ctx.env);
+  if (personal) env[PERSONAL_ENV] = JSON.stringify(personal);
   return env;
 }
 

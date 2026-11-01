@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG_FILE, type Json } from '../util.js';
 import { NAME, readRegistry, writeRegistry, RegistryError, type ProjectEntry, type ProjectOverrides } from '../registry/projects.js';
-import { fileErrors } from './settings.js';
+import { fileErrors, personalErrors } from './settings.js';
 
 /** A change to the settings file: objects merge, null removes a key, anything else replaces the value. */
 export type SettingsPatch = Json;
@@ -74,26 +74,29 @@ export function editSettings(root: string, patch: SettingsPatch, expect?: string
   return { ok: true, errors: [], hash: hashOf(out) };
 }
 
-/** Problems with personal overrides: worktreeBase must be text, maxParallel a whole number above 0; null clears one. */
+/** Problems with personal overrides: worktreeBase must be text, maxParallel a whole number above 0, agent the agent settings. */
 export function overrideErrors(o: Json): string[] {
   const errors: string[] = [];
   for (const [k, v] of Object.entries(o)) {
-    if (k === 'worktreeBase') { if (v !== null && (typeof v !== 'string' || !v)) errors.push('worktreeBase: must be a non-empty string'); }
-    else if (k === 'maxParallel') { if (v !== null && !(Number.isInteger(v) && (v as number) > 0)) errors.push('maxParallel: must be a whole number above 0'); }
+    if (k === 'worktreeBase') { if (typeof v !== 'string' || !v) errors.push('worktreeBase: must be a non-empty string'); }
+    else if (k === 'maxParallel') { if (!(Number.isInteger(v) && (v as number) > 0)) errors.push('maxParallel: must be a whole number above 0'); }
+    else if (k === 'agent') { if (!isObject(v)) errors.push('agent: must be an object'); else errors.push(...personalErrors(v).map(e => (e.startsWith('agent') ? e : `agent.${e}`))); }
     else errors.push(`${k}: unknown override`);
   }
   return errors;
 }
 
-/** Changes the personal overrides of the project called <name>; null clears one. Throws RegistryError for an unknown project. */
+/**
+ * Changes the personal overrides of the project called <name>: objects merge, null clears one (and the last clear drops
+ * the key). Throws RegistryError for an unknown project.
+ */
 export function editOverrides(name: string, patch: Json, env: NodeJS.ProcessEnv = process.env): EditResult {
-  const errors = overrideErrors(patch);
-  if (errors.length) return { ok: false, errors, hash: '' };
   const entries = readRegistry(env);
   const entry = entries.find(e => e.name === name);
   if (!entry || !NAME.test(name)) throw new RegistryError(`no project called "${name}"`);
-  const merged: Json = { ...(entry.overrides || {}), ...patch };
-  for (const k of Object.keys(merged)) if (merged[k] === null) delete merged[k];
+  const merged = applyPatch((entry.overrides || {}) as Json, patch);
+  const errors = overrideErrors(merged);
+  if (errors.length) return { ok: false, errors, hash: '' };
   const next: ProjectEntry = { ...entry, overrides: merged as ProjectOverrides };
   if (!Object.keys(merged).length) Reflect.deleteProperty(next, 'overrides');
   writeRegistry(entries.map(e => (e === entry ? next : e)), env);

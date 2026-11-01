@@ -2,6 +2,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
+import { agentSources, mergeAgent } from '../src/config/personal.js';
+import { pipelineEnv, runContext } from '../src/runs/index.js';
 import { applyPatch, editOverrides, editSettings, hashOf } from '../src/config/edit.js';
 import { EFFORT_LEVELS, HARNESS_IDS, agentFor, harnessFor, resolve } from '../src/config/settings.js';
 import { DefaultHarnessRegistry } from '../src/pipeline/harness/registry.js';
@@ -249,5 +251,78 @@ describe('the run-wide agent, model and effort in the environment and on start',
     expect((await run(['start', 'a-b', '--agent=gpt'])).stderr).toContain('--agent must be one of claude, agy, codex (got gpt)');
     const r = await run(['stop', 'a-b', '--model', 'opus']);
     expect([r.status, r.stderr]).toEqual([2, expect.stringContaining('go with start and restart')]);
+  });
+});
+
+describe('personal agent settings', () => {
+  /** A project whose file says claude/sonnet/high with a codex review, registered with personal settings. */
+  const setup = (personal?: Record<string, unknown>) => {
+    const dir = project({ 'sdlc.config.json': config({ agent: { codeSearch: 'none', harness: 'claude', model: 'sonnet', effort: 'high', stages: { review: { harness: 'codex', model: 'o3-mini' } } } }) });
+    const env = { AI_SDLC_HELPER_CONFIG_DIR: tmp() };
+    writeRegistry([{ name: 'shop', path: fs.realpathSync(dir), addedAt: '2026-01-01T00:00:00.000Z', ...(personal ? { overrides: { agent: personal } } : {}) }], env);
+    return { dir, env };
+  };
+
+  test('sit above the project file, field by field and stage by stage; the rest of the file is untouched', () => {
+    const { dir, env } = setup({ model: 'haiku', stages: { review: { effort: 'low' }, plan: { harness: 'agy' } } });
+    const a = resolve(dir, { env }).config!.agent;
+    expect(a).toMatchObject({ harness: 'claude', model: 'haiku', effort: 'high' });
+    expect(a.stages).toEqual({ review: { harness: 'codex', model: 'o3-mini', effort: 'low' }, plan: { harness: 'agy' } });
+    expect(a.codeSearch).toBe('none');
+    expect(JSON.parse(read(dir)).agent.model).toBe('sonnet');
+  });
+
+  test('another harness drops the model and effort the file chose for the old one, unless the personal setting names them', () => {
+    const { dir, env } = setup({ harness: 'codex' });
+    expect(resolve(dir, { env }).config!.agent).toMatchObject({ harness: 'codex', model: null, effort: null });
+    const own = setup({ harness: 'codex', model: 'o3-mini' });
+    expect(resolve(own.dir, { env: own.env }).config!.agent).toMatchObject({ harness: 'codex', model: 'o3-mini', effort: null });
+    const stage = setup({ stages: { review: { harness: 'agy' } } });
+    expect(resolve(stage.dir, { env: stage.env }).config!.agent.stages.review).toEqual({ harness: 'agy' });
+  });
+
+  test('a project nobody registered, or one with no personal settings, is the file alone', () => {
+    const none = setup();
+    expect(resolve(none.dir, { env: none.env }).config!.agent).toMatchObject({ harness: 'claude', model: 'sonnet' });
+    const dir = project({ 'sdlc.config.json': config() });
+    expect(resolve(dir, { env: { AI_SDLC_HELPER_CONFIG_DIR: tmp() } }).config!.agent.harness).toBe('claude');
+  });
+
+  test('a run worktree gets them in SDLC_PERSONAL_AGENT; a broken personal setting is an error that names its source', () => {
+    const { dir, env } = setup();
+    expect(resolve(dir, { env: { ...env, SDLC_PERSONAL_AGENT: JSON.stringify({ harness: 'agy' }) } }).config!.agent.harness).toBe('agy');
+    const bad = resolve(dir, { env: { ...env, SDLC_PERSONAL_AGENT: JSON.stringify({ harness: 'gpt' }) } });
+    expect(bad.errors).toEqual(['personal settings: agent.harness: must be one of claude, agy, codex (got "gpt")']);
+    expect(resolve(dir, { env: { ...env, SDLC_PERSONAL_AGENT: JSON.stringify({ allowCommands: ['rm'] }) } }).errors)
+      .toEqual(['personal settings: agent.allowCommands: not a personal setting']);
+  });
+
+  test('are saved in the registry with the same checks, merge with what is there, and clear with null', () => {
+    const { env } = setup({ model: 'haiku' });
+    expect(editOverrides('shop', { agent: { stages: { review: { harness: 'agy' } } } }, env).ok).toBe(true);
+    expect(readRegistry(env)[0].overrides).toEqual({ agent: { model: 'haiku', stages: { review: { harness: 'agy' } } } });
+    expect(editOverrides('shop', { agent: { harness: 'gpt' } }, env).errors).toEqual(['agent.harness: must be one of claude, agy, codex (got "gpt")']);
+    expect(editOverrides('shop', { agent: { allowCommands: ['x'] } }, env).errors).toEqual(['agent.allowCommands: not a personal setting']);
+    expect(editOverrides('shop', { agent: { model: null, stages: { review: null } } }, env).ok).toBe(true);
+    expect(readRegistry(env)[0].overrides).toBeUndefined();
+  });
+
+  test('each setting says where it comes from: personal, the project file, or nothing for the built-in default', () => {
+    const { dir } = setup();
+    const file = JSON.parse(read(dir)).agent;
+    const personal = { model: 'haiku', stages: { review: { effort: 'low' }, plan: { harness: 'agy' } } };
+    expect(agentSources(mergeAgent(file, personal), personal)).toEqual({
+      harness: 'project', model: 'personal', effort: 'project',
+      stages: { review: { harness: 'project', model: 'project', effort: 'personal' }, plan: { harness: 'personal' } },
+    });
+    expect(agentSources(mergeAgent({}, undefined), undefined)).toEqual({ stages: {} });
+  });
+
+  test('a start passes them to the pipeline of the run, and nothing when there are none', () => {
+    const { dir, env } = setup({ model: 'haiku' });
+    const ctx = runContext(dir, env);
+    expect(JSON.parse(pipelineEnv(ctx, 'x').SDLC_PERSONAL_AGENT!)).toEqual({ model: 'haiku' });
+    const none = setup();
+    expect(pipelineEnv(runContext(none.dir, none.env), 'x').SDLC_PERSONAL_AGENT).toBeUndefined();
   });
 });

@@ -12,7 +12,14 @@ export interface SettingsView {
   stageDefaults: Record<string, { model: string; effort: string }>;
   models: Record<string, ModelInfo[]>;
   activeRuns: string[];
+  /** The agent settings of sdlc.config.json alone, the personal ones alone, and where each effective setting comes from. */
+  fileAgent: { harness?: string; model?: string; effort?: string; stages?: Record<string, StageSetting> };
+  personalAgent: { harness?: string; model?: string; effort?: string; stages?: Record<string, StageSetting> };
+  sources: AgentSources;
+  files: { project: string; personal: string };
 }
+export type Source = 'personal' | 'project';
+export interface AgentSources { harness?: Source; model?: Source; effort?: Source; stages: Record<string, { harness?: Source; model?: Source; effort?: Source }> }
 export interface Project { name: string; path: string; registered: boolean }
 export interface BacklogItem { status: string; slug: string; type: string | null; priority: string | null; title: string; note: string; hasBrief: boolean }
 export interface TestCounts { passed: number; failed: number; skipped: number; total: number }

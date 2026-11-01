@@ -57,6 +57,7 @@ export {
   getPrFromBrief, recordPrInBrief, createOrGetPr, getPrStatus, fetchPrComments, type PrStatus, type PrComment,
 } from './pipeline/finalise.js';
 export { STAGE_DEFAULTS, resolveProvider, stageModel, providerEnv, type Provider } from './pipeline/models.js';
+export { agentSources, mergeAgent, personalAgentOf, type AgentSources, type Source } from './config/personal.js';
 export { editOverrides, editSettings, hashOf, applyPatch, type EditResult, type SettingsPatch } from './config/edit.js';
 export { FROM_STAGES, AGENT_STAGES, type From, type AgentStage } from './pipeline/context.js';
 export type { StatusLine } from './pipeline/status.js';
