@@ -6,14 +6,14 @@ import { fileURLToPath } from 'node:url';
 import { exists, shellWord } from '../util.js';
 import { onPath } from '../shell.js';
 import { codeSearchGuide } from '../config/codeSearch.js';
-import { allowedTools, layout, resolve } from '../config/settings.js';
+import { HARNESS_IDS, allowedTools, layout, resolve, type HarnessName } from '../config/settings.js';
 import { snapshot } from '../changes/index.js';
 import { repoRulesFile } from '../permissions/index.js';
 import { Keys, testLayout } from '../testcheck/keys.js';
-import { Exit, FROM_STAGES, SetupError, stop, tick, type Ctx, type From } from './context.js';
+import { AGENT_STAGES, Exit, FROM_STAGES, SetupError, stop, tick, type Ctx, type From } from './context.js';
 import { spawnClaude, type AgentSpawn } from './agent.js';
 import { Git } from './git.js';
-import { envModels, registryFile, stageModels } from './models.js';
+import { envModels, modelEnvOf, registryFile, stageModels } from './models.js';
 import { PROMPTS_DIR } from './prompts.js';
 import { Status, finalState } from './status.js';
 import { formatRecoveryCli, stageRecoveryHint } from './hints.js';
@@ -42,6 +42,10 @@ export interface PipelineOptions {
   signal?: AbortSignal;
   /** Primary coding agent harness: claude, agy, or codex */
   agent?: 'claude' | 'agy' | 'codex';
+  /** --model: the model of every stage (wins over MODEL_<STAGE> and the project's settings). */
+  model?: string;
+  /** --effort: the effort of every stage. */
+  effort?: string;
 }
 
 const numberEnv = (env: NodeJS.ProcessEnv, name: string, fallback: number): number => {
@@ -96,7 +100,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
   try {
     ctx = await setup(opts, from, env, out, err);
     // Resolved model and effort of every stage, for the status file (and a bad value fails here, before any agent).
-    ctx.status.models = stageModels({ env, fromFile: ctx.envModels, registryFile: ctx.registryFile });
+    ctx.status.models = stageModels(modelEnvOf(ctx));
     ctx.status.write();
     await stages(ctx);
   } catch (e) {
@@ -143,7 +147,20 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
     for (const e of errors) out(`ERROR: ${e}`);
     return stop(say, 'ERROR: fix the project settings above (ai-sdlc-helper show)');
   }
-  if (opts.agent) config.agent.harness = opts.agent;
+  // AGENT_<STAGE> picks one stage's harness for this run, as MODEL_<STAGE> does its model.
+  for (const st of AGENT_STAGES) {
+    const v = env[`AGENT_${st.toUpperCase().replace(/-/g, '_')}`];
+    if (!v) continue;
+    if (!(HARNESS_IDS as readonly string[]).includes(v)) stop(say, `ERROR: AGENT_${st.toUpperCase().replace(/-/g, '_')} must be one of ${HARNESS_IDS.join(', ')} (got ${v})`);
+    config.agent.stages = { ...config.agent.stages, [st]: { ...(config.agent.stages[st] || {}), harness: v as HarnessName } };
+  }
+  // --agent forces one harness for every stage, ahead of agent.stages. The project's model and effort were chosen for its
+  // own harness, so they are dropped when another one is forced (--model and --effort still apply).
+  if (opts.agent) {
+    if (opts.agent !== config.agent.harness) { config.agent.model = null; config.agent.effort = null; }
+    config.agent.harness = opts.agent;
+    config.agent.stages = {};
+  }
   const lay = layout(config);
   const backlog = `${config.backlogDir}/index.md`;
   const slug = opts.slug || firstPending(path.join(root, backlog));
@@ -168,7 +185,7 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
   const git = new Git(root, env);
   const ctx: Ctx = {
     root, config, layout: lay, slug, from, fromN: FROM_STAGES.indexOf(from) + 1, docs, log, backlog,
-    branch: `${config.git.branchPrefix}${slug}`, env, envModels: envModels(root, env), registryFile: registryFile(env), limits,
+    branch: `${config.git.branchPrefix}${slug}`, env, envModels: envModels(root, env), force: { ...(opts.model ? { model: opts.model } : {}), ...(opts.effort ? { effort: opts.effort } : {}) }, registryFile: registryFile(env), limits,
     git, keys: new Keys(testLayout(config), root), status, spawnAgent: opts.spawnAgent || spawnClaude, signal: opts.signal,
     promptsDir: opts.promptsDir || PROMPTS_DIR, guide: codeSearchGuide(search, root),
     allowed: [...new Set([...allowedTools(config), `Bash(${testFileCmd}:*)`, `Bash(${fetchCmd}:*)`])], testFileCmd, fetchCmd,

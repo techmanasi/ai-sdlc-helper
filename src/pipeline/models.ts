@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { has } from '../util.js';
 import { loadRegistry, resolvePath } from '../models/index.js';
-import { AGENT_STAGES, SetupError, type AgentStage } from './context.js';
+import { EFFORT_LEVELS, agentFor } from '../config/settings.js';
+import { AGENT_STAGES, SetupError, type AgentStage, type Ctx } from './context.js';
 
 /** The default "<model> <effort>" of each stage; MODEL_<STAGE>, EFFORT_<STAGE>, SDLC_MODEL and SDLC_EFFORT override it. */
 export const STAGE_DEFAULTS: Record<AgentStage, { model: string; effort: string }> = {
@@ -18,7 +19,7 @@ export const STAGE_DEFAULTS: Record<AgentStage, { model: string; effort: string 
   'test-audit': { model: 'opus', effort: 'medium' },
   review: { model: 'opus', effort: 'medium' },
 };
-export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+export const EFFORTS: string[] = [...EFFORT_LEVELS];
 
 /**
  * The SDLC_PROVIDER* keys of <root>/.env (quotes stripped) that the environment does not set. Only those keys are read;
@@ -64,6 +65,10 @@ export interface ModelEnv {
   /** SDLC_PROVIDER* keys from .env (see envModels). */
   fromFile?: Record<string, string>;
   registryFile: string;
+  /** The project's model and effort for a stage (sdlc.config.json), below MODEL_<STAGE> and above SDLC_MODEL. */
+  project?: (stage: AgentStage) => { model?: string; effort?: string };
+  /** --model and --effort of the run: they win over everything, for every stage. */
+  force?: { model?: string; effort?: string };
 }
 
 const provKey = (p: string) => p.toUpperCase().replace(/-/g, '_');
@@ -105,15 +110,25 @@ export function resolveProvider(spec: string, stage: string, { env, fromFile = {
 
 export interface StageModel { model: string; effort: string; provider: Provider }
 
-/** The model and effort of <stage> (MODEL_<STAGE> > SDLC_MODEL > default, the same for effort), and its provider. */
+/**
+ * The model and effort of <stage>, and its provider. Highest first: the run's --model / --effort, MODEL_<STAGE> /
+ * EFFORT_<STAGE>, the project's setting, SDLC_MODEL / SDLC_EFFORT, the stage default.
+ */
 export function stageModel(stage: AgentStage, menv: ModelEnv): StageModel {
   const up = stage.toUpperCase().replace(/-/g, '_');
   const def = STAGE_DEFAULTS[stage];
-  const model = menv.env[`MODEL_${up}`] || menv.env.SDLC_MODEL || def.model;
-  const effort = menv.env[`EFFORT_${up}`] || menv.env.SDLC_EFFORT || def.effort;
+  const proj = menv.project ? menv.project(stage) : {};
+  const model = menv.force?.model || menv.env[`MODEL_${up}`] || proj.model || menv.env.SDLC_MODEL || def.model;
+  const effort = menv.force?.effort || menv.env[`EFFORT_${up}`] || proj.effort || menv.env.SDLC_EFFORT || def.effort;
   if (!EFFORTS.includes(effort)) throw new SetupError(`ERROR: invalid effort '${effort}' for stage ${stage} (use low, medium, high, xhigh or max)`);
   return { model, effort, provider: resolveProvider(model, stage, menv) };
 }
+
+/** The model settings of a run: its environment, the project's settings and the run's --model / --effort. */
+export const modelEnvOf = (ctx: Ctx): ModelEnv => ({
+  env: ctx.env, fromFile: ctx.envModels, registryFile: ctx.registryFile,
+  project: st => agentFor(ctx.config, st), force: ctx.force,
+});
 
 /** Every stage's model and effort, for status.json; a bad value fails the run at the start. */
 export function stageModels(menv: ModelEnv): Record<string, { model: string; effort: string }> {

@@ -56,6 +56,8 @@ export interface Ctx {
   env: NodeJS.ProcessEnv;
   /** SDLC_PROVIDER* keys read from the project's .env, for model resolution only (never passed on). */
   envModels: Record<string, string>;
+  /** --model and --effort of the run, for every stage. */
+  force?: { model?: string; effort?: string };
   registryFile: string;
   limits: Limits;
   git: Git;

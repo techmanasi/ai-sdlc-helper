@@ -254,3 +254,66 @@ test('the built app is served, with index.html for the app routes and nothing ou
   expect((await get('/run/ask-one')).body).toContain('<title>app</title>');
   expect((await get('/..%2f..%2fshop%2fsdlc.config.json')).status).toBe(404);
 });
+
+describe('editing a project\'s setup', () => {
+  const settingsUrl = '/api/projects/shop/settings';
+
+  test('the settings reply carries what the form needs: hash, harnesses, stages, overrides and the active runs', async () => {
+    await post('/api/projects', { path: repo });
+    const s = (await get(settingsUrl)).json;
+    expect(s).toMatchObject({ harnesses: ['claude', 'agy', 'codex'], overrides: {}, registered: true, activeRuns: [] });
+    expect(s.stages).toEqual(['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'test-audit', 'review']);
+    expect(s.hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(s.efforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    expect(s.stageDefaults.review).toEqual({ model: 'opus', effort: 'medium' });
+    expect(Object.keys(s.models)).toEqual(['claude', 'agy', 'codex']);
+    expect(s.models.claude.map((m: any) => m.id)).toEqual(['opus', 'sonnet', 'haiku']);
+    expect(s.models.claude.find((m: any) => m.id === 'haiku').supportsEffort).toBe(false);
+    expect(s.models.codex.find((m: any) => m.id === 'o3-mini').supportsEffort).toBe(true);
+  });
+
+  test('switching the default agent and giving a stage another one changes only those keys, and the next read shows them', async () => {
+    const before = JSON.parse(fs.readFileSync(path.join(repo, 'sdlc.config.json'), 'utf8'));
+    const hash = (await get(settingsUrl)).json.hash;
+    const r = await post(settingsUrl, { patch: { agent: { harness: 'codex', model: 'o3-mini', effort: 'high', stages: { review: { harness: 'agy', model: 'gemini-3.8-pro' } } } }, hash });
+    expect(r.status).toBe(200);
+    expect(r.json.ok).toBe(true);
+    const after = JSON.parse(fs.readFileSync(path.join(repo, 'sdlc.config.json'), 'utf8'));
+    expect(after).toEqual({ ...before, agent: { ...before.agent, harness: 'codex', model: 'o3-mini', effort: 'high', stages: { review: { harness: 'agy', model: 'gemini-3.8-pro' } } } });
+    const s = (await get(settingsUrl)).json;
+    expect(s.config.agent).toMatchObject({ harness: 'codex', model: 'o3-mini', effort: 'high', stages: { review: { harness: 'agy', model: 'gemini-3.8-pro' } } });
+    expect(s.hash).toBe(r.json.hash);
+  });
+
+  test('a bad value is a 400 with the CLI\'s wording; a stale hash is a 400 and neither touches the file', async () => {
+    const file = path.join(repo, 'sdlc.config.json');
+    const before = fs.readFileSync(file, 'utf8');
+    const bad = await post(settingsUrl, { patch: { agent: { harness: 'gpt' } } });
+    expect(bad.status).toBe(400);
+    expect(bad.json.errors).toEqual(['sdlc.config.json: agent.harness: must be one of claude, agy, codex (got "gpt")']);
+    const stale = await post(settingsUrl, { patch: { agent: { harness: 'agy' } }, hash: 'f'.repeat(64) });
+    expect(stale.status).toBe(400);
+    expect(stale.json.errors[0]).toContain('changed since you opened it');
+    expect((await post(settingsUrl, { patch: 'x' })).status).toBe(400);
+    expect(fs.readFileSync(file, 'utf8')).toBe(before);
+  });
+
+  test('the personal overrides are saved in the registry, shown back, and cleared with null; an unregistered project is a 404', async () => {
+    expect((await post('/api/projects/shop/overrides', { patch: { maxParallel: 2 } })).status).toBe(404);
+    await post('/api/projects', { path: repo });
+    const r = await post('/api/projects/shop/overrides', { patch: { maxParallel: 2, worktreeBase: '/tmp/wts' } });
+    expect(r.json.ok).toBe(true);
+    expect((await get(settingsUrl)).json.overrides).toEqual({ maxParallel: 2, worktreeBase: '/tmp/wts' });
+    expect((await post('/api/projects/shop/overrides', { patch: { maxParallel: 0 } })).json.errors).toEqual(['maxParallel: must be a whole number above 0']);
+    await post('/api/projects/shop/overrides', { patch: { maxParallel: null, worktreeBase: null } });
+    expect((await get(settingsUrl)).json.overrides).toEqual({});
+  });
+
+  test('a run that is paused is named as keeping the old setup', async () => {
+    await post('/api/projects', { path: repo });
+    await post('/api/projects/shop/runs/ask-one/start', {});
+    await until(() => run('ask-one'), v => v.state === 'paused');
+    const r = await post(settingsUrl, { patch: { agent: { harness: 'agy' } } });
+    expect(r.json.activeRuns).toEqual(['ask-one']);
+  });
+});

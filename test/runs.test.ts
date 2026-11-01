@@ -124,6 +124,17 @@ const ranLines = (wt: string) => fs.readFileSync(path.join(wt, 'ran.txt'), 'utf8
 const MERGED = (slug: string) => ['commit', '--allow-empty', '-q', '-m', `test(${slug}): add failing tests and spec/plan docs`];
 
 describe('start', () => {
+  test('--agent, --model and --effort reach the pipeline as SDLC_FORCE_*, over the shell\'s; without them nothing is set', async () => {
+    const stub = path.join(tmp, 'force-stub.sh');
+    fs.writeFileSync(stub, '#!/bin/sh\necho "${SDLC_FORCE_AGENT:-}/${SDLC_FORCE_MODEL:-}/${SDLC_FORCE_EFFORT:-}" > force.txt\n', { mode: 0o755 });
+    const own = { AI_SDLC_HELPER_PIPELINE_CMD: `sh ${stub}` };
+    expect((await cli(['start', 'alpha', '--agent=agy', '--model', 'gemini-3.8-pro', '--effort', 'high'], { ...own, SDLC_FORCE_AGENT: 'codex' })).status).toBe(0);
+    await finished('alpha');
+    expect(fs.readFileSync(path.join(wts, 'alpha', 'force.txt'), 'utf8').trim()).toBe('agy/gemini-3.8-pro/high');
+    expect((await cli(['restart', 'alpha', '--yes', '--effort', 'low'], own)).status).toBe(0);
+    await until(() => hasRecord('alpha') && record('alpha').state === 'exited' && fs.readFileSync(path.join(wts, 'alpha', 'force.txt'), 'utf8').trim() === '//low');
+  });
+
   test('runs the pipeline in its own worktree on sdlc/<slug>, records the run, links the shared folders, and reuses all of it', async () => {
     const r = await cli(['start', 'alpha']);
     expect(r.status).toBe(0);
