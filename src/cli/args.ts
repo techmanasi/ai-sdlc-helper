@@ -6,12 +6,21 @@ export interface ArgsSpec {
   flags?: string[];
 }
 
+/** `--opt=value` as `--opt value` for the valued options (the first "=" splits; the value may hold more). */
+export function splitEquals(args: string[], valued: string[]): string[] {
+  return args.flatMap(a => {
+    const eq = a.indexOf('=');
+    return a.startsWith('--') && eq > 2 && valued.includes(a.slice(0, eq)) ? [a.slice(0, eq), a.slice(eq + 1)] : [a];
+  });
+}
+
 /**
  * What is wrong with a command line, or null: a command or option that arrived as one argument with what follows it
  * (zsh and PowerShell pass an unquoted variable as one word, where bash splits it), an unknown option, a missing or
  * unknown command. The value of a valued option is never checked: a test name or a path may hold spaces.
  */
-export function argsProblem(args: string[], { commands, valued = [], flags = [] }: ArgsSpec): string | null {
+export function argsProblem(rawArgs: string[], { commands, valued = [], flags = [] }: ArgsSpec): string | null {
+  const args = splitEquals(rawArgs, valued);
   const known = new Set([...valued, ...flags]);
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -36,7 +45,8 @@ export interface ParsedArgs {
   flag(name: string): boolean;
 }
 
-export function parseArgs(args: string[], valued: string[] = []): ParsedArgs {
+export function parseArgs(rawArgs: string[], valued: string[] = []): ParsedArgs {
+  const args = splitEquals(rawArgs, valued);
   const valueAt = new Set(valued.map(n => args.indexOf(n)).filter(i => i >= 0).map(i => i + 1));
   return {
     positional: args.filter((a, i) => !a.startsWith('--') && !valueAt.has(i)),

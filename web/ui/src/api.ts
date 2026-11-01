@@ -2,6 +2,24 @@
 // copy so the browser build never pulls in Node code.
 
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused';
+export interface StageSetting { harness?: string; model?: string; effort?: string }
+export interface ModelInfo { id: string; name: string; supportsEffort: boolean; defaultEffort?: string }
+export interface SettingsView {
+  config: { agent?: { harness: string; model: string | null; effort: string | null; stages: Record<string, StageSetting> } } | null;
+  errors: string[]; warnings: string[]; raw: string | null;
+  hash: string; overrides: { worktreeBase?: string; maxParallel?: number }; registered: boolean;
+  harnesses: string[]; stages: string[]; efforts: string[];
+  stageDefaults: Record<string, { model: string; effort: string }>;
+  models: Record<string, ModelInfo[]>;
+  activeRuns: string[];
+  /** The agent settings of sdlc.config.json alone, the personal ones alone, and where each effective setting comes from. */
+  fileAgent: { harness?: string; model?: string; effort?: string; stages?: Record<string, StageSetting> };
+  personalAgent: { harness?: string; model?: string; effort?: string; stages?: Record<string, StageSetting> };
+  sources: AgentSources;
+  files: { project: string; personal: string };
+}
+export type Source = 'personal' | 'project';
+export interface AgentSources { harness?: Source; model?: Source; effort?: Source; stages: Record<string, { harness?: Source; model?: Source; effort?: Source }> }
 export interface Project { name: string; path: string; registered: boolean }
 export interface BacklogItem { status: string; slug: string; type: string | null; priority: string | null; title: string; note: string; hasBrief: boolean }
 export interface TestCounts { passed: number; failed: number; skipped: number; total: number }
@@ -136,7 +154,11 @@ export const api = {
   addProject: (path: string, name?: string) => call<Outcome & { projects: Project[] }>('POST', '/api/projects', { path, name }),
   doctor: (project: string) => call<{ checks: Check[] }>('GET', `${p(project)}/doctor`),
   board: (project: string) => call<Board>('GET', `${p(project)}/board`),
-  settings: (project: string) => call<{ config: unknown; errors: string[]; warnings: string[]; raw: string | null }>('GET', `${p(project)}/settings`),
+  settings: (project: string) => call<SettingsView>('GET', `${p(project)}/settings`),
+  editSettings: (project: string, patch: Record<string, unknown>, hash?: string) =>
+    call<{ ok: boolean; errors: string[]; hash: string; activeRuns: string[] }>('POST', `${p(project)}/settings`, { patch, hash }),
+  editOverrides: (project: string, patch: Record<string, unknown>) =>
+    call<{ ok: boolean; errors: string[] }>('POST', `${p(project)}/overrides`, { patch }),
   brief: (project: string, slug: string) => call<{ brief: string | null }>('GET', `${p(project)}/backlog/${encodeURIComponent(slug)}`),
   addItem: (project: string, item: { slug: string; type: string; title: string; brief: string; start?: boolean }) =>
     call<{ ok: boolean; started: Outcome | null }>('POST', `${p(project)}/backlog`, item),

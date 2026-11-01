@@ -1,7 +1,7 @@
 // One run: its stages, the questions and refused actions it waits on, its environment, files and live output, and every
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { api, type RunView } from './api';
+import { api, type RunView, type SettingsView } from './api';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
 import { buildDocTree, type DocTreeNode } from './tree';
 
@@ -13,6 +13,7 @@ const STAGES = [
 const MODELS = ['', 'opus', 'sonnet', 'haiku', 'fable'];
 const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
 const envKey = (kind: 'MODEL' | 'EFFORT', key: string) => `${kind}_${key.toUpperCase().replace(/-/g, '_')}`;
+const AGENT_ENV = (key: string) => `AGENT_${key.toUpperCase().replace(/-/g, '_')}`;
 const ENV_STORE = (project: string, slug: string) => `sdlc-env:${project}:${slug}`;
 
 function loadEnv(project: string, slug: string): [string, string][] {
@@ -223,6 +224,8 @@ export function Run({ slug }: { slug: string }) {
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [env, setEnv] = useState<[string, string][]>(() => loadEnv(project, slug));
   const [createPr, setCreatePr] = useState(false);
+  const [catalog, setCatalog] = useState<SettingsView | null>(null);
+  useEffect(() => { api.settings(project).then(setCatalog).catch(() => setCatalog(null)); }, [project]);
   const [from, setFrom] = useState('');
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
@@ -392,6 +395,27 @@ export function Run({ slug }: { slug: string }) {
           <span>Auto-accept suggested answers (Spec, Plan, Triage)</span>
         </label>
       </div>
+      {catalog && !running && (
+        <div class="row" style={{ alignItems: 'center', gap: '6px', margin: '4px 0', flexWrap: 'wrap' }}>
+          <span class="small muted">This run, every stage:</span>
+          <select class="sel" aria-label="run agent" value={envObj.SDLC_FORCE_AGENT || ''} onChange={e => {
+            const h = (e.target as HTMLSelectElement).value;
+            setEnvVar('SDLC_FORCE_AGENT', h);
+            if (envObj.SDLC_FORCE_MODEL && !(catalog.models[h || catalog.config?.agent?.harness || 'claude'] || []).some(m => m.id === envObj.SDLC_FORCE_MODEL)) setEnvVar('SDLC_FORCE_MODEL', '');
+          }}>
+            <option value="">agent: project's</option>
+            {catalog.harnesses.map(h => <option value={h}>{h}</option>)}
+          </select>
+          <select class="sel" aria-label="run model" value={envObj.SDLC_FORCE_MODEL || ''} onChange={e => setEnvVar('SDLC_FORCE_MODEL', (e.target as HTMLSelectElement).value)}>
+            <option value="">model: per stage</option>
+            {(catalog.models[envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'] || []).map(m => <option value={m.id}>{m.id}</option>)}
+          </select>
+          <select class="sel" aria-label="run effort" value={envObj.SDLC_FORCE_EFFORT || ''} onChange={e => setEnvVar('SDLC_FORCE_EFFORT', (e.target as HTMLSelectElement).value)}>
+            <option value="">effort: per stage</option>
+            {catalog.efforts.map(x => <option value={x}>{x}</option>)}
+          </select>
+        </div>
+      )}
       <Cli args={startArgs} />
       {envArgs.length > 0 && <p class="mono small muted" style={{ margin: 0 }}>with {envArgs.join(' ')}</p>}
       {v.discarded && <p class="small muted" style={{ margin: 0 }}>Discarded before. To get that branch back: <span class="mono">{v.discarded}</span></p>}
@@ -452,8 +476,17 @@ export function Run({ slug }: { slug: string }) {
                     ? <span class="mono small muted">{inUse ? `${inUse.model} · ${inUse.effort}` : 'default'}{st === 'active' ? ' · in use' : ''}</span>
                     : (
                       <div class="row" style={{ gap: '4px' }}>
+                        {catalog && (
+                          <select class="sel" aria-label={`${s.name} agent`} value={envObj[AGENT_ENV(s.key)] || ''} onChange={e => {
+                            setEnvVar(AGENT_ENV(s.key), (e.target as HTMLSelectElement).value);
+                            setEnvVar(envKey('MODEL', s.key), '');
+                          }}>
+                            <option value="">{catalog.config?.agent?.stages?.[s.key]?.harness || catalog.config?.agent?.harness || 'agent'}</option>
+                            {catalog.harnesses.map(h => <option value={h}>{h}</option>)}
+                          </select>
+                        )}
                         <select class="sel" aria-label={`${s.name} model`} value={envObj[envKey('MODEL', s.key)] || ''} onChange={e => setEnvVar(envKey('MODEL', s.key), (e.target as HTMLSelectElement).value)}>
-                          {MODELS.map(m => <option value={m}>{m || (inUse ? inUse.model : 'default')}</option>)}
+                          {['', ...(catalog ? (catalog.models[envObj[AGENT_ENV(s.key)] || catalog.config?.agent?.stages?.[s.key]?.harness || catalog.config?.agent?.harness || 'claude'] || []).map(m => m.id) : MODELS.slice(1))].map(m => <option value={m}>{m || (inUse ? inUse.model : 'default')}</option>)}
                         </select>
                         <select class="sel" aria-label={`${s.name} effort`} value={envObj[envKey('EFFORT', s.key)] || ''} onChange={e => setEnvVar(envKey('EFFORT', s.key), (e.target as HTMLSelectElement).value)}>
                           {EFFORTS.map(m => <option value={m}>{m || (inUse ? inUse.effort : 'default')}</option>)}

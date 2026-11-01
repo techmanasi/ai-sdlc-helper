@@ -7,7 +7,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CONFIG_FILE, exists, readSettings } from '../util.js';
 import { shellArgv } from '../shell.js';
-import { resolve, worktreeBase } from '../config/settings.js';
+import { PERSONAL_ENV, personalAgentOf } from '../config/personal.js';
+import { forceEnv, resolve, worktreeBase, type Force } from '../config/settings.js';
 import { findContaining, readRegistry, type ProjectOverrides } from '../registry/projects.js';
 import { worktreeChanges } from '../changes/index.js';
 import {
@@ -160,6 +161,10 @@ export function pipelineEnv(ctx: RunContext, slug: string): NodeJS.ProcessEnv {
   const plugins = ctx.env.SDLC_PLUGIN_DIRS ?? (isDir(guard) ? guard : '');
   if (plugins) env.CLAUDE_CODE_PLUGIN_DIRS = plugins;
   env.SDLC_SLUG = slug;
+  // The run's worktree is not the registered folder: hand it the personal agent settings of the project.
+  delete env[PERSONAL_ENV];
+  const personal = personalAgentOf(ctx.root, ctx.env);
+  if (personal) env[PERSONAL_ENV] = JSON.stringify(personal);
   return env;
 }
 
@@ -188,7 +193,7 @@ function linkShared(ctx: RunContext, wt: string): void {
   }
 }
 
-export interface StartOptions { from?: string }
+export interface StartOptions { from?: string; /** The run's own agent, model and effort, for every stage. */ force?: Force }
 
 /**
  * Starts the pipeline of <slug> in its worktree (made on the first start: branch <prefix><slug> from the base) and
@@ -274,7 +279,7 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
         slug, recordFile: recordFile(ctx.reg, slug), interruptFile: regFile(ctx, slug, 'interrupt'), logFile: log,
         outFile: path.join(logs, 'run.out'), cwd: wt, argv: pipelineArgv(slug, opts.from, ctx.env), setup, setupMarker: marker,
         record: { ...record, pid: 0 },
-      }, pipelineEnv(ctx, slug));
+      }, { ...pipelineEnv(ctx, slug), ...forceEnv(opts.force) });
     } catch (e) {
       return refuse(1, `could not start the pipeline: ${(e as Error).message}`);
     }
@@ -360,7 +365,7 @@ export async function restart(ctx: RunContext, slug: string, opts: StartOptions 
   }
   const d = await discard(ctx, slug, { yes: opts.yes, stop: true });
   if (d.code !== 0 && d.code !== 1) return d; // 1: nothing to discard, which is fine
-  const s = start(ctx, slug, { from: opts.from });
+  const s = start(ctx, slug, { from: opts.from, force: opts.force });
   return { code: s.code, out: [...(d.code === 0 ? d.out : []), ...s.out], err: s.err };
 }
 

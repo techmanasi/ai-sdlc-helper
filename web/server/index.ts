@@ -8,8 +8,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
-  decide, discard, doctor, getCompletedTaskDetail, listCompletedTasks, main, readRegistry, repoRulesFile, resolve,
+  AGENT_STAGES, DefaultHarnessRegistry, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
+  decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetail, hashOf, listCompletedTasks, main, readRegistry, repoRulesFile, resolve,
   restart, runContext, runView, start, stop, syncPrComments, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
@@ -86,6 +86,19 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
 
   const contextFor = (p: Project, extra: Record<string, string> = {}): RunContext => {
     try { return runContext(p.path, { ...env, ...extra }); } catch (e) { throw new HttpError(400, (e as Error).message); }
+  };
+
+  /** The models each harness offers, with whether they take an effort, for the pickers. */
+  const harnessModels = async () => {
+    const reg = new DefaultHarnessRegistry();
+    const out: Record<string, { id: string; name: string; supportsEffort: boolean; defaultEffort?: string }[]> = {};
+    for (const h of reg.list()) out[h.id] = (await h.listModels(env)).map(m => ({ id: m.id, name: m.name, supportsEffort: m.supportsEffort, defaultEffort: m.defaultEffort }));
+    return out;
+  };
+
+  /** The runs of <p> that are running or paused: a settings change reaches only the runs started after it. */
+  const activeRuns = (p: Project): string[] => {
+    try { return boardView(contextFor(p), { changes: false }).runs.filter(r => r.state === 'running' || r.state === 'paused').map(r => r.slug); } catch { return []; }
   };
 
   const slugOf = (s: string): string => { if (!SLUG.test(s)) throw new HttpError(400, `not a backlog slug: '${s}'`); return s; };
@@ -166,7 +179,32 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     if (what === 'settings' && method === 'GET') {
       const r = resolve(p.path, { env });
       const file = path.join(p.path, 'sdlc.config.json');
-      return send(200, { ...r, raw: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null });
+      const raw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+      const entry = readRegistry(env).find(e => e.name === p.name);
+      let fileJson: Record<string, any> = {};
+      try { fileJson = raw ? JSON.parse(raw) : {}; } catch { /* the settings errors already say so */ }
+      const fileAgent = Object.fromEntries(Object.entries((fileJson.agent || {}) as Record<string, unknown>).filter(([k]) => ['harness', 'model', 'effort', 'stages'].includes(k)));
+      const personalAgent = (entry?.overrides?.agent || undefined) as Record<string, any> | undefined;
+      return send(200, {
+        ...r, raw, hash: hashOf(raw ?? ''), overrides: entry?.overrides || {}, registered: Boolean(entry),
+        fileAgent, personalAgent: personalAgent || {}, sources: agentSources(mergeAgent(fileAgent, personalAgent), personalAgent),
+        files: { project: path.join(p.path, 'sdlc.config.json'), personal: registryFile(env) },
+        harnesses: [...HARNESS_IDS], stages: [...AGENT_STAGES], efforts: [...EFFORT_LEVELS], stageDefaults: STAGE_DEFAULTS,
+        models: await harnessModels(), activeRuns: activeRuns(p),
+      });
+    }
+    if (what === 'settings' && method === 'POST') {
+      if (!body.patch || typeof body.patch !== 'object' || Array.isArray(body.patch)) throw new HttpError(400, 'patch must be an object');
+      if (body.hash !== undefined && typeof body.hash !== 'string') throw new HttpError(400, 'hash must be text');
+      const r = editSettings(p.path, body.patch, body.hash);
+      return send(r.ok ? 200 : 400, { ...r, activeRuns: activeRuns(p) });
+    }
+    if (what === 'overrides' && method === 'POST') {
+      if (!body.patch || typeof body.patch !== 'object' || Array.isArray(body.patch)) throw new HttpError(400, 'patch must be an object');
+      try {
+        const r = editOverrides(p.name, body.patch, env);
+        return send(r.ok ? 200 : 400, r);
+      } catch (e) { throw new HttpError(404, (e as Error).message); }
     }
     if (what === 'command' && method === 'POST') {
       if (!Array.isArray(body.args) || !body.args.every((a: unknown) => typeof a === 'string')) throw new HttpError(400, 'args must be a list of strings');

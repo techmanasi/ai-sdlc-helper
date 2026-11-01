@@ -9,6 +9,40 @@ import {
 import { INDEXER_SCHEMA, codeSearchErrors, codeSearchFor, type CodeIndexer } from './codeSearch.js';
 import { expandGlob, globToRegex } from './globs.js';
 import { NODE_MANAGERS, nodeRun, wrapCommand, type NodeRun } from './node.js';
+import { AGENT_STAGES } from '../pipeline/context.js';
+import { PERSONAL_KEYS, mergeAgent, personalAgentOf } from './personal.js';
+
+/** The coding agent harnesses a project can name (the built-in ones; the harness registry registers the same ids). */
+export const HARNESS_IDS = ['claude', 'agy', 'codex'] as const;
+export type HarnessName = typeof HARNESS_IDS[number];
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+/** The run-wide agent, model and effort of a command line (--agent, --model, --effort) or of the environment (SDLC_FORCE_*). */
+export interface Force { agent?: string; model?: string; effort?: string }
+export const FORCE_ENV = { agent: 'SDLC_FORCE_AGENT', model: 'SDLC_FORCE_MODEL', effort: 'SDLC_FORCE_EFFORT' } as const;
+
+/** The forced values from the flags, else from SDLC_FORCE_* in <env>; <problem> says what is wrong with them, or is null. */
+export function forceOf(flag: (name: string) => string | undefined, env: NodeJS.ProcessEnv): { force: Force; problem: string | null } {
+  const force: Force = {};
+  let problem: string | null = null;
+  for (const k of ['agent', 'model', 'effort'] as const) {
+    const fromFlag = flag(`--${k}`);
+    const v = fromFlag || env[FORCE_ENV[k]] || '';
+    if (!v) continue;
+    force[k] = v;
+    const name = fromFlag ? `--${k}` : FORCE_ENV[k];
+    const allowed: readonly string[] | null = k === 'agent' ? HARNESS_IDS : k === 'effort' ? EFFORT_LEVELS : null;
+    if (allowed && !allowed.includes(v) && !problem) problem = `${name} must be one of ${allowed.join(', ')} (got ${v})`;
+  }
+  return { force, problem };
+}
+
+/** <force> as the SDLC_FORCE_* variables the pipeline reads. */
+export const forceEnv = (force: Force = {}): Record<string, string> =>
+  Object.fromEntries((['agent', 'model', 'effort'] as const).filter(k => force[k]).map(k => [FORCE_ENV[k], force[k] as string]));
+
+/** What a stage overrides of the project's agent setup; a missing key keeps the project's. */
+export interface StageSetting { harness?: HarnessName; model?: string; effort?: string }
 
 export interface Suite {
   name: string;
@@ -35,7 +69,7 @@ export interface Config {
   lint: string | null;
   worktree: { base: string; link: string[] };
   git: { branchPrefix: string; base: string | null; conflictSuffixStart: number };
-  agent: { harness: 'claude' | 'agy' | 'codex'; allowCommands: string[]; codeSearch: string; codeIndexer: CodeIndexer | null };
+  agent: { harness: HarnessName; model: string | null; effort: string | null; stages: Record<string, StageSetting>; allowCommands: string[]; codeSearch: string; codeIndexer: CodeIndexer | null };
   finalise: { envExample: boolean; maxFileBytes: number };
   ship: { envExample: boolean; maxFileBytes: number };
   ui: { timezone: string };
@@ -93,12 +127,31 @@ export const SCHEMA: Json = {
   lint: 'string',
   worktree: { base: 'string', link: 'string[]' },
   git: { branchPrefix: 'string', base: 'string', conflictSuffixStart: 'integer' },
-  agent: { harness: ['claude', 'agy', 'codex'], allowCommands: 'string[]', codeSearch: 'string', codeSearchOrder: 'string[]', codeIndexers: { '*': INDEXER_SCHEMA } },
+  agent: {
+    harness: [...HARNESS_IDS], model: 'string', effort: [...EFFORT_LEVELS],
+    stages: { '*': { harness: [...HARNESS_IDS], model: 'string', effort: [...EFFORT_LEVELS] } },
+    allowCommands: 'string[]', codeSearch: 'string', codeSearchOrder: 'string[]', codeIndexers: { '*': INDEXER_SCHEMA } },
   finalise: { envExample: 'boolean', maxFileBytes: 'integer' },
   ship: { envExample: 'boolean', maxFileBytes: 'integer' },
   ui: { timezone: 'string' },
   node: { version: 'string', manager: ['auto', ...NODE_MANAGERS, 'none'] },
 };
+
+/** Every way personal agent settings (harness, model, effort, stages) break the agent schema or name an unknown stage. */
+export function personalErrors(agent: Json): string[] {
+  const errors = Object.keys(agent).filter(k => !(PERSONAL_KEYS as readonly string[]).includes(k)).map(k => `agent.${k}: not a personal setting`);
+  return errors.length ? errors : fileErrors({ agent });
+}
+
+/** Every way a whole sdlc.config.json breaks the schema, the code search rules, or the stage names of agent.stages. */
+export function fileErrors(file: Json): string[] {
+  const errors = validate(file, SCHEMA, '', []);
+  if (!errors.length) errors.push(...codeSearchErrors(file));
+  for (const st of Object.keys((file.agent && file.agent.stages) || {})) {
+    if (!(AGENT_STAGES as readonly string[]).includes(st)) errors.push(`agent.stages.${st}: unknown stage (one of ${AGENT_STAGES.join(', ')})`);
+  }
+  return errors;
+}
 
 /** Every way <value> breaks <schema>, as "path: problem" lines. `{ '*': schema }` is a map: any key, each value checked. */
 export function validate(value: unknown, schema: any, where: string, errors: string[]): string[] {
@@ -182,9 +235,16 @@ export function resolve(root: string, { env = process.env }: { env?: NodeJS.Proc
     try { file = readJson(fileName); } catch (e) {
       return { config: null, errors: [`${CONFIG_FILE}: not valid JSON (${(e as Error).message})`], warnings, file: fileName };
     }
-    validate(file, SCHEMA, '', errors);
-    if (!errors.length) errors.push(...codeSearchErrors(file));
+    errors.push(...fileErrors(file));
     if (errors.length) return { config: null, errors: errors.map(e => `${CONFIG_FILE}: ${e}`), warnings, file: fileName };
+  }
+
+  // Personal agent settings (this machine only) go on top of the file's, before anything reads them.
+  const personal = personalAgentOf(root, env);
+  if (personal) {
+    const bad = personalErrors(personal);
+    if (bad.length) return { config: null, errors: bad.map(e => `personal settings: ${e}`), warnings, file: fileName };
+    file = { ...file, agent: mergeAgent(file.agent, personal) };
   }
 
   let suites: (Omit<Suite, 'runCmd'> | null)[];
@@ -236,7 +296,10 @@ export function resolve(root: string, { env = process.env }: { env?: NodeJS.Proc
       conflictSuffixStart: (file.git && file.git.conflictSuffixStart) || 10001,
     },
     agent: {
-      harness: (file.agent && file.agent.harness) || (env.SDLC_AGENT as 'claude' | 'agy' | 'codex') || 'claude',
+      harness: (file.agent && file.agent.harness) || (env.SDLC_AGENT as HarnessName) || 'claude',
+      model: (file.agent && file.agent.model) || null,
+      effort: (file.agent && file.agent.effort) || null,
+      stages: (file.agent && file.agent.stages) || {},
       allowCommands: (file.agent && file.agent.allowCommands) || [],
       codeSearch: search.codeSearch,
       codeIndexer: search.indexer,
@@ -367,3 +430,19 @@ export const layout = (config: Config): Layout => ({
 /** The folder that holds the pipeline worktrees ("../{repo}-sdlc" by default). */
 export const worktreeBase = (config: Pick<Config, 'root' | 'worktree'>): string =>
   path.resolve(config.root, config.worktree.base.replace(/\{repo\}/g, path.basename(config.root)));
+
+/**
+ * The agent setup of <stage>: its own agent.stages entry first, then the project's. The project's model and effort were
+ * chosen for the project's harness, so a stage that runs another harness gets them only from its own entry.
+ */
+export function agentFor(config: Config, stage: string): { harness: HarnessName; model?: string; effort?: string } {
+  const own = (config.agent.stages || {})[stage] || {};
+  const harness = own.harness || config.agent.harness;
+  const same = harness === config.agent.harness;
+  const model = own.model || (same && config.agent.model) || undefined;
+  const effort = own.effort || (same && config.agent.effort) || undefined;
+  return { harness, ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+}
+
+/** The harness that runs <stage>. */
+export const harnessFor = (config: Config, stage: string): HarnessName => agentFor(config, stage).harness;

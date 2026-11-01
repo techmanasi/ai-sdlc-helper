@@ -5,7 +5,7 @@ export { globToRegex, expandGlob } from './config/globs.js';
 export { projectNode, satisfiesMajor, nodeRun, wrapCommand, type NodeRun, type ProjectNode } from './config/node.js';
 export { CODE_INDEXERS, codeIndexers, codeSearchErrors, codeSearchFor, codeSearchGuide, type CodeIndexer } from './config/codeSearch.js';
 export {
-  resolve, validate, testDir, testSpec, testFiles, agentRules, allowedTools, testFramework, keyDir, layout, worktreeBase,
+  EFFORT_LEVELS, HARNESS_IDS, agentFor, harnessFor, resolve, validate, testDir, testSpec, testFiles, agentRules, allowedTools, testFramework, keyDir, layout, worktreeBase,
   type Config, type Suite, type Layout,
 } from './config/settings.js';
 export { suggest, setupPlan, provision, locateTestDir, packagesBelow, describeProject, rankRunners } from './config/suggest.js';
@@ -57,6 +57,8 @@ export {
   getPrFromBrief, recordPrInBrief, createOrGetPr, getPrStatus, fetchPrComments, type PrStatus, type PrComment,
 } from './pipeline/finalise.js';
 export { STAGE_DEFAULTS, resolveProvider, stageModel, providerEnv, type Provider } from './pipeline/models.js';
+export { agentSources, mergeAgent, personalAgentOf, type AgentSources, type Source } from './config/personal.js';
+export { editOverrides, editSettings, hashOf, applyPatch, type EditResult, type SettingsPatch } from './config/edit.js';
 export { FROM_STAGES, AGENT_STAGES, type From, type AgentStage } from './pipeline/context.js';
 export type { StatusLine } from './pipeline/status.js';
 export {

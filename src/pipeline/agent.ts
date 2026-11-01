@@ -3,9 +3,9 @@
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { extract, modeFor, rulesFor } from '../permissions/index.js';
-import { testDir, testFramework } from '../config/settings.js';
+import { harnessFor, testDir, testFramework } from '../config/settings.js';
 import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from './context.js';
-import { modelFlags, providerEnv, stageModel } from './models.js';
+import { modelEnvOf, modelFlags, providerEnv, stageModel } from './models.js';
 import { manualInput, prCommentsInput, renderPrompt } from './prompts.js';
 import { resumeHint } from './hints.js';
 import { DefaultHarnessRegistry } from './harness/registry.js';
@@ -103,7 +103,7 @@ export function promptValues(ctx: Ctx): Record<string, string> {
 
 /** The model flags and provider environment of <stage>; prints the model line and records it in the status. */
 export function stageFlags(ctx: Ctx, stage: AgentStage): { args: string[]; env: Record<string, string>; model: string; effort: string; hasEffort: boolean } {
-  const sm = stageModel(stage, { env: ctx.env, fromFile: ctx.envModels, registryFile: ctx.registryFile });
+  const sm = stageModel(stage, modelEnvOf(ctx));
   ctx.status.model = sm.model;
   ctx.status.effort = sm.effort;
   ctx.out(sm.provider.effortFlag ? `   model=${sm.model} effort=${sm.effort}` : `   model=${sm.model} (provider without effort)`);
@@ -132,7 +132,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   if (mode !== 'acceptEdits') ctx.out('   (permission checks are off for this stage: you allowed a protected path)');
   const base = at(ctx, `${ctx.log}/${name}`);
 
-  const harnessId = ctx.config.agent?.harness || (ctx.env.SDLC_AGENT as any) || 'claude';
+  const harnessId = harnessFor(ctx.config, stage);
   const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
 
   let model = flags.model;
@@ -204,7 +204,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
 /** The independent test auditor: read-only tools, its stdout and stderr in <log>/test-audit.log. Resolves its exit code. */
 export async function runAudit(ctx: Ctx, prompt: string, flags: { args: string[]; env: Record<string, string>; model?: string; effort?: string }): Promise<number> {
   const logFile = at(ctx, `${ctx.log}/test-audit.log`);
-  const harnessId = ctx.config.agent?.harness || (ctx.env.SDLC_AGENT as any) || 'claude';
+  const harnessId = harnessFor(ctx.config, 'test-audit');
   const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
   let model = flags.model || 'sonnet';
   if (harnessId === 'codex') {

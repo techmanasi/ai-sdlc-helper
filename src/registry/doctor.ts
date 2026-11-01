@@ -3,7 +3,8 @@ import path from 'node:path';
 import { exists, readSettings } from '../util.js';
 import { codeSearchErrors, codeSearchFor } from '../config/codeSearch.js';
 import { nodeRun } from '../config/node.js';
-import { resolve, type Config } from '../config/settings.js';
+import { agentFor, resolve, type Config } from '../config/settings.js';
+import { AGENT_STAGES } from '../pipeline/context.js';
 import { shellArgv, which } from '../shell.js';
 
 /** Runs a program and waits for it; status is null when it could not be started. */
@@ -68,35 +69,30 @@ export function doctor(dir: string, opts: DoctorOptions = {}): Check[] {
 
   const { config, errors, warnings } = resolve(root, { env });
   const whichFn = (opts.which || ((name, e) => which(name, { env: e })));
-  const harness = config?.agent?.harness || env.SDLC_AGENT;
+  const used = new Set<string>(config ? [config.agent.harness, ...AGENT_STAGES.map(st => agentFor(config, st).harness)] : env.SDLC_AGENT ? [env.SDLC_AGENT] : []);
+  const cli = (bin: string, label: string, fix: string) => {
+    const found = whichFn(bin, env);
+    add({ name: `${label} CLI`, ok: found !== null, required: true, detail: found !== null ? found : `the ${bin} command is not on PATH`, fix });
+  };
 
-  if (harness === 'codex') {
-    const codex = whichFn('codex', env);
-    add({
-      name: 'codex CLI', ok: codex !== null, required: true,
-      detail: codex !== null ? codex : 'the codex command is not on PATH',
-      fix: 'install OpenAI Codex CLI and make sure codex is on PATH',
-    });
-  } else if (harness === 'agy') {
-    const agy = whichFn('agy', env);
-    add({
-      name: 'agy CLI', ok: agy !== null, required: true,
-      detail: agy !== null ? agy : 'the agy command is not on PATH',
-      fix: 'install Google Antigravity CLI and make sure agy is on PATH',
-    });
-  } else {
+  if (used.size === 0 || (used.size === 1 && used.has('claude'))) {
     const claude = whichFn('claude', env);
     const codex = whichFn('codex', env);
     const agy = whichFn('agy', env);
-    if (!claude && codex) {
+    if (used.size === 0 && !claude && codex) {
       add({ name: 'codex CLI', ok: true, required: true, detail: codex, fix: '' });
-    } else if (!claude && agy) {
+    } else if (used.size === 0 && !claude && agy) {
       add({ name: 'agy CLI', ok: true, required: true, detail: agy, fix: '' });
     } else {
       add({ name: 'claude CLI', ok: claude !== null, required: true,
         detail: claude !== null ? claude : 'the claude command is not on PATH',
         fix: 'install Claude Code (npm install -g @anthropic-ai/claude-code) and make sure claude is on PATH' });
     }
+  } else {
+    // Every harness the project uses (its default and any agent.stages entry) must be installed.
+    if (used.has('claude')) cli('claude', 'claude', 'install Claude Code (npm install -g @anthropic-ai/claude-code) and make sure claude is on PATH');
+    if (used.has('codex')) cli('codex', 'codex', 'install OpenAI Codex CLI and make sure codex is on PATH');
+    if (used.has('agy')) cli('agy', 'agy', 'install Google Antigravity CLI and make sure agy is on PATH');
   }
 
   add({ name: 'settings', ok: !errors.length && config !== null, required: true,

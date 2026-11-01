@@ -7,6 +7,8 @@ import { configDir } from '../configDir.js';
 export interface ProjectOverrides {
   worktreeBase?: string;
   maxParallel?: number;
+  /** Personal agent, model and effort for the project (and per stage), above its sdlc.config.json. */
+  agent?: Record<string, unknown>;
 }
 
 /** A registered project: a unique name for the top of its git work tree. */
