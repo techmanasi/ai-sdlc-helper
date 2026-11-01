@@ -43,6 +43,26 @@ export interface RunningServer {
 }
 
 export const DEFAULT_PORT = 4477;
+const DEV_SIGNIN_TRACKER = `(() => {
+  const key = 'ai-sdlc-helper.sign-in-url';
+  let checking = false;
+  const check = async () => {
+    if (checking) return;
+    checking = true;
+    try {
+      const response = await fetch('/__dev/signin-url', { cache: 'no-store' });
+      if (!response.ok) return;
+      const { url } = await response.json();
+      if (!url) return;
+      const previous = sessionStorage.getItem(key);
+      sessionStorage.setItem(key, url);
+      if (previous && previous !== url) location.replace(url);
+    } catch { /* retry on the next poll */ }
+    finally { checking = false; }
+  };
+  void check();
+  setInterval(check, 1000);
+})();`;
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const COMMAND_TIMEOUT_MS = 120000;
@@ -390,22 +410,38 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       if (url.pathname === '/' && url.searchParams.has('t')) {
         const t = url.searchParams.get('t') || '';
         if (t !== token) throw new HttpError(401, 'wrong token: open the URL that ai-sdlc-helper ui printed');
-        let location = '/';
-        if (env.SDLC_DEV === '1') {
-          try {
-            const target = new URL(url.searchParams.get('return') || '');
-            if (target.protocol === 'http:' && target.hostname === '127.0.0.1' && target.pathname === '/' && target.searchParams.get('sdlc-track') === '1') {
-              location = target.href;
-            }
-          } catch { /* ignore an invalid development return URL */ }
-        }
-        res.writeHead(302, { 'Set-Cookie': `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/`, Location: location });
+        res.writeHead(302, { 'Set-Cookie': `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/`, Location: '/' });
         return res.end();
+      }
+      if (env.SDLC_DEV === '1' && url.pathname === '/__dev/signin-url') {
+        let signInUrl = '';
+        try { signInUrl = fs.readFileSync(env.SDLC_UI_SIGNIN_FILE || '', 'utf8').trim(); } catch { /* server not ready */ }
+        sendJson(res, signInUrl ? 200 : 503, { url: signInUrl });
+        return;
+      }
+      if (env.SDLC_DEV === '1' && url.pathname === '/__dev/signin-tracker.js') {
+        res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        res.end(DEV_SIGNIN_TRACKER);
+        return;
       }
       if (!hasToken(req, token)) throw new HttpError(401, 'not signed in: open the URL that ai-sdlc-helper ui printed');
       if (url.pathname === '/api/events') return events(req, res, url);
       if (url.pathname.startsWith('/api/')) return api(req, res, url);
       if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'use GET');
+      if (env.SDLC_DEV === '1' && url.pathname === '/') {
+        const indexFile = path.join(uiDir, 'index.html');
+        if (fs.existsSync(indexFile) && fs.statSync(indexFile).isFile()) {
+          const html = fs.readFileSync(indexFile, 'utf8').replace('</body>', '<script src="/__dev/signin-tracker.js" defer></script></body>');
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+            'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; frame-ancestors 'none'",
+          });
+          res.end(req.method === 'HEAD' ? '' : html);
+          return;
+        }
+      }
       if (!sendStatic(res, uiDir, url.pathname)) {
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('The web app is not built. Run: npm run build (it builds dist/web/ui).\n');

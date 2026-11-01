@@ -22,11 +22,6 @@ function openBrowser(url) {
   try { spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref(); } catch { /* no desktop browser */ }
 }
 
-function localDevPageUrl() {
-  const address = server.httpServer?.address();
-  return address && typeof address === 'object' ? `http://127.0.0.1:${address.port}/?sdlc-track=1` : '';
-}
-
 await server.listen();
 server.printUrls();
 server.bindCLIShortcuts({
@@ -42,9 +37,9 @@ server.bindCLIShortcuts({
     },
     {
       key: 'o',
-      description: 'open tracked dev tab',
+      description: 'open signed server URL',
       action() {
-        const url = process.env.SDLC_DEV === '1' ? localDevPageUrl() : signedUrl();
+        const url = signedUrl();
         if (url) openBrowser(url);
         else server.config.logger.info('\n  No sign-in or dev URL is available.');
       },
