@@ -1,6 +1,6 @@
 # Vitest "Timeout calling onTaskUpdate" unhandled error
 
-Status: cause not found. Nothing in `src/` or `test/` was changed for this. Written while the repeat experiment (see "Next steps") was still running.
+Status: trigger found (four concurrent workers, 3 of 3 runs with the error against 0 of 3 at two workers), mechanism not found. Nothing in `src/` or `test/` was changed for this.
 
 ## Symptom
 
@@ -103,16 +103,28 @@ Question: does any test change the state or outcome of another test, so they onl
 
 ## Next steps
 
-1. The repeat experiment: the 9-file set (group A without `runners.test.ts`), 3 runs at the default worker count and 3 with `--maxWorkers=2` (script `repeat.sh`). If the error disappears at 2 workers, concurrency is the trigger.
-2. Profile process spawns per heavy test.
-3. Try `maxWorkers` 2, 4 and 6 across the full suite, several runs each.
+1. ~~The repeat experiment~~ Done, see "Repeat experiment result" below.
+2. Confirm on the full suite: `maxWorkers` 2 and 3 against the default, several runs each, to find the highest worker count that stays clean and what it costs in wall time.
+3. Profile process spawns per heavy test, to see what makes four workers starve the main-to-worker reply.
 4. Only fix once the cause is known. Do not raise `testTimeout`, do not raise Vitest's RPC timeout, and do not use `dangerouslyIgnoreUnhandledErrors`.
 
-Partial results of the repeat experiment so far, exact text from `repeat.summary` (the experiment was still running when this was written; the blank duration is a parsing bug in the script, not a missing run):
+## Repeat experiment result
+
+The 9-file set (group A without `runners.test.ts`), three runs at the default worker count (four) and three with `--maxWorkers=2`, alternating. Exact text from `repeat.summary` (the blank duration is a parsing bug in `repeat.sh`, not a missing run):
 
 ```
 03:22:57 default run 1: ERROR duration=
+03:26:14 workers2 run 1: clean duration=
+03:29:27 default run 2: ERROR duration=
+03:32:37 workers2 run 2: clean duration=
+03:35:49 default run 3: ERROR duration=
+03:38:56 workers2 run 3: clean duration=
 ```
+
+- Default workers: error in 3 of 3 runs. `maxWorkers=2`: error in 0 of 3 runs, and the runs took about the same time (workers2 run 3 took 186.65s, against about 203s at the default).
+- Together with the earlier runs this makes concurrency the trigger: at four busy workers the error appears, at two it does not. This is the first controlled comparison; every earlier conclusion came from single runs.
+- It is still three runs each. It shows the trigger, not the mechanism: why four workers delay the reply is unknown.
+- Candidate mitigation to test (not applied): lower the worker cap in `vitest.config.ts` (currently `min(4, cpus - 1)`). Check the cost on the full suite first, since that cap was chosen on purpose.
 
 ## Cleanup
 
