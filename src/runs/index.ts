@@ -16,7 +16,7 @@ import {
 import { startSupervisor, type SetupStep } from './supervisor.js';
 
 /** The controls' own environment variables: read here, never passed to the pipeline. */
-export const CONTROL_ENV = ['SDLC_BASE', 'SDLC_WT_BASE', 'SDLC_MAX_PARALLEL', 'SDLC_ALLOW_MERGED', 'FROM', 'AI_SDLC_HELPER_PIPELINE_CMD'];
+export const CONTROL_ENV = ['SDLC_BASE', 'SDLC_WT_BASE', 'SDLC_MAX_PARALLEL', 'SDLC_ALLOW_MERGED', 'FROM', 'AI_SDLC_HELPER_PIPELINE_CMD', 'WATCH_REPORT_DEPENDENCIES'];
 export const DEFAULT_MAX_PARALLEL = 2;
 
 /** Everything the controls need to know about one repository. */
