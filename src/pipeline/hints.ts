@@ -50,6 +50,19 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
   const unansweredCount = (ctx.questions || []).filter(q => !q.answer?.trim()).length;
   const pendingPermsCount = (ctx.permissions || []).length;
 
+  // Resuming at Plan or Red tests once the red-tests commit exists is refused before any stage starts (no stage is recorded).
+  const refused = normStage ? null : /FROM=(\S+) but the red-tests commit \w+ already exists/.exec(tailText);
+  if (refused) {
+    const was = refused[1] === 'plan' ? 'Plan' : 'Red tests';
+    return {
+      stage: was,
+      diagnosis: `${was} cannot be resumed: the red-tests commit already exists. Resume at Implement, Test repair or Review, or restart the run to redo it.`,
+      autoAction: { label: 'Resume at Implement', command: resumeCommand(ctx.slug, 'implement') },
+      manualAction: { instruction: 'Restart the run (discards its branch and worktree) to redo this stage.' },
+      escapeHatch: { label: 'Resume at Review', command: resumeCommand(ctx.slug, 'review') },
+    };
+  }
+
   if (normStage === 'spec' || normStage.includes('spec')) {
     if (unansweredCount > 0) {
       return {
