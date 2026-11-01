@@ -105,6 +105,13 @@ describe('runView', () => {
     expect(v.changes).toBeNull();
   });
 
+  test('reports the red-tests commit on the run branch, and none before it exists', () => {
+    const { ctx, wt } = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Implement' } });
+    expect(runView(ctx, 'add-tokens', { changes: false }).redCommit).toBe('');
+    git(wt, 'commit', '-q', '--allow-empty', '-m', 'test(add-tokens): add failing tests');
+    expect(runView(ctx, 'add-tokens', { changes: false }).redCommit).toMatch(/^[0-9a-f]{7,}$/);
+  });
+
   test('counts the files the run changed in its worktree', () => {
     const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Implement' } });
     const v = runView(ctx, 'add-tokens');
