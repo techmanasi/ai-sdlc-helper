@@ -97,6 +97,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
   delete env.FROM;
   let ctx: Ctx | null = null;
   let code = 0;
+  let reason: string | undefined;
   try {
     ctx = await setup(opts, from, env, out, err);
     // Resolved model and effort of every stage, for the status file (and a bad value fails here, before any agent).
@@ -104,7 +105,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
     ctx.status.write();
     await stages(ctx);
   } catch (e) {
-    if (e instanceof Exit) code = e.code;
+    if (e instanceof Exit) { code = e.code; reason = e.reason; }
     else {
       code = 1;
       const msg = (e as Error).message;
@@ -123,7 +124,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
             state: finalState(code),
             exitCode: code,
             docsDir: ctx.docs,
-            runOut: ctx.failLog && fs.existsSync(ctx.failLog) ? fs.readFileSync(ctx.failLog, 'utf8').split('\n') : [],
+            runOut: [...(ctx.failLog && fs.existsSync(ctx.failLog) ? fs.readFileSync(ctx.failLog, 'utf8').split('\n') : []), ...(reason ? [reason] : [])],
             hasTestIssues: fs.existsSync(path.join(ctx.docs, 'test-issues.md')),
           });
           out(formatRecoveryCli(hint));

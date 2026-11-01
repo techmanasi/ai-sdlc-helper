@@ -51,7 +51,7 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
   const pendingPermsCount = (ctx.permissions || []).length;
 
   // Resuming at Plan or Red tests once the red-tests commit exists is refused before any stage starts (no stage is recorded).
-  const refused = /FROM=(\S+) but the red-tests commit \w+ already exists/.exec(tailText);
+  const refused = normStage ? null : /FROM=(\S+) but the red-tests commit \w+ already exists/.exec(tailText);
   if (refused) {
     const was = refused[1] === 'plan' ? 'Plan' : 'Red tests';
     return {

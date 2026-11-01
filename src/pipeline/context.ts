@@ -16,7 +16,7 @@ export type AgentStage = typeof AGENT_STAGES[number];
 
 /** Ends the run with an exit code: 0 done, 1 failed, 2 paused for the developer. What to say was printed already. */
 export class Exit extends Error {
-  constructor(readonly code: number) { super(`exit ${code}`); }
+  constructor(readonly code: number, readonly reason?: string) { super(`exit ${code}`); }
 }
 
 /** A problem with the settings, the models or the prompts: printed on stderr, and the run fails (exit 1). */
@@ -90,7 +90,7 @@ export const at = (ctx: Pick<Ctx, 'root'>, rel: string): string => path.join(ctx
 /** Prints <line> (stdout) and ends the run with <code>. */
 export function stop(ctx: Pick<Ctx, 'out'>, line: string | null, code = 1): never {
   if (line !== null) ctx.out(line);
-  throw new Exit(code);
+  throw new Exit(code, line ?? undefined);
 }
 
 /** Ends the run (failed) once it was stopped from outside (a signal). */
