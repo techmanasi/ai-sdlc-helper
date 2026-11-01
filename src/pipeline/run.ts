@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { exists, shellWord } from '../util.js';
 import { onPath } from '../shell.js';
 import { codeSearchGuide } from '../config/codeSearch.js';
-import { HARNESS_IDS, allowedTools, layout, resolve, type HarnessName } from '../config/settings.js';
+import { PERSONAL_ENV } from '../config/personal.js';
+import { HARNESS_IDS, agentFor, allowedTools, layout, resolve, type HarnessName } from '../config/settings.js';
 import { snapshot } from '../changes/index.js';
 import { repoRulesFile } from '../permissions/index.js';
 import { Keys, testLayout } from '../testcheck/keys.js';
@@ -141,6 +142,8 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
   const limits = { maxAttempts: numberEnv(env, 'MAX_ATTEMPTS', 4), maxTurns: numberEnv(env, 'MAX_TURNS', 40), maxRepairTests: numberEnv(env, 'MAX_REPAIR_TESTS', 3) };
   // Project settings: sdlc.config.json completed by detection. The code search note is shown with the code search below.
   const { config, errors, warnings } = resolve(root, { env });
+  // The personal settings were for this run only: what the run starts (agents, tests, other projects' runs) does not inherit them.
+  delete env[PERSONAL_ENV];
   const searchNote = warnings.filter(w => w.includes('code search uses Grep and Glob'));
   for (const w of warnings.filter(x => !searchNote.includes(x))) out(`WARNING: ${w}`);
   if (!config) {
@@ -152,7 +155,10 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
     const v = env[`AGENT_${st.toUpperCase().replace(/-/g, '_')}`];
     if (!v) continue;
     if (!(HARNESS_IDS as readonly string[]).includes(v)) stop(say, `ERROR: AGENT_${st.toUpperCase().replace(/-/g, '_')} must be one of ${HARNESS_IDS.join(', ')} (got ${v})`);
-    config.agent.stages = { ...config.agent.stages, [st]: { ...(config.agent.stages[st] || {}), harness: v as HarnessName } };
+    // The stage's model and effort were chosen for its own harness: another one gets its defaults.
+    const was = agentFor(config, st);
+    const keep = was.harness === v;
+    config.agent.stages = { ...config.agent.stages, [st]: { harness: v as HarnessName, ...(keep && was.model ? { model: was.model } : {}), ...(keep && was.effort ? { effort: was.effort } : {}) } };
   }
   // --agent forces one harness for every stage, ahead of agent.stages. The project's model and effort were chosen for its
   // own harness, so they are dropped when another one is forced (--model and --effort still apply).

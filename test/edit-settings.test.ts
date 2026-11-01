@@ -182,6 +182,12 @@ describe('the agent of each stage', () => {
     expect(seen).toEqual(['spec=agy model=gemini-3.8-pro effort=medium', 'plan=agy model=gemini-3.8-pro effort=medium']);
   });
 
+  test('AGENT_<STAGE> on another harness drops the model and effort the stage had; on the same one it keeps them', async () => {
+    const stages = { spec: { harness: 'codex', model: 'o3-mini' }, plan: { model: 'sonnet', effort: 'low' } };
+    const seen = await commandsOf({ stages }, {}, { AGENT_SPEC: 'claude', AGENT_PLAN: 'claude' });
+    expect(seen).toEqual(['spec=claude model=opus effort=medium', 'plan=claude model=sonnet effort=low']);
+  });
+
   test('--model and --effort apply to every stage and win over MODEL_<STAGE> and the project', async () => {
     const seen = await commandsOf({ model: 'haiku', stages: { plan: { model: 'sonnet', effort: 'low' } } }, { model: 'opus', effort: 'max' }, { MODEL_PLAN: 'haiku' });
     expect(seen).toEqual(['spec=claude model=opus effort=max', 'plan=claude model=opus effort=max']);
@@ -249,6 +255,7 @@ describe('the run-wide agent, model and effort in the environment and on start',
   test('start and restart take --agent, --model and --effort; other run commands refuse them; a bad value exits 2', async () => {
     expect((await run(['start', 'a-b', '--effort', 'turbo'])).stderr).toContain('--effort must be one of low, medium, high, xhigh, max (got turbo)');
     expect((await run(['start', 'a-b', '--agent=gpt'])).stderr).toContain('--agent must be one of claude, agy, codex (got gpt)');
+    for (const o of ['--agent', '--model', '--effort']) expect([(await run(['start', 'a-b', o])).status, (await run(['start', 'a-b', o])).stderr]).toEqual([2, expect.stringContaining(`${o} needs a value`)]);
     const r = await run(['stop', 'a-b', '--model', 'opus']);
     expect([r.status, r.stderr]).toEqual([2, expect.stringContaining('go with start and restart')]);
   });
@@ -316,6 +323,12 @@ describe('personal agent settings', () => {
       stages: { review: { harness: 'project', model: 'project', effort: 'personal' }, plan: { harness: 'personal' } },
     });
     expect(agentSources(mergeAgent({}, undefined), undefined)).toEqual({ stages: {} });
+  });
+
+  test('a personal harness that empties a file stage (its model was for the old harness) leaves no stage behind', () => {
+    const file = { stages: { review: { model: 'claude-sonnet-4-5', effort: 'max' } } };
+    expect(mergeAgent(file, { harness: 'codex' })).toEqual({ harness: 'codex' });
+    expect(mergeAgent(file, { stages: { review: { harness: 'codex' } } })).toEqual({ stages: { review: { harness: 'codex' } } });
   });
 
   test('a start passes them to the pipeline of the run, and nothing when there are none', () => {

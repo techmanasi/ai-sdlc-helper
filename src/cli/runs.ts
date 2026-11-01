@@ -62,6 +62,7 @@ export async function runs(a: ParsedArgs, io: Io): Promise<number> {
     return 2;
   }
   // The run's own agent, model and effort come from the flags only: SDLC_FORCE_* in the shell reaches the pipeline as it is.
+  for (const o of ['--agent', '--model', '--effort']) if (a.value(o) === '') { io.err(`ERROR: ${o} needs a value`); return 2; }
   const { force, problem } = forceOf(n => a.value(n), {});
   if (problem) { io.err(`ERROR: ${problem}`); return 2; }
   if (Object.keys(force).length && cmd !== 'start' && cmd !== 'restart') { io.err('ERROR: --agent, --model and --effort go with start and restart'); return 2; }

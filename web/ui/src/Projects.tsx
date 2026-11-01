@@ -131,7 +131,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
           const p = stages[st] || NONE;
           stagePatch[st] = { harness: p.harness || null, model: p.model || null, effort: p.effort || null };
         }
-        const agent = { harness: def.harness, model: def.model || null, effort: def.effort || null, stages: stagePatch };
+        const agent = { harness: !data.fileAgent.harness && def.harness === 'claude' ? null : def.harness, model: def.model || null, effort: def.effort || null, stages: stagePatch };
         const r = await api.editSettings(name, { agent }, data.hash);
         if (!r.ok) { setErrors(r.errors); setBusy(false); return; }
         activeRuns = r.activeRuns;

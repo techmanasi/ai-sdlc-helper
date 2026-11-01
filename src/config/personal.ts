@@ -15,7 +15,7 @@ const DEFAULT_HARNESS = 'claude';
 /** The personal agent settings that apply to the project at <root>: from the environment (a run worktree), else its registry entry. */
 export function personalAgentOf(root: string, env: NodeJS.ProcessEnv): Json | undefined {
   if (env[PERSONAL_ENV]) {
-    try { const j = JSON.parse(env[PERSONAL_ENV] as string); return j && typeof j === 'object' && !Array.isArray(j) ? j : undefined; } catch { return undefined; }
+    try { const j = JSON.parse(env[PERSONAL_ENV] as string); return j && typeof j === 'object' && !Array.isArray(j) ? j : undefined; } catch { return undefined; } // a broken value is the shell's: ignored
   }
   try {
     const agent = findContaining(readRegistry(env), root)?.overrides?.agent;
@@ -44,7 +44,7 @@ export function mergeAgent(base: Json | undefined, personal: Json | undefined): 
     const was = (file.stages && file.stages[st]) || {};
     const over = (personal.stages && personal.stages[st]) || {};
     const merged = layer(was, over, was.harness || wasTop, nowTop);
-    if (Object.keys(merged).length) stages[st] = merged;
+    if (Object.keys(merged).length) stages[st] = merged; else delete stages[st];
   }
   const out: Json = { ...top };
   if (Object.keys(stages).length) out.stages = stages; else delete out.stages;
