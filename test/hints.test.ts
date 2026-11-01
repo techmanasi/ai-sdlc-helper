@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { formatRecoveryCli, stageRecoveryHint } from '../src/pipeline/hints.js';
 
 describe('stageRecoveryHint diagnostics engine', () => {
+  it('names the refusal to resume at Red tests once its commit exists, instead of "stage unknown" and a restart at Spec', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: '', state: 'failed', exitCode: 1,
+      runOut: ['FROM=red-tests but the red-tests commit 1c3b784 already exists: use FROM=implement, FROM=test-repair or FROM=review, or restart the run to redo this stage'],
+    });
+    expect(recovery.stage).toBe('Red tests');
+    expect(recovery.diagnosis).not.toContain('unknown');
+    expect(recovery.autoAction?.command).toBe('ai-sdlc-helper pipeline x --from implement');
+    expect(recovery.escapeHatch?.command).not.toContain('--from spec');
+  });
+
   it('diagnoses Spec pause when questions are unanswered', () => {
     const recovery = stageRecoveryHint({
       slug: 'add-user-auth',
