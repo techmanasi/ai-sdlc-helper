@@ -16,7 +16,7 @@ import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } fr
 import { triageRoutes } from './triage.js';
 
 export interface ServerOptions {
-  /** The port to listen on; taken, the next free one (up to 20 more). 0: any free port. Default 4477. */
+  /** The port to listen on; an explicitly requested port is fixed. The default tries the next 20 ports. 0: any free port. */
   port?: number;
   /** The token every request must carry; default: a new random one. */
   token?: string;
@@ -352,7 +352,16 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       if (url.pathname === '/' && url.searchParams.has('t')) {
         const t = url.searchParams.get('t') || '';
         if (t !== token) throw new HttpError(401, 'wrong token: open the URL that ai-sdlc-helper ui printed');
-        res.writeHead(302, { 'Set-Cookie': `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/`, Location: '/' });
+        let location = '/';
+        if (env.SDLC_DEV === '1') {
+          try {
+            const target = new URL(url.searchParams.get('return') || '');
+            if (target.protocol === 'http:' && target.hostname === '127.0.0.1' && target.pathname === '/' && target.searchParams.get('sdlc-track') === '1') {
+              location = target.href;
+            }
+          } catch { /* ignore an invalid development return URL */ }
+        }
+        res.writeHead(302, { 'Set-Cookie': `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/`, Location: location });
         return res.end();
       }
       if (!hasToken(req, token)) throw new HttpError(401, 'not signed in: open the URL that ai-sdlc-helper ui printed');
@@ -380,7 +389,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       });
       break;
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE' || port === 0 || attempt >= 20) throw e;
+      if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE' || port === 0 || opts.port !== undefined || attempt >= 20) throw e;
       port++;
     }
   }
