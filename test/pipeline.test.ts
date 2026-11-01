@@ -80,6 +80,8 @@ describe('a full run', () => {
     expect(again.status).toBe(1);
     expect(again.stdout).toMatch(new RegExp(`FROM=plan but the red-tests commit [0-9a-f]{7} already exists: use FROM=implement`));
     expect(again.calls).toEqual([]);
+    // the refused resume is no stage: the run keeps the one it ended at, so the board does not fall back to Spec
+    expect(statusOf(f.dir)).toMatchObject({ state: 'failed', stage: 'Finalise' });
   });
 
   test('the red gate fails when the new tests pass before implementation', async () => {

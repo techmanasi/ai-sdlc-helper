@@ -16,8 +16,20 @@ describe('stageRecoveryHint diagnostics engine', () => {
   it('does the same for Plan, and leaves a later stage\'s own diagnosis alone when the refusal is only old output', () => {
     const line = 'FROM=plan but the red-tests commit 1c3b784 already exists: use FROM=implement, FROM=test-repair or FROM=review, or restart the run to redo this stage';
     expect(stageRecoveryHint({ slug: 'x', stage: '', state: 'failed', exitCode: 1, runOut: [line] }).stage).toBe('Plan');
-    const later = stageRecoveryHint({ slug: 'x', stage: 'Test repair', state: 'failed', exitCode: 1, runOut: [line, 'later output'] });
+    const later = stageRecoveryHint({ slug: 'x', stage: 'Test repair', state: 'failed', exitCode: 1, runOut: [line, 'SDLC: x on branch b', 'later output'] });
     expect(later.stage).toBe('Test repair');
+  });
+
+  it('explains a refusal only from the latest run\'s output, whatever stage the status keeps', () => {
+    const line = 'FROM=red-tests but the red-tests commit 1c3b784 already exists: use FROM=implement, FROM=test-repair or FROM=review, or restart the run to redo this stage';
+    const now = stageRecoveryHint({ slug: 'x', stage: 'Test repair', state: 'failed', exitCode: 1, runOut: ['SDLC: x on branch b', 'old', 'SDLC: x on branch b', line] });
+    expect(now.stage).toBe('Red tests');
+    const old = stageRecoveryHint({ slug: 'x', stage: 'Test repair', state: 'failed', exitCode: 1, runOut: ['SDLC: x on branch b', line, 'SDLC: x on branch b', 'later'] });
+    expect(old.stage).toBe('Test repair');
+  });
+
+  it('names the resume fallback a resume, not a restart', () => {
+    expect(stageRecoveryHint({ slug: 'x', stage: '', state: 'failed', exitCode: 1 }).escapeHatch?.label).toBe('Resume pipeline from Spec');
   });
 
   it('diagnoses Spec pause when questions are unanswered', () => {

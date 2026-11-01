@@ -54,6 +54,8 @@ export interface Ctx {
   branch: string;
   /** The environment the agents, tests and commands get: the caller's, without FROM. */
   env: NodeJS.ProcessEnv;
+  /** The stage the previous run of this item ended at ('' for none): what a resume refused before its first stage keeps. */
+  priorStage?: string;
   /** SDLC_PROVIDER* keys read from the project's .env, for model resolution only (never passed on). */
   envModels: Record<string, string>;
   /** --model and --effort of the run, for every stage. */

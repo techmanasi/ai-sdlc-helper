@@ -386,6 +386,7 @@ export const shipStage = finaliseStage;
 export function refuseRedone(ctx: Ctx): void {
   const existing = ctx.git.findCommit([redPattern(ctx.slug)], '%h');
   if (existing) {
+    ctx.status.stage = ctx.priorStage || ''; // no stage ran: the run stays where it was
     stop(ctx, `FROM=${ctx.from} but the red-tests commit ${existing} already exists: use FROM=implement, FROM=test-repair or FROM=review, or restart the run to redo this stage`);
   }
 }
