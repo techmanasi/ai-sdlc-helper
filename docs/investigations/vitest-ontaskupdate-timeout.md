@@ -1,6 +1,6 @@
 # Vitest "Timeout calling onTaskUpdate" unhandled error
 
-Status: trigger found (four concurrent workers, 3 of 3 runs with the error against 0 of 3 at two workers), mechanism not found. Nothing in `src/` or `test/` was changed for this.
+Status: cause found and fixed. `test/setupBranch.test.ts` never returns to the event loop, so Vitest's RPC replies go unread until the file ends; under four-worker load the file takes 67 to 69s, past the 60s RPC timeout. Fix: `test/setup.ts` (registered in `vitest.config.ts`) turns the event loop once before each test. See "Mechanism" and "Fix".
 
 ## Symptom
 
@@ -103,10 +103,9 @@ Question: does any test change the state or outcome of another test, so they onl
 
 ## Next steps
 
-1. ~~The repeat experiment~~ Done, see "Repeat experiment result" below.
-2. Confirm on the full suite: `maxWorkers` 2 and 3 against the default, several runs each, to find the highest worker count that stays clean and what it costs in wall time.
-3. Profile process spawns per heavy test, to see what makes four workers starve the main-to-worker reply.
-4. Only fix once the cause is known. Do not raise `testTimeout`, do not raise Vitest's RPC timeout, and do not use `dangerouslyIgnoreUnhandledErrors`.
+1. ~~The repeat experiment~~ Done, see "Repeat experiment result".
+2. ~~Find the mechanism~~ Done, see "Mechanism".
+3. ~~Fix~~ Done, see "Fix". The worker cap in `vitest.config.ts` stays as it was; lowering it would only have hidden this.
 
 ## Repeat experiment result
 
@@ -126,8 +125,28 @@ The 9-file set (group A without `runners.test.ts`), three runs at the default wo
 - It is still three runs each. It shows the trigger, not the mechanism: why four workers delay the reply is unknown.
 - Candidate mitigation to test (not applied): lower the worker cap in `vitest.config.ts` (currently `min(4, cpus - 1)`). Check the cost on the full suite first, since that cap was chosen on purpose.
 
+## Mechanism
+
+Found with a second probe that timestamped every RPC call on both sides (worker: call sent, reply read, promise settled; main: request received, task result, `catchError`). Three runs of the 9-file set at the default four workers, all with the error (190s, 189s, 188s).
+
+- In all three runs the failing task is the worker running `test/setupBranch.test.ts`. The main process receives that worker's task result with the error 67 to 69s after the file starts.
+- That worker's event loop never turns while the file runs. The probe's 250ms interval fires once, at the end, with a gap of 67331ms, 68181ms and 69311ms in the three runs. No other worker in these runs had a gap over 5s.
+- The file's `onTaskUpdate` calls are all sent on time (the main logs each request within a millisecond of the worker sending it, 3 to 10s apart as tests finish), but the replies are all read in one burst at the end of the file. The main side was never slow: no `_testRun.updated()` call took over 500ms, and no main-process stall over 1s.
+- When the loop finally turns, timers run before I/O. The 60s timer of the first `onTaskUpdate` (sent when the file started, 67 to 69s earlier) has expired, so birpc rejects it even though its reply is already waiting in the IPC socket. In one run the second call (60135ms old) was rejected too. Every later call resolved in that same burst, 56s and younger.
+- The rejection surfaces through `@vitest/runner`'s `finishSendTasksUpdate()`, which awaits the pending `onTaskUpdate` promises at the end of the file: the file's run throws, tinypool returns the error as the task result, and `Vitest.runFiles()` records it with `state.catchError(err, "Unhandled Error")`. That is why it was only ever visible at the end of the run and never failed a test.
+
+Why the loop never turns: every test in `test/setupBranch.test.ts` does only synchronous work (`spawnSync` git, sync `fs`), and the `async` tests await `main()` whose `ask` stub and spawns resolve within microtasks. Nothing in the file waits on a timer or on I/O, so from the first `onTaskUpdate` (sent right after collection) to the last test, the worker never reaches the event loop's poll phase. The file is new and uncommitted (added with `src/registry/setupBranch.ts`), which is when the error first appeared.
+
+Why concurrency was the trigger: the file blocks for as long as its roughly 250 git spawns take. Alone or at two workers that is under 60s and the first reply is read in time; with four workers busy on this machine it takes 67 to 69s. Every observation in "Runs" and "Pattern" fits: the error needed `setupBranch.test.ts` in the set (the minimisation kept it) and enough load to push the file past 60s (the final 7-file set alone was too light to reproduce).
+
+## Fix
+
+`test/setup.ts`, registered as `setupFiles` in `vitest.config.ts`, registers one `beforeEach` that awaits a real `setImmediate` (captured at load so a test's fake timers cannot replace it). One turn of the loop before each test reads the pending replies, so a synchronous file can no longer starve its own RPC for over 60s. It costs one `setImmediate` per test, and guards every file rather than just this one. Not done, on purpose: raising `testTimeout`, raising the RPC timeout, `dangerouslyIgnoreUnhandledErrors`, or lowering the worker cap, all of which would hide the mechanism rather than remove it.
+
+Verification, same 9-file set, default four workers, probe still attached, three runs: clean in 3 of 3 (191s, 189s, 188s; 159 tests passed each time, no unhandled error), against 3 of 3 with the error before the fix (190s, 189s, 188s). `setupBranch.test.ts` still takes about 69s in these runs, but its worker's longest loop gap is now 10.4 to 10.9s (one test) instead of 67 to 69s (the whole file), its slowest `onTaskUpdate` reply 10.5s instead of 69s, and no call was rejected. Wall time is unchanged.
+
 ## Cleanup
 
 - Delete `/Volumes/Work/Projects/trials/ai-sdlc-helper/vitest.probe.config.ts` (untracked, repo root) before any commit.
-- Probe scripts, in `/private/tmp/claude-501/-Volumes-Work-Projects-trials-ai-sdlc-helper/ea8d3674-89a0-4c90-8c4b-ada1eb7f2599/scratchpad/probe/`: `loop.ts`, `main.ts`, `rep.mjs`, `run.sh`, `minimize.sh`, `repeat.sh`.
+- Probe scripts, first probe: `/private/tmp/claude-501/-Volumes-Work-Projects-trials-ai-sdlc-helper/ea8d3674-89a0-4c90-8c4b-ada1eb7f2599/scratchpad/probe/` (`loop.ts`, `main.ts`, `rep.mjs`, `run.sh`, `minimize.sh`, `repeat.sh`). Second probe: `/private/tmp/claude-501/-Volumes-Work-Projects-trials-ai-sdlc-helper/6998d9e1-78d2-4af9-aef2-0d7c8b6745f1/scratchpad/probe2/` (`worker.ts`, `main.ts`, `rep.mjs`, `run.sh`, `repeat.sh`, and the logs under `def-*/` and `fix-*/`). Both are session folders and will vanish.
 - Unrelated, finished, and uncommitted in the working tree: the Config modal change in `web/ui/src/Projects.tsx` and `web/ui/src/styles.css`.
