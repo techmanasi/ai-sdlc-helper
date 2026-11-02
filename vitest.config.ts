@@ -12,6 +12,7 @@ export default defineConfig({
   resolve: { alias: { 'ai-sdlc-helper': fileURLToPath(new URL('./src/index.ts', import.meta.url)) } },
   test: {
     include: ['test/**/*.test.ts', 'web/test/**/*.test.ts'],
+    setupFiles: ['test/setup.ts'],
     testTimeout: 60000,
     maxWorkers: workers,
     minWorkers: 1,
