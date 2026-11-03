@@ -78,7 +78,7 @@ export class Keys {
     if (isRunResult(j)) {
       // RunResult files are relative to the project root; keys use the same form as for Jest.
       const fileFailed = new Set<string>();
-      for (const e of j.suiteErrors || []) { const file = this.rel(e.file || '<unknown>'); failed.add(`${file}::${SUITE_FAILED}`); fileFailed.add(file); }
+      for (const e of j.suiteErrors || []) { const file = this.rel(e.file || '<unknown>'); all.add(`${file}::${SUITE_FAILED}`); failed.add(`${file}::${SUITE_FAILED}`); fileFailed.add(file); }
       for (const t of j.tests) {
         const file = this.rel(t.file || '<unknown>');
         const key = `${file}::${norm(t.name)}`;
@@ -92,7 +92,7 @@ export class Keys {
     for (const f of j.testResults) {
       const file = this.fileOf(f);
       if (f.status === 'passed') passedFiles.add(file);
-      if (!f.assertionResults.length && f.status === 'failed') failed.add(`${file}::${SUITE_FAILED}`);
+      if (!f.assertionResults.length && f.status === 'failed') { all.add(`${file}::${SUITE_FAILED}`); failed.add(`${file}::${SUITE_FAILED}`); }
       for (const a of f.assertionResults) {
         const key = `${file}::${norm(a.fullName)}`;
         all.add(key);

@@ -29,5 +29,5 @@ export const jestAdapter: Adapter = ctx => {
   const r = ctx.sh(command);
   const report = ctx.read(ctx.out);
   if (!report) return noReport(command, r);
-  return { command, exitCode: r.status, parts: parseJestLike(JSON.parse(report), { root: ctx.root }) };
+  return { command, exitCode: r.status, parts: parseJestLike(JSON.parse(report), { root: ctx.root }), output: `${r.stdout}${r.stderr}` };
 };

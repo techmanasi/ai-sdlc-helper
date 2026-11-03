@@ -236,6 +236,17 @@ describe('testsPass fail-fast behavior', () => {
     );
   });
 
+  test('tests.log shows the error of a run with no failing test', () => {
+    const dir = tmp('sdlc-gates-no-failing-test-');
+    const xml = '<testsuites><testsuite name="suite" file="t/x.test.sh"><testcase name="one"/></testsuite></testsuites>';
+    fs.writeFileSync(path.join(dir, 'make-report.sh'), `mkdir -p out && printf '%s' '${xml}' > out/junit.xml && echo coverage threshold not met >&2 && exit 1\n`);
+    const ctx = makeCtx(dir);
+    ctx.config.suites = [{ name: 'unit', dir: '.', runner: 'generic-junit', packageManager: 'npm', testGlobs: [], testCmd: 'sh make-report.sh', report: 'out/junit.xml' } as any];
+
+    expect(testsPass(ctx)).toBe(false);
+    expect(fs.readFileSync(path.join(dir, 'logs/tests.log'), 'utf8')).toContain('coverage threshold not met');
+  });
+
   test('no target files: runs full suite directly', () => {
     const dir = tmp('sdlc-gates-no-targets-');
     const ctx = makeCtx(dir);

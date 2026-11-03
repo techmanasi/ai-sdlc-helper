@@ -189,6 +189,17 @@ describe('running', () => {
     expect(none.suiteErrors[0]).toEqual({ file: null, message: 'cannot start' });
   });
 
+  test("a run that exits non-zero with every test passed reports the runner's output as a suite error", () => {
+    const xml = '<testsuites><testsuite name="suite" file="t/x.test.sh"><testcase name="one"/></testsuite></testsuites>';
+    const dir = project({ 'make-report.sh': `mkdir -p out && printf '%s' '${xml}' > out/junit.xml && echo coverage threshold not met >&2 && exit 1\n` });
+    const r = runSuite(suite('generic-junit', { testCmd: 'sh make-report.sh', report: 'out/junit.xml' }), { root: dir });
+    expect(r).toMatchObject({ ok: false, exitCode: 1 });
+    expect(keys(r)).toEqual(['passed t/x.test.sh :: suite one']);
+    expect(r.suiteErrors).toHaveLength(1);
+    expect(r.suiteErrors[0].file).toBeNull();
+    expect(r.suiteErrors[0].message).toContain('coverage threshold not met');
+  });
+
   test('vitest: the command it builds and the report it reads', () => {
     const calls: { command: string; cwd: string }[] = [];
     const r = runSuite(suite('vitest', { packageManager: 'pnpm' }), {
@@ -198,6 +209,18 @@ describe('running', () => {
     expect(calls[0].command).toMatch(/^pnpm exec vitest run --reporter=json --outputFile='[^']+' --maxWorkers=1 'test\/math.test.js' -t '\^\(\?:math adds\|a\\\|b\)\$'$/);
     expect(keys(r)).toEqual(MATH);
     expect(r.suiteErrors).toEqual([]);
+  });
+
+  test('a Vitest RPC timeout is put on the file that ran over 60s', () => {
+    const file = (name: string, ms: number) => ({ name: `/project/${name}`, status: 'passed', startTime: 1000, endTime: 1000 + ms, assertionResults: [{ fullName: 'ok', title: 'ok', ancestorTitles: [], status: 'passed' }] });
+    const report = JSON.stringify({ testResults: [file('test/slow.test.js', 70000), file('test/fast.test.js', 1000)] });
+    const text = 'Error: [vitest-worker]: Timeout calling "onTaskUpdate"';
+    const go = (stderr: string) => runSuite(suite('vitest'), { root: '/project', spawn: fakeRunner(() => ({ report, stderr }), []) });
+    const r = go(text);
+    expect(r.suiteErrors).toHaveLength(1);
+    expect(r.suiteErrors[0].file).toBe('test/slow.test.js');
+    expect(r.suiteErrors[0].message).toContain(text);
+    expect(go('some other failure').suiteErrors.map(e => e.file)).toEqual([null]);
   });
 
   test('vitest for real: one file of a project, through its own vitest', () => {
@@ -249,6 +272,17 @@ describe('flaky-suite guard', () => {
     expect(r).toMatchObject({ ok: true, exitCode: 0, retried: { files: ['test/flaky.test.js'], flaky: [{ file: 'test/flaky.test.js', name: 'sometimes' }] } });
     expect(r.command).toBe("node --test test/flaky.test.js test/steady.test.js ; retry: node --test 'test/flaky.test.js'");
     expect(keys(r)).toEqual(['passed test/flaky.test.js :: sometimes', 'passed test/steady.test.js :: always']);
+  });
+
+  test('a suite error that clears on re-run is reported as flaky, not dropped', () => {
+    const files = {
+      'test/late.test.js': "const { test } = require('node:test');\nconst fs = require('node:fs');\nconst path = require('node:path');\n"
+        + "const mark = path.join(__dirname, '..', 'loaded');\nconst first = !fs.existsSync(mark);\nfs.writeFileSync(mark, '');\nif (first) throw new Error('load');\ntest('fine', () => {});\n",
+      'test/steady.test.js': flakyFiles['test/steady.test.js'],
+    };
+    const r = runSuite(suite('node-test', { testCmd: 'node --test test/late.test.js test/steady.test.js' }), { root: project(files), retry: true });
+    expect(r.ok).toBe(true);
+    expect(r.retried?.flaky).toEqual([{ file: 'test/late.test.js', name: '<suite failed to run>' }]);
   });
 
   test('a real failure still fails after the retry', () => {

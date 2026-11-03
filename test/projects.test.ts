@@ -230,6 +230,18 @@ describe('doctor', () => {
     expect((await cli(['doctor', ready(), '--run-tests'], env)).stdout).toContain('✓ tests: app: true passed');
   });
 
+  test('doctor warns about an untracked project note', async () => {
+    const env = envWith('claude');
+    const dir = repo({ 'sdlc.config.json': CONFIG, 'Docs/backlog/index.md': '# Backlog\n', '.sdlc/notes/x.md': 'match: runner=node-test\n## spec\nT\n' });
+    const r = await cli(['doctor', dir], env);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/✗ project notes: untracked in \.sdlc\/notes: \.sdlc\/notes\/x\.md.*\(recommended\)/);
+    expect(r.stdout).toContain('fix: commit .sdlc/notes, or list it in worktree.link');
+    const git = (...a: string[]) => spawnSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' });
+    git('add', '.sdlc');
+    expect((await cli(['doctor', dir], env)).stdout).toContain('✓ project notes:');
+  });
+
   test('--project picks a registered project; an unknown one is an error', async () => {
     const env = envWith('claude');
     const dir = ready();

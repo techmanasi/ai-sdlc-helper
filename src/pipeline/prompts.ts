@@ -14,9 +14,9 @@ const text = (file: string) => fs.readFileSync(file, 'utf8').replace(/\n+$/, '')
 /**
  * The prompt of <stage>: {{DOCS}} {{LOG}} {{TEST_DIR}} {{TEST_CMD}} {{TEST_FILE_CMD}} {{RED_SHA}} {{SLUG}}
  * {{TEST_FRAMEWORK}} {{TEST_FILES}} from <values>, and {{CODE_SEARCH}} from <guide> (else parts/code-search.md, which
- * must then exist). Throws SetupError for a missing prompt file.
+ * must then exist). <notes> (tool notes) follow, unfilled. Throws SetupError for a missing prompt file.
  */
-export function renderPrompt(stage: string, values: Record<string, string>, guide: string, promptsDir = PROMPTS_DIR): string {
+export function renderPrompt(stage: string, values: Record<string, string>, guide: string, promptsDir = PROMPTS_DIR, notes = ''): string {
   const file = path.join(promptsDir, `prompt-${stage}.md`);
   if (!exists(file)) throw new SetupError(`ERROR: missing prompt file ${file}`);
   let t = text(file);
@@ -32,7 +32,8 @@ export function renderPrompt(stage: string, values: Record<string, string>, guid
     }
     t = renderTemplate(t, g);
   }
-  return t.replace(/\n+$/, '');
+  t = t.replace(/\n+$/, '');
+  return notes ? `${t}\n\n${notes}` : t;
 }
 
 /**

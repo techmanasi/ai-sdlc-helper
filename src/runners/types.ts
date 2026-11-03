@@ -106,6 +106,8 @@ export interface AdapterResult {
   exitCode: number;
   parts: RunParts;
   noReport?: boolean;
+  /** The runner's combined stdout and stderr. */
+  output?: string;
 }
 
 export type Adapter = (ctx: RunContext) => AdapterResult;

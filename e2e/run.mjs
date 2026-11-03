@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const E2E = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.dirname(E2E);
@@ -41,6 +41,7 @@ const CASES = [
   { name: 'mocha', project: 'mocha', mode: 'foreground', covers: 'Node + Mocha (ESM), pipeline in the foreground' },
   { name: 'junit-node-test', project: 'junit-node-test', mode: 'foreground', covers: 'generic-junit (node:test JUnit report) via sdlc.config.json' },
   { name: 'jest-cjs-paused', project: 'jest-cjs', mode: 'paused', covers: 'Spec questions: exit 2, answer, rerun to done' },
+  { name: 'packed-notes', mode: 'packed', covers: 'the packed package: the Vitest note reaches the red-tests skill for a Vitest project only' },
 ];
 
 // ---------------------------------------------------------------------------------------------------------------- helpers
@@ -208,7 +209,35 @@ function checkShipped(c, dir, env, stubLog, output) {
 
 // ------------------------------------------------------------------------------------------------------------------ cases
 
+/** The packed package, installed: its Vitest note shows in `skill red-tests` for a Vitest project and not for a Jest one. No pipeline. */
+async function runPacked(c, tmp, env) {
+  const dir = path.join(tmp, 'cases', c.name);
+  const packs = path.join(dir, 'pack');
+  const prefix = path.join(dir, 'prefix');
+  fs.mkdirSync(packs, { recursive: true });
+  const packed = run('npm', ['pack', '--pack-destination', packs], { cwd: REPO, env });
+  check(packed.status === 0, `npm pack failed:\n${tail(packed.stderr || packed.stdout)}`);
+  const tarball = path.join(packs, packed.stdout.trim().split('\n').pop());
+  const installed = run('npm', ['install', '-g', '--prefix', prefix, tarball], { cwd: dir, env, timeout: 5 * MINUTE });
+  check(installed.status === 0, `npm install -g of the tarball failed:\n${tail(installed.stderr || installed.stdout)}`);
+  const pkg = path.join(prefix, 'lib', 'node_modules', 'ai-sdlc-helper');
+  const { readNote } = await import(pathToFileURL(path.join(pkg, 'dist', 'config', 'toolNotes.js')).href);
+  const section = readNote(path.join(pkg, 'assets', 'prompts', 'notes', 'vitest-rpc-timeout.md')).sections['red-tests'];
+  check(section && section.text, 'the installed vitest-rpc-timeout.md has no red-tests section');
+  const skill = project => {
+    const copy = path.join(dir, 'projects', project);
+    fs.cpSync(path.join(E2E, 'projects', project), copy, { recursive: true });
+    const r = run(path.join(prefix, 'bin', 'ai-sdlc-helper'), ['skill', 'red-tests', copy], { cwd: dir, env });
+    check(r.status === 0, `skill red-tests for ${project} exited ${r.status}:\n${tail(r.stderr)}`);
+    return r.stdout;
+  };
+  check(skill('vitest-ts').includes(section.text), 'the red-tests skill for the Vitest project lacks the Vitest note');
+  check(!skill('jest-cjs').includes(section.text), 'the red-tests skill for the Jest project holds the Vitest note');
+  return ['npm pack + install -g', 'Vitest note in the Vitest skill only'];
+}
+
 async function runCase(c, tmp, env) {
+  if (c.mode === 'packed') return runPacked(c, tmp, env);
   const p = PROJECTS[c.project];
   const caseDir = path.join(tmp, 'cases', c.name);
   const repo = path.join(caseDir, c.project);
@@ -323,7 +352,7 @@ async function main() {
   const todo = cases.filter(x => !SKIP[x.name]);
 
   // The projects' devDependencies, installed once each (in parallel), copied into every case of the project.
-  const projects = [...new Set(todo.map(c => c.project))];
+  const projects = [...new Set(todo.map(c => c.project).filter(Boolean))];
   const installs = await Promise.all(projects.map(p => makeTemplate(tmp, p, env).then(ms => ({ p, ms }), e => ({ p, error: e.message }))));
   for (const i of installs) console.log(i.error ? `FAIL npm install ${i.p}: ${i.error}` : `     npm install ${i.p}: ${seconds(i.ms)}`);
   const broken = new Set(installs.filter(i => i.error).map(i => i.p));

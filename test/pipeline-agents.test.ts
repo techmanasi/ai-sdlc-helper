@@ -4,6 +4,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { AgentRequest } from '../src/pipeline/agent.js';
+import { stageNotes } from '../src/pipeline/agent.js';
+import { NOTES_DIR, readNote } from '../src/config/toolNotes.js';
+import type { Ctx } from '../src/pipeline/context.js';
 import { installCommands, installDeps, plannedDeps } from '../src/pipeline/deps.js';
 import { Exit } from '../src/pipeline/context.js';
 import { allowedTools } from '../src/config/settings.js';
@@ -18,6 +21,36 @@ const LIMIT = result({ subtype: 'error', is_error: true, api_error: 'usage_limit
 const isSpec = (req: AgentRequest) => req.args[1].startsWith('You are a Requirements Agent');
 const isPlan = (req: AgentRequest) => req.args[1].startsWith('You are an Architecture Planner');
 const tools = (req: AgentRequest) => req.args.slice(req.args.indexOf('--allowedTools') + 1, req.args.indexOf('--output-format'));
+
+// Driving a real Vitest pipeline needs Vitest installed in the fixture and a 60s hang, so this goes through stageNotes
+// with the files on disk that a run leaves (tests.log, test-issues.md), as the pipeline reads them.
+describe('Vitest note signals', () => {
+  test('Implement and Test repair get the Vitest note only after a run fails with the RPC timeout', () => {
+    const note = readNote(path.join(NOTES_DIR, 'vitest-rpc-timeout.md'));
+    const dir = tmp('sdlc-notes-ctx-');
+    const ctx = {
+      root: dir, docs: 'docs', log: 'docs/logs',
+      config: { root: dir, suites: [{ name: 'app', dir: '.', runner: 'vitest', language: 'typescript', packageManager: 'npm', tools: [] }], agent: { harness: 'claude', stages: {}, codeIndexer: null, notesDir: '.sdlc/notes' } },
+    } as unknown as Ctx;
+    const has = (stage: 'implement' | 'test-repair' | 'test-audit' | 'red-tests') => stageNotes(ctx, stage).includes(note.sections[stage]!.text);
+    const stages = ['implement', 'test-repair', 'test-audit'] as const;
+    for (const st of stages) expect(has(st)).toBe(false);
+    expect(has('red-tests')).toBe(true);
+
+    write(dir, 'docs/logs/tests.log', 'app (vitest): 3 passed, 0 failed\n');
+    write(dir, 'docs/test-issues.md', 'a.test.ts :: x :: contradicts the spec\n');
+    for (const st of stages) expect(has(st)).toBe(false);
+
+    write(dir, 'docs/logs/tests.log', 'ERROR (unknown file): failed to run\nTimeout calling "onTaskUpdate"\n');
+    expect(has('implement')).toBe(true);
+    expect(has('test-repair')).toBe(false);
+    expect(has('test-audit')).toBe(false);
+
+    write(dir, 'docs/test-issues.md', 'a.test.ts :: <suite failed to run> :: isolation defect: Timeout calling "onTaskUpdate"\n');
+    for (const st of stages) expect(has(st)).toBe(true);
+    expect(has('red-tests')).toBe(true);
+  });
+});
 
 describe('stage agents', () => {
   test('every stage may run read-only commands and the GET-only fetch; only Plan gets the web tools', async () => {

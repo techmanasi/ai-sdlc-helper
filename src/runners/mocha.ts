@@ -98,18 +98,20 @@ export const mochaAdapter: Adapter = ctx => {
   const command = mocha(ctx.inSuite);
   const r = ctx.sh(command);
   const report = ctx.read(out);
-  if (report) return { command, exitCode: r.status, parts: parseMocha(JSON.parse(report), { root }) };
+  if (report) return { command, exitCode: r.status, parts: parseMocha(JSON.parse(report), { root }), output: `${r.stdout}${r.stderr}` };
   const broken = mochaCrashFile(r.stderr, root);
   if (!broken) return noReport(command, r);
   const parts: RunParts = { tests: [], suiteErrors: [] };
   let exitCode = 0;
+  let output = `${r.stdout}${r.stderr}`;
   for (const f of files.length ? files.map(f => relTo(root, f)!) : suiteFiles(root, ctx.suite)) {
     fs.rmSync(out, { force: true });
     const one = ctx.sh(mocha([q(posix(path.relative(cwd, path.join(root, f))))]));
     const rep = ctx.read(out);
     if (one.status) exitCode = one.status;
+    output += `${one.stdout}${one.stderr}`;
     if (rep) { const p = parseMocha(JSON.parse(rep), { root }); parts.tests.push(...p.tests.filter(t => t.file === f)); parts.suiteErrors.push(...p.suiteErrors); }
     else parts.suiteErrors.push({ file: mochaCrashFile(one.stderr, root) || f, message: one.stderr.trim().slice(-4000) });
   }
-  return { command: `${command}  (then file by file: ${broken} failed to load)`, exitCode: exitCode || 1, parts };
+  return { command: `${command}  (then file by file: ${broken} failed to load)`, exitCode: exitCode || 1, parts, output };
 };
