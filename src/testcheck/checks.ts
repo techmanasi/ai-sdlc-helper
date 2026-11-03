@@ -110,7 +110,7 @@ export function diffcheck(k: Keys, redSha: string, issuesFile: string): string[]
 /** Every test that existed at red still exists. */
 export function namecheck(k: Keys, redJson: string, nowJson: string): string[] {
   const now = k.results(nowJson).all;
-  return [...k.results(redJson).all].filter(key => !now.has(key)).map(key => `test removed or renamed: ${key}`);
+  return [...k.results(redJson).all].filter(key => !now.has(key) && !key.endsWith(`::${SUITE_FAILED}`)).map(key => `test removed or renamed: ${key}`);
 }
 
 /** A test that detected the missing behaviour at red must still detect it after repair (on the red source). */

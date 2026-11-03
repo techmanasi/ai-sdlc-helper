@@ -184,6 +184,30 @@ describe('settings', () => {
     expect(worktreeBase(c)).toBe(path.join(path.dirname(dir), `${path.basename(dir)}-sdlc`));
   });
 
+  test('tools (suite and top level) and agent.notesDir are read from sdlc.config.json; a notesDir outside the root is refused', () => {
+    const suite = (extra: object) => ({ name: 'a', dir: '.', runner: 'node-test', testCmd: 'true', ...extra });
+    const dir = project({ 'sdlc.config.json': { tools: ['Docker', 'python'], suites: [suite({ tools: ['Python', 'Behave'] }), suite({ name: 'b' })], agent: { notesDir: 'notes/' } }, 'notes/.keep': '' });
+    const c = ok(dir);
+    expect(c.suites.map(s => s.tools)).toEqual([['python', 'behave', 'docker'], ['docker', 'python']]);
+    expect(c.agent.notesDir).toBe('notes');
+    expect(resolve(dir, { env: noGraft }).warnings.filter(w => w.includes('notes'))).toEqual([]);
+    // defaults: no tools, .sdlc/notes; auto-detected suites get the top-level list
+    const bare = project({ 'package.json': { scripts: { test: 'jest' } }, 'sdlc.config.json': { tools: ['x'] } });
+    expect(ok(bare).suites[0].tools).toEqual(['x']);
+    expect(ok(project({ 'package.json': { scripts: { test: 'jest' } } })).agent.notesDir).toBe('.sdlc/notes');
+    expect(ok(project({ 'package.json': { scripts: { test: 'jest' } } })).suites[0].tools).toEqual([]);
+    // an explicit notesDir whose folder is missing is a warning; the default's missing folder is not
+    const missing = resolve(project({ 'sdlc.config.json': { suites: [suite({})], agent: { notesDir: 'nope' } } }), { env: noGraft });
+    expect(missing.warnings.join('\n')).toContain('agent.notesDir');
+    expect(missing.errors).toEqual([]);
+    for (const outside of ['../notes', '/tmp/notes', 'a/../../x']) {
+      const r = resolve(project({ 'sdlc.config.json': { suites: [suite({})], agent: { notesDir: outside } } }), { env: noGraft });
+      expect(r.config).toBeNull();
+      expect(r.errors.join('\n')).toContain('agent.notesDir');
+    }
+    expect(errorsOf(project({ 'sdlc.config.json': { tools: 'python', suites: [suite({})] } }))).toContain('tools');
+  });
+
   test('a file suite is completed from detection; an explicit runner gets that runner\'s defaults; code search auto needs graft on PATH and a graft/ index', async () => {
     const dir = project({
       'server/package.json': { scripts: { test: 'jest' } },

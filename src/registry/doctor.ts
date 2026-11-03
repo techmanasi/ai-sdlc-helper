@@ -110,6 +110,14 @@ export function doctor(dir: string, opts: DoctorOptions = {}): Check[] {
     detail: search.codeSearch === 'none' ? (search.warning || 'code search uses Grep and Glob (agent.codeSearch is "none")') : `code search uses ${search.codeSearch}`,
     fix: `see the indexers with: ai-sdlc-helper code-search ${root} --list` });
 
+  if (config && isRepo) {
+    const untracked = spawn('git', ['-C', root, 'ls-files', '--others', '--exclude-standard', '--', config.agent.notesDir], { env });
+    const files = untracked.status === 0 ? untracked.stdout.split('\n').filter(Boolean) : [];
+    add({ name: 'project notes', ok: files.length === 0, required: false,
+      detail: files.length ? `untracked in ${config.agent.notesDir}: ${files.join(', ')}; a run in a worktree does not see them` : `${config.agent.notesDir} has no untracked files`,
+      fix: `commit ${config.agent.notesDir}, or list it in worktree.link in sdlc.config.json` });
+  }
+
   const backlogDir = backlogDirOf(config, root);
   const index = path.join(root, backlogDir, 'index.md');
   add({ name: 'backlog index', ok: exists(index), required: true, detail: exists(index) ? `${backlogDir}/index.md` : `${backlogDir}/index.md is missing`,

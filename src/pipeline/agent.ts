@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { extract, modeFor, rulesFor } from '../permissions/index.js';
+import { toolNotes } from '../config/toolNotes.js';
 import { harnessFor, testDir, testFramework } from '../config/settings.js';
 import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from './context.js';
 import { modelEnvOf, modelFlags, providerEnv, stageModel } from './models.js';
@@ -110,13 +111,19 @@ export function stageFlags(ctx: Ctx, stage: AgentStage): { args: string[]; env: 
   return { args: modelFlags(sm), env: providerEnv(sm.provider), model: sm.provider.model, effort: sm.effort, hasEffort: sm.provider.effortFlag };
 }
 
+/** The tool notes for <stage>: `when:` sections look at the last gate run's tests.log and at test-issues.md. */
+export function stageNotes(ctx: Ctx, stage: AgentStage): string {
+  const read = (file: string) => { try { return fs.readFileSync(at(ctx, file), 'utf8'); } catch { return ''; } };
+  return toolNotes(stage, ctx.config, { testsLog: read(`${ctx.log}/tests.log`), testIssues: read(`${ctx.docs}/test-issues.md`) });
+}
+
 /**
  * Runs the agent of <stage>, logged as <name> (<log>/<name>.json, .err and .log). Exits 2 when it was refused an action
  * (recorded in permissions.json), 1 when it failed.
  */
 export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promise<void> {
   stopIfAborted(ctx);
-  let prompt = renderPrompt(stage, promptValues(ctx), ctx.guide, ctx.promptsDir);
+  let prompt = renderPrompt(stage, promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, stage));
   if (stage !== 'test-repair' && stage !== 'test-audit') {
     prompt += manualInput(at(ctx, ctx.docs), stage, testDir(ctx.config.suites[0]));
     prompt += prCommentsInput(at(ctx, ctx.docs));

@@ -43,5 +43,5 @@ export const junitAdapter: Adapter = ctx => {
   const r = ctx.sh(command, ctx.root);
   const report = ctx.read(path.resolve(ctx.root, ctx.suite.report || ''));
   if (!report) return noReport(command, r);
-  return { command, exitCode: r.status, parts: parseJUnit(report, { root: ctx.root }) };
+  return { command, exitCode: r.status, parts: parseJUnit(report, { root: ctx.root }), output: `${r.stdout}${r.stderr}` };
 };

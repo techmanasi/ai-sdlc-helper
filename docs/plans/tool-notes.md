@@ -1,6 +1,6 @@
 # Tool notes: stage-specific prompt notes, loaded only for the tools a project uses
 
-Status: plan, not implemented. Worked example: Vitest's "Timeout calling onTaskUpdate" (background for this repo's developers: `docs/investigations/vitest-ontaskupdate-timeout.md`; that file does not ship and no note may refer to it).
+Status: implemented (slices 1-5) on branch docs/tool-notes-plan, PR #53. Worked example: Vitest's "Timeout calling onTaskUpdate" (background for this repo's developers: `docs/investigations/vitest-ontaskupdate-timeout.md`; that file does not ship and no note may refer to it).
 
 ## Requirements check
 

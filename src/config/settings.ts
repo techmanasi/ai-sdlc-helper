@@ -10,6 +10,7 @@ import { INDEXER_SCHEMA, codeSearchErrors, codeSearchFor, type CodeIndexer } fro
 import { expandGlob, globToRegex } from './globs.js';
 import { NODE_MANAGERS, nodeRun, wrapCommand, type NodeRun } from './node.js';
 import { AGENT_STAGES } from '../pipeline/context.js';
+import { projectNoteProblems } from './toolNotes.js';
 import { PERSONAL_KEYS, mergeAgent, personalAgentOf } from './personal.js';
 
 /** The coding agent harnesses a project can name (the built-in ones; the harness registry registers the same ids). */
@@ -58,6 +59,8 @@ export interface Suite {
   sourceGlobs: string[];
   setup: string | null;
   report: string | null;
+  /** Free-form lower-case labels (python, behave): the suite's own plus the top-level list. Tool notes match on them. */
+  tools: string[];
 }
 
 export interface Config {
@@ -69,7 +72,7 @@ export interface Config {
   lint: string | null;
   worktree: { base: string; link: string[] };
   git: { branchPrefix: string; base: string | null; conflictSuffixStart: number };
-  agent: { harness: HarnessName; model: string | null; effort: string | null; stages: Record<string, StageSetting>; allowCommands: string[]; codeSearch: string; codeIndexer: CodeIndexer | null };
+  agent: { harness: HarnessName; model: string | null; effort: string | null; stages: Record<string, StageSetting>; allowCommands: string[]; codeSearch: string; codeIndexer: CodeIndexer | null; notesDir: string };
   finalise: { envExample: boolean; maxFileBytes: number };
   ship: { envExample: boolean; maxFileBytes: number };
   ui: { timezone: string };
@@ -116,12 +119,13 @@ export interface Resolved {
 
 const SUITE_SCHEMA = {
   name: 'string', dir: 'string', runner: [...RUNNERS, 'auto'], testCmd: 'string',
-  testGlobs: 'string[]', sourceGlobs: 'string[]', setup: 'string', report: 'string',
+  testGlobs: 'string[]', sourceGlobs: 'string[]', setup: 'string', report: 'string', tools: 'string[]',
 };
 export const SCHEMA: Json = {
   $schema: 'string',
   backlogDir: 'string',
   suites: [SUITE_SCHEMA],
+  tools: 'string[]',
   integration: { cmd: 'string', ci: ['run', 'skip'] },
   tests: { retry: 'boolean', maxWorkers: 'workers' },
   lint: 'string',
@@ -130,7 +134,7 @@ export const SCHEMA: Json = {
   agent: {
     harness: [...HARNESS_IDS], model: 'string', effort: [...EFFORT_LEVELS],
     stages: { '*': { harness: [...HARNESS_IDS], model: 'string', effort: [...EFFORT_LEVELS] } },
-    allowCommands: 'string[]', codeSearch: 'string', codeSearchOrder: 'string[]', codeIndexers: { '*': INDEXER_SCHEMA } },
+    allowCommands: 'string[]', notesDir: 'string', codeSearch: 'string', codeSearchOrder: 'string[]', codeIndexers: { '*': INDEXER_SCHEMA } },
   finalise: { envExample: 'boolean', maxFileBytes: 'integer' },
   ship: { envExample: 'boolean', maxFileBytes: 'integer' },
   ui: { timezone: 'string' },
@@ -188,7 +192,7 @@ const systemTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone ||
 const validTimezone = (tz: string) => { try { new Intl.DateTimeFormat('en', { timeZone: tz }); return true; } catch { return false; } };
 
 /** A suite from the file, completed from detection in its folder and the runner's defaults. */
-function completeSuite(s: Json, i: number, root: string, errors: string[]): Omit<Suite, 'runCmd'> | null {
+function completeSuite(s: Json, i: number, root: string, errors: string[], topTools: string[] = []): Omit<Suite, 'runCmd'> | null {
   const where = `suites[${i}]`;
   const dir = String(s.dir || '.').replace(/\/+$/, '') || '.';
   const abs = path.resolve(root, dir);
@@ -220,6 +224,7 @@ function completeSuite(s: Json, i: number, root: string, errors: string[]): Omit
     sourceGlobs: s.sourceGlobs || ['**'],
     setup: s.setup || null,
     report: s.report || null,
+    tools: [...new Set([...(s.tools || []), ...topTools].map((t: string) => t.toLowerCase()))],
   };
 }
 
@@ -249,7 +254,7 @@ export function resolve(root: string, { env = process.env }: { env?: NodeJS.Proc
 
   let suites: (Omit<Suite, 'runCmd'> | null)[];
   if (file.suites && file.suites.length) {
-    suites = file.suites.map((s: Json, i: number) => completeSuite(s, i, root, errors));
+    suites = file.suites.map((s: Json, i: number) => completeSuite(s, i, root, errors, file.tools));
   } else {
     const found = detect(root);
     const known = found.filter(f => !f.unknown);
@@ -260,7 +265,7 @@ export function resolve(root: string, { env = process.env }: { env?: NodeJS.Proc
     for (const f of known) {
       if (!f.runner) errors.push(`${f.dir} matches ${f.candidates.join(' and ')} equally; set its "runner" in ${CONFIG_FILE}`);
     }
-    suites = known.filter(f => f.runner).map((f, i) => completeSuite({ dir: f.dir, runner: f.runner, name: f.name }, i, root, errors));
+    suites = known.filter(f => f.runner).map((f, i) => completeSuite({ dir: f.dir, runner: f.runner, name: f.name }, i, root, errors, file.tools));
   }
   const node = nodeRun(root, file.node || {}, env);
   if (node.warning) warnings.push(node.warning);
@@ -275,6 +280,11 @@ export function resolve(root: string, { env = process.env }: { env?: NodeJS.Proc
   if (search.warning) warnings.push(search.warning);
   const indexLink = search.indexer && search.indexer.index ? [search.indexer.index.split('/')[0]] : [];
   const defaultLinks = [...new Set([...done.map(s => (s.dir === '.' ? 'node_modules' : `${s.dir}/node_modules`)), 'node_modules', ...indexLink])];
+
+  const notesDir = String((file.agent && file.agent.notesDir) || '.sdlc/notes').replace(/\/+$/, '');
+  const notesRel = path.relative(root, path.resolve(root, notesDir));
+  if (notesRel.startsWith('..') || path.isAbsolute(notesRel)) errors.push(`agent.notesDir: ${notesDir} is outside the project`);
+  else if (file.agent && file.agent.notesDir && !exists(path.join(root, notesDir))) warnings.push(`agent.notesDir: folder ${notesDir} does not exist`);
 
   const config: Config = {
     root,
@@ -303,6 +313,7 @@ export function resolve(root: string, { env = process.env }: { env?: NodeJS.Proc
       allowCommands: (file.agent && file.agent.allowCommands) || [],
       codeSearch: search.codeSearch,
       codeIndexer: search.indexer,
+      notesDir,
     },
     finalise: {
       envExample: ((file.finalise && typeof file.finalise.envExample === 'boolean') ? file.finalise.envExample : (file.ship && typeof file.ship.envExample === 'boolean' ? file.ship.envExample : true)),
@@ -316,6 +327,7 @@ export function resolve(root: string, { env = process.env }: { env?: NodeJS.Proc
     node,
   };
   if (config.integration && !config.integration.cmd) errors.push('integration.cmd: must be set when "integration" is present');
+  if (!errors.length) warnings.push(...projectNoteProblems(config));
   return { config: errors.length ? null : config, errors, warnings, file: hasFile ? fileName : null };
 }
 

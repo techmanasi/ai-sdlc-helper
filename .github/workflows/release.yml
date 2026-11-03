@@ -87,6 +87,7 @@ jobs:
           "$bin" help > /dev/null
           "$bin" detect .
           "$bin" skill plan . > /dev/null
+          "$bin" skill red-tests . > /dev/null
 
       # --ignore-scripts: the steps above already ran the checks and the build (prepublishOnly would repeat them).
       - name: Publish (dry run)

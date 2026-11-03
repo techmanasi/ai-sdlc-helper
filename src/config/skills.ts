@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ASSETS_DIR, exists, readSettings, shellWord } from '../util.js';
 import { PARTS_DIR, codeSearchErrors, codeSearchFor, codeSearchGuide } from './codeSearch.js';
+import { AGENT_STAGES, type AgentStage } from '../pipeline/context.js';
+import { NOTES_DIR, toolNoteSections, withHeading } from './toolNotes.js';
 import { layout, resolve, testFiles, testFramework } from './settings.js';
 
 export const SKILLS_DIR = path.join(ASSETS_DIR, 'skills');
@@ -18,8 +20,8 @@ export const skillNames = (skillsDir = SKILLS_DIR): string[] =>
  * {{TEST_DIR}}, {{TEST_FILES}}, {{TEST_CMD}}, {{TEST_FRAMEWORK}}, {{BACKLOG_DIR}}, {{BRANCH_PREFIX}} and {{TEST_PATHSPECS}}
  * from the settings; when they cannot be resolved, wording that tells the agent to find out. Null for an unknown skill.
  */
-export function renderSkill(name: string, root: string, { env = process.env, skillsDir = SKILLS_DIR, partsDir = PARTS_DIR }: {
-  env?: NodeJS.ProcessEnv; skillsDir?: string; partsDir?: string;
+export function renderSkill(name: string, root: string, { env = process.env, skillsDir = SKILLS_DIR, partsDir = PARTS_DIR, notesDirs = [NOTES_DIR] }: {
+  env?: NodeJS.ProcessEnv; skillsDir?: string; partsDir?: string; notesDirs?: string[];
 } = {}): string | null {
   if (!/^[a-z0-9-]+$/.test(name) || !exists(path.join(skillsDir, `${name}.md`))) return null;
   const file = readSettings(root);
@@ -37,5 +39,11 @@ export function renderSkill(name: string, root: string, { env = process.env, ski
   };
   let text = renderTemplate(fs.readFileSync(path.join(skillsDir, `${name}.md`), 'utf8'), codeSearchGuide(search, root, partsDir));
   for (const [k, v] of Object.entries(values)) text = text.split(`{{${k}}}`).join(v);
+  if (config) {
+    const stages: AgentStage[] = name === 'tdd-loop' ? ['red-tests', 'implement']
+      : (AGENT_STAGES as readonly string[]).includes(name) ? [name as AgentStage] : [];
+    const notes = withHeading(stages.flatMap(st => toolNoteSections(st, config, 'skill', { dirs: notesDirs })));
+    if (notes) text = `${text.replace(/\n+$/, '')}\n\n${notes}\n`;
+  }
   return text;
 }

@@ -59,5 +59,5 @@ export const nodeTestAdapter: Adapter = ctx => {
   const r = ctx.sh(command, where, { NODE_OPTIONS: nodeOptions });
   const report = ctx.read(ctx.out);
   if (!report) return noReport(command, r);
-  return { command, exitCode: r.status, parts: parseNodeTest(report, { root: ctx.root, cwd: where }) };
+  return { command, exitCode: r.status, parts: parseNodeTest(report, { root: ctx.root, cwd: where }), output: `${r.stdout}${r.stderr}` };
 };

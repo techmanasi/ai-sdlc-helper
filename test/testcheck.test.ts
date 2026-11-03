@@ -268,6 +268,17 @@ describe('testcheck reads RunResult files like Jest output', () => {
     expect(await pre('run.json')).toContain(`${NOT_CLAIMED}: __tests__/broken.test.js::<suite failed to run>`);
   });
 
+  test('a file-level claim on a suite error passes precheck', async () => {
+    writeJson('run.json', {
+      tests: [{ file: 'server/__tests__/a.test.mjs', name: 'one', status: 'passed', message: null }],
+      suiteErrors: [{ file: 'server/__tests__/a.test.mjs', message: 'Timeout calling "onTaskUpdate"' }],
+    });
+    claimsFile(['__tests__/a.test.mjs :: <suite failed to run> :: isolation defect: blocks the event loop over 60s']);
+    const pre = await run('precheck', 'run.json', 'test-issues.md', '3');
+    expect(pre.stderr).toBe('');
+    expect(pre.status).toBe(0);
+  });
+
   test('precheck matches Vitest hierarchical test names with > delimiters', async () => {
     writeJson('run.json', {
       tests: [

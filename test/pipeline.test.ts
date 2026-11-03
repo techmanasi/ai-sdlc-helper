@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import { NOTES_HEADING, readNote } from '../src/config/toolNotes.js';
 import { READ_ONLY_COMMANDS, READ_ONLY_EXACT } from '../src/config/settings.js';
 import {
   DOCS, LOG, NODE_TEST, SLUG, filesIn, fixture, git, pipeline, read, statusOf, subjects,
@@ -82,6 +83,23 @@ describe('a full run', () => {
     expect(again.calls).toEqual([]);
     // the refused resume is no stage: the run keeps the one it ended at, so the board does not fall back to Spec
     expect(statusOf(f.dir)).toMatchObject({ state: 'failed', stage: 'Finalise' });
+  });
+
+  test('a committed project note reaches the stage prompt it names', async () => {
+    const f = fixture();
+    fs.mkdirSync(path.join(f.dir, '.sdlc/notes'), { recursive: true });
+    fs.writeFileSync(path.join(f.dir, '.sdlc/notes/x.md'), 'match: runner=node-test\n## spec\nPROJECT-NOTE-SPEC-ONLY marker\n');
+    git(f.dir, 'add', '-A');
+    git(f.dir, 'commit', '-q', '-m', 'add a project note');
+    const r = await pipeline(f);
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    const promptOf = (stage: string) => r.prompts.split('\n== ').find(p => p.startsWith(`${stage}\n`) || p.startsWith(`== ${stage}\n`)) ?? '';
+    const want = readNote(path.join(f.dir, '.sdlc/notes/x.md')).sections.spec!.text;
+    expect(promptOf('spec')).toContain(`${NOTES_HEADING}\n\n${want}`);
+    for (const stage of ['plan', 'red-tests', 'implement', 'review']) {
+      expect(promptOf(stage)).not.toBe('');
+      expect(promptOf(stage)).not.toContain(want);
+    }
   });
 
   test('the red gate fails when the new tests pass before implementation', async () => {

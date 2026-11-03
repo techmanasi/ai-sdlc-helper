@@ -9,6 +9,7 @@ import { junitAdapter } from './junit.js';
 import { mochaAdapter } from './mocha.js';
 import { nodeTestAdapter } from './nodeTest.js';
 import { vitestAdapter } from './vitest.js';
+import { SUITE_FAILED } from '../testcheck/keys.js';
 import { posix, q, realpath, relTo, type Adapter, type RunContext, type RunResult, type RunSuite, type Spawn } from './types.js';
 
 /** One adapter per runner. */
@@ -66,10 +67,13 @@ function runOnce(suite: RunSuite, opts: RunOptions): RunResult {
     read: f => { try { return fs.readFileSync(f, 'utf8'); } catch { return null; } },
   };
   try {
-    const { command, exitCode, parts, noReport } = adapter(ctx);
+    const { command, exitCode, parts, noReport, output } = adapter(ctx);
     const narrowed = files.length ? new Set(files.map(f => relTo(root, f))) : null;
     const tests = parts.tests.filter(t => !narrowed || narrowed.has(t.file));
     const suiteErrors = parts.suiteErrors.filter(e => !narrowed || !e.file || narrowed.has(e.file));
+    if (exitCode !== 0 && !noReport && !suiteErrors.length && !tests.some(t => t.status === 'failed')) {
+      suiteErrors.push({ file: null, message: (output || '').trim().slice(-4000) || `the test command exited with ${exitCode} and reported no failing test` });
+    }
     const ok = exitCode === 0 && !suiteErrors.length && !tests.some(t => t.status === 'failed');
     return { runner: suite.runner, suite: suite.name, ok, exitCode, command, tests, suiteErrors, ...(noReport ? { noReport } : {}) };
   } finally {
@@ -90,6 +94,14 @@ export function runSuite(suite: RunSuite, opts: RunOptions): RunResult {
   const kept = (f: string | null) => !whole && !redone.has(f as string);
   const passedAgain = new Set(again.tests.filter(t => t.status === 'passed').map(t => `${t.file}\0${t.name}`));
   const flaky = first.tests.filter(t => t.status === 'failed' && passedAgain.has(`${t.file}\0${t.name}`)).map(t => ({ file: t.file, name: t.name }));
+  // A file that failed to load and loaded on the re-run is flaky too.
+  if (!whole) {
+    for (const e of first.suiteErrors) {
+      if (e.file && redone.has(e.file) && !again.suiteErrors.some(x => x.file === e.file) && !again.tests.some(t => t.file === e.file && t.status === 'failed')) {
+        flaky.push({ file: e.file, name: SUITE_FAILED });
+      }
+    }
+  }
   const tests = [...first.tests.filter(t => kept(t.file)), ...again.tests];
   const suiteErrors = [...first.suiteErrors.filter(e => kept(e.file)), ...again.suiteErrors];
   const ok = again.exitCode === 0 && !suiteErrors.length && !tests.some(t => t.status === 'failed');
