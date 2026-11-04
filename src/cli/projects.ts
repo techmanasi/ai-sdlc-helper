@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { CONFIG_FILE, exists } from '../util.js';
 import { resolve, type Config } from '../config/settings.js';
 import {
@@ -8,17 +7,17 @@ import {
   withProject, withoutProject, writeRegistry, type ProjectOverrides,
 } from '../registry/projects.js';
 import { backlogDirOf, doctor, doctorOk } from '../registry/doctor.js';
+import { SETUP_BRANCH, commitOnSetupBranch, ghReady, openPullRequest, pushBranch, setupBase } from '../registry/setupBranch.js';
 import type { ParsedArgs } from './args.js';
 import type { Io } from './main.js';
 
-const git = (root: string, args: string[], env: NodeJS.ProcessEnv) => spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', env });
-
 export const PROJECT_COMMANDS = ['add', 'list', 'remove', 'doctor'];
 export const PROJECT_VALUED = ['--name', '--project', '--worktree-base', '--max-parallel'];
-export const PROJECT_FLAGS = ['--run-tests', '--commit'];
+export const PROJECT_FLAGS = ['--run-tests', '--commit', '--push', '--pr'];
 
-export const PROJECT_USAGE = `  add [dir] [--name <name>] [--worktree-base <dir>] [--max-parallel <n>] [--yes] [--commit]
-                                   register a project (its git root): shows the settings, offers ${CONFIG_FILE} and a backlog index
+export const PROJECT_USAGE = `  add [dir] [--name <name>] [--worktree-base <dir>] [--max-parallel <n>] [--yes] [--commit] [--push] [--pr]
+                                   register a project (its git root): shows the settings, offers ${CONFIG_FILE} and a backlog index,
+                                   then to commit them on ${SETUP_BRANCH} from main, push it and open a PR (--yes does not answer these)
   list [--json]                    the registered projects
   remove <name>                    forget a registered project (its files are kept)
   doctor [dir | --project <name>] [--run-tests]
@@ -38,7 +37,36 @@ Pending items are picked top-down. Format: \`- [ ] \\\`slug\\\` - title\`; each 
 Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 `;
 
-interface AddOptions { name?: string; yes: boolean; commit?: boolean; overrides: ProjectOverrides }
+interface AddOptions { name?: string; yes: boolean; commit: boolean; push: boolean; pr: boolean; overrides: ProjectOverrides }
+
+/**
+ * Offers to commit <files> on a setup branch from main, push it, and open a pull request, one question each. A flag answers
+ * its question (and those before it); --yes does not. Each step needs the one before it; a failure stops the rest.
+ */
+async function setupBranch(io: Io, env: NodeJS.ProcessEnv, root: string, files: string[], opts: AddOptions): Promise<void> {
+  const ask = async (flag: boolean, question: string) => flag || (!!io.ask && yes(await io.ask(question)));
+  const base = setupBase(root, env);
+  if (!base) { io.out(`WARNING: no main or master branch to start the setup branch from; ${files.join(', ')} not committed`); return; }
+  const doPush = opts.push || opts.pr;
+  if (!await ask(opts.commit || doPush, `\nCommit ${files.join(', ')} on a new branch ${SETUP_BRANCH} from ${base}? [y/N]: `)) {
+    io.out(`Not committed. To do it by hand: git switch -c ${SETUP_BRANCH} ${base}, then git add ${files.join(' ')} and git commit.`);
+    return;
+  }
+  let commit;
+  try { commit = commitOnSetupBranch(root, files, env); } catch (e) { io.err(`ERROR: ${(e as Error).message}`); return; }
+  if (!commit) return;
+  io.out(`Committed ${files.join(', ')} on ${commit.branch} from ${commit.base} (${commit.sha}); the checked out branch is unchanged.`);
+  io.out(`The local ${files.join(', ')} stay untracked here; remove them before merging ${commit.branch}, or git will refuse to overwrite them.`);
+  if (!await ask(doPush, `\nPush ${commit.branch} to origin? [y/N]: `)) { io.out(`Not pushed. To push: git push -u origin ${commit.branch}`); return; }
+  try { pushBranch(root, commit.branch, env); } catch (e) { io.err(`ERROR: ${(e as Error).message}`); return; }
+  io.out(`Pushed ${commit.branch} to origin.`);
+  if (!ghReady(root, env)) { io.out(`No authenticated gh CLI; open a pull request for ${commit.branch} yourself.`); return; }
+  if (!await ask(opts.pr, `\nOpen a pull request into ${commit.base}? [y/N]: `)) {
+    io.out(`No pull request. To open one: gh pr create --base ${commit.base} --head ${commit.branch}`);
+    return;
+  }
+  try { io.out(`Pull request: ${openPullRequest(root, commit.branch, commit.base, files, env)}`); } catch (e) { io.err(`ERROR: ${(e as Error).message}`); }
+}
 
 async function add(io: Io, env: NodeJS.ProcessEnv, start: string, opts: AddOptions): Promise<number> {
   const root = gitRoot(start, env);
@@ -86,21 +114,7 @@ async function add(io: Io, env: NodeJS.ProcessEnv, start: string, opts: AddOptio
   const latest = withProject(readRegistry(env), { name, path: root, overrides: opts.overrides });
   writeRegistry(latest.entries, env);
   io.out(`${latest.updated ? 'Updated' : 'Registered'} ${name} in ${registryFile(env)}${done.length ? `; wrote ${done.join(', ')}` : ''}.`);
-  if (done.length) {
-    const branch = git(root, ['branch', '--show-current'], env).stdout.trim();
-    let doCommit = opts.commit;
-    if (doCommit === undefined && io.ask && !opts.yes) {
-      doCommit = await confirm(`\nCommit ${done.join(', ')} on ${branch || 'HEAD'}? [y/N]: `);
-    }
-    if (doCommit) {
-      git(root, ['add', ...done], env);
-      const commitRes = git(root, ['commit', '-m', `chore: setup ai-sdlc-helper (${done.join(', ')})`], env);
-      if (commitRes.status === 0) {
-        const sha = git(root, ['rev-parse', '--short', 'HEAD'], env).stdout.trim();
-        io.out(`Committed ${done.join(', ')} on ${branch || 'HEAD'} (${sha}).`);
-      }
-    }
-  }
+  if (done.length) await setupBranch(io, env, root, done, opts);
   return 0;
 }
 
@@ -146,7 +160,7 @@ export async function projects(a: ParsedArgs, io: Io): Promise<number> {
           if (!/^[1-9]\d*$/.test(mp)) { io.err('ERROR: --max-parallel must be a whole number of 1 or more'); return 2; }
           overrides.maxParallel = Number(mp);
         }
-        return await add(io, env, start, { name: a.value('--name'), yes: a.flag('--yes'), commit: a.flag('--commit'), overrides });
+        return await add(io, env, start, { name: a.value('--name'), yes: a.flag('--yes'), commit: a.flag('--commit'), push: a.flag('--push'), pr: a.flag('--pr'), overrides });
       }
       case 'list':
         return list(io, env, a.flag('--json'));
