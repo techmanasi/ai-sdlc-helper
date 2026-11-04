@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api, type Board as BoardData, type RunCard, type RunView } from './api';
 import { usePoll } from './usePoll';
+import { useStream } from './useStream';
+import { applyRunEvent } from './stream';
 import { Cli, ErrorBox, GLYPH, Panel, Spinner, stateClass, useApp } from './ui';
 
 export const COLUMNS = ['Backlog', 'Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise'];
@@ -41,7 +43,14 @@ function Drawer({ slug }: { slug: string }) {
     load();
     return () => { live = false; };
   }, [project, slug]);
-  usePoll(() => api.run(project, slug, { parts: 'live,tail' }).then(x => setV(x)).catch(() => {}), v?.state, `${project}/${slug}`);
+  const streaming = v?.state === 'running' || v?.state === 'paused';
+  const reload = () => api.run(project, slug, { parts: 'live,tail' }).then(x => setV(x)).catch(() => {});
+  usePoll(reload, v?.state, `${project}/${slug}`, streaming);
+  useStream({
+    url: streaming ? api.runEventsUrl(project, slug) : null,
+    on: { snapshot: d => setV(p => applyRunEvent(p, 'snapshot', d)), run: d => setV(p => applyRunEvent(p, 'run', d)), tail: d => setV(p => applyRunEvent(p, 'tail', d)) },
+    poll: reload,
+  });
   if (!v) return null;
   return (
     <Panel

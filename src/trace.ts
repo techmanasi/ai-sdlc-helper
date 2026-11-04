@@ -143,6 +143,7 @@ export function createTracer(o: TracerOptions): Tracer {
 }
 
 let current: Tracer | null = null;
+let exitHooked = false;
 const early: TraceEvent[] = [];
 
 /** Starts the process-wide trace (the UI server calls this); events added before it are written first. */
@@ -150,7 +151,7 @@ export function startTrace(o: TracerOptions): Tracer {
   if (current) current.close();
   current = createTracer(o);
   for (const e of early.splice(0)) current.add(e);
-  process.once('exit', () => current && current.flush());
+  if (!exitHooked) { exitHooked = true; process.once('exit', () => current && current.flush()); }
   return current;
 }
 

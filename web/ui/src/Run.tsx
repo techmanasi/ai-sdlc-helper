@@ -5,6 +5,8 @@ import { api, type RunView, type SettingsView } from './api';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
 import { defaultPick, resumeCommand, resumeOptions } from './resume';
 import { usePoll } from './usePoll';
+import { useStream } from './useStream';
+import { applyRunEvent } from './stream';
 import { staleLabel } from './stale';
 import { buildDocTree, type DocTreeNode } from './tree';
 
@@ -275,7 +277,14 @@ export function Run({ slug }: { slug: string }) {
     load();
     api.brief(project, slug).then(b => setBrief(b.brief)).catch(() => setBrief(null));
   }, [project, slug]);
-  usePoll(load, v?.state, `${project}/${slug}`);
+  const streaming = v?.state === 'running' || v?.state === 'paused';
+  usePoll(load, v?.state, `${project}/${slug}`, streaming);
+  useStream({
+    url: streaming ? api.runEventsUrl(project, slug) : null,
+    on: { snapshot: d => setV(p => applyRunEvent(p, 'snapshot', d)), run: d => setV(p => applyRunEvent(p, 'run', d)), tail: d => setV(p => applyRunEvent(p, 'tail', d)) },
+    poll: () => load(),
+    banner: on => setError(on ? 'Lost the connection to the server; retrying…' : ''),
+  });
   useEffect(() => saveEnv(project, slug, env), [env]);
 
   const envObj = Object.fromEntries(env.filter(([k]) => k.trim()).map(([k, val]) => [k.trim(), val]));

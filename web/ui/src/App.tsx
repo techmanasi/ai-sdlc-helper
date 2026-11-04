@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, splitArgs, type Board as BoardData, type Project, type ViewState } from './api';
 import { Board, needsYou } from './Board';
 import { Completed } from './Completed';
-import { pageTrace } from './pageTrace';
+import { useStream } from './useStream';
 import { NewItem } from './NewItem';
 import { Projects } from './Projects';
 import { Run } from './Run';
@@ -106,30 +106,31 @@ export function App() {
     return () => removeEventListener('keydown', k);
   }, []);
 
-  // The live board: the server pushes it whenever something changes.
-  useEffect(() => {
-    if (!project) return;
-    setBoard(null); setBoardError(''); previous.current = null;
-    const es = new EventSource(`/api/events?project=${encodeURIComponent(project)}`);
-    es.addEventListener('board', e => {
-      pageTrace('stream', { why: 'board', changed: true });
-      const b = JSON.parse((e as MessageEvent).data) as BoardData;
-      const was = previous.current;
-      if (was) {
-        for (const r of b.runs) {
-          if (!was[r.slug] || was[r.slug] === r.state) continue;
-          if (r.state === 'paused') toast(`${r.slug} is paused at ${r.stage || 'the start'}${r.questions ? `: ${r.questions} questions` : r.permissions ? `: ${r.permissions} refused actions` : ''}`);
-          else if (r.state === 'failed' || r.state === 'stopped') toast(`${r.slug} failed at ${r.stage || 'the start'}`);
-          else if (r.state === 'done') toast(`${r.slug} is done`);
-        }
+  // The live board: the server pushes it whenever something changes. The stream is watched (60 s of silence reconnects;
+  // a silent reconnect starts backup polling, see stream.ts).
+  useEffect(() => { setBoard(null); setBoardError(''); previous.current = null; }, [project]);
+  const applyBoard = (b: BoardData) => {
+    const was = previous.current;
+    if (was) {
+      for (const r of b.runs) {
+        if (!was[r.slug] || was[r.slug] === r.state) continue;
+        if (r.state === 'paused') toast(`${r.slug} is paused at ${r.stage || 'the start'}${r.questions ? `: ${r.questions} questions` : r.permissions ? `: ${r.permissions} refused actions` : ''}`);
+        else if (r.state === 'failed' || r.state === 'stopped') toast(`${r.slug} failed at ${r.stage || 'the start'}`);
+        else if (r.state === 'done') toast(`${r.slug} is done`);
       }
-      previous.current = Object.fromEntries(b.runs.map(r => [r.slug, r.state]));
-      setBoard(b); setBoardError('');
-    });
-    es.addEventListener('problem', e => { pageTrace('stream', { why: 'problem' }); setBoardError(JSON.parse((e as MessageEvent).data).message); });
-    es.onerror = () => { pageTrace('stream', { why: 'error' }); setBoardError('Lost the connection to the server; retrying…'); };
-    return () => es.close();
-  }, [project]);
+    }
+    previous.current = Object.fromEntries(b.runs.map(r => [r.slug, r.state]));
+    setBoard(b); setBoardError('');
+  };
+  useStream({
+    url: project ? api.eventsUrl(project) : null,
+    on: {
+      board: applyBoard,
+      problem: (d: { message: string }) => setBoardError(d.message),
+    },
+    poll: () => api.board(project).then(applyBoard).catch(() => {}),
+    banner: on => setBoardError(on ? 'Lost the connection to the server; retrying…' : ''),
+  });
 
   const waiting = board ? board.runs.filter(needsYou).length : 0;
   const running = board ? board.running : 0;

@@ -416,7 +416,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     };
     push();
     const timer = setInterval(push, pollMs);
-    const ping = setInterval(() => { res.write(': ping\n\n'); trace({ action: 'sse:ping', run: p.name }); }, 15000);
+    const ping = setInterval(() => { res.write('event: ping\ndata: {}\n\n'); trace({ action: 'sse:ping', run: p.name }); }, 15000);
     req.on('close', () => { clearInterval(timer); clearInterval(ping); });
   }
 
