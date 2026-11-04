@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, type RunView, type SettingsView } from './api';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
 import { defaultPick, resumeCommand, resumeOptions } from './resume';
+import { usePoll } from './usePoll';
 import { buildDocTree, type DocTreeNode } from './tree';
 
 const STAGES = [
@@ -272,9 +273,8 @@ export function Run({ slug }: { slug: string }) {
     setOpenDirs({});
     load();
     api.brief(project, slug).then(b => setBrief(b.brief)).catch(() => setBrief(null));
-    const t = setInterval(load, 2000);
-    return () => clearInterval(t);
   }, [project, slug]);
+  usePoll(load, v?.state, `${project}/${slug}`);
   useEffect(() => saveEnv(project, slug, env), [env]);
 
   const envObj = Object.fromEntries(env.filter(([k]) => k.trim()).map(([k, val]) => [k.trim(), val]));

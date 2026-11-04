@@ -1,6 +1,7 @@
 // The board: the backlog and one column per stage, live from the server's event stream; tick items and run them.
 import { useEffect, useState } from 'preact/hooks';
 import { api, type Board as BoardData, type RunCard, type RunView } from './api';
+import { usePoll } from './usePoll';
 import { Cli, ErrorBox, GLYPH, Panel, Spinner, stateClass, useApp } from './ui';
 
 export const COLUMNS = ['Backlog', 'Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise'];
@@ -38,9 +39,9 @@ function Drawer({ slug }: { slug: string }) {
     let live = true;
     const load = () => api.run(project, slug).then(x => { if (live) setV(x); }).catch(() => {});
     load();
-    const t = setInterval(load, 2500);
-    return () => { live = false; clearInterval(t); };
+    return () => { live = false; };
   }, [project, slug]);
+  usePoll(() => api.run(project, slug).then(x => setV(x)).catch(() => {}), v?.state, `${project}/${slug}`);
   if (!v) return null;
   return (
     <Panel
