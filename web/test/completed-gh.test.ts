@@ -3,7 +3,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { startServer, type RunningServer } from '../server/index.js';
 
 const GIT_ENV = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
@@ -61,7 +61,10 @@ describe('the Completed route with a slow gh', () => {
     expect(JSON.parse(first.body).completed.map((t: { slug: string }) => t.slug).sort()).toEqual(['a', 'b', 'c']);
     const calls = fs.readFileSync(path.join(base, 'gh-calls.txt'), 'utf8').split('\n').filter(Boolean).length;
     expect(calls).toBe(3);
+    vi.useFakeTimers({ toFake: ['Date'] }); // a loaded machine must not age the cache past its 60 s
+    vi.setSystemTime(Date.now());
     const second = await get(server, '/api/projects/shop/completed');
+    vi.useRealTimers();
     expect(second.status).toBe(200);
     expect(fs.readFileSync(path.join(base, 'gh-calls.txt'), 'utf8').split('\n').filter(Boolean).length).toBe(3);
   });

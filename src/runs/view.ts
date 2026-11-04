@@ -61,6 +61,8 @@ export interface RunView {
   resumeFrom: string;
   /** The short sha of the red-tests commit on the run's branch, '' when there is none (Plan and Red tests are refused once it exists). */
   redCommit: string;
+  /** How old the git facts (changes, redCommit, PR state) are in ms; null when they were just read or not asked for. */
+  gitAgeMs: number | null;
   createPr?: boolean;
   pr?: string | null;
   prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null;
@@ -178,8 +180,45 @@ function redCommitOf(worktree: string, slug: string): string {
   try { return new Git(worktree).findCommit([redPattern(slug)], '%h'); } catch { return ''; }
 }
 
+/** The parts of a run view: `live` (files only), `tail` (the end of run.out) and `git` (counts, Red tests commit, PR state). */
+export type RunPart = 'live' | 'tail' | 'git';
+export const RUN_PARTS: readonly RunPart[] = ['live', 'tail', 'git'];
+
+interface GitFacts { changes: RunView['changes']; redCommit: string }
+const gitCache = new Map<string, { key: string; at: number; facts: GitFacts }>();
+const GIT_TTL_RUNNING_MS = 30_000;
+
+/** Forgets the cached git facts (of one run, or all). */
+export function clearGitFacts(worktree?: string, slug?: string): void {
+  if (worktree && slug) gitCache.delete(`${worktree}::${slug}`); else gitCache.clear();
+}
+
+/**
+ * The git facts of a run from the cache, read again when the run's stage, attempt or state changed (the key), when a
+ * running run's facts are older than 30 s, or when <refresh> is set. Returns the facts and their age (null: just read).
+ */
+function gitFactsOf(ctx: RunContext, slug: string, worktree: string, key: string, running: boolean, refresh: boolean): { facts: GitFacts; ageMs: number | null } {
+  const id = `${worktree}::${slug}`;
+  const hit = gitCache.get(id);
+  const now = Date.now();
+  if (hit && !refresh && hit.key === key && !(running && now - hit.at >= GIT_TTL_RUNNING_MS)) return { facts: hit.facts, ageMs: now - hit.at };
+  const c = runChanges(ctx, slug);
+  const facts: GitFacts = { changes: 'error' in c ? null : { changed: c.changed, uncommitted: c.uncommitted, files: c.files }, redCommit: redCommitOf(worktree, slug) };
+  gitCache.set(id, { key, at: now, facts });
+  return { facts, ageMs: null };
+}
+
 /** Everything the run screen shows of <slug>; `changes: false` skips the git calls that count its files. */
-export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean; tailLines?: number; checkPr?: boolean } = {}): RunView {
+export function runView(ctx: RunContext, slug: string, opts: {
+  changes?: boolean; tailLines?: number; checkPr?: boolean;
+  /** Which parts to build (default: all). Without `git` no git command runs and no PR is asked for. */
+  parts?: readonly RunPart[];
+  /** Take the git facts from the per-run cache (the web run route); a stage, attempt or state change reads them again. */
+  cacheGit?: boolean;
+  /** With cacheGit: read the git facts again now. */
+  refresh?: boolean;
+} = {}): RunView {
+  const want = (part: RunPart): boolean => !opts.parts || opts.parts.includes(part);
   const rec = readRecord(ctx.reg, slug);
   const worktree = runWorktree(ctx, slug);
   const inPlace = exists(path.join(ctx.root, ctx.backlogDir, slug, 'logs', 'status.json')) ? ctx.root : null;
@@ -192,9 +231,24 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
   const permState = dir ? loadState(path.join(logs, 'permissions.json')) : null;
   const stageFiles = readJson(path.join(logs, 'stage-files.json'));
   let changes: RunView['changes'] = null;
-  if (opts.changes !== false && worktree) {
-    const c = runChanges(ctx, slug);
-    if (!('error' in c)) changes = { changed: c.changed, uncommitted: c.uncommitted, files: c.files };
+  let redCommit = '';
+  let gitAgeMs: number | null = null;
+  const stageNow = typeof s.stage === 'string' ? s.stage : '';
+  const stateNow = viewState(rec, status);
+  if (want('git') && worktree) {
+    if (opts.cacheGit) {
+      const key = `${stateNow}|${stageNow}|${s.attempt || ''}|${rec?.finished || ''}`;
+      const g = gitFactsOf(ctx, slug, worktree, key, stateNow === 'running', opts.refresh === true);
+      redCommit = g.facts.redCommit;
+      gitAgeMs = g.ageMs;
+      if (opts.changes !== false) changes = g.facts.changes;
+    } else {
+      if (opts.changes !== false) {
+        const c = runChanges(ctx, slug);
+        if (!('error' in c)) changes = { changed: c.changed, uncommitted: c.uncommitted, files: c.files };
+      }
+      redCommit = redCommitOf(worktree, slug);
+    }
   }
   const discarded = (readText(path.join(ctx.reg, `${slug}.discarded`)) || '').trim();
   const stage = typeof s.stage === 'string' ? s.stage : '';
@@ -230,10 +284,11 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
     tests: dir ? testCounts(readJson(path.join(logs, 'tests.json'))) : null,
     stageFiles: stageFiles && stageFiles.stages && typeof stageFiles.stages === 'object' ? stageFiles.stages : {},
     changes,
-    tail: dir ? tail(path.join(logs, 'run.out'), opts.tailLines ?? 40) : [],
+    tail: dir && want('tail') ? tail(path.join(logs, 'run.out'), opts.tailLines ?? 40) : [],
     docs: docFiles(docsDir),
     discarded,
-    redCommit: worktree ? redCommitOf(worktree, slug) : '',
+    redCommit,
+    gitAgeMs,
     resumeFrom: resumeStage(stage, exists(path.join(docsDir, 'test-issues.md'))),
     testIssues: exists(path.join(docsDir, 'test-issues.md')) ? readText(path.join(docsDir, 'test-issues.md')) : null,
     createPr: (() => {
@@ -246,7 +301,7 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
     ...(() => {
       const p = getPrFromBrief(readText(path.join(docsDir, 'brief.md')) || '')
         || getPrFromBrief(readText(path.join(ctx.root, ctx.backlogDir, slug, 'brief.md')) || '');
-      if (opts.checkPr === false || (!p && state !== 'done' && stage.toLowerCase() !== 'finalise')) {
+      if (opts.checkPr === false || !want('git') || (!p && state !== 'done' && stage.toLowerCase() !== 'finalise')) {
         return {
           pr: p || null,
           prState: null,

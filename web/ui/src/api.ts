@@ -48,7 +48,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   questions: Question[]; permissions: Ask[]; deniedPermissions?: Ask[];
   stageFiles: Record<string, string[]>;
   changes: { changed: number; uncommitted: number; files: string[] } | null;
-  tail: string[]; docs: string[]; discarded: string; resumeFrom: string; redCommit: string;
+  tail: string[]; docs: string[]; discarded: string; resumeFrom: string; redCommit: string; gitAgeMs: number | null;
   createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean;
   testIssues?: string | null;
   recovery?: StageRecovery | null;
@@ -166,7 +166,10 @@ export const api = {
   brief: (project: string, slug: string) => call<{ brief: string | null }>('GET', `${p(project)}/backlog/${encodeURIComponent(slug)}`),
   addItem: (project: string, item: { slug: string; type: string; title: string; brief: string; start?: boolean }) =>
     call<{ ok: boolean; started: Outcome | null }>('POST', `${p(project)}/backlog`, item),
-  run: (project: string, slug: string) => call<RunView>('GET', r(project, slug)),
+  run: (project: string, slug: string, o: { parts?: string; refresh?: boolean } = {}) => {
+    const q = [o.parts ? `parts=${o.parts}` : '', o.refresh ? 'refresh=1' : ''].filter(Boolean).join('&');
+    return call<RunView>('GET', `${r(project, slug)}${q ? `?${q}` : ''}`);
+  },
   file: (project: string, slug: string, path: string) => call<{ text: string }>('GET', `${r(project, slug)}/file?path=${encodeURIComponent(path)}`),
   start: (project: string, slug: string, from?: string, env?: Record<string, string>) => call<Outcome>('POST', `${r(project, slug)}/start`, { from, env }),
   stop: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/stop`, {}),
