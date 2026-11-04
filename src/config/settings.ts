@@ -229,7 +229,7 @@ function completeSuite(s: Json, i: number, root: string, errors: string[], topTo
 }
 
 /** The resolved settings for the project at <root>. `errors` is empty when the settings are usable. */
-export function resolve(root: string, { env = process.env }: { env?: NodeJS.ProcessEnv } = {}): Resolved {
+export function resolve(root: string, { env = process.env, agentFrom }: { env?: NodeJS.ProcessEnv; agentFrom?: string } = {}): Resolved {
   root = path.resolve(root);
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -244,8 +244,24 @@ export function resolve(root: string, { env = process.env }: { env?: NodeJS.Proc
     if (errors.length) return { config: null, errors: errors.map(e => `${CONFIG_FILE}: ${e}`), warnings, file: fileName };
   }
 
+  // A run works in its own worktree, but its agent, model and effort come from the project it was started from (<agentFrom>):
+  // that project's file, not the worktree's copy, which lacks whatever was saved after the branch was cut.
+  let agentRoot = root;
+  if (agentFrom && path.resolve(agentFrom) !== root) {
+    agentRoot = path.resolve(agentFrom);
+    const projectFile = path.join(agentRoot, CONFIG_FILE);
+    let theirs: Json = {};
+    try { theirs = exists(projectFile) ? readJson(projectFile) : {}; } catch { theirs = {}; }
+    const notesDir = file.agent && file.agent.notesDir;
+    const agent = { ...(theirs.agent && typeof theirs.agent === 'object' ? theirs.agent : {}), ...(notesDir ? { notesDir } : {}) };
+    if (!notesDir) delete agent.notesDir;
+    file = { ...file, agent };
+    const bad = fileErrors({ agent });
+    if (bad.length) return { config: null, errors: bad.map(e => `${CONFIG_FILE} of ${agentRoot}: ${e}`), warnings, file: fileName };
+  }
+
   // Personal agent settings (this machine only) go on top of the file's, before anything reads them.
-  const personal = personalAgentOf(root, env);
+  const personal = personalAgentOf(agentRoot, env);
   if (personal) {
     const bad = personalErrors(personal);
     if (bad.length) return { config: null, errors: bad.map(e => `personal settings: ${e}`), warnings, file: fileName };

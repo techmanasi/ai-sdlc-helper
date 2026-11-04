@@ -12,6 +12,7 @@ import { repoRulesFile } from '../permissions/index.js';
 import { Keys, testLayout } from '../testcheck/keys.js';
 import { AGENT_STAGES, Exit, FROM_STAGES, SetupError, stop, tick, type Ctx, type From } from './context.js';
 import { spawnClaude, type AgentSpawn } from './agent.js';
+import { projectRoot } from '../runs/records.js';
 import { Git } from './git.js';
 import { envModels, modelEnvOf, registryFile, stageModels } from './models.js';
 import { PROMPTS_DIR } from './prompts.js';
@@ -141,7 +142,7 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
   const say: Pick<Ctx, 'out'> = { out };
   const limits = { maxAttempts: numberEnv(env, 'MAX_ATTEMPTS', 4), maxTurns: numberEnv(env, 'MAX_TURNS', 40), maxRepairTests: numberEnv(env, 'MAX_REPAIR_TESTS', 3) };
   // Project settings: sdlc.config.json completed by detection. The code search note is shown with the code search below.
-  const { config, errors, warnings } = resolve(root, { env });
+  const { config, errors, warnings } = resolve(root, { env, agentFrom: projectRoot(root, env) });
   const searchNote = warnings.filter(w => w.includes('code search uses Grep and Glob'));
   for (const w of warnings.filter(x => !searchNote.includes(x))) out(`WARNING: ${w}`);
   if (!config) {
