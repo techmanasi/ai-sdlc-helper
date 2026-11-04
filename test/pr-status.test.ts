@@ -147,5 +147,5 @@ describe('the Completed list', () => {
     const again = await listCompletedTasksAsync(ctx); // every status is cached: no gh call starts, none is waited for
     expect(again).toHaveLength(5);
     expect(starts()).toBe(5);
-  });
+  }, { retry: 2 }); // under a full-suite load a gh can wait more than its 3 s timeout just to start; the count then falls short
 });

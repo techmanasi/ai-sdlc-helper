@@ -10,10 +10,11 @@ import { fileURLToPath } from 'node:url';
 import {
   AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
-  restart, runContext, runView, RUN_PARTS, type RunPart, start, stop, syncPrComments, type Outcome, type RunContext,
+  restart, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, syncPrComments, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
+import { createRunStreams, type RunSource, type StreamTimings } from './watch.js';
 
 export interface ServerOptions {
   /** The port to listen on; an explicitly requested port is fixed. The default tries the next 20 ports. 0: any free port. */
@@ -29,6 +30,8 @@ export interface ServerOptions {
   cli?: string[];
   /** How often the live board is read, in ms (default 2000). */
   pollMs?: number;
+  /** Timings of the per-run stream (tests): debounce, safety tick, ping and tail throttle, in ms. */
+  stream?: Partial<StreamTimings>;
   /** The claude command triage runs spawn (tests); default 'claude'. */
   claude?: string;
 }
@@ -40,6 +43,8 @@ export interface RunningServer {
   port: number;
   token: string;
   close(): Promise<void>;
+  /** The per-run streams open now: pages and watched folders of each (tests). */
+  streamStats(): Record<string, { clients: number; watched: number }>;
 }
 
 export const DEFAULT_PORT = 4477;
@@ -415,11 +420,29 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     req.on('close', () => { clearInterval(timer); clearInterval(ping); });
   }
 
+  const runStreams = createRunStreams(opts.stream);
+
+  /** Live updates of one run, as SSE: a snapshot, then "run" (live part), "tail" (output) and "ping" events. */
+  async function runEvents(req: http.IncomingMessage, res: http.ServerResponse, projectName: string, slug: string): Promise<void> {
+    const p = await project(projectName);
+    let ctx = contextFor(p);
+    const source = (): RunSource => ({
+      refresh: () => { ctx = contextFor(p); },
+      live: () => runView(ctx, slug, { cacheGit: true, parts: ['live', 'git'] }) as unknown as Record<string, unknown>,
+      tail: () => runTail(ctx, slug),
+      dirs: () => runPaths(ctx, slug).dirs,
+      outFile: () => runPaths(ctx, slug).out,
+    });
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+    const leave = runStreams.join(`${p.name}/${slug}`, source, { send: (event, data) => { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } });
+    req.on('close', leave);
+  }
+
   const server = http.createServer((req, res) => {
     (async () => {
       guard(req, port);
       const url = new URL(req.url || '/', `http://${req.headers.host}`);
-      if (url.pathname.startsWith('/api/') && url.pathname !== '/api/events') {
+      if (url.pathname.startsWith('/api/') && url.pathname !== '/api/events' && !url.pathname.endsWith('/events')) {
         // One line per API request: the route with its project and slug named, the duration, and the status.
         const t0 = performance.now();
         const parts = url.pathname.split('/');
@@ -446,6 +469,8 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       }
       if (!hasToken(req, token)) throw new HttpError(401, 'not signed in: open the URL that ai-sdlc-helper ui printed');
       if (url.pathname === '/api/events') return events(req, res, url);
+      const runStream = /^\/api\/projects\/([^/]+)\/runs\/([^/]+)\/events$/.exec(url.pathname);
+      if (runStream && req.method === 'GET') return runEvents(req, res, decodeURIComponent(runStream[1]), slugOf(decodeURIComponent(runStream[2])));
       if (url.pathname.startsWith('/api/')) return api(req, res, url);
       if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'use GET');
       if (env.SDLC_DEV === '1' && url.pathname === '/') {
@@ -493,6 +518,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   return {
     url, port, token,
     openUrl: `${url}/?t=${token}`,
-    close: () => new Promise(res => { tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
+    streamStats: () => runStreams.stats(),
+    close: () => new Promise(res => { runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
   };
 }

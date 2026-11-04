@@ -180,6 +180,22 @@ function redCommitOf(worktree: string, slug: string): string {
   try { return new Git(worktree).findCommit([redPattern(slug)], '%h'); } catch { return ''; }
 }
 
+/** The folders a run writes to (the run register, the item folder in its worktree and in the checkout, and its logs) and its run.out. */
+export function runPaths(ctx: RunContext, slug: string): { dirs: string[]; out: string | null } {
+  const worktree = runWorktree(ctx, slug);
+  const inPlace = exists(path.join(ctx.root, ctx.backlogDir, slug, 'logs', 'status.json')) ? ctx.root : null;
+  const dir = worktree || inPlace;
+  const docsDir = dir ? path.join(dir, ctx.backlogDir, slug) : path.join(ctx.root, ctx.backlogDir, slug);
+  const dirs = [ctx.reg, docsDir, path.join(docsDir, 'logs'), path.join(ctx.root, ctx.backlogDir, slug)];
+  return { dirs: [...new Set(dirs)].filter(d => exists(d)), out: dir ? path.join(docsDir, 'logs', 'run.out') : null };
+}
+
+/** The last <n> lines of a run's run.out ([] when none). */
+export function runTail(ctx: RunContext, slug: string, n = 40): string[] {
+  const out = runPaths(ctx, slug).out;
+  return out ? tail(out, n) : [];
+}
+
 /** The parts of a run view: `live` (files only), `tail` (the end of run.out) and `git` (counts, Red tests commit, PR state). */
 export type RunPart = 'live' | 'tail' | 'git';
 export const RUN_PARTS: readonly RunPart[] = ['live', 'tail', 'git'];

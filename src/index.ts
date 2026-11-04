@@ -38,7 +38,7 @@ export {
 } from './runs/index.js';
 export { alive, killTree, readRecord, recordedSlugs, registryDir, runState, type RunRecord } from './runs/records.js';
 export {
-  answerQuestions, boardView, parseQuestions, resumeStage, runView, RUN_PARTS, clearGitFacts, type RunPart, type BoardView, type Question, type RunCard, type RunView,
+  answerQuestions, boardView, parseQuestions, resumeStage, runView, runPaths, runTail, RUN_PARTS, clearGitFacts, type RunPart, type BoardView, type Question, type RunCard, type RunView,
   type TestCounts, type ViewState,
 } from './runs/view.js';
 export { runPipeline, firstPending, type PipelineOptions } from './pipeline/run.js';
