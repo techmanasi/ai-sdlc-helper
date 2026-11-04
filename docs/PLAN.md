@@ -93,6 +93,8 @@ Its PRs merged after `sdlc-as-package` branched (#92, #94, #97–#100), applied 
   bug with git packages that have a `prepare` script, seen with npm 10.9); until the npm release, `npm pack` from
   GitHub and install the tarball, or install a GitHub release's tarball (see README.md and docs/RELEASING.md).
 - **One real run** of the TypeScript pipeline on a real project before part 6.
+- **Detached triage and palette jobs:** see docs/plans/detached-jobs.md (built on the research in
+  docs/plans/process-isolation-research.md).
 
 ## To build in (found by running the scripts on real projects)
 
