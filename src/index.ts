@@ -47,7 +47,7 @@ export {
   FINALISE_PERMISSIONS,
 } from './permissions/index.js';
 export {
-  listCompletedTasks, getCompletedTaskDetail, createPrForCompleted, isArchivedInIndex, syncPrComments,
+  listCompletedTasks, listCompletedTasksAsync, getCompletedTaskDetail, getCompletedTaskDetailAsync, createPrForCompleted, isArchivedInIndex, syncPrComments,
   type CompletedTask, type CompletedTaskDetail, type CommitInfo, type FileChange,
 } from './runs/completed.js';
 export {
@@ -55,7 +55,7 @@ export {
 } from './backlog/archive.js';
 export {
   finalise, type FinaliseOptions, type FinaliseResult, ship, type ShipOptions,
-  getPrFromBrief, recordPrInBrief, createOrGetPr, getPrStatus, fetchPrComments, type PrStatus, type PrComment,
+  getPrFromBrief, recordPrInBrief, createOrGetPr, getPrStatus, getPrStatusCached, getPrStatusAsync, onPrStatusChange, fetchPrComments, type PrStatus, type PrRead, type PrComment,
 } from './pipeline/finalise.js';
 export { STAGE_DEFAULTS, resolveProvider, stageModel, providerEnv, type Provider } from './pipeline/models.js';
 export { agentSources, mergeAgent, personalAgentOf, type AgentSources, type Source } from './config/personal.js';

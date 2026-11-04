@@ -2,7 +2,8 @@
 // and optionally push to origin and create a GitHub PR, recording the PR link in brief.md.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from '../trace.js';
+import { execFile } from 'node:child_process';
+import { spawnSync, trace } from '../trace.js';
 import { has } from '../util.js';
 import { changed, mirror, type Baseline } from '../changes/index.js';
 import type { Git } from './git.js';
@@ -97,22 +98,41 @@ export interface PrStatus {
   number?: number;
 }
 
-const prCache = new Map<string, { time: number; val: PrStatus | null }>();
+interface PrEntry { time: number; val: PrStatus | null; failed?: boolean }
+const prCache = new Map<string, PrEntry>();
+const inflight = new Map<string, Promise<PrStatus | null>>();
 const PR_CACHE_TTL_MS = 60_000;
+const PR_TIMEOUT_MS = 3000;
 
 /** Clears the in-memory PR cache (e.g. after creating or updating a PR). */
 export function clearPrCache(): void {
   prCache.clear();
 }
 
-/** Queries live GitHub PR status using gh CLI with in-memory TTL caching to avoid blocking event loop. */
+const prKey = (cwd: string, branchOrUrl: string): string => `${cwd}::${branchOrUrl.trim()}`;
+
+function parsePr(stdout: string): PrStatus | null {
+  try {
+    const data = JSON.parse(stdout.trim());
+    if (data && data.url) {
+      return {
+        url: data.url,
+        state: (data.state || 'OPEN').toUpperCase() as 'OPEN' | 'MERGED' | 'CLOSED',
+        number: typeof data.number === 'number' ? data.number : undefined,
+      };
+    }
+  } catch { /* best effort */ }
+  return null;
+}
+
+/** Queries live GitHub PR status using gh CLI with in-memory TTL caching. Blocks: for the pipeline and the CLI, not the web server. */
 export function getPrStatus(
   cwd: string,
   branchOrUrl: string,
   env: NodeJS.ProcessEnv = process.env,
 ): PrStatus | null {
   if (!branchOrUrl || !branchOrUrl.trim()) return null;
-  const key = `${cwd}::${branchOrUrl.trim()}`;
+  const key = prKey(cwd, branchOrUrl);
   const now = Date.now();
   const hit = prCache.get(key);
   if (hit && now - hit.time < PR_CACHE_TTL_MS) {
@@ -122,22 +142,98 @@ export function getPrStatus(
   let result: PrStatus | null = null;
   try {
     const view = spawnSync('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number'], {
-      cwd, encoding: 'utf8', env, timeout: 3000,
+      cwd, encoding: 'utf8', env, timeout: PR_TIMEOUT_MS,
     });
-    if (view.status === 0 && view.stdout.trim()) {
-      const data = JSON.parse(view.stdout.trim());
-      if (data && data.url) {
-        result = {
-          url: data.url,
-          state: (data.state || 'OPEN').toUpperCase() as 'OPEN' | 'MERGED' | 'CLOSED',
-          number: typeof data.number === 'number' ? data.number : undefined,
-        };
-      }
-    }
+    if (view.status === 0 && view.stdout.trim()) result = parsePr(view.stdout);
   } catch { /* best effort */ }
 
-  prCache.set(key, { time: now, val: result });
+  const entry = { time: now, val: result };
+  prCache.set(key, entry);
+  if (result) prCache.set(prKey(cwd, result.url), entry);
   return result;
+}
+
+/** A PR status as the web server serves it: the last known value, how old it is, and whether the last refresh failed. */
+export interface PrRead {
+  status: PrStatus | null;
+  /** Milliseconds since the value was read from GitHub; null when there is none yet. */
+  ageMs: number | null;
+  /** The value is older than the cache time, or the last refresh failed. */
+  stale: boolean;
+  /** Nothing is known yet; a refresh is running. */
+  pending: boolean;
+}
+
+type PrListener = (e: { cwd: string; branchOrUrl: string; status: PrStatus | null }) => void;
+const prListeners = new Set<PrListener>();
+
+/** Calls <fn> whenever a background refresh changes a PR status (or learns one for the first time). Returns the unsubscribe. */
+export function onPrStatusChange(fn: PrListener): () => void {
+  prListeners.add(fn);
+  return () => { prListeners.delete(fn); };
+}
+
+/** One asynchronous gh call per key at a time; a failure keeps the old value and marks it stale. */
+function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv): Promise<PrStatus | null> {
+  const key = prKey(cwd, branchOrUrl);
+  const running = inflight.get(key);
+  if (running) return running;
+  const t0 = performance.now();
+  const p = new Promise<PrStatus | null>(resolve => {
+    execFile('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number'], { cwd, env, encoding: 'utf8', timeout: PR_TIMEOUT_MS }, (err, stdout) => {
+      const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as unknown as { code: number }).code : -1) : 0;
+      trace({ action: 'spawn:gh', why: 'pr', ms: Math.round((performance.now() - t0) * 1000) / 1000, code });
+      const before = prCache.get(key);
+      let status: PrStatus | null;
+      if (err) {
+        status = before ? before.val : null;
+        prCache.set(key, { time: Date.now(), val: status, failed: true });
+      } else {
+        status = stdout.trim() ? parsePr(stdout) : null;
+        const entry = { time: Date.now(), val: status };
+        prCache.set(key, entry);
+        // The same PR asked for by its link (a brief that now records it) is the same answer.
+        if (status) prCache.set(prKey(cwd, status.url), entry);
+      }
+      inflight.delete(key);
+      if (!err && (!before || JSON.stringify(before.val) !== JSON.stringify(status))) {
+        for (const fn of prListeners) { try { fn({ cwd, branchOrUrl, status }); } catch { /* a listener must not break the refresh */ } }
+      }
+      resolve(status);
+    });
+  });
+  inflight.set(key, p);
+  return p;
+}
+
+function readEntry(e: PrEntry | undefined, now: number): PrRead {
+  if (!e) return { status: null, ageMs: null, stale: false, pending: true };
+  const ageMs = now - e.time;
+  return { status: e.val, ageMs, stale: Boolean(e.failed) || ageMs >= PR_CACHE_TTL_MS, pending: false };
+}
+
+/**
+ * The PR status without waiting: the cached value at once (with its age), and a refresh in the background when it is
+ * older than the cache time. With nothing cached it answers pending and starts the refresh. Never blocks the event loop.
+ */
+export function getPrStatusCached(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv = process.env): PrRead {
+  if (!branchOrUrl || !branchOrUrl.trim()) return { status: null, ageMs: null, stale: false, pending: false };
+  const e = prCache.get(prKey(cwd, branchOrUrl));
+  const r = readEntry(e, Date.now());
+  if (!e || r.stale) void refreshPrStatus(cwd, branchOrUrl, env);
+  return r;
+}
+
+/**
+ * Like getPrStatusCached, but with nothing cached it waits for the first answer (asynchronously, so other requests and
+ * streams keep running). A cached value, however old, is returned at once.
+ */
+export async function getPrStatusAsync(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv = process.env): Promise<PrRead> {
+  if (!branchOrUrl || !branchOrUrl.trim()) return { status: null, ageMs: null, stale: false, pending: false };
+  const e = prCache.get(prKey(cwd, branchOrUrl));
+  if (e) return getPrStatusCached(cwd, branchOrUrl, env);
+  await refreshPrStatus(cwd, branchOrUrl, env);
+  return readEntry(prCache.get(prKey(cwd, branchOrUrl)), Date.now());
 }
 
 export interface PrComment {
