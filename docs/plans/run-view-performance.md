@@ -82,6 +82,8 @@ Why the git facts must be cached **together with** the watcher: a rebuild after 
 - **`run.out`:** the pipeline's own console log (stage and attempt lines, warnings, the output of the one-time setup commands). It is **not** written constantly: the largest one here, a whole run of `add-setup-branch-pr`, is 127 lines and 9.5 KB, written at stage and attempt boundaries; the agents' own output goes to separate `<name>.json` and `.log` files, and test output to `tests.log`. [measured on the runs in this repository; the first setup of a worktree (`npm ci`) can write a burst, not measured]
   Only the run page shows its tail, so the board does not watch it (`dashboard-performance.md` F20 calls it noisy; that was not measured there). The run stream watches it like the other files, with a cheap guard (a throttle of one push a second, section 5, Step 4) for a burst.
 
+**Agreed approach with the detached-jobs plan.** That plan's file tailer (step E2, `serveTail`) polls a file every 500 ms instead of using `fs.watch`, because of the Node 18 caveats. This plan watches folders. They do not conflict if each does what it is for: the shared watcher (`web/server/watch.ts`) decides **when** a run's live part changed; a tailer is used only to stream the **bytes** of one growing file (a job's output, or `run.out`) to a page that has it open, and it polls only while such a page is connected. If the watcher proves unreliable on a platform (Node 18 on Linux, not tested), the fallback is the tailer's rule: poll, but only for the runs with a connected page and only the files named above, never a rebuild. [design; to be settled with the detached-jobs plan before Step 4]
+
 What a watcher cannot see, and what covers it:
 
 | Gap | Covered by | Cost |
@@ -89,6 +91,7 @@ What a watcher cannot see, and what covers it:
 | A crashed or killed process writes no file | A liveness checker: `kill(pid, 0)` every **30 s** (the user's choice, U8) for runs marked running only, so a crash can show as "running" for up to 30 s; an event when a pid dies. It needs the start-time check from `dashboard-performance.md` Step 4 so a reused pid does not read as running. It does not cover the orphaned-pipeline case (F12 there). | microseconds per run (`kill(pid, 0)` about 0.5 µs for a dead pid) |
 | Uncommitted edits change no git metadata (the committed part of the change count does: the worktree's `HEAD` moves at every commit, and the pipeline commits at each stage's end, so a watcher on it covers that part) | The git facts' refresh points (section 2) and the 30 s tick | the git spawns, only at those points |
 | A missed or merged watch event | A safety rebuild of the live part on the **same 30 s tick** as the liveness check, while a client is connected; it pushes only if the result differs | about 50 to 120 ms of file reads per tick, shared by all clients; no spawns (the git facts stay cached) |
+| The detached-jobs plan (`docs/plans/detached-jobs.md`, section 1 and step B2) adds `<slug>.live.json`, a heartbeat the supervisor rewrites every 10 s | The watcher must **not** rebuild on it: a `live.json` event updates only the liveness answer (heartbeat age under 45 s means alive). When that plan is built, the heartbeat replaces the 30 s `kill(pid, 0)` check for runs that have the file and also catches a supervisor killed alone; until then the pid check stays. Without this rule the watcher would fire 6 times a minute per run for nothing, which the trace would show as a finding. [design, depends on that plan] | one stat or small read per event |
 | Node 18 on Linux may not watch folders recursively | One watcher per folder; to be checked before relying on it (`dashboard-performance.md` F16, "not tested") | |
 
 ## 4. The heartbeat, the silence rule and the fallback (user, U4 to U6)
@@ -153,6 +156,7 @@ microsecond time, so the repeats can be seen at any time, and that the plan chec
 **Step 0: baseline (no code).** Use the throwaway method below. Baseline: 7 spawns and about 0.55 s per request; about 30 requests a minute from one open run page. Method: start `ai-sdlc-helper ui --port <n> --no-open` with a PATH holding logging shims for `git`, `ps` and `gh`, sign in with the printed token, then `curl -w '%{time_total}'` six times per run and count the log lines.
 
 **Step 0b: make the repeats visible (code, first).** Add the trace helper, route the spawn sites through it, log the timers and the requests, add the page's in-memory trace and the report script (section 4a). Nothing else changes.
+- Not covered: the supervisor's `ps` and `taskkill` calls. Its code is a string written to a file and run as its own process (`SOURCE` in `src/runs/supervisor.ts`), so it cannot import the helper. They run once per stop or per exit, not on a timer, so they are not repeats; the detached-jobs plan's heartbeat will add a timer there, and that plan's step B2 should write its own trace line (or the report will not show it).
 - Tests (`test/`, `web/test/server.test.ts`): the writer produces one JSON line per call with an integer `t` in microseconds that never goes backwards; the report script, run on a fixture trace file, prints the right counts, `changed:false` shares and sort order (the real script, no mocks); one request for a run writes as many `spawn:git` lines as the counting `git` shim sees for the same request (the shim is the independent check), with no setting changed; with `trace.enabled: false` (or `SDLC_TRACE=0`) no file is written; the file rotates at `trace.maxSizeKb`, keeps `trace.keepFiles` old files, and drops files past the age limit (real files in a temp folder, a fake clock for the age); two processes appending concurrently lose no line; a line never holds more than the program and its first argument; the setting values are validated and a bad one falls back to its default with a message; the overhead measurement of the 1% target is printed.
 - Risk: low to medium (always on: a disk write per second at most, a file that must not grow without bound, and rotation by several writers). Check: the first report on an open run page shows the real recurrence; it replaces the estimates above and goes into the PR description.
 
@@ -164,7 +168,7 @@ microsecond time, so the repeats can be seen at any time, and that the plan chec
 - Tests (`test/`, next to `resume.test.ts`): the helper returns the delays above for each state and visibility; the real function, no timers.
 - Risk: low (a state change by another process shows after the next focus or action). Check: requests per minute from an open page on a finished run fall from about 30 to 0. [estimate]
 
-**Step 2: stop rebuilding the context (depends on `dashboard-performance.md`, Step 3).** That step caches the project context and rebuilds it only when settings or the registry change; the run routes must use it instead of calling `runContext` themselves (`web/server/index.ts:249-252`, `contextFor`).
+**Step 2: stop rebuilding the context (depends on `dashboard-performance.md`, Step 3).** That step caches the project context and rebuilds it only when settings or the registry change; the run routes must use it instead of calling `runContext` themselves (`web/server/index.ts:249-252`, `contextFor`). The process-isolation research (`docs/plans/process-isolation-research.md`, section on the web pane) adds that `contextFor` runs on **every** GET route, not only the stream, and `start` checks every record for liveness (`isRunning`, `src/runs/index.ts`); the cache is applied to all GET routes, and the run list's liveness checks go through the same cached answer as the 30 s checker.
 - Tests (`web/test/server.test.ts`): with a counting `git`, 10 requests for one run make the 3 context spawns once; a settings change shows on the next request.
 - Risk: medium (stale settings, shared with that plan). Check: spawns per request fall from 7 to 4. [estimate]
 
@@ -175,9 +179,16 @@ microsecond time, so the repeats can be seen at any time, and that the plan chec
 - Tests (`test/view.test.ts`, `web/test/server.test.ts`): with a counting `git`, 10 requests for an unchanged run make the git calls once; a stage change in `status.json` makes the next request refresh them; `?refresh=1` refreshes them; `?parts=live` makes no git call.
 - Risk: medium (the stale mark must be shown; resume options must not rely on a stale Red tests commit). Check: spawns per request fall from 7 to 0 for repeat requests of an unchanged run. [estimate]
 
+**Step 3b: make `gh` asynchronous with stale-while-revalidate (from the process-isolation research).** In `src/pipeline/finalise.ts` (`getPrStatus`), `src/runs/view.ts` and `src/runs/completed.ts` (`listCompletedTasks`):
+- Why it belongs here: `getPrStatus` and the Completed view call `gh pr view` synchronously with a 3 s timeout, one task after another, so opening the Completed view with N tasks can stop the whole server (every tab and every SSE stream, including the new run streams) for up to N times 3 s. Steps 3 to 5 make the run page cheap, but one slow `gh` call still freezes all of them. [from `architecture_performance.md` item 5 and `process-isolation-research.md`; not measured here]
+- `getPrStatus` returns the cached value at once (with its age) and refreshes in the background with an asynchronous `execFile`; the Completed view asks for all tasks in parallel with a limit of 4. The 60 s cache and 3 s timeout stay. A refresh that changes the result is an event for the run stream.
+- Tests (`test/finalise-and-completed.test.ts`, `web/test/server.test.ts`): with a `gh` shim that sleeps 2 s, a request for the Completed view with 5 tasks answers from the cache without waiting, and another request is served while the refresh runs (the event loop is not blocked); the refreshed value shows on the next call; a `gh` failure keeps the old value and marks it stale.
+- Risk: medium (callers that expect a synchronous answer: the Finalise stage and `finalise` itself keep the synchronous call; only the web paths change). Check: the trace shows no `spawn:gh` on the server's request path, only in the background refresh.
+- Out of scope here: the test runner's `spawnSync` (process-isolation research, item 4); it affects pipeline runs, not the web pane.
+
 **Step 4: the per-run stream on the server (watcher, liveness checker, heartbeat).** New `web/server/watch.ts` (shared with the board plan's Step 6) and a route `GET /api/projects/<project>/runs/<slug>/events` in `web/server/index.ts`:
 - On connect: a full snapshot (live part, tail, cached git facts with their age). Then an event per change of the live part, `tail` events for output (throttled to once a second as a guard for a burst, only when the file grew), `ping` events every 15 s (section 4), and a `problem` event on an error, as the board stream has.
-- The watcher and the liveness checker (section 3) are shared by all clients of a run; they stop with the last client.
+- The watcher and the liveness checker (section 3) are shared by all clients of a run; they stop with the last client. A `<slug>.live.json` event updates liveness only and never rebuilds (section 3).
 - The server rebuilds only the part the changed file feeds, using the cached git facts.
 - Tests (`web/test/server.test.ts`): a `status.json` write reaches a client within a stated time; a burst of `run.out` writes is throttled to one push a second and a quiet file sends nothing but pings; the 30 s tick finds a change whose watch event was dropped (simulate by writing with the watcher paused); a `ping` event arrives and is visible to a client that listens for it (this proves R7's comment-line claim); two clients share one watcher and make no more spawns than one; a killed pid produces a state event within the checker's period; the stream stops with the last client; a late client gets a snapshot at once.
 - Risk: medium to high (missed or merged events, watcher lifecycle). Check: a connected, idle run page makes about 0 spawns per second apart from the pings and the liveness check. [estimate]
@@ -195,7 +206,7 @@ microsecond time, so the repeats can be seen at any time, and that the plan chec
 
 **Step 7: measure again (no code).** Repeat Step 0 and run the report of section 4a on an idle page and on a running run. Every row must be *needed* or *a guard*; each *finding* becomes a change or a written reason. Tune the intervals of section 4 on the built steps, not before.
 
-Order: Step 0b first (the trace; without it nothing below can be judged), then Step 1 (client only, safest), then 2 and 3 (each stands alone), then 4 and 5 together in two PRs (Step 5 depends on Step 4's events), then 6 only if the backup path still matters.
+Order: Step 0b first (the trace; without it nothing below can be judged), then Step 1 (client only, safest), then 2, 3 and 3b (each stands alone), then 4 and 5 together in two PRs (Step 5 depends on Step 4's events), then 6 only if the backup path still matters.
 
 ## 6. Conventions for the work (CLAUDE.md)
 
@@ -213,6 +224,12 @@ Decided by the user:
 - 7. The trace is **always on** with a rotating file; the rotation size and time are configurable (U10).
 
 Still open: none.
+
+Added after checking `docs/`, `reports/` and `research_notes/` (the user asked; accepted by the user):
+- Step 3b (async `gh`, the Completed view) from the process-isolation research.
+- Step 2 covers every GET route, not only the run route.
+- The detached-jobs heartbeat file (`live.json`) is handled in section 3 and Step 4; the watcher-versus-tailer difference is settled in section 3 (to be confirmed before Step 4).
+- Step 0b does not trace the supervisor's embedded script.
 
 Known gaps:
 - All timings were taken on one macOS machine with load about 3 and an idle server; none was taken in a browser, and none on a built fix.
