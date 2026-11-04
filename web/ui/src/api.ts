@@ -157,6 +157,8 @@ export const api = {
   projects: () => call<{ projects: Project[] }>('GET', '/api/projects'),
   addProject: (path: string, name?: string) => call<Outcome & { projects: Project[] }>('POST', '/api/projects', { path, name }),
   doctor: (project: string) => call<{ checks: Check[] }>('GET', `${p(project)}/doctor`),
+  runEventsUrl: (project: string, slug: string) => `${r(project, slug)}/events`,
+  eventsUrl: (project: string) => `/api/events?project=${encodeURIComponent(project)}`,
   board: (project: string) => call<Board>('GET', `${p(project)}/board`),
   settings: (project: string) => call<SettingsView>('GET', `${p(project)}/settings`),
   editSettings: (project: string, patch: Record<string, unknown>, hash?: string) =>
