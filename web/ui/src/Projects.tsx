@@ -154,7 +154,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
         if (!o.ok) { setErrors(o.errors); setBusy(false); return; }
       }
       if (activeRuns.length) setWarn(`Saved. ${activeRuns.join(', ')} ${activeRuns.length > 1 ? 'are' : 'is'} running or paused and keep${activeRuns.length > 1 ? '' : 's'} the old setup until restarted.`);
-      else toast(scope === 'personal' ? 'Personal setup saved' : 'Setup saved');
+      else toast(scope === 'personal' ? 'Personal config saved' : 'Config saved');
       await load(scope); onSaved();
     } catch (e) { setErrors([(e as Error).message]); }
     setBusy(false);
@@ -240,7 +240,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
       </p>
       {warn && <div class="banner">{warn}</div>}
       <ErrorBox error={errors.join('\n')} />
-      <div class="row"><button class="btn btn-p" type="submit" disabled={busy}>{busy ? 'Saving…' : scope === 'personal' ? 'Save for me' : 'Save setup'}</button></div>
+      <div class="row"><button class="btn btn-p" type="submit" disabled={busy}>{busy ? 'Saving…' : scope === 'personal' ? 'Save for me' : 'Save config'}</button></div>
     </form>
   );
 }
@@ -274,14 +274,13 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
             <div class="ph">
               <h2 class="mono">{p.name} {p.name === project && <span class="tag">current</span>} {!p.registered && <span class="tag s-paused">not registered</span>}</h2>
               <div class="row">
-                <button class="btn btn-s" type="button" onClick={() => setEditing(editing === p.name ? null : p.name)}>{editing === p.name ? 'Close' : 'Edit setup'}</button>
+                <button class="btn btn-s" type="button" onClick={() => setEditing(p.name)}>Config</button>
                 {p.name !== project && <button class="btn btn-s" type="button" onClick={() => go(`/board?project=${encodeURIComponent(p.name)}`)}>Open</button>}
                 {!p.registered && <button class="btn btn-s btn-p" type="button" disabled={busy} onClick={() => add(p.path)}>Register</button>}
               </div>
             </div>
             <div class="pb col" style={{ gap: '8px' }}>
               <span class="mono small muted" style={{ overflowWrap: 'anywhere' }}>{p.path}</span>
-              {editing === p.name && <EditSetup name={p.name} onSaved={() => { setRev(rev + 1); reload(); }} />}
               <Doctor key={`${p.name}-${rev}`} name={p.name} />
             </div>
           </section>
@@ -301,6 +300,14 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
           </form>
         </section>
       </div>
+      {editing && (
+        <div class="overlay" role="dialog" aria-modal="true" aria-label={`Config: ${editing}`} onClick={e => { if (e.target === e.currentTarget) setEditing(null); }}>
+          <section class="pn dialog dialog-wide">
+            <div class="ph"><h2 class="mono">Config · {editing}</h2><button class="btn btn-s" type="button" onClick={() => setEditing(null)}>Close</button></div>
+            <div class="pb"><EditSetup name={editing} onSaved={() => { setRev(rev + 1); reload(); }} /></div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

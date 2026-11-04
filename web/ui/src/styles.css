@@ -103,6 +103,8 @@ textarea.inp { resize: vertical; }
 /* overlays */
 .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); display: flex; align-items: flex-start; justify-content: center; padding: 10vh 16px 16px; z-index: 10; }
 .dialog { width: min(760px, 100%); max-height: 80vh; overflow: auto; }
+.dialog-wide { width: min(1100px, 100%); max-height: 88vh; }
+.overlay:has(.dialog-wide) { padding-top: 6vh; }
 .dialog .ph { position: sticky; top: 0; background: var(--pn); z-index: 2; border-top-left-radius: 8px; border-top-right-radius: 8px; }
 .toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 20; max-width: min(420px, calc(100vw - 32px)); }
 .toast { background: var(--pn); border: 1px solid var(--ln); border-radius: 8px; padding: 10px 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, .25); }

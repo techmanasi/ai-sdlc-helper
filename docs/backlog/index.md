@@ -9,3 +9,4 @@ Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 - [ ] `stage-files-tree-viewer` - Feature: collapsible tree viewer for files changed per stage in web UI
 - [ ] `non-node-ecosystem-support` - Feature: support non-Node/non-TypeScript ecosystems (Python, Go, Rust) for test detection, red-checks, and execution
 - [ ] `ui-code-indexer-setup` - Feature: interactive UI button to configure and build graft/graphify code indexers
+- [ ] `config-modal-keyboard` - Improvement: Projects page Config modal closes on Esc, keeps focus inside, and returns it to the Config button
