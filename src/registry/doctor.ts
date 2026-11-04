@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../trace.js';
 import path from 'node:path';
 import { exists, readSettings } from '../util.js';
 import { codeSearchErrors, codeSearchFor } from '../config/codeSearch.js';

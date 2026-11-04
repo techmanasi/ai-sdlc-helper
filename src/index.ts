@@ -19,6 +19,7 @@ export {
 } from './backlog/index.js';
 export { main, type Io } from './cli/main.js';
 export { configDir } from './configDir.js';
+export { TRACE_FILE, startTrace, stopTrace, trace, traceSettings, type TraceLine, type TraceSettings } from './trace.js';
 export {
   readRegistry, writeRegistry, registryFile, projectDir, gitRoot, RegistryError, type ProjectEntry, type ProjectOverrides,
 } from './registry/projects.js';

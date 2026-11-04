@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  AGENT_STAGES, DefaultHarnessRegistry, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
+  AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetail, hashOf, listCompletedTasks, main, readRegistry, repoRulesFile, resolve,
   restart, runContext, runView, start, stop, syncPrComments, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
@@ -88,6 +88,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   const pollMs = opts.pollMs ?? 2000;
   const current = opts.cwd ? await gitTop(opts.cwd, env) : null;
   let port = opts.port ?? DEFAULT_PORT;
+
+  // The trace of repeating actions (src/trace.ts): always on, rotating; settings from the opening folder's sdlc.config.json.
+  let traceBlock: unknown;
+  try { if (current) traceBlock = JSON.parse(fs.readFileSync(path.join(current, 'sdlc.config.json'), 'utf8')).trace; } catch { /* no file or not JSON: defaults */ }
+  const tracer = startTrace({ file: path.join(configDir(env), TRACE_FILE), settings: traceSettings(traceBlock, env).settings, rotate: true });
 
   async function projects(): Promise<Project[]> {
     const list: Project[] = readRegistry(env).map(e => ({ name: e.name, path: e.path, registered: true }));
@@ -389,16 +394,20 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       busy = true;
       try {
         // File counts need git, so they are refreshed every fifth read; the rest of the board every read.
+        const t0 = performance.now();
         const board = boardView(contextFor(p), { changes: ticks++ % 5 === 0 });
         const text = JSON.stringify(board);
-        if (text !== last) { last = text; res.write(`event: board\ndata: ${text}\n\n`); }
+        const changed = text !== last;
+        trace({ action: 'timer:board-rebuild', why: 'pollMs', run: p.name, ms: Math.round((performance.now() - t0) * 1000) / 1000, changed, n: ticks });
+        if (changed) { last = text; res.write(`event: board\ndata: ${text}\n\n`); trace({ action: 'sse:board', run: p.name, changed: true }); }
       } catch (e) {
         res.write(`event: problem\ndata: ${JSON.stringify({ message: (e as Error).message })}\n\n`);
+        trace({ action: 'sse:problem', run: p.name });
       } finally { busy = false; }
     };
     push();
     const timer = setInterval(push, pollMs);
-    const ping = setInterval(() => res.write(': ping\n\n'), 15000);
+    const ping = setInterval(() => { res.write(': ping\n\n'); trace({ action: 'sse:ping', run: p.name }); }, 15000);
     req.on('close', () => { clearInterval(timer); clearInterval(ping); });
   }
 
@@ -406,6 +415,13 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     (async () => {
       guard(req, port);
       const url = new URL(req.url || '/', `http://${req.headers.host}`);
+      if (url.pathname.startsWith('/api/') && url.pathname !== '/api/events') {
+        // One line per API request: the route with its project and slug named, the duration, and the status.
+        const t0 = performance.now();
+        const parts = url.pathname.split('/');
+        const shape = parts.map((x, i) => (parts[i - 1] === 'projects' ? ':project' : parts[i - 1] === 'runs' || parts[i - 1] === 'items' ? ':slug' : x)).join('/');
+        res.once('close', () => trace({ action: 'request', why: `${req.method} ${shape}`, run: parts[2] === 'projects' ? parts[4] === 'runs' ? parts[5] : undefined : undefined, ms: Math.round((performance.now() - t0) * 1000) / 1000, code: res.statusCode }));
+      }
       // The opening URL carries the token once: it becomes a cookie, and the address bar drops it.
       if (url.pathname === '/' && url.searchParams.has('t')) {
         const t = url.searchParams.get('t') || '';
@@ -473,6 +489,6 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   return {
     url, port, token,
     openUrl: `${url}/?t=${token}`,
-    close: () => new Promise(res => { triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
+    close: () => new Promise(res => { tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
   };
 }

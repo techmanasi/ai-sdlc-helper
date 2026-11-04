@@ -2,7 +2,7 @@
 // every checkout (and the control pane) sees the same runs. The fields are the ones scripts/sdlc-mod.sh wrote.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../trace.js';
 
 export const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 export const STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'review', 'finalise'] as const;

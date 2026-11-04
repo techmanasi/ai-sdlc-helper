@@ -11,6 +11,7 @@ import { expandGlob, globToRegex } from './globs.js';
 import { NODE_MANAGERS, nodeRun, wrapCommand, type NodeRun } from './node.js';
 import { AGENT_STAGES } from '../pipeline/context.js';
 import { projectNoteProblems } from './toolNotes.js';
+import { traceSettings, type TraceSettings } from '../trace.js';
 import { PERSONAL_KEYS, mergeAgent, personalAgentOf } from './personal.js';
 
 /** The coding agent harnesses a project can name (the built-in ones; the harness registry registers the same ids). */
@@ -76,6 +77,8 @@ export interface Config {
   finalise: { envExample: boolean; maxFileBytes: number };
   ship: { envExample: boolean; maxFileBytes: number };
   ui: { timezone: string };
+  /** The trace of repeating actions (src/trace.ts): on by default, rotating by size and age. */
+  trace: TraceSettings;
   node: NodeRun;
 }
 
@@ -138,6 +141,7 @@ export const SCHEMA: Json = {
   finalise: { envExample: 'boolean', maxFileBytes: 'integer' },
   ship: { envExample: 'boolean', maxFileBytes: 'integer' },
   ui: { timezone: 'string' },
+  trace: { enabled: 'boolean', maxSizeKb: 'number', keepFiles: 'integer', maxAgeHours: 'number' },
   node: { version: 'string', manager: ['auto', ...NODE_MANAGERS, 'none'] },
 };
 
@@ -173,6 +177,8 @@ export function validate(value: unknown, schema: any, where: string, errors: str
     }
   } else if (schema === 'integer') {
     if (!Number.isInteger(value) || (value as number) < 0) errors.push(`${at}: must be a whole number`);
+  } else if (schema === 'number') {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) errors.push(`${at}: must be a number above 0`);
   } else if (schema === 'string') {
     if (typeof value !== 'string' || !value) errors.push(`${at}: must be a non-empty string`);
   } else if (schema === 'boolean') {
@@ -292,6 +298,8 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
 
   const ui = { timezone: (file.ui && file.ui.timezone) || systemTimezone() };
   if (!validTimezone(ui.timezone)) errors.push(`ui.timezone: unknown time zone "${ui.timezone}"`);
+  const { settings: trace, errors: traceProblems } = traceSettings(file.trace, env);
+  warnings.push(...traceProblems.filter(e => e.startsWith('SDLC_')));
   const search = codeSearchFor(root, file, env);
   if (search.warning) warnings.push(search.warning);
   const indexLink = search.indexer && search.indexer.index ? [search.indexer.index.split('/')[0]] : [];
@@ -340,6 +348,7 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
       maxFileBytes: (file.finalise && file.finalise.maxFileBytes) || (file.ship && file.ship.maxFileBytes) || 1024 * 1024,
     },
     ui,
+    trace,
     node,
   };
   if (config.integration && !config.integration.cmd) errors.push('integration.cmd: must be set when "integration" is present');

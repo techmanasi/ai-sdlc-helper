@@ -2,7 +2,7 @@
 // and optionally push to origin and create a GitHub PR, recording the PR link in brief.md.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../trace.js';
 import { has } from '../util.js';
 import { changed, mirror, type Baseline } from '../changes/index.js';
 import type { Git } from './git.js';

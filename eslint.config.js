@@ -12,6 +12,10 @@ export default tseslint.config(
     },
   },
   {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
+  },
+  {
     // The web app stays apart from the engine: it uses only the package's public entry ('ai-sdlc-helper').
     files: ['web/**'],
     rules: {

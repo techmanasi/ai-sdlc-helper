@@ -1,7 +1,7 @@
 // Mechanical checks for the Test repair stage. Each check returns its rejects (an empty list passes).
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from '../trace.js';
 import { shellWord } from '../util.js';
 import { norm } from '../runners/types.js';
 import { SUITE_FAILED, isResult, isRunResult, type Keys } from './keys.js';

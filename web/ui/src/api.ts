@@ -1,3 +1,5 @@
+import { pageTrace } from './pageTrace';
+
 // The server's API, as the app uses it. The shapes mirror the engine's (RunView, BoardView …); the app keeps its own
 // copy so the browser build never pulls in Node code.
 
@@ -107,12 +109,14 @@ async function failure(r: Response): Promise<ApiError> {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const t0 = performance.now();
   const r = await fetch(path, {
     method,
     credentials: 'same-origin',
     headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  pageTrace('request', { why: `${method} ${path.replace(/^\/api\/projects\/[^/]+/, '/api/projects/:project').split('?')[0]}`, ms: Math.round((performance.now() - t0) * 1000) / 1000, code: r.status });
   if (!r.ok) throw await failure(r);
   const text = await r.text();
   return (text ? JSON.parse(text) : null) as T;

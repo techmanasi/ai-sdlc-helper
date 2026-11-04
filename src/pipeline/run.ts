@@ -1,7 +1,7 @@
 // A pipeline run for one backlog item: settings, slug, branch, baseline, models and status, then the stages from FROM on.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../trace.js';
 import { fileURLToPath } from 'node:url';
 import { exists, shellWord } from '../util.js';
 import { onPath } from '../shell.js';

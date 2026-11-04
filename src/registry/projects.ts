@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../trace.js';
 import { configDir } from '../configDir.js';
 
 /** Personal settings for one project, kept out of its committed sdlc.config.json. */

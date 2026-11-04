@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, splitArgs, type Board as BoardData, type Project, type ViewState } from './api';
 import { Board, needsYou } from './Board';
 import { Completed } from './Completed';
+import { pageTrace } from './pageTrace';
 import { NewItem } from './NewItem';
 import { Projects } from './Projects';
 import { Run } from './Run';
@@ -111,6 +112,7 @@ export function App() {
     setBoard(null); setBoardError(''); previous.current = null;
     const es = new EventSource(`/api/events?project=${encodeURIComponent(project)}`);
     es.addEventListener('board', e => {
+      pageTrace('stream', { why: 'board', changed: true });
       const b = JSON.parse((e as MessageEvent).data) as BoardData;
       const was = previous.current;
       if (was) {
@@ -124,8 +126,8 @@ export function App() {
       previous.current = Object.fromEntries(b.runs.map(r => [r.slug, r.state]));
       setBoard(b); setBoardError('');
     });
-    es.addEventListener('problem', e => setBoardError(JSON.parse((e as MessageEvent).data).message));
-    es.onerror = () => setBoardError('Lost the connection to the server; retrying…');
+    es.addEventListener('problem', e => { pageTrace('stream', { why: 'problem' }); setBoardError(JSON.parse((e as MessageEvent).data).message); });
+    es.onerror = () => { pageTrace('stream', { why: 'error' }); setBoardError('Lost the connection to the server; retrying…'); };
     return () => es.close();
   }, [project]);
 

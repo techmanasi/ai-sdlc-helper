@@ -4,7 +4,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { spawnSync } from './trace.js';
 import { allowedTools, resolve } from './config/settings.js';
 import { renderSkill } from './config/skills.js';
 import { backlogDirOf } from './registry/doctor.js';
