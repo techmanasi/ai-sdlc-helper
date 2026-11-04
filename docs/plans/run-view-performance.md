@@ -22,6 +22,7 @@ Claim status tags: **[measured]** run and timed here, **[verified]** read in the
 | U6 | Quote: "If client identify no heartbeat for 1 minutes, what to do?" | The reconnect and fallback rules (section 4). The silence limit is now 1 minute, not the 2 minutes of U4. | Section 4 |
 | U7 | Quote: "Put everything to the plan first" | This version of the plan. | All |
 | U8 | Quotes: "A crashed process writes no file. - check only in 30 seconds" and questions about uncommitted counts, `run.out` and missed events | The liveness check is every 30 s, sharing one tick with the safety rebuild. The answers corrected a claim: `run.out` is not constantly written. | Section 3 |
+| U9 | Quote: "Make sure the changes log eah action that repeats with micro time so the actions are visible and verify if the much reccurence is really required." | A trace of every repeating action with microsecond times, a report, and a rule that each repeat must change the result or be a named guard (section 4a; Step 0b). | Section 4a, Steps 0b and 7 |
 
 ## 1. What one request costs now
 
@@ -107,9 +108,39 @@ Rules. [design; every interval is a starting point to be tuned after Step 7]
 
 The 1-minute limit (U6) replaces the 2-minute one (U4); section 7 asks the user to confirm.
 
+## 4a. Make every repeat visible, and prove it is needed (user, U9)
+
+The numbers in section 1 came from a throwaway shim. The user asks that the change itself log each action that repeats, with a
+microsecond time, so the repeats can be seen at any time, and that the plan check whether so much recurrence is really required.
+
+**The trace.** [design]
+- One helper, `trace(action, detail)` (for example `src/runs/trace.ts`), writes one JSON line per event to `<registry folder>/ui-trace.jsonl`
+  (the folder the run records live in). It is **off by default** and switched on with `SDLC_TRACE=1` (or a `ui --trace` flag), because
+  writing a line per spawn is itself work; the file is capped and rotated.
+- **Microsecond time:** `t` is epoch microseconds taken from `performance.timeOrigin + performance.now()`. `performance.now()` returns
+  fractions of a millisecond on this machine (it printed `14.1395`), so the third decimal is microseconds. [measured] Durations use the same clock.
+- **Fields:** `t` (µs), `side` (`server` or `client`), `action`, `why` (the cause: a timer name, a changed path, a client id), `run`, `ms` (how long it took), `changed` (did the result differ from the previous one: true, false, or absent), `n` (a counter per action).
+- **What is logged** (every action that can repeat): each `git`, `ps`, `gh` spawn (the 24 `spawnSync` calls in `src` outside `src/cli`, by `grep`, spread over `src/runs/records.ts`, `src/pipeline/finalise.ts`, `src/runs/index.ts`, `src/runs/completed.ts`, `src/runs/supervisor.ts` and others, go through one traced helper; [verified] count); each `kill(pid, 0)`; each timer tick (liveness, safety rebuild, throttle); each watch event and whether it led to a rebuild; each rebuild of the board or a run view and its `changed` result;
+  each request to `/api/...` and each SSE event sent (`board`, `run`, `tail`, `ping`, `problem`);
+  on the page, each request, each stream event received, each watchdog firing, each reconnect and each backup poll (kept in memory and printed with `?trace=1`; the page does not send it to the server).
+- **The report.** A small script (for example `scripts/trace-report.mjs`) reads the file and prints one row per `action` + `why`: events per minute, the share with `changed:false`, the median and total milliseconds per minute. Rows are sorted by total time.
+
+**The test of "is this recurrence needed".** [design; the thresholds are starting points]
+- A repeating action is justified only if it either **changes the result** often enough to matter, or is a **named guard** with a written reason.
+- Each action in the report must be one of:
+  - *needed*: most of its runs end with `changed:true`, or it is the heartbeat (4 pings a minute per stream);
+  - *a guard*: it mostly ends with `changed:false` on purpose, and the plan names why and its interval (the 30 s liveness and safety tick; the 1 s output throttle);
+  - *a finding*: anything else. A finding is slowed, merged with another action or removed, and the report is run again.
+- Expected inventory of repeats on a connected, idle run page after Steps 4 and 5: 4 pings a minute, 2 ticks a minute, no spawns, no requests. A running page adds only change-driven events. Anything beyond that is a finding. [design target, not a measurement]
+- Today's expected repeats (to be confirmed by the first trace, Step 0b): 30 requests a minute per open run page, each starting 7 spawns (about 210 spawns a minute), with nearly all of them `changed:false`; 30 board rebuilds a minute per connected tab. [estimate from R1 and R4]
+
 ## 5. Steps (each its own PR into `main`)
 
 **Step 0: baseline (no code).** Use the throwaway method below. Baseline: 7 spawns and about 0.55 s per request; about 30 requests a minute from one open run page. Method: start `ai-sdlc-helper ui --port <n> --no-open` with a PATH holding logging shims for `git`, `ps` and `gh`, sign in with the printed token, then `curl -w '%{time_total}'` six times per run and count the log lines.
+
+**Step 0b: make the repeats visible (code, first).** Add the trace helper, route the spawn sites through it, log the timers and the requests, add the page's in-memory trace and the report script (section 4a). Nothing else changes.
+- Tests (`test/`, `web/test/server.test.ts`): the writer produces one JSON line per call with an integer `t` in microseconds that never goes backwards; the report script, run on a fixture trace file, prints the right counts, `changed:false` shares and sort order (the real script, no mocks); with `SDLC_TRACE=1`, one request for a run writes as many `spawn:git` lines as the counting `git` shim sees for the same request (the shim is the independent check); with the flag off, no file is written.
+- Risk: low (off by default; a line per event when on). Check: the first report on an open run page shows the real recurrence; it replaces the estimates above and goes into the PR description.
 
 **Step 1: ask less (client only; no server change).** In `web/ui/src/Run.tsx` and `web/ui/src/Board.tsx`, replace the fixed intervals with one small helper that returns the next delay:
 - 2 s while the run is `running`; 5 to 10 s while `paused`; no timer when `done`, `failed`, `stopped`, `refused`, `interrupted` or `not started` (load once, again after the user acts, and on focus);
@@ -148,9 +179,9 @@ The 1-minute limit (U6) replaces the 2-minute one (U4); section 7 asks the user 
 **Step 6 (optional): conditional GET for the backup path.** In the run route, build a fingerprint from the `mtime` and size of the run's record, `status.json`, `permissions.json`, `questions.md`, `stage-files.json`, `tests.json`, `finalise-options.json`, `run.out` and the backlog folder, plus the liveness answer; send it as an `ETag` and answer `304` on a match. A fingerprint of 15 paths costs about 23 µs (`dashboard-performance.md` F22). It makes each backup poll nearly free; skip it if Step 5 leaves the backup path rare.
 - Tests (`web/test/server.test.ts`): a second request with the tag returns 304 and builds nothing; touching `status.json`, `run.out` or the record returns 200; a killed run changes the tag.
 
-**Step 7: measure again (no code).** Repeat Step 0. Tune the intervals of section 4 on the built steps, not before.
+**Step 7: measure again (no code).** Repeat Step 0 and run the report of section 4a on an idle page and on a running run. Every row must be *needed* or *a guard*; each *finding* becomes a change or a written reason. Tune the intervals of section 4 on the built steps, not before.
 
-Order: Step 1 first (client only, safest), then 2 and 3 (each stands alone), then 4 and 5 together in two PRs (Step 5 depends on Step 4's events), then 6 only if the backup path still matters.
+Order: Step 0b first (the trace; without it nothing below can be judged), then Step 1 (client only, safest), then 2 and 3 (each stands alone), then 4 and 5 together in two PRs (Step 5 depends on Step 4's events), then 6 only if the backup path still matters.
 
 ## 6. Conventions for the work (CLAUDE.md)
 
@@ -165,6 +196,7 @@ Still open (the user decides; not decided here):
 4. Write these steps as backlog briefs for the pipeline, or implement them directly one step at a time?
 5. Do Step 2 inside the board plan's Step 3, or as its own PR after it?
 6. Do Step 4's watcher together with the board plan's Step 6, as one shared watcher? The plan assumes yes.
+7. Is the trace off by default (`SDLC_TRACE=1`) as proposed, or always on with a small rotating file? Always on gives history without asking, but adds a write per spawn.
 
 Known gaps:
 - All timings were taken on one macOS machine with load about 3 and an idle server; none was taken in a browser, and none on a built fix.
