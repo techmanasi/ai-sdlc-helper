@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { describe, expect, test } from 'vitest';
-import { answerQuestions, boardView, parseQuestions, resumeStage, runView } from '../src/runs/view.js';
+import { afterEach, describe, expect, test } from 'vitest';
+import { answerQuestions, boardView, clearGitFacts, parseQuestions, resumeStage, runView } from '../src/runs/view.js';
 import { runContext } from '../src/runs/index.js';
 import { addBacklogItem, backlogItems } from '../src/backlog/index.js';
 import { tmp, write } from './helpers.js';
@@ -172,5 +172,79 @@ describe('addBacklogItem', () => {
     expect(() => addBacklogItem(place, { ...item, title: 'two\nlines' })).toThrow('title');
     expect(() => addBacklogItem(place, { ...item, slug: 'taken' })).toThrow('already in');
     expect(fs.readdirSync(path.join(root, 'Docs/backlog'))).toEqual(['index.md']);
+  });
+});
+
+describe('the cached git facts of runView', () => {
+  const savedPath = process.env.PATH;
+  afterEach(() => { process.env.PATH = savedPath; clearGitFacts(); });
+
+  /** A git that logs one line per call, then runs the real one: the independent count of git spawns. */
+  function countingGit(dir: string): () => number {
+    const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+    const bin = path.join(dir, 'bin');
+    fs.mkdirSync(bin);
+    const log = path.join(dir, 'git-calls.txt');
+    fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\necho x >> "${log}"\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    process.env.PATH = `${bin}:${savedPath}`;
+    return () => { try { return fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).length; } catch { return 0; } };
+  }
+  const status = (stage: string) => ({ state: 'paused', stage, attempt: '1' });
+
+  test('10 requests for an unchanged run read git once; a stage change, refresh and a different run read it again', () => {
+    const { wt, ctx } = repoWithRun('tok', { exit_code: '2' }, { 'logs/status.json': status('Spec') });
+    const calls = countingGit(path.dirname(wt));
+    const first = runView(ctx, 'tok', { cacheGit: true });
+    const afterFirst = calls();
+    expect(afterFirst).toBeGreaterThan(0);
+    expect(first.gitAgeMs).toBeNull();
+    for (let i = 0; i < 9; i++) runView(ctx, 'tok', { cacheGit: true });
+    expect(calls()).toBe(afterFirst);
+    expect(runView(ctx, 'tok', { cacheGit: true }).gitAgeMs).toBeGreaterThanOrEqual(0);
+
+    write(wt, 'Docs/backlog/tok/logs/status.json', status('Plan'));
+    const changed = runView(ctx, 'tok', { cacheGit: true });
+    expect(changed.gitAgeMs).toBeNull();
+    const afterStage = calls();
+    expect(afterStage).toBeGreaterThan(afterFirst);
+    runView(ctx, 'tok', { cacheGit: true });
+    expect(calls()).toBe(afterStage);
+
+    runView(ctx, 'tok', { cacheGit: true, refresh: true });
+    expect(calls()).toBeGreaterThan(afterStage);
+  });
+
+  test('the cached counts are the real counts, and an uncommitted edit shows after a refresh, not before', () => {
+    const { wt, ctx } = repoWithRun('tok', { exit_code: '2' }, { 'logs/status.json': status('Spec') });
+    expect(runView(ctx, 'tok', { cacheGit: true }).changes?.uncommitted).toBeGreaterThanOrEqual(0);
+    const before = runView(ctx, 'tok', { cacheGit: true }).changes?.uncommitted ?? 0;
+    write(wt, 'src/new-file.ts', 'export {};\n');
+    expect(runView(ctx, 'tok', { cacheGit: true }).changes?.uncommitted).toBe(before);
+    expect(runView(ctx, 'tok', { cacheGit: true, refresh: true }).changes?.uncommitted).toBe(before + 1);
+    expect(runView(ctx, 'tok', { cacheGit: false }).changes?.uncommitted).toBe(before + 1);
+  });
+
+  test('parts=live makes no git call and leaves the git fields empty; parts=live,tail keeps the tail', () => {
+    const { wt, ctx } = repoWithRun('tok', { exit_code: '2' }, { 'logs/status.json': status('Spec'), 'logs/run.out': 'one\ntwo\n' });
+    const calls = countingGit(path.dirname(wt));
+    const live = runView(ctx, 'tok', { cacheGit: true, parts: ['live'] });
+    expect(calls()).toBe(0);
+    expect(live.changes).toBeNull();
+    expect(live.redCommit).toBe('');
+    expect(live.tail).toEqual([]);
+    expect(live.stage).toBe('Spec');
+    const lt = runView(ctx, 'tok', { cacheGit: true, parts: ['live', 'tail'] });
+    expect(calls()).toBe(0);
+    expect(lt.tail).toEqual(['one', 'two']);
+  });
+
+  test('the Red tests commit appears at the next read after the stage changes', () => {
+    const { wt, ctx } = repoWithRun('tok', { exit_code: '2' }, { 'logs/status.json': status('Spec') });
+    expect(runView(ctx, 'tok', { cacheGit: true }).redCommit).toBe('');
+    write(wt, 'test/tok.test.ts', 'x');
+    git(wt, 'add', '-A');
+    git(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'test(tok): add failing tests');
+    write(wt, 'Docs/backlog/tok/logs/status.json', status('Implement'));
+    expect(runView(ctx, 'tok', { cacheGit: true }).redCommit).not.toBe('');
   });
 });

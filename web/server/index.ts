@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
-  restart, runContext, runView, start, stop, syncPrComments, type Outcome, type RunContext,
+  restart, runContext, runView, RUN_PARTS, type RunPart, start, stop, syncPrComments, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -254,7 +254,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     if (what === 'runs' && parts[3]) {
       const slug = slugOf(parts[3]);
       const action = parts[4];
-      if (!action && method === 'GET') return send(200, runView(contextFor(p), slug));
+      if (!action && method === 'GET') {
+        const asked = (url.searchParams.get('parts') || '').split(',').filter(Boolean);
+        if (asked.some(x => !(RUN_PARTS as readonly string[]).includes(x))) throw new HttpError(400, `parts must be some of ${RUN_PARTS.join(', ')}`);
+        return send(200, runView(contextFor(p), slug, { cacheGit: true, refresh: url.searchParams.get('refresh') === '1', ...(asked.length ? { parts: asked as RunPart[] } : {}) }));
+      }
       if (action === 'file' && method === 'GET') {
         const file = itemFile(contextFor(p), slug, url.searchParams.get('path') || '');
         return send(200, { path: url.searchParams.get('path'), text: fs.readFileSync(file, 'utf8') });

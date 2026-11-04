@@ -37,11 +37,11 @@ function Drawer({ slug }: { slug: string }) {
   const [v, setV] = useState<RunView | null>(null);
   useEffect(() => {
     let live = true;
-    const load = () => api.run(project, slug).then(x => { if (live) setV(x); }).catch(() => {});
+    const load = () => api.run(project, slug, { parts: 'live,tail' }).then(x => { if (live) setV(x); }).catch(() => {});
     load();
     return () => { live = false; };
   }, [project, slug]);
-  usePoll(() => api.run(project, slug).then(x => setV(x)).catch(() => {}), v?.state, `${project}/${slug}`);
+  usePoll(() => api.run(project, slug, { parts: 'live,tail' }).then(x => setV(x)).catch(() => {}), v?.state, `${project}/${slug}`);
   if (!v) return null;
   return (
     <Panel

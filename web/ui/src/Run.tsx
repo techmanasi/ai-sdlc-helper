@@ -5,6 +5,7 @@ import { api, type RunView, type SettingsView } from './api';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
 import { defaultPick, resumeCommand, resumeOptions } from './resume';
 import { usePoll } from './usePoll';
+import { staleLabel } from './stale';
 import { buildDocTree, type DocTreeNode } from './tree';
 
 const STAGES = [
@@ -267,7 +268,7 @@ export function Run({ slug }: { slug: string }) {
     }
   };
 
-  const load = () => api.run(project, slug).then(x => { setV(x); setError(''); }).catch(e => setError((e as Error).message));
+  const load = (refresh = false) => api.run(project, slug, refresh ? { refresh: true } : {}).then(x => { setV(x); setError(''); }).catch(e => setError((e as Error).message));
   useEffect(() => {
     setAnswers({});
     setOpenDirs({});
@@ -287,7 +288,7 @@ export function Run({ slug }: { slug: string }) {
       const o = await work() as { ok?: boolean; out?: string[]; err?: string[] };
       if (o && o.ok === false) toast(`${label}: ${(o.err || []).join(' ') || 'refused'}`);
       else if (o && o.out && o.out.length) toast(o.out[o.out.length - 1]);
-      await load();
+      await load(true);
     } catch (e) { toast(`${label}: ${(e as Error).message}`); }
     setBusy('');
   }
@@ -822,7 +823,7 @@ export function Run({ slug }: { slug: string }) {
             <dl class="facts pb">
               <dt class="muted">State</dt><dd class={stateClass(v.state)}>{v.state === 'running' ? <Spinner /> : GLYPH[v.state]} {v.state}</dd>
               {v.agent && <><dt class="muted">Agent</dt><dd class="mono">{v.agent} {v.model && `· ${v.model} · ${v.effort}`}</dd></>}
-              <dt class="muted">Files</dt><dd>{v.changes ? `${v.changes.changed} changed · ${v.changes.uncommitted} uncommitted` : '—'}</dd>
+              <dt class="muted">Files</dt><dd>{v.changes ? `${v.changes.changed} changed · ${v.changes.uncommitted} uncommitted` : '—'}{staleLabel(v.gitAgeMs) && <span class="muted small" title="Counted from git when the stage last changed; the server re-reads it at each stage change"> · may be stale, {staleLabel(v.gitAgeMs)} <a href="#" onClick={(e: Event) => { e.preventDefault(); load(true); }}>refresh</a></span>}</dd>
               <dt class="muted">Tests</dt><dd>{v.tests ? `${v.tests.passed} passed · ${v.tests.failed} failing · ${v.tests.total} total` : 'not run yet'}</dd>
               {v.worktree && <><dt class="muted">Worktree</dt><dd class="mono">{v.worktree}</dd></>}
               {v.updated && <><dt class="muted">Updated</dt><dd>{v.updated}</dd></>}
