@@ -204,15 +204,15 @@ Node 18 only. Tests live in `test/` or `web/test/`, run the real code and never 
 ## 7. Decisions and known gaps
 
 Decided by the user:
+- 1. Changed-file counts on the run page may be marked "may be stale", as on the board.
+- 2. The silence limit is 60 s, with a 15 s ping.
+- 3. The board drawer shows only the tail of a run; the full view loads on the run page.
+- 4. The steps are written as backlog briefs and run through the pipeline, one PR per step.
+- 5. Step 2 is done inside the board plan's Step 3.
+- 6. Step 4's watcher is shared with the board plan's Step 6.
 - 7. The trace is **always on** with a rotating file; the rotation size and time are configurable (U10).
 
-Still open (the user decides; not decided here):
-1. Is a "may be stale" mark on the run page's changed-file counts acceptable, as it is on the board?
-2. The silence limit: 60 s (U6) or the 2 minutes of U4? The plan uses 60 s with a 15 s ping.
-3. Should the board's drawer show only the tail (a lighter payload), or keep the full view?
-4. Write these steps as backlog briefs for the pipeline, or implement them directly one step at a time?
-5. Do Step 2 inside the board plan's Step 3, or as its own PR after it?
-6. Do Step 4's watcher together with the board plan's Step 6, as one shared watcher? The plan assumes yes.
+Still open: none.
 
 Known gaps:
 - All timings were taken on one macOS machine with load about 3 and an idle server; none was taken in a browser, and none on a built fix.
