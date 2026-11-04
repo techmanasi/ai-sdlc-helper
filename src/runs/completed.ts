@@ -6,7 +6,7 @@ import { spawnSync } from '../trace.js';
 import { backlogItems, parseBrief, parseIndex } from '../backlog/index.js';
 import { readRecord } from './records.js';
 import { pickBase, runWorktree, type RunContext } from './index.js';
-import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, recordPrInBrief } from '../pipeline/finalise.js';
+import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, getPrStatusAsync, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
 
 export interface CompletedTask {
   slug: string;
@@ -62,22 +62,15 @@ export function isArchivedInIndex(indexText: string, slug: string): boolean {
   return false;
 }
 
-/** Lists all completed tasks in the project. */
-export function listCompletedTasks(ctx: RunContext): CompletedTask[] {
+/** What the Completed list needs to know of a slug before it asks GitHub: the PR key is the brief's PR, else the branch. */
+function completedSlugsOf(ctx: RunContext) {
   const indexFile = path.join(ctx.root, ctx.backlogDir, 'index.md');
   const indexText = fs.existsSync(indexFile) ? fs.readFileSync(indexFile, 'utf8') : '';
   const entries = parseIndex(indexText);
-  const items = backlogItems({ root: ctx.root, backlogDir: ctx.backlogDir, branchPrefix: ctx.branchPrefix });
-  const itemMap = new Map((items ? items.items : []).map(i => [i.slug, i]));
-
   const completedSlugs = new Set<string>();
   for (const entry of entries) {
-    if (entry.marker.toLowerCase() === 'x' || isArchivedInIndex(indexText, entry.slug)) {
-      completedSlugs.add(entry.slug);
-    }
+    if (entry.marker.toLowerCase() === 'x' || isArchivedInIndex(indexText, entry.slug)) completedSlugs.add(entry.slug);
   }
-
-  // Also check run records for done runs
   let recordNames: string[] = [];
   try { recordNames = fs.readdirSync(ctx.reg); } catch { /* no local records */ }
   for (const name of recordNames) {
@@ -87,6 +80,48 @@ export function listCompletedTasks(ctx: RunContext): CompletedTask[] {
       if (rec && rec.exit_code === '0') completedSlugs.add(slug);
     }
   }
+  return { indexText, entries, completedSlugs };
+}
+
+/** The PR key of each completed slug (the brief's PR link, else the branch), for fetching all the statuses at once. */
+function completedPrKeys(ctx: RunContext): string[] {
+  const { completedSlugs } = completedSlugsOf(ctx);
+  const keys: string[] = [];
+  for (const slug of completedSlugs) {
+    const rec = readRecord(ctx.reg, slug);
+    const briefFile = path.join(ctx.root, ctx.backlogDir, slug, 'brief.md');
+    const pr = getPrFromBrief(fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '');
+    keys.push(pr || (rec && rec.branch) || `${ctx.branchPrefix}${slug}`);
+  }
+  return keys;
+}
+
+/** Lists all completed tasks in the project (asks GitHub for each PR, one after another: for the CLI and tests). */
+export function listCompletedTasks(ctx: RunContext): CompletedTask[] {
+  return completedTasks(ctx, key => getPrStatus(ctx.root, key, ctx.env));
+}
+
+/** Runs <fn> over <items> with at most <limit> at a time. */
+async function pooled<T>(items: T[], limit: number, fn: (item: T) => Promise<unknown>): Promise<void> {
+  let next = 0;
+  const worker = async () => { while (next < items.length) await fn(items[next++]); };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
+/**
+ * The web server's version of listCompletedTasks: the PR statuses come from the cache (stale-while-revalidate) or, for
+ * the ones never read, from asynchronous gh calls, four at a time, so the event loop is never blocked.
+ */
+export async function listCompletedTasksAsync(ctx: RunContext): Promise<CompletedTask[]> {
+  const known = new Map<string, PrStatus | null>();
+  await pooled([...new Set(completedPrKeys(ctx))], 4, async key => { known.set(key, (await getPrStatusAsync(ctx.root, key, ctx.env)).status); });
+  return completedTasks(ctx, key => known.get(key) ?? null);
+}
+
+function completedTasks(ctx: RunContext, prOf: (key: string) => PrStatus | null): CompletedTask[] {
+  const { indexText, entries, completedSlugs } = completedSlugsOf(ctx);
+  const items = backlogItems({ root: ctx.root, backlogDir: ctx.backlogDir, branchPrefix: ctx.branchPrefix });
+  const itemMap = new Map((items ? items.items : []).map(i => [i.slug, i]));
 
   const defaultBase = pickBase(ctx) || 'main';
   const out: CompletedTask[] = [];
@@ -105,7 +140,7 @@ export function listCompletedTasks(ctx: RunContext): CompletedTask[] {
     const archived = isArchivedInIndex(indexText, slug);
 
     // Query live PR status
-    const prStatus = getPrStatus(ctx.root, pr || branch, ctx.env);
+    const prStatus = prOf(pr || branch);
     if (!pr && prStatus?.url) {
       pr = prStatus.url;
       try {
@@ -163,8 +198,22 @@ function resolveGitRef(root: string, branch: string, env: NodeJS.ProcessEnv): st
   return branch;
 }
 
-/** Returns full details for a completed task directly from git and brief files. */
+/** Returns full details for a completed task directly from git and brief files (asks GitHub synchronously: for the CLI and tests). */
 export function getCompletedTaskDetail(ctx: RunContext, slug: string): CompletedTaskDetail {
+  return completedDetail(ctx, slug, key => getPrStatus(ctx.root, key, ctx.env));
+}
+
+/** The web server's version of getCompletedTaskDetail: the PR status comes from the cache or an asynchronous gh call. */
+export async function getCompletedTaskDetailAsync(ctx: RunContext, slug: string): Promise<CompletedTaskDetail> {
+  const rec = readRecord(ctx.reg, slug);
+  const briefFile = path.join(ctx.root, ctx.backlogDir, slug, 'brief.md');
+  const pr = getPrFromBrief(fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '');
+  const key = pr || (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
+  const status = (await getPrStatusAsync(ctx.root, key, ctx.env)).status;
+  return completedDetail(ctx, slug, k => (k === key ? status : null));
+}
+
+function completedDetail(ctx: RunContext, slug: string, prOf: (key: string) => PrStatus | null): CompletedTaskDetail {
   const indexFile = path.join(ctx.root, ctx.backlogDir, 'index.md');
   const indexText = fs.existsSync(indexFile) ? fs.readFileSync(indexFile, 'utf8') : '';
   const items = backlogItems({ root: ctx.root, backlogDir: ctx.backlogDir, branchPrefix: ctx.branchPrefix });
@@ -180,15 +229,14 @@ export function getCompletedTaskDetail(ctx: RunContext, slug: string): Completed
   const base = (rec && rec.base) || defaultBase;
   const archived = isArchivedInIndex(indexText, slug);
 
-  // If no PR in brief.md, check via gh pr view/list
+  // If no PR in brief.md, the branch's PR (when the project has a remote) gives both the link and the state.
+  let branchStatus: PrStatus | null = null;
   if (!pr) {
     try {
       const v = git(ctx.root, ['config', '--get', 'remote.origin.url'], ctx.env);
       if (v.status === 0) {
-        const ghView = spawnSync('gh', ['pr', 'view', branch, '--json', 'url', '-q', '.url'], { cwd: ctx.root, encoding: 'utf8' });
-        if (ghView.status === 0 && ghView.stdout.trim().startsWith('http')) {
-          pr = ghView.stdout.trim();
-        }
+        branchStatus = prOf(branch);
+        if (branchStatus && branchStatus.url.startsWith('http')) pr = branchStatus.url;
       }
     } catch { /* ignore */ }
   }
@@ -238,7 +286,7 @@ export function getCompletedTaskDetail(ctx: RunContext, slug: string): Completed
 
   const prCommentsFile = path.join(docsDir, 'pr-comments.md');
   const prComments = fs.existsSync(prCommentsFile) ? fs.readFileSync(prCommentsFile, 'utf8') : null;
-  const prStatus = getPrStatus(ctx.root, pr || branch, ctx.env);
+  const prStatus = branchStatus && pr === branchStatus.url ? branchStatus : prOf(pr || branch);
 
   return {
     slug,

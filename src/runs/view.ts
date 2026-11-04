@@ -8,7 +8,7 @@ import { backlogItems, type BacklogItem } from '../backlog/index.js';
 import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.js';
 import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { projectSlugs, runChanges, runWorktree, type RunContext } from './index.js';
-import { getPrFromBrief, getPrStatus } from '../pipeline/finalise.js';
+import { getPrFromBrief, getPrStatusCached } from '../pipeline/finalise.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
 import { redPattern } from '../pipeline/stages.js';
@@ -253,7 +253,8 @@ export function runView(ctx: RunContext, slug: string, opts: { changes?: boolean
         };
       }
       const b = rec?.branch || `${ctx.branchPrefix}${slug}`;
-      const st = getPrStatus(ctx.root, p || b, ctx.env);
+      // Never waits for gh: the last known status, refreshed in the background (a cold cache shows it on the next load).
+      const st = getPrStatusCached(ctx.root, p || b, ctx.env).status;
       return {
         pr: p || (st ? st.url : null),
         prState: st ? st.state : null,
