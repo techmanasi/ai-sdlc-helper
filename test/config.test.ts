@@ -533,3 +533,37 @@ describe('setting up the chosen framework', () => {
     expect((await cli('init-tests', dir, '--language', 'cobol')).status).toBe(2);
   });
 });
+
+describe('agent settings of a run worktree', () => {
+  const suites = [{ name: 'app', dir: '.', runner: 'vitest', testCmd: 'npm test' }];
+  const base = { 'package.json': { name: 'app', scripts: { test: 'vitest' } } };
+  const spec = { harness: 'codex', model: 'o3-mini', effort: 'medium' };
+
+  test('come from the project the run was started from, not from the worktree copy of sdlc.config.json', () => {
+    const main = project({ ...base, 'sdlc.config.json': { suites, agent: { harness: 'claude', stages: { spec } } } });
+    const worktree = project({ ...base, 'sdlc.config.json': { suites } });
+    const alone = resolve(worktree, { env: noGraft }).config!;
+    expect(alone.agent.stages).toEqual({});
+    const config = resolve(worktree, { env: noGraft, agentFrom: main }).config!;
+    expect(config.agent.stages).toEqual({ spec });
+    expect(config.suites[0].dir).toBe('.');
+  });
+
+  test('keep the worktree notesDir, and the personal settings of the project sit on top', () => {
+    const main = project({ ...base, 'sdlc.config.json': { suites, agent: { model: 'haiku', notesDir: 'elsewhere' } } });
+    const worktree = project({ ...base, 'sdlc.config.json': { suites } });
+    const env = { ...noGraft, SDLC_PERSONAL_AGENT: JSON.stringify({ stages: { plan: { model: 'opus' } } }) };
+    const config = resolve(worktree, { env, agentFrom: main }).config!;
+    expect(config.agent.model).toBe('haiku');
+    expect(config.agent.stages).toEqual({ plan: { model: 'opus' } });
+    expect(config.agent.notesDir).toBe('.sdlc/notes');
+  });
+
+  test('a project file that is missing or not JSON leaves the run on the defaults', () => {
+    const worktree = project({ ...base, 'sdlc.config.json': { suites } });
+    const none = project({ ...base });
+    const broken = project({ ...base, 'sdlc.config.json': '{ not json' });
+    expect(resolve(worktree, { env: noGraft, agentFrom: none }).config!.agent.stages).toEqual({});
+    expect(resolve(worktree, { env: noGraft, agentFrom: broken }).config!.agent.stages).toEqual({});
+  });
+});

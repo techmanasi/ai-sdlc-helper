@@ -87,7 +87,7 @@ function Pickers({ id, pick, set, data, harness, inherit }: {
 
 /**
  * Edit a project's setup after it was added: the default agent, model and effort, the same per stage, and the personal
- * overrides. Agent settings are saved either for everyone (sdlc.config.json, committed) or only for this user (the registry).
+ * overrides. Agent settings are saved either as global settings (sdlc.config.json, to be committed) or only for this user (the registry).
  */
 function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
   const { toast } = useApp();
@@ -154,7 +154,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
         if (!o.ok) { setErrors(o.errors); setBusy(false); return; }
       }
       if (activeRuns.length) setWarn(`Saved. ${activeRuns.join(', ')} ${activeRuns.length > 1 ? 'are' : 'is'} running or paused and keep${activeRuns.length > 1 ? '' : 's'} the old setup until restarted.`);
-      else toast(scope === 'personal' ? 'Personal config saved' : 'Config saved');
+      else toast(scope === 'personal' ? 'Personal config saved' : 'Global settings saved. Commit sdlc.config.json to share them');
       await load(scope); onSaved();
     } catch (e) { setErrors([(e as Error).message]); }
     setBusy(false);
@@ -173,13 +173,18 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
       <div class="row" style={{ gap: '14px', flexWrap: 'wrap' }}>
         <label class="row small" style={{ gap: '6px', cursor: 'pointer' }}>
           <input type="radio" name={`scope-${name}`} checked={scope === 'project'} onChange={() => switchTo('project')} />
-          <span>Save for everyone <span class="mono muted">sdlc.config.json</span></span>
+          <span>Global settings <span class="mono muted">sdlc.config.json</span></span>
         </label>
         <label class="row small" style={{ gap: '6px', cursor: 'pointer' }}>
           <input type="radio" name={`scope-${name}`} checked={scope === 'personal'} disabled={!data.registered} onChange={() => switchTo('personal')} />
           <span>Only for me <span class="muted">(this machine, overrides the project file)</span></span>
         </label>
       </div>
+      {scope === 'project' && (
+        <div class="banner">
+          Global settings are written to <span class="mono">sdlc.config.json</span> in this project's checkout, and runs started from it use them. Commit that file and merge it into your main branch so teammates and CI get them too: <span class="mono">git add sdlc.config.json &amp;&amp; git commit</span>
+        </div>
+      )}
       {scope === 'project' && personalKeys.length > 0 && (
         <div class="banner">Your personal settings for this project ({personalKeys.join(', ')}) still win on this machine over what you save here. Switch to "Only for me" to change them.</div>
       )}
@@ -240,7 +245,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
       </p>
       {warn && <div class="banner">{warn}</div>}
       <ErrorBox error={errors.join('\n')} />
-      <div class="row"><button class="btn btn-p" type="submit" disabled={busy}>{busy ? 'Saving…' : scope === 'personal' ? 'Save for me' : 'Save config'}</button></div>
+      <div class="row"><button class="btn btn-p" type="submit" disabled={busy}>{busy ? 'Saving…' : scope === 'personal' ? 'Save for me' : 'Save global settings'}</button></div>
     </form>
   );
 }
