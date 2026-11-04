@@ -21,6 +21,7 @@ Claim status tags: **[measured]** run and timed here, **[verified]** read in the
 | U5 | Quote: "why rebuild every 2 seconds? Can the server watch any file change and only when anything changes, rebuild and push to client side? and in between keep sending a heartbeat saying I am still alive." | The server watches files and rebuilds only on a change; a heartbeat in between (R6, sections 3 and 4). | Sections 3 and 4 |
 | U6 | Quote: "If client identify no heartbeat for 1 minutes, what to do?" | The reconnect and fallback rules (section 4). The silence limit is now 1 minute, not the 2 minutes of U4. | Section 4 |
 | U7 | Quote: "Put everything to the plan first" | This version of the plan. | All |
+| U8 | Quotes: "A crashed process writes no file. - check only in 30 seconds" and questions about uncommitted counts, `run.out` and missed events | The liveness check is every 30 s, sharing one tick with the safety rebuild. The answers corrected a claim: `run.out` is not constantly written. | Section 3 |
 
 ## 1. What one request costs now
 
@@ -76,15 +77,16 @@ Why the git facts must be cached **together with** the watcher: a rebuild after 
 
 - **Watched** (one watcher per server, shared by all clients; `dashboard-performance.md` F16 and Step 6): the run register folder (`<git common dir>/sdlc-runs`), each run's `logs` folder (`status.json`, `permissions.json`, `stage-files.json`, `tests.json`, `finalise-options.json`), `questions.md`, the backlog folder's `index.md` and run documents.
 - **Debounce** about 100 to 300 ms; in the measured experiment (macOS, one folder) events arrived in 4 to 14 ms and a burst of 5 writes gave 12 events (`dashboard-performance.md` F16). [measured, easy case]
-- **Not on the board's watch list:** `run.out`. It changes constantly and only the run page shows it (`dashboard-performance.md` F20).
+- **`run.out`:** the pipeline's own console log (stage and attempt lines, warnings, the output of the one-time setup commands). It is **not** written constantly: the largest one here, a whole run of `add-setup-branch-pr`, is 127 lines and 9.5 KB, written at stage and attempt boundaries; the agents' own output goes to separate `<name>.json` and `.log` files, and test output to `tests.log`. [measured on the runs in this repository; the first setup of a worktree (`npm ci`) can write a burst, not measured]
+  Only the run page shows its tail, so the board does not watch it (`dashboard-performance.md` F20 calls it noisy; that was not measured there). The run stream watches it like the other files, with a cheap guard (a throttle of one push a second, section 5, Step 4) for a burst.
 
 What a watcher cannot see, and what covers it:
 
 | Gap | Covered by | Cost |
 |---|---|---|
-| A crashed or killed process writes no file | A liveness checker: `kill(pid, 0)` every 3 to 5 s for runs marked running only; an event when a pid dies. It needs the start-time check from `dashboard-performance.md` Step 4 so a reused pid does not read as running. It does not cover the orphaned-pipeline case (F12 there). | microseconds per run (`kill(pid, 0)` about 0.5 µs for a dead pid) |
-| Uncommitted edits change no git metadata | The git facts' refresh points (section 2) | the git spawns, only at those points |
-| A missed or merged watch event | A slow safety rebuild, **design:** every 30 to 60 s while a client is connected | one rebuild per period, using the cached git facts |
+| A crashed or killed process writes no file | A liveness checker: `kill(pid, 0)` every **30 s** (the user's choice, U8) for runs marked running only, so a crash can show as "running" for up to 30 s; an event when a pid dies. It needs the start-time check from `dashboard-performance.md` Step 4 so a reused pid does not read as running. It does not cover the orphaned-pipeline case (F12 there). | microseconds per run (`kill(pid, 0)` about 0.5 µs for a dead pid) |
+| Uncommitted edits change no git metadata (the committed part of the change count does: the worktree's `HEAD` moves at every commit, and the pipeline commits at each stage's end, so a watcher on it covers that part) | The git facts' refresh points (section 2) and the 30 s tick | the git spawns, only at those points |
+| A missed or merged watch event | A safety rebuild of the live part on the **same 30 s tick** as the liveness check, while a client is connected; it pushes only if the result differs | about 50 to 120 ms of file reads per tick, shared by all clients; no spawns (the git facts stay cached) |
 | Node 18 on Linux may not watch folders recursively | One watcher per folder; to be checked before relying on it (`dashboard-performance.md` F16, "not tested") | |
 
 ## 4. The heartbeat, the silence rule and the fallback (user, U4 to U6)
@@ -129,10 +131,10 @@ The 1-minute limit (U6) replaces the 2-minute one (U4); section 7 asks the user 
 - Risk: medium (the stale mark must be shown; resume options must not rely on a stale Red tests commit). Check: spawns per request fall from 7 to 0 for repeat requests of an unchanged run. [estimate]
 
 **Step 4: the per-run stream on the server (watcher, liveness checker, heartbeat).** New `web/server/watch.ts` (shared with the board plan's Step 6) and a route `GET /api/projects/<project>/runs/<slug>/events` in `web/server/index.ts`:
-- On connect: a full snapshot (live part, tail, cached git facts with their age). Then an event per change of the live part, `tail` events for output (throttled to once a second, only when the file grew), `ping` events every 15 s (section 4), and a `problem` event on an error, as the board stream has.
+- On connect: a full snapshot (live part, tail, cached git facts with their age). Then an event per change of the live part, `tail` events for output (throttled to once a second as a guard for a burst, only when the file grew), `ping` events every 15 s (section 4), and a `problem` event on an error, as the board stream has.
 - The watcher and the liveness checker (section 3) are shared by all clients of a run; they stop with the last client.
 - The server rebuilds only the part the changed file feeds, using the cached git facts.
-- Tests (`web/test/server.test.ts`): a `status.json` write reaches a client within a stated time; a `run.out` write is throttled and a quiet file sends nothing but pings; a `ping` event arrives and is visible to a client that listens for it (this proves R7's comment-line claim); two clients share one watcher and make no more spawns than one; a killed pid produces a state event within the checker's period; the stream stops with the last client; a late client gets a snapshot at once.
+- Tests (`web/test/server.test.ts`): a `status.json` write reaches a client within a stated time; a burst of `run.out` writes is throttled to one push a second and a quiet file sends nothing but pings; the 30 s tick finds a change whose watch event was dropped (simulate by writing with the watcher paused); a `ping` event arrives and is visible to a client that listens for it (this proves R7's comment-line claim); two clients share one watcher and make no more spawns than one; a killed pid produces a state event within the checker's period; the stream stops with the last client; a late client gets a snapshot at once.
 - Risk: medium to high (missed or merged events, watcher lifecycle). Check: a connected, idle run page makes about 0 spawns per second apart from the pings and the liveness check. [estimate]
 - Open: Node 18 on Linux for recursive watching (`dashboard-performance.md` F16).
 
@@ -170,4 +172,4 @@ Known gaps:
 - R3 (the server busy about a quarter of the time) is arithmetic from R1 and a synchronous call, not a measurement of the event loop.
 - The `EventSource` behaviour in R7 (comments hidden, reconnect after about 3 s) is standard behaviour, not tested here; Step 4's test is the proof.
 - Every interval in section 4 is a starting point.
-- Not measured: the board with many runs, the cost of the output tail on a run that writes heavily, Node 18 on Linux.
+- Not measured: the board with many runs, the first-time setup output burst in `run.out`, Node 18 on Linux, how often a watcher drops events on this machine (the 30 s tick is a guard, not a measured need).
