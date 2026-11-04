@@ -23,6 +23,7 @@ Claim status tags: **[measured]** run and timed here, **[verified]** read in the
 | U7 | Quote: "Put everything to the plan first" | This version of the plan. | All |
 | U8 | Quotes: "A crashed process writes no file. - check only in 30 seconds" and questions about uncommitted counts, `run.out` and missed events | The liveness check is every 30 s, sharing one tick with the safety rebuild. The answers corrected a claim: `run.out` is not constantly written. | Section 3 |
 | U9 | Quote: "Make sure the changes log eah action that repeats with micro time so the actions are visible and verify if the much reccurence is really required." | A trace of every repeating action with microsecond times, a report, and a rule that each repeat must change the result or be a named guard (section 4a; Step 0b). | Section 4a, Steps 0b and 7 |
+| U10 | Quote: "Do you want it always on with a small rotating file instead? - Answer: always on, the log rotation size/time should be configurble" | The trace is always on; rotation size, file count and age are settings (section 4a). | Section 4a, Step 0b |
 
 ## 1. What one request costs now
 
@@ -115,8 +116,21 @@ microsecond time, so the repeats can be seen at any time, and that the plan chec
 
 **The trace.** [design]
 - One helper, `trace(action, detail)` (for example `src/runs/trace.ts`), writes one JSON line per event to `<registry folder>/ui-trace.jsonl`
-  (the folder the run records live in). It is **off by default** and switched on with `SDLC_TRACE=1` (or a `ui --trace` flag), because
-  writing a line per spawn is itself work; the file is capped and rotated.
+  (the folder the run records live in). It is **always on** (the user's decision, U10), with a rotating file whose size and age are configurable (below).
+- **What a line holds, and what it must not:** the program and its first argument (`git merge-base`, `ps`, `gh pr`) and the exit code, never the full argument list: a command line can carry a PR title, a branch name or a path. The file is local to the repository's git folder and never sent anywhere. [design]
+- **Cost control:** lines go to an in-memory buffer and are appended to the file at most once a second (and at exit), so no spawn waits on a disk write. The overhead is measured in Step 0b, with the target that a request is no more than 1% slower with the trace on than with `trace.enabled: false`. [design target]
+- **Configurable rotation.** Settings in `sdlc.config.json`, validated like the other settings (the `SCHEMA` in `src/config/settings.ts`, next to `ui`), each with an environment override for one-off use: [design; the defaults are starting points]
+
+  | Setting | Meaning | Default | Environment override |
+  |---|---|---|---|
+  | `trace.enabled` | the off switch (the escape hatch; the trace is on by default) | `true` | `SDLC_TRACE=0` |
+  | `trace.maxSizeKb` | rotate when the file reaches this size (the file is renamed to `ui-trace.1.jsonl`, the older ones shift up) | 5120 (5 MB) | `SDLC_TRACE_MAX_KB` |
+  | `trace.keepFiles` | how many rotated files to keep besides the current one | 4 | `SDLC_TRACE_KEEP` |
+  | `trace.maxAgeHours` | also rotate when the current file is older than this, and delete rotated files older than twice this | 24 | `SDLC_TRACE_MAX_AGE_HOURS` |
+
+  - A line is about 150 bytes [estimate], so at today's expected 210 spawns a minute (about 30 KB a minute with the other events) the defaults hold about 11 hours of history in 25 MB, and weeks after the changes in Steps 1 to 5 remove most of the repeats. [estimate]
+  - Several processes can append (the UI server, the pipeline, the CLI), so each flush opens the file in append mode, writes whole lines and closes it; only the UI server rotates. A flush that races a rotation can land in the rotated file once; the report reads all kept files in time order. [design, to be tested]
+  - Invalid values are reported like any setting (`ai-sdlc-helper show`, the doctor), and the default applies.
 - **Microsecond time:** `t` is epoch microseconds taken from `performance.timeOrigin + performance.now()`. `performance.now()` returns
   fractions of a millisecond on this machine (it printed `14.1395`), so the third decimal is microseconds. [measured] Durations use the same clock.
 - **Fields:** `t` (µs), `side` (`server` or `client`), `action`, `why` (the cause: a timer name, a changed path, a client id), `run`, `ms` (how long it took), `changed` (did the result differ from the previous one: true, false, or absent), `n` (a counter per action).
@@ -139,8 +153,8 @@ microsecond time, so the repeats can be seen at any time, and that the plan chec
 **Step 0: baseline (no code).** Use the throwaway method below. Baseline: 7 spawns and about 0.55 s per request; about 30 requests a minute from one open run page. Method: start `ai-sdlc-helper ui --port <n> --no-open` with a PATH holding logging shims for `git`, `ps` and `gh`, sign in with the printed token, then `curl -w '%{time_total}'` six times per run and count the log lines.
 
 **Step 0b: make the repeats visible (code, first).** Add the trace helper, route the spawn sites through it, log the timers and the requests, add the page's in-memory trace and the report script (section 4a). Nothing else changes.
-- Tests (`test/`, `web/test/server.test.ts`): the writer produces one JSON line per call with an integer `t` in microseconds that never goes backwards; the report script, run on a fixture trace file, prints the right counts, `changed:false` shares and sort order (the real script, no mocks); with `SDLC_TRACE=1`, one request for a run writes as many `spawn:git` lines as the counting `git` shim sees for the same request (the shim is the independent check); with the flag off, no file is written.
-- Risk: low (off by default; a line per event when on). Check: the first report on an open run page shows the real recurrence; it replaces the estimates above and goes into the PR description.
+- Tests (`test/`, `web/test/server.test.ts`): the writer produces one JSON line per call with an integer `t` in microseconds that never goes backwards; the report script, run on a fixture trace file, prints the right counts, `changed:false` shares and sort order (the real script, no mocks); one request for a run writes as many `spawn:git` lines as the counting `git` shim sees for the same request (the shim is the independent check), with no setting changed; with `trace.enabled: false` (or `SDLC_TRACE=0`) no file is written; the file rotates at `trace.maxSizeKb`, keeps `trace.keepFiles` old files, and drops files past the age limit (real files in a temp folder, a fake clock for the age); two processes appending concurrently lose no line; a line never holds more than the program and its first argument; the setting values are validated and a bad one falls back to its default with a message; the overhead measurement of the 1% target is printed.
+- Risk: low to medium (always on: a disk write per second at most, a file that must not grow without bound, and rotation by several writers). Check: the first report on an open run page shows the real recurrence; it replaces the estimates above and goes into the PR description.
 
 **Step 1: ask less (client only; no server change).** In `web/ui/src/Run.tsx` and `web/ui/src/Board.tsx`, replace the fixed intervals with one small helper that returns the next delay:
 - 2 s while the run is `running`; 5 to 10 s while `paused`; no timer when `done`, `failed`, `stopped`, `refused`, `interrupted` or `not started` (load once, again after the user acts, and on focus);
@@ -189,6 +203,9 @@ Node 18 only. Tests live in `test/` or `web/test/`, run the real code and never 
 
 ## 7. Decisions and known gaps
 
+Decided by the user:
+- 7. The trace is **always on** with a rotating file; the rotation size and time are configurable (U10).
+
 Still open (the user decides; not decided here):
 1. Is a "may be stale" mark on the run page's changed-file counts acceptable, as it is on the board?
 2. The silence limit: 60 s (U6) or the 2 minutes of U4? The plan uses 60 s with a 15 s ping.
@@ -196,7 +213,6 @@ Still open (the user decides; not decided here):
 4. Write these steps as backlog briefs for the pipeline, or implement them directly one step at a time?
 5. Do Step 2 inside the board plan's Step 3, or as its own PR after it?
 6. Do Step 4's watcher together with the board plan's Step 6, as one shared watcher? The plan assumes yes.
-7. Is the trace off by default (`SDLC_TRACE=1`) as proposed, or always on with a small rotating file? Always on gives history without asking, but adds a write per spawn.
 
 Known gaps:
 - All timings were taken on one macOS machine with load about 3 and an idle server; none was taken in a browser, and none on a built fix.
