@@ -3,7 +3,7 @@
 // (records.ts); the pipeline itself is `ai-sdlc-helper pipeline <slug>`, run by a detached supervisor (supervisor.ts).
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../trace.js';
 import { fileURLToPath } from 'node:url';
 import { CONFIG_FILE, exists, readSettings } from '../util.js';
 import { shellArgv } from '../shell.js';

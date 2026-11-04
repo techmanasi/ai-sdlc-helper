@@ -567,3 +567,20 @@ describe('agent settings of a run worktree', () => {
     expect(resolve(worktree, { env: noGraft, agentFrom: broken }).config!.agent.stages).toEqual({});
   });
 });
+
+describe('trace settings in sdlc.config.json', () => {
+  test('accepts the trace block and exposes it with the defaults filled in', () => {
+    const dir = project({ 'package.json': { scripts: { test: 'vitest run' }, devDependencies: { vitest: '^3' } }, 'sdlc.config.json': { trace: { maxSizeKb: 100 } } });
+    const r = resolve(dir);
+    expect(r.errors).toEqual([]);
+    expect(r.config!.trace).toEqual({ enabled: true, maxSizeKb: 100, keepFiles: 4, maxAgeHours: 24 });
+  });
+
+  test('refuses a bad trace value', () => {
+    const dir = project({ 'package.json': { scripts: { test: 'vitest run' }, devDependencies: { vitest: '^3' } }, 'sdlc.config.json': { trace: { keepFiles: -1, extra: 1 } } });
+    const r = resolve(dir);
+    expect(r.config).toBeNull();
+    expect(r.errors.join('\n')).toMatch(/trace\.keepFiles/);
+    expect(r.errors.join('\n')).toMatch(/trace\.extra: unknown setting/);
+  });
+});

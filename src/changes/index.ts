@@ -2,7 +2,7 @@
 // Every function works on the git repository at <root> (its paths are relative to it).
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from '../trace.js';
 import { has } from '../util.js';
 
 /** Files above this size are skipped as "too large" (the `ship.maxFileBytes` setting). */

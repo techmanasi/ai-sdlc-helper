@@ -2,7 +2,7 @@
 // directly from git for resilience across machines where local run records do not exist.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../trace.js';
 import { backlogItems, parseBrief, parseIndex } from '../backlog/index.js';
 import { readRecord } from './records.js';
 import { pickBase, runWorktree, type RunContext } from './index.js';
