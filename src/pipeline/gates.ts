@@ -88,6 +88,18 @@ export function targetTestFiles(ctx: Ctx): string[] {
   return [...files].filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f)));
 }
 
+/** The test files added or modified in the task's red commit (ctx.redSha). */
+export function redCommitTestFiles(ctx: Ctx): string[] {
+  if (!ctx.redSha || !ctx.git) return [];
+  try {
+    const changed = ctx.git.lines('diff', '--name-only', `${ctx.redSha}^`, ctx.redSha, '--', ...(ctx.layout?.testPathspecs || []));
+    return [...new Set(changed.map(f => f.trim()).filter(Boolean))]
+      .filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f)));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * The unit tests of every suite, in the working tree, with tests.maxWorkers. Unless tests.retry is false, a failure is
  * run once more (the failed files) before it counts;
@@ -97,9 +109,9 @@ export function targetTestFiles(ctx: Ctx): string[] {
  * When opts.targetFiles is provided and non-empty:
  * Executes target files first (fail-fast gate). If any target test fails, records results and returns false
  * immediately without running the full test suite. Only when target tests pass (or if all suites were covered)
- * does it proceed to run the full suite for zero-trust verification.
+ * does it proceed to run the full suite for zero-trust verification (unless opts.onlyTargets is true).
  */
-export function testsPass(ctx: Ctx, opts: { targetFiles?: string[] } = {}): boolean {
+export function testsPass(ctx: Ctx, opts: { targetFiles?: string[]; onlyTargets?: boolean } = {}): boolean {
   const logFile = at(ctx, `${ctx.log}/tests.log`);
   const targets = (opts.targetFiles || []).filter(f => ctx.config.suites.some(s => holds(s, f)));
 
@@ -111,7 +123,7 @@ export function testsPass(ctx: Ctx, opts: { targetFiles?: string[] } = {}): bool
       return false;
     }
     const allFiles = ctx.config.suites.flatMap(s => suiteFiles(ctx.root, s));
-    if (allFiles.length > 0 && allFiles.every(f => targets.includes(f))) {
+    if (opts.onlyTargets || (allFiles.length > 0 && allFiles.every(f => targets.includes(f)))) {
       recordResults(ctx, fast, logFile);
       return true;
     }
@@ -163,16 +175,18 @@ export async function successCheck(ctx: Ctx, opts: { targetFiles?: string[] } = 
   return true;
 }
 
-/** Writes the RunResult of the tests in <root> (every suite) to <out>; nothing when no suite runs. */
-function writeResults(ctx: Ctx, root: string, out: string): void {
+/** Writes the RunResult of the tests in <root> to <out>; nothing when no suite runs. */
+function writeResults(ctx: Ctx, root: string, out: string, files?: string[]): void {
   try {
-    const r = runSuites(ctx.config, { root, maxWorkers: testRuns(ctx).maxWorkers, env: ctx.env });
+    const opts: any = { root, maxWorkers: testRuns(ctx).maxWorkers, env: ctx.env };
+    if (files && files.length > 0) opts.files = files;
+    const r = runSuites(ctx.config, opts);
     if (!('error' in r)) fs.writeFileSync(out, `${JSON.stringify(r.merged)}\n`);
   } catch { /* the checks that read <out> report it */ }
 }
 
 /** The test results of the working tree, in <outRel>. */
-export const resultsNow = (ctx: Ctx, outRel: string): void => writeResults(ctx, ctx.root, at(ctx, outRel));
+export const resultsNow = (ctx: Ctx, outRel: string, files?: string[]): void => writeResults(ctx, ctx.root, at(ctx, outRel), files);
 
 /**
  * The test results on <sha>'s source, with <files> copied from the working tree, in <outRel>. The commit is checked out
@@ -193,7 +207,7 @@ export function resultsAt(ctx: Ctx, sha: string, outRel: string, files: string[]
       fs.mkdirSync(path.dirname(path.join(wt, f)), { recursive: true });
       fs.copyFileSync(at(ctx, f), path.join(wt, f));
     }
-    writeResults(ctx, wt, at(ctx, outRel));
+    writeResults(ctx, wt, at(ctx, outRel), files.length > 0 ? files : undefined);
   } finally {
     ctx.git.tryRun('worktree', 'remove', '--force', wt);
     fs.rmSync(tmp, { recursive: true, force: true });

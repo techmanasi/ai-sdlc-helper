@@ -219,7 +219,12 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
   installDeps(ctx);
   await tick();
   // A resumed run never trusts a previous run's test log: the first attempt reads one from this run.
-  if (ctx.fromN === 4) { testsPass(ctx, { targetFiles: targetTestFiles(ctx) }); await tick(); }
+  if (ctx.fromN === 4) {
+    const isScoped = ctx.config.tests?.preliminary !== 'full';
+    const targets = targetTestFiles(ctx);
+    testsPass(ctx, { targetFiles: targets, onlyTargets: isScoped && targets.length > 0 });
+    await tick();
+  }
   for (let i = 1; i <= maxAttempts; i++) {
     ctx.out(` attempt ${i}`);
     ctx.status.attempt = `${i}/${maxAttempts}`;

@@ -143,58 +143,144 @@ export function extract({ jsonFile, logFile, stateFile, stage, cwd, errFile, all
   let data: any = null;
   try { data = JSON.parse(raw); } catch { data = null; }
   const state = loadState(stateFile);
+
   if (!data || typeof data !== 'object') {
+    // Codex JSONL events
     const lines = raw.split('\n').filter(l => l.trim().length > 0);
     const jsonlEvents: any[] = [];
-    let codexText = '';
+    const messages: string[] = [];
+    const deltaParts: string[] = [];
+
     for (const line of lines) {
       try {
         const ev = JSON.parse(line);
         jsonlEvents.push(ev);
-        if (ev.type === 'message' || ev.type === 'response') {
-          if (typeof ev.content === 'string') codexText = ev.content;
-          else if (ev.message?.content) codexText = String(ev.message.content);
+
+        // Assistant messages: item.completed with agent_message or message
+        if (ev.type === 'item.completed' && ev.item && typeof ev.item === 'object') {
+          const itemType = ev.item.type;
+          if (itemType === 'agent_message' || itemType === 'message') {
+            if (typeof ev.item.text === 'string' && ev.item.text) {
+              messages.push(ev.item.text);
+            } else if (typeof ev.item.content === 'string' && ev.item.content) {
+              messages.push(ev.item.content);
+            } else if (Array.isArray(ev.item.content)) {
+              const str = ev.item.content.map((c: any) => typeof c === 'string' ? c : (c.text || '')).join('');
+              if (str) messages.push(str);
+            }
+          }
+        } else if (ev.type === 'message' || ev.type === 'response') {
+          if (typeof ev.content === 'string' && ev.content) {
+            messages.push(ev.content);
+          } else if (typeof ev.message?.content === 'string' && ev.message.content) {
+            messages.push(ev.message.content);
+          } else if (Array.isArray(ev.content)) {
+            const str = ev.content.map((c: any) => typeof c === 'string' ? c : (c.text || '')).join('');
+            if (str) messages.push(str);
+          } else if (Array.isArray(ev.message?.content)) {
+            const str = ev.message.content.map((c: any) => typeof c === 'string' ? c : (c.text || '')).join('');
+            if (str) messages.push(str);
+          } else if (typeof ev.text === 'string' && ev.text) {
+            messages.push(ev.text);
+          }
+        } else if (ev.type === 'item.delta' || ev.type === 'content_block_delta' || ev.type === 'message_delta') {
+          const evType = String(ev.type || '');
+          const itemObj = ev.item && typeof ev.item === 'object' ? ev.item : {};
+          const deltaObj = ev.delta && typeof ev.delta === 'object' ? ev.delta : {};
+          if (!evType.includes('reasoning') && itemObj.type !== 'reasoning' && deltaObj.type !== 'reasoning') {
+            const delta = typeof ev.delta === 'string' ? ev.delta : (deltaObj.text || itemObj.delta?.text || '');
+            if (delta) deltaParts.push(String(delta));
+          }
         }
       } catch {
-        /* ignore non-JSON */
+        /* ignore non-JSON line */
       }
     }
+
     if (jsonlEvents.length > 0) {
+      let codexText = messages.length > 0 ? messages.join('\n\n') : deltaParts.join('');
+      if (!codexText && !err) {
+        codexText = raw.trim();
+      }
       fs.writeFileSync(logFile, `${codexText}${codexText.endsWith('\n') ? '' : '\n'}${err}`);
+
       for (const ev of jsonlEvents) {
-        if (ev.type === 'tool_denial' || ev.action === 'denied') {
-          const tool = String(ev.tool || 'command');
-          const detail = String(ev.command || ev.detail || '');
+        if (
+          ev.type === 'tool_denial' ||
+          ev.action === 'denied' ||
+          ev.type === 'permission_denial' ||
+          ev.type === 'approval.rejected' ||
+          (ev.type === 'item.completed' &&
+            ev.item?.type === 'command_execution' &&
+            (ev.item.status === 'denied' ||
+              (ev.item.exit_code === 126 && /denied/i.test(String(ev.item.aggregated_output || ''))))) ||
+          (ev.type === 'command_execution' && (ev.status === 'denied' || ev.status === 'rejected'))
+        ) {
+          const itemObj = ev.item && typeof ev.item === 'object' ? ev.item : {};
+          const toolInput = ev.tool_input && typeof ev.tool_input === 'object' ? ev.tool_input : {};
+          let tool = String(ev.tool || ev.tool_name || (itemObj.type === 'command_execution' ? 'Bash' : itemObj.type) || 'command');
+          const detail = String(ev.command || ev.detail || itemObj.command || toolInput.command || toolInput.file_path || '');
+          if (tool === 'command') tool = 'Bash';
+          const inputObj = ev.tool_input || { command: detail };
+
           const ask: Ask = {
-            stage, tool, detail,
-            rule: ruleFor(tool, { command: detail }, cwd, [...allowed, ...state.allow]),
+            stage,
+            tool,
+            detail,
+            rule: ruleFor(tool, inputObj, cwd, [...allowed, ...state.allow]),
             protected: isProtected(tool, detail),
           };
           const same = (a: { tool: string; detail: string }) => a.tool === ask.tool && a.detail === ask.detail;
           if (state.denied.some(same) || state.pending.some(a => same(a) && a.stage === stage)) continue;
-          if (!ask.protected && (state.allow.includes(ask.rule) || decidedLine(tool, { command: detail }, allowed, state.allow))) continue;
+          if (!ask.protected && (state.allow.includes(ask.rule) || decidedLine(tool, inputObj, allowed, state.allow))) continue;
           state.pending.push(ask);
         }
       }
       saveState(stateFile, state);
       return state.pending.length;
     }
+
     fs.writeFileSync(logFile, raw + err);
     return state.pending.length;
   }
-  const text = typeof data.result === 'string' ? data.result : '';
+
+  // Single JSON object output (Claude, Agy, etc.)
+  const text = typeof data.result === 'string' ? data.result : typeof data.response === 'string' ? data.response : '';
   const note = data.subtype && data.subtype !== 'success' ? `[agent ended: ${data.subtype}]\n` : '';
   fs.writeFileSync(logFile, `${note}${text}${text.endsWith('\n') ? '' : '\n'}${err}`);
-  for (const d of Array.isArray(data.permission_denials) ? data.permission_denials : []) {
-    const tool = String(d.tool_name || '');
-    if (!tool) continue;
-    const detail = detailFor(tool, d.tool_input, cwd);
-    const ask: Ask = { stage, tool, detail, rule: ruleFor(tool, d.tool_input, cwd, [...allowed, ...state.allow]), protected: isProtected(tool, detail) };
+
+  const rawDenials: Array<{ tool: string; input?: unknown; detail?: string }> = [];
+  if (Array.isArray(data.permission_denials)) {
+    for (const d of data.permission_denials) {
+      const tool = String(d.tool_name || '');
+      if (tool) rawDenials.push({ tool, input: d.tool_input });
+    }
+  }
+  if (Array.isArray(data.denied_actions)) {
+    for (const a of data.denied_actions) {
+      const tool = String(a.tool || 'Bash');
+      const detail = String(a.detail || a.command || '');
+      rawDenials.push({ tool, detail, input: { command: detail } });
+    }
+  }
+
+  for (const d of rawDenials) {
+    const tool = d.tool === 'command' ? 'Bash' : d.tool;
+    const detail = d.detail ?? detailFor(tool, d.input, cwd);
+    const inputObj = d.input ?? { command: detail };
+    const ask: Ask = {
+      stage,
+      tool,
+      detail,
+      rule: ruleFor(tool, inputObj, cwd, [...allowed, ...state.allow]),
+      protected: isProtected(tool, detail),
+    };
     const same = (a: { tool: string; detail: string }) => a.tool === ask.tool && a.detail === ask.detail;
     if (state.denied.some(same) || state.pending.some(a => same(a) && a.stage === stage)) continue;
-    if (!ask.protected && (state.allow.includes(ask.rule) || decidedLine(tool, d.tool_input, allowed, state.allow))) continue;
+    if (!ask.protected && (state.allow.includes(ask.rule) || decidedLine(tool, inputObj, allowed, state.allow))) continue;
     state.pending.push(ask);
   }
+
   saveState(stateFile, state);
   return state.pending.length;
 }

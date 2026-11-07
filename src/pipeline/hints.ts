@@ -2,6 +2,18 @@ import { resumecheck } from '../testcheck/checks.js';
 import type { Ctx } from './context.js';
 
 /** The command that resumes this run at <stage>. */
+/** Maps a stage name to a valid pipeline --from stage value. */
+export const toFromStage = (stage: string, hasTestIssues = false): string => {
+  const norm = (stage || '').toLowerCase().replace(/\s+/g, '-');
+  if (norm.includes('finalise')) return 'finalise';
+  if (norm.includes('review')) return 'review';
+  if (norm.includes('repair')) return hasTestIssues ? 'test-repair' : 'implement';
+  if (norm.includes('implement')) return 'implement';
+  if (norm.includes('plan')) return 'plan';
+  if (norm.includes('red')) return 'red-tests';
+  return 'spec';
+};
+
 export const resumeCommand = (slug: string, stage: string): string => `ai-sdlc-helper pipeline ${slug} --from ${stage}`;
 
 export interface StageRecovery {
@@ -63,6 +75,38 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
       autoAction: { label: 'Resume at Implement', command: resumeCommand(ctx.slug, 'implement') },
       manualAction: { instruction: 'Restart the run (discards its branch and worktree) to redo this stage.' },
       escapeHatch: { label: 'Resume at Review', command: resumeCommand(ctx.slug, 'review') },
+    };
+  }
+
+  const agentFailMatch = /agent '([^']+)' failed:\s*([^\n]+)/i.exec(latest)
+    || /agent '([^']+)' failed[^\n]*(?:\n\s*failure\s*\([^)]*\):\s*([^\n]+))/i.exec(latest)
+    || /agent '([^']+)' failed(?:\s*\([^)]*\))?:\s*([^\n]+)/i.exec(latest)
+    || /agent '([^']+)' (?:hit the usage limit|hit quota[^\n]*):\s*([^\n]+)/i.exec(latest)
+    || /agent '([^']+)' (?:quota \/ usage limit reached):\s*([^\n]+)/i.exec(latest);
+  if (agentFailMatch) {
+    const agentName = agentFailMatch[1];
+    const reason = (agentFailMatch[2] || 'process exited with error').trim();
+    const isQuota = /quota|rate limit|usage limit|RESOURCE_EXHAUSTED/i.test(reason);
+    const stageName = ctx.stage || 'Pipeline';
+    return {
+      stage: stageName,
+      diagnosis: isQuota
+        ? `Agent '${agentName}' reached quota or rate limit: ${reason}`
+        : `Agent '${agentName}' crashed or failed: ${reason}`,
+      autoAction: {
+        label: isQuota ? `Retry ${stageName} after quota reset` : `Retry ${stageName} stage`,
+        command: resumeCommand(ctx.slug, toFromStage(stageName, ctx.hasTestIssues)),
+      },
+      manualAction: {
+        file: `logs/${agentName}.err`,
+        instruction: isQuota
+          ? `Check billing/quota limits, or switch model in settings, then resume.`
+          : `Inspect error details in logs/${agentName}.err and logs/${agentName}.log, fix CLI/flags, then resume.`,
+      },
+      escapeHatch: {
+        label: `Resume at Review`,
+        command: resumeCommand(ctx.slug, 'review'),
+      },
     };
   }
 

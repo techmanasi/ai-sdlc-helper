@@ -1,0 +1,2 @@
+{"type":"thread.started","thread_id":"01a1b631-0e5b-7a50-9af3-e96feb0ad6d3"}
+{"type":"error","error":{"code":"rate_limit_exceeded","message":"Rate limit reached. Please retry in 5 minutes."}}

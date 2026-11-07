@@ -226,7 +226,10 @@ async function stages(ctx: Ctx): Promise<void> {
   await tick();
 
   if (fromN <= 5) {
-    resultsAt(ctx, ctx.redSha, `${ctx.log}/red.json`);
+    const redJson = path.join(ctx.root, ctx.log, 'red.json');
+    if (!fs.existsSync(redJson)) {
+      resultsAt(ctx, ctx.redSha, `${ctx.log}/red.json`);
+    }
     await tick();
     const green = fromN <= 4 ? await implementStage(ctx) : false;
     if (!green) {
