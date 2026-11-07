@@ -18,7 +18,7 @@ import { envModels, modelEnvOf, registryFile, stageModels } from './models.js';
 import { PROMPTS_DIR } from './prompts.js';
 import { Status, finalState, previousStage } from './status.js';
 import { formatRecoveryCli, stageRecoveryHint } from './hints.js';
-import { redCommitTestFiles, resultsAt } from './gates.js';
+import { resultsAt } from './gates.js';
 import {
   implementStage, markStage, planStage, redTestsStage, refuseRedone, resumeAtTests, reviewStage, finaliseStage, specStage,
   testRepairStage,
@@ -228,9 +228,7 @@ async function stages(ctx: Ctx): Promise<void> {
   if (fromN <= 5) {
     const redJson = path.join(ctx.root, ctx.log, 'red.json');
     if (!fs.existsSync(redJson)) {
-      const isScoped = ctx.config.tests?.preliminary !== 'full';
-      const scopedFiles = isScoped ? redCommitTestFiles(ctx) : [];
-      resultsAt(ctx, ctx.redSha, `${ctx.log}/red.json`, scopedFiles);
+      resultsAt(ctx, ctx.redSha, `${ctx.log}/red.json`);
     }
     await tick();
     const green = fromN <= 4 ? await implementStage(ctx) : false;

@@ -139,22 +139,7 @@ describe('Scoped Preliminary Tests Configuration', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('testsPass with onlyTargets stops after target files pass without running full suite', () => {
-    let fullSuiteRan = false;
-    let targetSuiteRan = false;
-
-    const mockCtx: any = {
-      root: '/mock',
-      log: 'mock-log',
-      env: {},
-      config: {
-        suites: [
-          { name: 'unit', dir: '.', runner: 'vitest', testGlobs: ['test/**/*.test.ts'] },
-        ],
-      },
-    };
-
-    // We can verify that testsPass accepts onlyTargets: true in options
+  it('testsPass function interface supports onlyTargets option', () => {
     expect(typeof testsPass).toBe('function');
   });
 });

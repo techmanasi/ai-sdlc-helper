@@ -332,8 +332,10 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   }
 }
 
-/** The independent test auditor: read-only tools, its stdout and stderr in <log>/test-audit.log. Resolves its exit code. */
+/** The independent test auditor: read-only tools, raw output in <log>/test-audit.json, parsed markdown in <log>/test-audit.log. Resolves its exit code. */
 export async function runAudit(ctx: Ctx, prompt: string, flags: { args: string[]; env: Record<string, string>; model?: string; effort?: string }): Promise<number> {
+  const rawFile = at(ctx, `${ctx.log}/test-audit.json`);
+  const errFile = at(ctx, `${ctx.log}/test-audit.err`);
   const logFile = at(ctx, `${ctx.log}/test-audit.log`);
   const harnessId = harnessFor(ctx.config, 'test-audit');
   const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
@@ -351,9 +353,22 @@ export async function runAudit(ctx: Ctx, prompt: string, flags: { args: string[]
     effort: flags.effort,
     cwd: ctx.root,
   });
-  return ctx.spawnAgent({
+  const rc = await ctx.spawnAgent({
     command: inv.command,
     args: inv.args,
-    cwd: ctx.root, env: { ...ctx.env, ...flags.env, ...inv.env }, stdout: logFile, stderr: logFile, signal: ctx.signal,
+    cwd: ctx.root,
+    env: { ...ctx.env, ...flags.env, ...inv.env },
+    stdout: rawFile,
+    stderr: errFile,
+    signal: ctx.signal,
   });
+
+  const stdoutText = fs.existsSync(rawFile) ? fs.readFileSync(rawFile, 'utf8') : '';
+  const stderrText = fs.existsSync(errFile) ? fs.readFileSync(errFile, 'utf8') : '';
+
+  const parsed = harness.parseOutput(stdoutText, stderrText, ctx.root);
+  const textToWrite = parsed.text || stdoutText || stderrText;
+  fs.writeFileSync(logFile, textToWrite.endsWith('\n') ? textToWrite : `${textToWrite}\n`);
+
+  return rc;
 }

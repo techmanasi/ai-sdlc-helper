@@ -35,6 +35,8 @@ export class AgyHarness implements AgentHarness {
 
     if (opts.mode === 'acceptEdits') {
       args.push('--mode', 'accept-edits');
+    } else {
+      args.push('--dangerously-skip-permissions');
     }
 
     if (opts.allowedCommands.length > 0) {

