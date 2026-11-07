@@ -130,9 +130,8 @@ describe('Pluggable Agent Harness Subsystem', () => {
       expect(inv.args).toContain('o3-mini');
       expect(inv.args).toContain('-c');
       expect(inv.args).toContain('model_reasoning_effort="high"');
-      expect(inv.args).toContain('-s');
-      expect(inv.args).toContain('workspace-write');
       expect(inv.args).toContain('--approve-for-me');
+      expect(inv.args).not.toContain('-s');
       expect(inv.args).toContain('--json');
     });
 

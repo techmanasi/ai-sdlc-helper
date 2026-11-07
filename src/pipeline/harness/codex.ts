@@ -38,7 +38,7 @@ export class CodexHarness implements AgentHarness {
     }
 
     if (opts.mode === 'acceptEdits') {
-      args.push('-s', 'workspace-write', '--approve-for-me');
+      args.push('--approve-for-me');
     } else {
       args.push('--dangerously-bypass-approvals-and-sandbox');
     }

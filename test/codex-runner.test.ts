@@ -125,9 +125,8 @@ describe('Codex Runner Integration', () => {
       expect(req.args).toContain('-m');
       // Default implement model mapped from sonnet -> o3-mini
       expect(req.args).toContain('o3-mini');
-      expect(req.args).toContain('-s');
-      expect(req.args).toContain('workspace-write');
       expect(req.args).toContain('--approve-for-me');
+      expect(req.args).not.toContain('-s');
       expect(req.args).toContain('--json');
     });
 

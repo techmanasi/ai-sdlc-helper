@@ -95,6 +95,11 @@ export interface TestRuns {
   retry: boolean | null;
   /** The jest/vitest worker limit: a number, "auto" (half the CPUs, at least 1), or null (the runner's own default). */
   maxWorkers: number | 'auto' | null;
+  /**
+   * How preliminary tests run before implementation: 'scoped' (default) runs only the task's red tests,
+   * 'full' runs the entire suite.
+   */
+  preliminary?: 'scoped' | 'full';
 }
 
 /** The worker count for a maxWorkers setting: undefined for no limit, "auto" as half the CPUs (at least 1). */
@@ -129,7 +134,7 @@ export const SCHEMA: Json = {
   suites: [SUITE_SCHEMA],
   tools: 'string[]',
   integration: { cmd: 'string', ci: ['run', 'skip'] },
-  tests: { retry: 'boolean', maxWorkers: 'workers' },
+  tests: { retry: 'boolean', maxWorkers: 'workers', preliminary: ['scoped', 'full'] },
   lint: 'string',
   worktree: { base: 'string', link: 'string[]' },
   git: { branchPrefix: 'string', base: 'string', conflictSuffixStart: 'integer' },
@@ -316,6 +321,7 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
     tests: {
       retry: file.tests && typeof file.tests.retry === 'boolean' ? file.tests.retry : null,
       maxWorkers: file.tests && file.tests.maxWorkers !== undefined ? file.tests.maxWorkers : null,
+      ...(file.tests && file.tests.preliminary ? { preliminary: file.tests.preliminary } : {}),
     },
     lint: file.lint ? run(file.lint) : null,
     worktree: {

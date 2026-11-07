@@ -97,6 +97,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
   const [stages, setStages] = useState<Record<string, Pick>>({});
   const [base, setBase] = useState('');
   const [parallel, setParallel] = useState('');
+  const [preliminary, setPreliminary] = useState<'scoped' | 'full'>('scoped');
   const [errors, setErrors] = useState<string[]>([]);
   const [warn, setWarn] = useState('');
   const [busy, setBusy] = useState(false);
@@ -106,6 +107,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
     const agent = sc === 'project' ? d.fileAgent : (d.config?.agent || d.fileAgent);
     setDef({ harness: agent.harness || 'claude', model: agent.model || '', effort: agent.effort || '' });
     setStages(Object.fromEntries(d.stages.map(st => [st, { ...NONE, ...(agent.stages?.[st] || {}) }])));
+    setPreliminary(d.config?.tests?.preliminary === 'full' ? 'full' : 'scoped');
   };
   const load = (sc: Scope) => api.settings(name).then(d => {
     setData(d);
@@ -132,7 +134,11 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
           stagePatch[st] = { harness: p.harness || null, model: p.model || null, effort: p.effort || null };
         }
         const agent = { harness: def.harness, model: def.model || null, effort: def.effort || null, stages: stagePatch };
-        const r = await api.editSettings(name, { agent }, data.hash);
+        const patch: Record<string, any> = { agent };
+        if (preliminary !== (data.config?.tests?.preliminary || 'scoped')) {
+          patch.tests = { preliminary };
+        }
+        const r = await api.editSettings(name, patch, data.hash);
         if (!r.ok) { setErrors(r.errors); setBusy(false); return; }
         activeRuns = r.activeRuns;
       } else {
@@ -228,6 +234,18 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
           );
         })}
       </div>
+      {scope === 'project' && (
+        <div class="col" style={{ gap: '6px', marginTop: '12px', padding: '10px 12px', background: 'var(--bg-subtle, #f6f8fa)', borderRadius: '6px' }}>
+          <label class="lbl" for={`prelim-${name}`} style={{ fontWeight: 600 }}>Preliminary / Diagnostic Tests</label>
+          <select id={`prelim-${name}`} class="inp" value={preliminary} onChange={e => setPreliminary((e.target as HTMLSelectElement).value as 'scoped' | 'full')}>
+            <option value="scoped">Scoped: run task's red tests only (Fast, recommended)</option>
+            <option value="full">Full: run entire test suite before implementation</option>
+          </select>
+          <p class="small muted" style={{ margin: 0 }}>
+            Preliminary tests run on resume to generate diagnostic failure logs for the Implement agent. Full test suite always runs after implementation completes.
+          </p>
+        </div>
+      )}
       <p class="small muted mono" style={{ margin: 0, overflowWrap: 'anywhere' }}>
         project = {data.files.project} (committed) · personal = {data.files.personal} (this machine only)
       </p>

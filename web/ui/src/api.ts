@@ -7,7 +7,10 @@ export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed'
 export interface StageSetting { harness?: string; model?: string; effort?: string }
 export interface ModelInfo { id: string; name: string; supportsEffort: boolean; defaultEffort?: string }
 export interface SettingsView {
-  config: { agent?: { harness: string; model: string | null; effort: string | null; stages: Record<string, StageSetting> } } | null;
+  config: {
+    agent?: { harness: string; model: string | null; effort: string | null; stages: Record<string, StageSetting> };
+    tests?: { retry: boolean | null; maxWorkers: number | 'auto' | null; preliminary?: 'scoped' | 'full' };
+  } | null;
   errors: string[]; warnings: string[]; raw: string | null;
   hash: string; overrides: { worktreeBase?: string; maxParallel?: number }; registered: boolean;
   harnesses: string[]; stages: string[]; efforts: string[];

@@ -14,36 +14,150 @@ import { DefaultHarnessRegistry } from './harness/registry.js';
 const defaultRegistry = new DefaultHarnessRegistry();
 
 /**
- * The reset text ("resets 1:10am (Asia/Dubai)") when an agent's `--output-format json` result says it hit the account's
- * usage limit, else null.
+ * The reset or quota text ("resets 1:10am (Asia/Dubai)", "rate limit reached", "quota exceeded") when an agent's
+ * execution output or error stream says it hit the account's rate, usage or quota limit, else null.
+ * Supports Claude, OpenAI Codex, and Google Antigravity (agy).
  */
-export function usageLimit(jsonFile: string): string | null {
-  try {
-    const raw = fs.readFileSync(jsonFile, 'utf8');
-    try {
-      const d = JSON.parse(raw);
-      if (d.api_error === 'usage_limit_reached') {
-        const m = /resets[^\n"\\]*/.exec(String(d.result || ''));
-        return m ? m[0].trim() : 'resets later';
-      }
-      if (d.error?.code === 'rate_limit_exceeded' || d.code === 'rate_limit') {
-        return 'rate limit reached';
-      }
-    } catch {
-      const lines = raw.split('\n').filter(l => l.trim().length > 0);
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line);
-          if (event.error?.code === 'rate_limit_exceeded' || event.code === 'rate_limit') {
-            return 'rate limit reached';
-          }
-        } catch {
-          /* ignore non-JSON */
-        }
-      }
+export function usageLimit(jsonFile: string, errFile?: string): string | null {
+  const checkText = (text: string): string | null => {
+    if (!text.trim()) return null;
+    const mReset = /resets\s+[^\n"\\]*/i.exec(text);
+    if (mReset) return mReset[0].trim();
+    if (/insufficient_quota|quota_exceeded|exceeded your current quota|quota exceeded|RESOURCE_EXHAUSTED/i.test(text)) {
+      return 'quota exceeded';
+    }
+    if (/usage_limit_reached|usage limit reached/i.test(text)) {
+      return 'usage limit reached';
+    }
+    if (/rate_limit_exceeded|rate limit reached|rate limit exceeded|429 Too Many Requests|RATE_LIMITED/i.test(text)) {
+      return 'rate limit reached';
     }
     return null;
-  } catch { return null; }
+  };
+
+  try {
+    if (fs.existsSync(jsonFile)) {
+      const raw = fs.readFileSync(jsonFile, 'utf8');
+      try {
+        const d = JSON.parse(raw);
+        if (d.api_error === 'usage_limit_reached') {
+          const m = /resets[^\n"\\]*/.exec(String(d.result || ''));
+          return m ? m[0].trim() : 'resets later';
+        }
+        if (d.status === 'RATE_LIMITED' || d.error?.code === 429 || d.error?.code === 'rate_limit_exceeded' || d.code === 'rate_limit') {
+          return 'rate limit reached';
+        }
+        if (d.status === 'QUOTA_EXCEEDED' || d.error?.status === 'RESOURCE_EXHAUSTED' || d.error?.code === 'insufficient_quota' || d.error?.code === 'quota_exceeded') {
+          return 'quota exceeded';
+        }
+      } catch {
+        const lines = raw.split('\n').filter(l => l.trim().length > 0);
+        for (const line of lines) {
+          try {
+            const event = JSON.parse(line);
+            if (event.error?.code === 'rate_limit_exceeded' || event.code === 'rate_limit' || event.type === 'rate_limit') {
+              return 'rate limit reached';
+            }
+            if (event.error?.code === 'insufficient_quota' || event.error?.code === 'quota_exceeded' || event.code === 'quota_exceeded') {
+              return 'quota exceeded';
+            }
+            if (event.error?.message && /quota|rate limit/i.test(event.error.message)) {
+              return checkText(event.error.message);
+            }
+          } catch {
+            /* ignore non-JSON line */
+          }
+        }
+      }
+      const fromRaw = checkText(raw);
+      if (fromRaw) return fromRaw;
+    }
+  } catch { /* ignore read failure */ }
+
+  if (errFile && fs.existsSync(errFile)) {
+    try {
+      const errRaw = fs.readFileSync(errFile, 'utf8');
+      const fromErr = checkText(errRaw);
+      if (fromErr) return fromErr;
+    } catch { /* ignore read failure */ }
+  }
+
+  return null;
+}
+
+export interface AgentFailureInfo {
+  summary: string;
+  details: string[];
+}
+
+/** Extracts readable error details from an agent's stderr, JSON output, or stdout logs. */
+export function extractAgentFailure(base: string, rc: number): AgentFailureInfo {
+  const details: string[] = [];
+  let summary = '';
+
+  const errFile = `${base}.err`;
+  const jsonFile = `${base}.json`;
+  const logFile = `${base}.log`;
+
+  if (fs.existsSync(errFile)) {
+    try {
+      const errText = fs.readFileSync(errFile, 'utf8');
+      const lines = errText.split('\n').map(l => l.trim()).filter(Boolean);
+      for (const line of lines) {
+        if (!details.includes(line)) details.push(line);
+        if (!summary && /^(error|fatal|exception):/i.test(line)) {
+          summary = line;
+        }
+      }
+      if (!summary && lines.length > 0) {
+        summary = lines[lines.length - 1];
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (fs.existsSync(jsonFile) && (!summary || details.length === 0)) {
+    try {
+      const jsonText = fs.readFileSync(jsonFile, 'utf8');
+      try {
+        const d = JSON.parse(jsonText);
+        const msg = d.error?.message || d.message || d.api_error || d.error || d.status;
+        if (msg && typeof msg === 'string') {
+          if (!summary) summary = msg;
+          if (!details.includes(msg)) details.push(msg);
+        }
+      } catch {
+        const lines = jsonText.split('\n').map(l => l.trim()).filter(Boolean);
+        for (const line of lines) {
+          try {
+            const event = JSON.parse(line);
+            const msg = event.error?.message || event.message || (event.type === 'error' ? event.content : null);
+            if (msg && typeof msg === 'string') {
+              if (!summary) summary = msg;
+              if (!details.includes(msg)) details.push(msg);
+            }
+          } catch { /* non-JSON */ }
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (fs.existsSync(logFile) && (!summary || details.length === 0)) {
+    try {
+      const logText = fs.readFileSync(logFile, 'utf8');
+      const lines = logText.split('\n').map(l => l.trim()).filter(Boolean);
+      for (const line of lines.slice(-5)) {
+        if (!details.includes(line)) details.push(line);
+        if (!summary && /^(error|fatal|exception):/i.test(line)) summary = line;
+      }
+      if (!summary && lines.length > 0) summary = lines[lines.length - 1];
+    } catch { /* ignore */ }
+  }
+
+  if (!summary) {
+    summary = `process exited with code ${rc}`;
+  }
+
+  return { summary, details: details.slice(0, 10) };
 }
 
 /** How long a usage limit is waited out: SDLC_LIMIT_RETRY seconds between tries (300), SDLC_LIMIT_MAX_WAIT in all (6 h). */
@@ -176,7 +290,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
       cwd: ctx.root, env: { ...ctx.env, ...flags.env, ...invocation.env }, stdout: `${base}.json`, stderr: `${base}.err`, signal: ctx.signal,
     });
     await tick();
-    const limit = usageLimit(`${base}.json`);
+    const limit = usageLimit(`${base}.json`, `${base}.err`);
     if (!limit) break;
     if (waited >= maxWait) {
       ctx.status.note = '';
@@ -202,9 +316,19 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     stop(ctx, `   !! agent '${name}' was refused ${pending} action(s): allow or deny them in the pane (or: ai-sdlc-helper permit ${ctx.slug} allow|always|deny all), then resume at ${stage}`, 2);
   }
   if (rc !== 0) {
+    const failure = extractAgentFailure(base, rc);
     ctx.out(`   !! agent '${name}' failed, see ${ctx.log}/${name}.log`);
     if (stage === 'test-repair') resumeHint(ctx);
-    stop(ctx, null, 1);
+    if (failure.summary) {
+      ctx.out(`      failure (exit ${rc}): ${failure.summary}`);
+    }
+    for (const d of failure.details) {
+      if (d !== failure.summary) ctx.out(`      ${d}`);
+    }
+    if (fs.existsSync(`${base}.err`) && fs.statSync(`${base}.err`).size > 0) {
+      ctx.out(`      see ${ctx.log}/${name}.err`);
+    }
+    stop(ctx, `agent '${name}' failed: ${failure.summary}`, 1);
   }
 }
 
