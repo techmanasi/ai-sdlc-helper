@@ -1,4 +1,4 @@
-// The stages: Spec, Plan, Red tests, Implement, Test repair, Review and Ship, each with its gate.
+// The stages: Spec, Plan, Red tests, Implement, Test repair, Review and Finalise, each with its gate.
 import fs from 'node:fs';
 import path from 'node:path';
 import { mark } from '../changes/index.js';
@@ -22,7 +22,7 @@ const repairPattern = (slug: string) => `^test(${slug}): repair invalid tests`;
 
 /** Credits the files changed since the last mark to <stage> (<log>/stage-files.json, shown per stage in the pane). */
 export function markStage(ctx: Ctx, stage: string): void {
-  try { mark(at(ctx, `${ctx.log}/stage-files.json`), stage, { root: ctx.root, maxBytes: ctx.config.ship.maxFileBytes }); } catch { /* best effort */ }
+  try { mark(at(ctx, `${ctx.log}/stage-files.json`), stage, { root: ctx.root, maxBytes: ctx.config.finalise.maxFileBytes }); } catch { /* best effort */ }
 }
 
 /** Starts a stage: its header ("== 1/6 Spec"), the previous stage's files, and the status ("Spec"). */
@@ -202,7 +202,7 @@ export function resumeAtTests(ctx: Ctx): void {
     if (errs.length) { ctx.err(errs.map(e => `REJECT: ${e}`).join('\n')); stop(ctx, null); }
   } else {
     // Review and Finalise resume from the latest locked tests (the red-tests commit, or the Test repair commit after it).
-    ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug), ...(ctx.from === 'review' || ctx.from === 'finalise' || (ctx.from as string) === 'ship' ? [repairPattern(ctx.slug)] : [])]);
+    ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug), ...(ctx.from === 'review' || ctx.from === 'finalise' ? [repairPattern(ctx.slug)] : [])]);
     if (!ctx.redSha) stop(ctx, `FROM=${ctx.from} but no red-tests commit found for ${ctx.slug}`);
   }
   ctx.out(`Resuming at ${ctx.from} from tests commit ${short(ctx.redSha)}`);
@@ -379,8 +379,6 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
     ctx.out(`Review with: git log --oneline ${ctx.redSha}~1..HEAD ; then open a PR.`);
   }
 }
-
-export const shipStage = finaliseStage;
 
 /** Plan and Red tests refuse to run again once the red-tests commit exists. */
 export function refuseRedone(ctx: Ctx): void {

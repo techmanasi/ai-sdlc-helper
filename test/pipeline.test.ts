@@ -15,7 +15,7 @@ vi.setConfig({ testTimeout: 300_000 });
 const STAMP = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d$/;
 
 describe('a full run', () => {
-  test('Spec to Ship: the settings\' branch, commits, red results, prompts, tools and status', async () => {
+  test('Spec to Finalise: the settings\' branch, commits, red results, prompts, tools and status', async () => {
     const f = fixture();
     fs.writeFileSync(path.join(f.dir, DOCS, 'manual-inputs.md'), '## plan\nUse a queue.\n\n## implement\nKeep it small.\n');
     const r = await pipeline(f);

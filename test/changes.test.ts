@@ -121,9 +121,9 @@ describe('changes changed', () => {
     expect(r.include).toEqual(['.env.example']);
   });
 
-  test('the size limit comes from ship.maxFileBytes in the settings', async () => {
+  test('the size limit comes from finalise.maxFileBytes in the settings', async () => {
     const dir = repo();
-    write(dir, 'sdlc.config.json', JSON.stringify({ ship: { maxFileBytes: 10 } }));
+    write(dir, 'sdlc.config.json', JSON.stringify({ finalise: { maxFileBytes: 10 } }));
     sh(dir, 'git', ['add', '-A']);
     sh(dir, 'git', ['commit', '-q', '-m', 'settings']);
     await snapshot(dir);

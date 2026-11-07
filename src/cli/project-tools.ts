@@ -48,8 +48,9 @@ const commandAt = (argv: string[], valued: string[]): number =>
 
 function changes(io: Io, cwd: string, [sub, file, stage]: string[]): number {
   const root = gitRoot(cwd);
-  const ship = readSettings(root).ship || {};
-  const opts = { root, maxBytes: Number.isInteger(ship.maxFileBytes) ? ship.maxFileBytes : undefined };
+  const settings = readSettings(root);
+  const finalise = settings.finalise || settings.ship || {};
+  const opts = { root, maxBytes: Number.isInteger(finalise.maxFileBytes) ? finalise.maxFileBytes : undefined };
   const target = file && path.resolve(cwd, file);
   if (sub === 'mark' && target) mark(target, stage || '', opts);
   else if (sub === 'snapshot' && target) snapshot(target, opts);

@@ -75,7 +75,6 @@ export interface Config {
   git: { branchPrefix: string; base: string | null; conflictSuffixStart: number };
   agent: { harness: HarnessName; model: string | null; effort: string | null; stages: Record<string, StageSetting>; allowCommands: string[]; codeSearch: string; codeIndexer: CodeIndexer | null; notesDir: string };
   finalise: { envExample: boolean; maxFileBytes: number };
-  ship: { envExample: boolean; maxFileBytes: number };
   ui: { timezone: string };
   /** The trace of repeating actions (src/trace.ts): on by default, rotating by size and age. */
   trace: TraceSettings;
@@ -139,7 +138,6 @@ export const SCHEMA: Json = {
     stages: { '*': { harness: [...HARNESS_IDS], model: 'string', effort: [...EFFORT_LEVELS] } },
     allowCommands: 'string[]', notesDir: 'string', codeSearch: 'string', codeSearchOrder: 'string[]', codeIndexers: { '*': INDEXER_SCHEMA } },
   finalise: { envExample: 'boolean', maxFileBytes: 'integer' },
-  ship: { envExample: 'boolean', maxFileBytes: 'integer' },
   ui: { timezone: 'string' },
   trace: { enabled: 'boolean', maxSizeKb: 'number', keepFiles: 'integer', maxAgeHours: 'number' },
   node: { version: 'string', manager: ['auto', ...NODE_MANAGERS, 'none'] },
@@ -340,12 +338,8 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
       notesDir,
     },
     finalise: {
-      envExample: ((file.finalise && typeof file.finalise.envExample === 'boolean') ? file.finalise.envExample : (file.ship && typeof file.ship.envExample === 'boolean' ? file.ship.envExample : true)),
-      maxFileBytes: (file.finalise && file.finalise.maxFileBytes) || (file.ship && file.ship.maxFileBytes) || 1024 * 1024,
-    },
-    ship: {
-      envExample: ((file.finalise && typeof file.finalise.envExample === 'boolean') ? file.finalise.envExample : (file.ship && typeof file.ship.envExample === 'boolean' ? file.ship.envExample : true)),
-      maxFileBytes: (file.finalise && file.finalise.maxFileBytes) || (file.ship && file.ship.maxFileBytes) || 1024 * 1024,
+      envExample: (file.finalise && typeof file.finalise.envExample === 'boolean') ? file.finalise.envExample : true,
+      maxFileBytes: (file.finalise && file.finalise.maxFileBytes) || 1024 * 1024,
     },
     ui,
     trace,

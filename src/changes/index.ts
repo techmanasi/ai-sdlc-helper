@@ -1,11 +1,11 @@
-// Which files did this SDLC cycle change? Used by the Ship stage, and by the control pane for the files of each stage.
+// Which files did this SDLC cycle change? Used by the Finalise stage, and by the control pane for the files of each stage.
 // Every function works on the git repository at <root> (its paths are relative to it).
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from '../trace.js';
 import { has } from '../util.js';
 
-/** Files above this size are skipped as "too large" (the `ship.maxFileBytes` setting). */
+/** Files above this size are skipped as "too large" (the `finalise.maxFileBytes` setting). */
 export const MAX_BYTES = 1024 * 1024;
 
 export interface ChangesOptions { root: string; maxBytes?: number }
@@ -143,7 +143,7 @@ interface StageFiles { marker: { files: FileState; head: string } | null; stages
  * Files each stage changed, for the control pane. The marker is the dirty state and HEAD at the last mark; what differs
  * now is credited to <stage>, the stage that just ended (no stage: only reset the marker). A file committed during a
  * stage counts for it when its committed content differs from the last mark, so a commit that merely collects earlier
- * work (Ship) is not credited, while an earlier stage's file this stage changed and committed is.
+ * work (Finalise) is not credited, while an earlier stage's file this stage changed and committed is.
  */
 export function mark(target: string, stage: string, opts: ChangesOptions): void {
   let state: StageFiles = { marker: null, stages: {} };

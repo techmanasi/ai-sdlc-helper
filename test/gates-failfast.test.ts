@@ -61,7 +61,6 @@ function makeCtx(dir: string, overrides: Partial<Ctx> = {}): Ctx {
       git: { branchPrefix: 'sdlc/', base: null, conflictSuffixStart: 10001 },
       agent: { harness: 'claude', allowCommands: [], codeSearch: null, codeIndexer: null },
       finalise: { envExample: true, maxFileBytes: 1024 * 1024 },
-      ship: { envExample: true, maxFileBytes: 1024 * 1024 },
       ui: { timezone: 'UTC' },
       node: { version: '20' },
       backlogDir: 'docs/backlog',

@@ -81,7 +81,6 @@ describe('Codex Runner Integration', () => {
           git: { branchPrefix: 'feat/', base: null, conflictSuffixStart: 1 },
           agent: { harness: 'codex', allowCommands: [], codeSearch: 'none', codeIndexer: null },
           finalise: { envExample: true, maxFileBytes: 1048576 },
-          ship: { envExample: true, maxFileBytes: 1048576 },
           ui: { timezone: 'UTC' },
           node: { version: '22', current: '22', manager: null },
         },

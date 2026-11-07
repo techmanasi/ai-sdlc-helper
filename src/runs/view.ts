@@ -130,6 +130,16 @@ export function resumeStage(stage: string, hasTestIssues = false): string {
   return stage === 'Plan' || stage === 'plan' ? 'plan' : stage === 'Red tests' || stage === 'red-tests' ? 'red-tests' : '';
 }
 
+const FROM_TO_STAGE: Record<string, string> = {
+  spec: 'Spec',
+  plan: 'Plan',
+  'red-tests': 'Red tests',
+  implement: 'Implement',
+  'test-repair': 'Test repair',
+  review: 'Review',
+  finalise: 'Finalise',
+};
+
 function viewState(rec: Partial<RunRecord> | null, status: any): ViewState {
   if (rec) {
     const rs = runState(rec);
@@ -267,8 +277,9 @@ export function runView(ctx: RunContext, slug: string, opts: {
     }
   }
   const discarded = (readText(path.join(ctx.reg, `${slug}.discarded`)) || '').trim();
-  const stage = typeof s.stage === 'string' ? s.stage : '';
+  const rawStage = typeof s.stage === 'string' ? s.stage : '';
   const state = viewState(rec, status);
+  const stage = rawStage || (state === 'running' ? (FROM_TO_STAGE[rec?.from || 'spec'] || 'Spec') : '');
   return {
     slug,
     state,

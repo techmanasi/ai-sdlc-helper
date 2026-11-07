@@ -81,7 +81,7 @@ const gitTop = (dir: string): string => {
 };
 
 /**
- * Runs the pipeline. Resolves the exit code: 0 done (shipped), 1 failed, 2 paused for the developer (Spec or Plan
+ * Runs the pipeline. Resolves the exit code: 0 done (finalised), 1 failed, 2 paused for the developer (Spec or Plan
  * questions, refused agent actions). Once the item's log folder exists, its status.json holds the final state.
  */
 export async function runPipeline(opts: PipelineOptions): Promise<number> {
@@ -208,7 +208,7 @@ async function stages(ctx: Ctx): Promise<void> {
   // A previous run's test logs describe another state of the code: this run writes its own before anyone reads them.
   for (const f of ['tests.log', 'tests.json', 'integration.log']) fs.rmSync(path.join(ctx.root, ctx.log, f), { force: true });
 
-  // Baseline of already-dirty files, so Ship commits only what this cycle changed (never the developer's own work).
+  // Baseline of already-dirty files, so Finalise commits only what this cycle changed (never the developer's own work).
   const baseline = path.join(ctx.root, ctx.log, 'baseline.json');
   if (fromN === 1) snapshot(baseline, { root: ctx.root });
   else if (!exists(baseline)) {

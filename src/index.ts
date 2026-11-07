@@ -54,7 +54,7 @@ export {
   archiveTask, unarchiveTask, archiveCompleted, type ArchiveOptions,
 } from './backlog/archive.js';
 export {
-  finalise, type FinaliseOptions, type FinaliseResult, ship, type ShipOptions,
+  finalise, type FinaliseOptions, type FinaliseResult,
   getPrFromBrief, recordPrInBrief, createOrGetPr, getPrStatus, getPrStatusCached, getPrStatusAsync, onPrStatusChange, fetchPrComments, type PrStatus, type PrRead, type PrComment,
 } from './pipeline/finalise.js';
 export { STAGE_DEFAULTS, resolveProvider, stageModel, providerEnv, type Provider } from './pipeline/models.js';

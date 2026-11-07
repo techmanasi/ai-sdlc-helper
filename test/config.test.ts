@@ -178,7 +178,6 @@ describe('settings', () => {
       git: { branchPrefix: 'sdlc/', base: null, conflictSuffixStart: 10001 },
       agent: { allowCommands: [], codeSearch: 'none' },
       finalise: { envExample: true, maxFileBytes: 1048576 },
-      ship: { envExample: true, maxFileBytes: 1048576 },
     });
     expect(typeof c.ui.timezone).toBe('string');
     expect(worktreeBase(c)).toBe(path.join(path.dirname(dir), `${path.basename(dir)}-sdlc`));
