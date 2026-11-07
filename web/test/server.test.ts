@@ -269,7 +269,8 @@ describe('editing a project\'s setup', () => {
     expect(Object.keys(s.models)).toEqual(['claude', 'agy', 'codex']);
     expect(s.models.claude.map((m: any) => m.id)).toEqual(['opus', 'sonnet', 'haiku']);
     expect(s.models.claude.find((m: any) => m.id === 'haiku').supportsEffort).toBe(false);
-    expect(s.models.codex.find((m: any) => m.id === 'o3-mini').supportsEffort).toBe(true);
+    expect(s.models.codex.length).toBeGreaterThan(0);
+    expect(s.models.codex.some((m: any) => m.supportsEffort)).toBe(true);
   });
 
   test('switching the default agent and giving a stage another one changes only those keys, and the next read shows them', async () => {

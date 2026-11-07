@@ -76,6 +76,21 @@ describe('Universal Agent Error & Quota Handling', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
+  it('prefers a structured Codex error over incidental stderr output', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-fail-'));
+    const base = path.join(tmp, 'impl-1');
+    fs.writeFileSync(`${base}.err`, 'Reading additional input from stdin...\n');
+    fs.writeFileSync(`${base}.json`, [
+      JSON.stringify({ type: 'thread.started' }),
+      JSON.stringify({ type: 'turn.failed', error: { message: "The 'o3-mini' model is not supported" } }),
+    ].join('\n'));
+
+    const failure = extractAgentFailure(base, 1);
+    expect(failure.summary).toBe("The 'o3-mini' model is not supported");
+    expect(failure.details).toContain('Reading additional input from stdin...');
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
   it('stageRecoveryHint diagnoses agent failures and quotas across stages', () => {
     const runOut = [
       'SDLC: task-1 on branch sdlc/task-1',
@@ -117,6 +132,28 @@ describe('Universal Agent Error & Quota Handling', () => {
 
     expect(quotaRecovery.diagnosis).toContain("Agent 'spec-1' reached quota or rate limit: quota exceeded");
     expect(quotaRecovery.autoAction?.label).toContain('quota reset');
+
+    const modelFailRunOut = [
+      'SDLC: config-modal-keyboard on branch sdlc/config-modal-keyboard',
+      '== 4/6 Implement (green gate, max 4 attempts)',
+      ' attempt 1',
+      '   -> agent: impl-1',
+      "   !! agent 'impl-1' failed, see docs/backlog/config-modal-keyboard/logs/impl-1.log",
+      "      failure (exit 1): The 'o3-mini' model is not supported when using Codex with a ChatGPT account.",
+    ];
+
+    const modelRecovery = stageRecoveryHint({
+      slug: 'config-modal-keyboard',
+      stage: 'Implement',
+      state: 'failed',
+      exitCode: 1,
+      docsDir: 'docs/backlog/config-modal-keyboard',
+      runOut: modelFailRunOut,
+    });
+
+    expect(modelRecovery.diagnosis).toContain("model not supported with current account");
+    expect(modelRecovery.autoAction?.label).toContain("Switch to supported model");
+    expect(modelRecovery.autoAction?.command).toContain("--model gpt-4o");
   });
 });
 

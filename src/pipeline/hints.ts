@@ -87,7 +87,28 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     const agentName = agentFailMatch[1];
     const reason = (agentFailMatch[2] || 'process exited with error').trim();
     const isQuota = /quota|rate limit|usage limit|RESOURCE_EXHAUSTED/i.test(reason);
+    const isModelUnsupported = /model.*(?:not supported|unknown|invalid|not found)/i.test(reason);
     const stageName = ctx.stage || 'Pipeline';
+
+    if (isModelUnsupported) {
+      return {
+        stage: stageName,
+        diagnosis: `Agent '${agentName}' failed: model not supported with current account (${reason})`,
+        autoAction: {
+          label: `Switch to supported model & retry ${stageName}`,
+          command: `${resumeCommand(ctx.slug, toFromStage(stageName, ctx.hasTestIssues))} --model gpt-4o`,
+        },
+        manualAction: {
+          file: `logs/${agentName}.err`,
+          instruction: `The configured model is not supported by your signed-in account or credentials. Switch to a supported model in settings or supply an OpenAI API key.`,
+        },
+        escapeHatch: {
+          label: `Resume at Review`,
+          command: resumeCommand(ctx.slug, 'review'),
+        },
+      };
+    }
+
     return {
       stage: stageName,
       diagnosis: isQuota

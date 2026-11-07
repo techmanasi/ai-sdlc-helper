@@ -117,12 +117,13 @@ describe('Pluggable Agent Harness Subsystem', () => {
   describe('CodexHarness', () => {
     const harness = new CodexHarness();
 
-    it('has expected metadata and OpenAI models', async () => {
+    it('uses a pluggable catalog adapter to list models', async () => {
       expect(harness.id).toBe('codex');
       expect(harness.name).toBe('OpenAI Codex CLI');
+      expect(harness.catalog).toBeDefined();
       const models = await harness.listModels();
-      expect(models.map(m => m.id)).toContain('o3-mini');
-      expect(models.map(m => m.id)).toContain('o1');
+      expect(Array.isArray(models)).toBe(true);
+      expect(models.length).toBeGreaterThan(0);
     });
 
     it('compiles stage arguments with codex exec and sandboxing', () => {
@@ -314,7 +315,7 @@ describe('Pluggable Agent Harness Subsystem', () => {
       expect(registry.get('custom-cli')).toBeUndefined();
     });
 
-    it('federates models across all registered harnesses', async () => {
+    it('federates catalogues across all registered harnesses', async () => {
       const registry = new DefaultHarnessRegistry();
       const allModels = await registry.listAllModels();
       const harnessesRepresented = new Set(allModels.map(m => m.harness));

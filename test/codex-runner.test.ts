@@ -122,9 +122,9 @@ describe('Codex Runner Integration', () => {
       expect(req.args[0]).toBe('exec');
       expect(req.args).toContain('-C');
       expect(req.args).toContain(tmpDir);
-      expect(req.args).toContain('-m');
-      // Default implement model mapped from sonnet -> o3-mini
-      expect(req.args).toContain('o3-mini');
+      // No Claude default is translated to a Codex model. Codex chooses its
+      // signed-in account default until the project explicitly selects one.
+      expect(req.args).not.toContain('-m');
       expect(req.args).toContain('--approve-for-me');
       expect(req.args).not.toContain('-s');
       expect(req.args).toContain('--json');
@@ -187,7 +187,7 @@ describe('Codex Runner Integration', () => {
       expect(req.args).toContain('-s');
       expect(req.args).toContain('read-only');
       expect(req.args).toContain('--json');
-      expect(req.args).toContain('o3-mini');
+      expect(req.args).not.toContain('-m');
       expect(req.stdout).toBe(path.join(tmpDir, 'docs', 'test-task', 'logs', 'test-audit.json'));
       expect(req.stderr).toBe(path.join(tmpDir, 'docs', 'test-task', 'logs', 'test-audit.err'));
     });
