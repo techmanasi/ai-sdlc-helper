@@ -346,7 +346,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     if (/model.*(?:not supported|unknown|invalid|not found)/i.test(failure.summary)) {
       harness.catalog?.invalidateCache();
     }
-    ctx.out(`   !! agent '${name}' failed, see ${base}.log`);
+    ctx.out(`   !! agent '${name}' failed, see ${ctx.log}/${name}.log`);
     if (stage === 'test-repair') resumeHint(ctx);
     if (failure.summary) {
       ctx.out(`      failure (exit ${rc}): ${failure.summary}`);
@@ -355,7 +355,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
       if (d !== failure.summary) ctx.out(`      ${d}`);
     }
     if (fs.existsSync(`${base}.err`) && fs.statSync(`${base}.err`).size > 0) {
-      ctx.out(`      see ${base}.err`);
+      ctx.out(`      see ${ctx.log}/${name}.err`);
     }
     stop(ctx, `agent '${name}' failed: ${failure.summary}`, 1);
   }
