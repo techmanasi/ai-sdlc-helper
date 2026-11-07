@@ -10,7 +10,7 @@ export const COLUMNS = ['Backlog', 'Spec', 'Plan', 'Red tests', 'Implement', 'Te
 
 /** The column a run's card sits in: its stage; Finalise when done, committing, or finalising; Backlog before any stage. */
 export function columnOf(r: RunCard): string {
-  if (r.state === 'done' || r.stage === 'Finalise' || r.stage === '6/6 Finalise' || r.stage === 'Commit' || r.stage === 'Ship') return 'Finalise';
+  if (r.state === 'done' || r.stage === 'Finalise' || r.stage === '6/6 Finalise') return 'Finalise';
   return COLUMNS.includes(r.stage) ? r.stage : 'Backlog';
 }
 

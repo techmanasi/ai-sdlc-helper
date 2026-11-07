@@ -1,4 +1,4 @@
-// The pipeline command: one SDLC run (Spec to Ship) for a backlog item, in a project checkout.
+// The pipeline command: one SDLC run (Spec to Finalise) for a backlog item, in a project checkout.
 import path from 'node:path';
 import { forceOf } from '../config/settings.js';
 import { runPipeline } from '../pipeline/run.js';

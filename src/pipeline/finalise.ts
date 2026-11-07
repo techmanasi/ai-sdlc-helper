@@ -388,8 +388,6 @@ export function finalise(o: FinaliseOptions): FinaliseResult {
   const lines = skipped.map(s => `- ${s.path}: ${s.reason}`);
   const skippedFile = path.join(root, log, 'finalise-skipped.md');
   fs.writeFileSync(skippedFile, lines.map(l => `${l}\n`).join(''));
-  // Backward compatibility alias for any existing logs reader
-  fs.writeFileSync(path.join(root, log, 'ship-skipped.md'), lines.map(l => `${l}\n`).join(''));
 
   if (lines.length) { o.out('Skipped:'); for (const l of lines) o.out(l); }
   o.out('');
@@ -458,7 +456,3 @@ export function finalise(o: FinaliseOptions): FinaliseResult {
 
   return { committed: include.length, pr: prUrl };
 }
-
-// Backward-compatible alias
-export const ship = (o: FinaliseOptions): number => finalise(o).committed;
-export type ShipOptions = FinaliseOptions;

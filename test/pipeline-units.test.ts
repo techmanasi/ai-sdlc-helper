@@ -6,7 +6,7 @@ import { snapshot } from '../src/changes/index.js';
 import { Git } from '../src/pipeline/git.js';
 import { envModels, providerEnv, resolveProvider, stageModel, stageModels, type ModelEnv } from '../src/pipeline/models.js';
 import { manualInput, renderPrompt } from '../src/pipeline/prompts.js';
-import { ship } from '../src/pipeline/ship.js';
+import { finalise } from '../src/pipeline/finalise.js';
 import { Status } from '../src/pipeline/status.js';
 import { autoAcceptQuestions, formatCheckFailures, isAutoAccept } from '../src/pipeline/stages.js';
 import type { AgentRequest } from '../src/pipeline/agent.js';
@@ -186,11 +186,11 @@ describe('status file', () => {
   });
 });
 
-describe('Ship', () => {
+describe('Finalise', () => {
   const sh = (dir: string, ...args: string[]) => spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
   const put = (dir: string, f: string, text = 'x\n') => write(dir, f, text);
   function repo() {
-    const dir = tmp('sdlc-ship-');
+    const dir = tmp('sdlc-finalise-');
     sh(dir, 'init', '-q');
     sh(dir, 'config', 'user.email', 't@t');
     sh(dir, 'config', 'user.name', 't');
@@ -207,10 +207,10 @@ describe('Ship', () => {
   }
   const BASE = 'Docs/backlog/alpha/logs/baseline.json';
   const baseline = (dir: string) => snapshot(path.join(dir, BASE), { root: dir });
-  const doShip = (dir: string) => {
+  const doFinalise = (dir: string) => {
     let out = '';
-    const n = ship({ git: new Git(dir), slug: 'alpha', docs: 'Docs/backlog/alpha', baseline: BASE, backlog: 'Docs/backlog/index.md', out: l => { out += `${l}\n`; }, err: l => { out += `${l}\n`; } });
-    return { n, out };
+    const res = finalise({ git: new Git(dir), slug: 'alpha', docs: 'Docs/backlog/alpha', baseline: BASE, backlog: 'Docs/backlog/index.md', out: l => { out += `${l}\n`; }, err: l => { out += `${l}\n`; } });
+    return { n: res.committed, out };
   };
   const log = (dir: string) => sh(dir, 'log', '--format=%s').stdout.trim().split('\n');
 
@@ -220,7 +220,7 @@ describe('Ship', () => {
     put(dir, 'scripts/new.sh');
     put(dir, 'README.md', 'changed\n');
     put(dir, 'server/a.js');
-    const r = doShip(dir);
+    const r = doFinalise(dir);
     expect(log(dir).slice(0, 2)).toEqual(['chore(backlog): mark alpha done', 'feat(alpha): implement per Docs/backlog/alpha/specs-1.md']);
     const body = sh(dir, 'log', '-2', '--format=%b').stdout;
     for (const f of ['scripts/new.sh', 'README.md', 'server/a.js']) expect(body).toContain(f);
@@ -241,7 +241,7 @@ describe('Ship', () => {
     put(dir, 'server/a.js');
     put(dir, 'server/.env.local', 'SECRET=1\n');
     put(dir, '.env', 'A=1\nTOKEN=topsecret\n');
-    const r = doShip(dir);
+    const r = doFinalise(dir);
     expect(sh(dir, 'status', '--porcelain').stdout.split('\n').filter(Boolean).sort()).toEqual([' M dev.txt', '?? mine.txt', '?? server/.env.local', 'A  staged.txt'].sort());
     expect(sh(dir, 'show', '--name-only', '--format=', 'HEAD~1').stdout).not.toContain('staged.txt');
     expect(read(dir, 'Docs/backlog/alpha/logs/finalise-skipped.md')).toBe('- server/.env.local: sensitive file\n');
@@ -254,7 +254,7 @@ describe('Ship', () => {
   test('warns with nothing to commit, with a slug missing from the backlog, and with a backlog file dirty at baseline', () => {
     let dir = repo();
     baseline(dir);
-    let r = doShip(dir);
+    let r = doFinalise(dir);
     expect(r.out).toContain('WARNING: nothing to commit');
     expect(log(dir).some(s => s.startsWith('feat('))).toBe(false);
 
@@ -263,7 +263,7 @@ describe('Ship', () => {
     sh(dir, 'commit', '-q', '-am', 'swap');
     baseline(dir);
     put(dir, 'server/a.js');
-    r = doShip(dir);
+    r = doFinalise(dir);
     expect(r.out).toContain('WARNING: alpha not found in Docs/backlog/index.md; not ticked');
     expect(log(dir).some(s => s.startsWith('chore(backlog)'))).toBe(false);
 
@@ -271,7 +271,7 @@ describe('Ship', () => {
     put(dir, 'Docs/backlog/index.md', '- [ ] `alpha` - thing\n# mine\n');
     baseline(dir);
     put(dir, 'server/a.js');
-    r = doShip(dir);
+    r = doFinalise(dir);
     expect(read(dir, 'Docs/backlog/index.md')).toBe('- [x] `alpha` - thing\n# mine\n');
     expect(log(dir).some(s => s.startsWith('chore(backlog)'))).toBe(false);
     expect(r.out).toContain('WARNING: Docs/backlog/index.md had local changes before the run; ticked alpha but not committed');
@@ -283,7 +283,7 @@ describe('Ship', () => {
     put(dir, 'server/a.js');
     fs.mkdirSync(path.join(dir, '.git/hooks'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.git/hooks/pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-    expect(() => doShip(dir)).toThrow(/git commit/);
+    expect(() => doFinalise(dir)).toThrow(/git commit/);
   });
 });
 

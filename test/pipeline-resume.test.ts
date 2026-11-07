@@ -49,7 +49,7 @@ describe('Test repair', () => {
   // The red test expects sum(2, 3) to be 6; the Implement agent claims it contradicts the spec.
   const CLAIMING = { FAKE_EXPECT: '6', FAKE_CLAIM: '1', MAX_ATTEMPTS: '1' };
 
-  test('a failed repair agent says how to resume; the resumed run locks the tests at the branch head and ships', async () => {
+  test('a failed repair agent says how to resume; the resumed run locks the tests at the branch head and finalises', async () => {
     const f = fixture();
     let r = await pipeline(f, { ...CLAIMING, FAKE_REPAIR_FAILS: '1' });
     expect(r.status).toBe(1);
