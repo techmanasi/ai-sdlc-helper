@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
-  restart, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, syncPrComments, type Outcome, type RunContext,
+  restart, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, syncPrComments, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -397,6 +397,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
     let last = '';
     let ticks = 0;
+    const counts = new Map<string, RunCard['changes']>();
     let busy = false;
     const push = () => {
       if (busy) return;
@@ -404,7 +405,14 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       try {
         // File counts need git, so they are refreshed every fifth read; the rest of the board every read.
         const t0 = performance.now();
-        const board = boardView(contextFor(p), { changes: ticks++ % 5 === 0 });
+        const fresh = ticks++ % 5 === 0;
+        const board = boardView(contextFor(p), { changes: fresh });
+        // The counts come from the last read between the refreshes, so a card does not lose them on 4 of 5 ticks.
+        const seen = new Map<string, RunCard['changes']>();
+        for (const r of board.runs) {
+          if (fresh) seen.set(r.slug, r.changes); else r.changes = counts.get(r.slug) ?? null;
+        }
+        if (fresh) { counts.clear(); for (const [k, v] of seen) counts.set(k, v); }
         const text = JSON.stringify(board);
         const changed = text !== last;
         trace({ action: 'timer:board-rebuild', why: 'pollMs', run: p.name, ms: Math.round((performance.now() - t0) * 1000) / 1000, changed, n: ticks });
