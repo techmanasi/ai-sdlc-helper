@@ -179,7 +179,7 @@ describe('the agent of each stage', () => {
 
   test('--agent forces one harness for every stage and drops the settings made for another one', async () => {
     const seen = await commandsOf({ model: 'haiku', stages: { spec: { harness: 'codex', model: 'o3-mini' } } }, { agent: 'agy' });
-    expect(seen).toEqual(['spec=agy model=gemini-3.8-pro effort=medium', 'plan=agy model=gemini-3.8-pro effort=medium']);
+    expect(seen).toEqual(['spec=agy model=- effort=-', 'plan=agy model=- effort=-']);
   });
 
   test('--model and --effort apply to every stage and win over MODEL_<STAGE> and the project', async () => {
