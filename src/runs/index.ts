@@ -352,7 +352,7 @@ export async function discardStage(ctx: RunContext, slug: string, opts: StageDis
     fs.rmSync(path.join(wt, file), { recursive: true, force: true });
   }
   fs.appendFileSync(path.join(wt, ctx.backlogDir, slug, 'logs', 'run.out'), `stage ${stage} discarded; ready to retry\n`);
-  return ok(`Discarded uncommitted changes from ${stage} in ${wt}. Resume with: ai-sdlc-helper start ${slug} --from ${stage}`);
+  return ok(`Discarded uncommitted changes from ${stage} in ${wt}; ready to retry. Resume with: ai-sdlc-helper start ${slug} --from ${stage}`);
 }
 
 /**
