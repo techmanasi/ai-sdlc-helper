@@ -10,7 +10,7 @@ import { exists } from '../util.js';
 import { answerQuestions, parseQuestions } from '../runs/view.js';
 import { at, stamp, stop, stopIfAborted, tick, type Ctx } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agent.js';
-import { resultsAt, resultsNow, successCheck, targetTestFiles, testsPass } from './gates.js';
+import { newTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass } from './gates.js';
 import { renderPrompt } from './prompts.js';
 import { resumeCommand, resumeHint } from './hints.js';
 import { finalise } from './finalise.js';
@@ -180,7 +180,11 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   ctx.status.write();
   await runAgent(ctx, 'tests', 'red-tests');
   await tick();
-  if (testsPass(ctx)) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
+  // Only the tests this task added or changed are run: the rest of the suite is slow, and an unrelated failure there
+  // must not make a new test that passes look red.
+  const added = newTestFiles(ctx);
+  if (added.length === 0) stop(ctx, `RED GATE FAILED: the Red tests agent added or changed no test file. See ${ctx.log}/tests.log`);
+  if (testsPass(ctx, { targetFiles: added, onlyTargets: true })) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
   await tick();
   ctx.git.run('add', '-A', '--', ctx.docs);
   ctx.git.addTests(ctx.layout.testPathspecs);
