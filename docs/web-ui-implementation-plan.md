@@ -14,7 +14,7 @@ Things on every screen, so developers keep full control:
 - Each panel names the file it reads (`Docs/backlog/<slug>/logs/status.json` …) and has **Edit raw**.
 - Each action shows its CLI equivalent (`$ ai-sdlc-helper start …`) with Copy.
 - A ⌘K command palette in the top bar.
-- Run environment overrides the engine already reads: `SDLC_BASE`, `MODEL_<STAGE>`/`EFFORT_<STAGE>`, `SDLC_LIMIT_RETRY`, `SDLC_LIMIT_MAX_WAIT`, `SDLC_DEP_SCRIPTS`, `SDLC_MAX_PARALLEL`, `SDLC_ALLOW_MERGED`.
+- Run environment overrides the engine already reads: `SDLC_BASE`, `MODEL_<STAGE>`/`EFFORT_<STAGE>`, `SDLC_DEP_SCRIPTS`, `SDLC_MAX_PARALLEL`, `SDLC_ALLOW_MERGED`.
 - Controls the engine cannot back yet are drawn but disabled, tagged `Future · E-n`.
 
 The boards (index already written; each file is written and published one at a time):

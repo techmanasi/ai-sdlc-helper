@@ -185,12 +185,6 @@ export function extractAgentFailure(base: string, rc: number): AgentFailureInfo 
   return { summary, details: details.slice(0, 10) };
 }
 
-/** Legacy configuration parser retained for compatibility; usage limits now stop immediately. */
-export function limitWait(env: NodeJS.ProcessEnv): { retry: number; maxWait: number } {
-  const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : d);
-  return { retry: num(env.SDLC_LIMIT_RETRY, 300), maxWait: num(env.SDLC_LIMIT_MAX_WAIT, 21600) };
-}
-
 /** Plan reads the published docs and type definitions of a new library from the web (it is installed only in Implement). */
 export const PLAN_TOOLS = ['WebFetch', 'WebSearch', 'mcp__context7'];
 
