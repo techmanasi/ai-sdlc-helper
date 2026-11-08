@@ -25,6 +25,7 @@ cat "${dir}/out.json"
 }
 const answer = (state: string) => fs.writeFileSync(path.join(dir, 'out.json'), JSON.stringify({ url: 'https://github.com/o/r/pull/7', state, number: 7 }));
 const starts = (): number => { try { return fs.readFileSync(path.join(dir, 'gh.log'), 'utf8').split('\n').filter(l => l === '+').length; } catch { return 0; } };
+const ends = (): number => { try { return fs.readFileSync(path.join(dir, 'gh.log'), 'utf8').split('\n').filter(l => l === '-').length; } catch { return 0; } };
 const maxAtOnce = (): number => {
   let n = 0; let max = 0;
   for (const l of fs.readFileSync(path.join(dir, 'gh.log'), 'utf8').split('\n')) { if (l === '+') max = Math.max(max, ++n); else if (l === '-') n--; }
@@ -44,10 +45,9 @@ afterEach(() => { vi.useRealTimers(); });
 
 describe('PR status without blocking', () => {
   test('a cold read answers pending at once, the refresh runs in the background, and the next read has the value and its age', async () => {
-    ghShim(0.6);
-    const t0 = Date.now();
+    ghShim(2);
     const first = getPrStatusCached(dir, 'branch-a', env);
-    expect(Date.now() - t0).toBeLessThan(300);
+    expect(ends()).toBe(0); // answered while gh was still running
     expect(first).toMatchObject({ status: null, pending: true, ageMs: null });
     await until(() => getPrStatusCached(dir, 'branch-a', env).status !== null);
     const second = getPrStatusCached(dir, 'branch-a', env);
@@ -106,7 +106,8 @@ describe('PR status without blocking', () => {
     getPrStatusCached(dir, 'e', env); // refresh finds the same value
     vi.useRealTimers();
     await until(() => starts() === 2);
-    await new Promise(r => setTimeout(r, 1000)); // the refresh is over; it found the same value
+    await until(() => ends() === 2);
+    await new Promise(r => setTimeout(r, 200)); // gh has exited; let its result reach the listeners
     expect(seen).toEqual(['e:OPEN']);
     answer('MERGED');
     vi.useFakeTimers({ toFake: ['Date'] });

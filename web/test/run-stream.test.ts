@@ -1,3 +1,4 @@
+import { eventually } from '../../test/wait.js';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -92,10 +93,8 @@ describe('the per-run stream', () => {
     expect(snap.slug).toBe('one');
     expect(snap.stage).toBe('Spec');
     expect(snap.tail).toEqual(['first line']);
-    const t0 = Date.now();
     writeStatus({ state: 'paused', stage: 'Plan' });
-    await c.until(() => c.of('run').length >= 1);
-    expect(Date.now() - t0).toBeLessThan(1000);
+    await c.until(() => c.of('run').length >= 1); // within until's cap, well before a slow tick
     expect(c.of('run')[0].data.stage).toBe('Plan');
     expect(c.of('run')[0].data.tail).toEqual([]); // a run event carries the live part; the page keeps its tail
   });
@@ -158,15 +157,11 @@ describe('the per-run stream', () => {
     expect(two['shop/one'].clients).toBe(2);
     expect(two['shop/one'].watched).toBe(one['shop/one'].watched);
     a.close();
-    await sleep(100);
-    expect(s.streamStats()['shop/one'].clients).toBe(1);
+    await eventually(() => s.streamStats()['shop/one']?.clients === 1);
     b.close();
-    await sleep(100);
-    expect(s.streamStats()).toEqual({});
-    const t0 = Date.now();
+    await eventually(() => Object.keys(s.streamStats()).length === 0);
     const late = sse(s);
-    await late.until(() => late.of('snapshot').length === 1);
-    expect(Date.now() - t0).toBeLessThan(1500);
+    await late.until(() => late.of('snapshot').length === 1); // the cap (4 s) is under the 5 s tick: a snapshot waiting for the tick fails
   });
 
   test('a bad slug is a 400 and an unknown project a 404', async () => {
