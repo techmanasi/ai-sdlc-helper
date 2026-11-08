@@ -44,7 +44,7 @@ export class AgyHarness implements AgentHarness {
     }
 
     if (opts.allowedCommands.length > 0) {
-      const perms = opts.allowedCommands.map(cmd => `command(${cmd})`);
+      const perms = opts.allowedCommands.map(agyRule);
       args.push('--settings', JSON.stringify({ permissions: { allow: perms } }));
     }
 
@@ -99,4 +99,15 @@ export class AgyHarness implements AgentHarness {
       rawJson,
     };
   }
+}
+
+/**
+ * A permission rule in agy's words. The pipeline's rules are Claude tool names: a bare "Bash" means every shell command and
+ * "Bash(<target>)" one target. agy asks for "command" permissions and only reads command(<target>), with command(*) for
+ * every command; a rule such as command(Bash) matches nothing, so the run was refused again after the user allowed it.
+ */
+export function agyRule(rule: string): string {
+  if (rule === 'Bash') return 'command(*)';
+  const target = rule.match(/^Bash\((.*)\)$/);
+  return `command(${target ? target[1] : rule})`;
 }

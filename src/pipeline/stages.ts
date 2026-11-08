@@ -15,6 +15,7 @@ import { renderPrompt } from './prompts.js';
 import { resumeCommand, resumeHint } from './hints.js';
 import { finalise } from './finalise.js';
 import { installDeps } from './deps.js';
+import { withAnswerLines } from './questions.js';
 
 const short = (sha: string) => sha.slice(0, 7);
 export const redPattern = (slug: string) => `^test(${slug}): add failing tests`;
@@ -98,10 +99,11 @@ export function autoAcceptQuestions(file: string): void {
  * An answered questions.md becomes the next round in decisions.md (so nothing is asked twice) and is removed; an
  * unanswered one pauses the run (exit 2).
  */
-function recordAnswers(ctx: Ctx): void {
+export function recordAnswers(ctx: Ctx): void {
   const questions = at(ctx, `${ctx.docs}/questions.md`);
   const decisions = at(ctx, `${ctx.docs}/decisions.md`);
   if (!exists(questions)) return;
+  fs.writeFileSync(questions, withAnswerLines(fs.readFileSync(questions, 'utf8')));
   const total = countLines(questions, /^### Q/);
   const answered = countLines(questions, /^\*\*Answer:\*\*\s*\S/);
   if (total === 0 || answered < total) {

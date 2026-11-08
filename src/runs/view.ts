@@ -11,6 +11,7 @@ import { projectSlugs, runChanges, runWorktree, type RunContext } from './index.
 import { getPrFromBrief, getPrStatusCached } from '../pipeline/finalise.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
+import { withAnswerLines } from '../pipeline/questions.js';
 import { redPattern } from '../pipeline/stages.js';
 
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused';
@@ -107,10 +108,11 @@ export function parseQuestions(text: string): Question[] {
 export function answerQuestions(file: string, answers: Record<string, string>): { total: number; answered: number } {
   const text = readText(file);
   if (text === null) throw new Error(`no questions to answer: ${file} is missing`);
-  const numbers = new Set(parseQuestions(text).map(q => q.n));
+  const withLines = withAnswerLines(text);
+  const numbers = new Set(parseQuestions(withLines).map(q => q.n));
   for (const k of Object.keys(answers)) if (!numbers.has(Number(k))) throw new Error(`there is no question ${k}`);
   let n = 0;
-  const lines = text.split('\n').map(line => {
+  const lines = withLines.split('\n').map(line => {
     const head = line.match(/^### Q(\d+):/);
     if (head) n = Number(head[1]);
     const a = (answers[String(n)] ?? '').replace(/\s*\r?\n\s*/g, ' ').trim();
