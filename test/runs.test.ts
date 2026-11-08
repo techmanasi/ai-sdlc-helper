@@ -428,6 +428,9 @@ describe('discard and restart', () => {
     expect(fs.existsSync(path.join(docs, 'logs/status.json'))).toBe(true);
     const marks = JSON.parse(fs.readFileSync(path.join(docs, 'logs/stage-files.json'), 'utf8'));
     expect(Object.keys(marks.stages).sort()).toEqual(['Plan', 'Spec']); // Red tests is forgotten
+    expect(JSON.parse(fs.readFileSync(path.join(docs, 'logs/status.json'), 'utf8')).stage).toBe('Plan'); // the run stands at Plan now: it is the one to discard next
+    expect((await cli(['discard-stage', 'alpha', '--from', 'spec'])).status).toBe(2);
+    expect((await cli(['discard-stage', 'alpha', '--from', 'plan'])).status).toBe(0);
   });
 
   test('discard works when the worktree was deleted by hand, and uses the record\'s path when the settings changed', async () => {
