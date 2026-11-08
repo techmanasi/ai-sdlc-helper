@@ -464,9 +464,18 @@ export function Run({ slug }: { slug: string }) {
           {confirm === 'discard'
             ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Discard', () => api.discard(project, slug))}>{busy === 'Discard' ? <><Spinner /> Discarding…</> : 'Confirm discard'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
             : <button class="btn btn-d" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('discard')}>Discard run…</button>}
+          {v.state !== 'not started' && v.state !== 'running' && v.resumeFrom && (
+            confirm === 'discard-stage'
+              ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act(`Retry ${v.stage}`, async () => {
+                const r = await api.discardStage(project, slug, v.resumeFrom);
+                return r.resumed && !r.resumed.ok ? r.resumed : r;
+              })}>{busy === `Retry ${v.stage}` ? <><Spinner /> Retrying…</> : `Confirm: discard ${v.stage} and retry`}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
+              : <button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('discard-stage')}>Discard {v.stage} changes and retry…</button>
+          )}
         </div>
         {confirm === 'restart' && <p class="small s-failed" style={{ margin: 0 }}>Deletes the worktree at {v.worktree || 'its folder'} and the branch {v.branch} (its tip is saved), then starts over from Spec.</p>}
         {confirm === 'discard' && <p class="small s-failed" style={{ margin: 0 }}>Deletes the worktree at {v.worktree || 'its folder'}, the branch {v.branch} (its tip is saved) and the run record.</p>}
+        {confirm === 'discard-stage' && <p class="small s-failed" style={{ margin: 0 }}>Restores uncommitted files from {v.stage}, preserves earlier commits and logs, then resumes that stage.</p>}
       </div>
       <Cli args={startArgs} />
       {envArgs.length > 0 && <p class="mono small muted" style={{ margin: 0 }}>with {envArgs.join(' ')}</p>}

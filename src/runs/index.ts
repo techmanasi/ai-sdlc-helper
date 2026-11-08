@@ -323,6 +323,37 @@ export async function stop(ctx: RunContext, slug: string): Promise<Outcome> {
 }
 
 export interface DiscardOptions { yes?: boolean; stop?: boolean }
+export interface StageDiscardOptions { stage?: string; stop?: boolean }
+
+const stageKey = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, '-').replace(/^\d+[a-z]?\//, '');
+
+/** Restore only the current stage's uncommitted work, preserving prior commits and the run logs. */
+export async function discardStage(ctx: RunContext, slug: string, opts: StageDiscardOptions = {}): Promise<Outcome> {
+  const rec = readRecord(ctx.reg, slug);
+  const wt = rec?.worktree || path.join(ctx.wtBase, slug);
+  if (!isDir(wt)) return fail(1, `No worktree for ${slug}`);
+  if (isRunning(rec)) {
+    if (!opts.stop) return fail(4, `${slug} is running: stop it first, or pass --stop`);
+    if (!await stopRun(ctx, slug, rec!)) return fail(1, `could not stop ${slug} (pid ${rec!.pid})`);
+  }
+  const statusFile = path.join(wt, ctx.backlogDir, slug, 'logs', 'status.json');
+  let status: { stage?: string } = {};
+  try { status = JSON.parse(fs.readFileSync(statusFile, 'utf8')); } catch { /* use requested stage */ }
+  const stage = stageKey(opts.stage || status.stage || '');
+  if (!stage) return fail(2, `Could not determine the current stage for ${slug}; pass --stage <stage>`);
+  const tracked = git(wt, ['diff', '--name-only', '-z', 'HEAD'], ctx.env).stdout.split('\0').filter(Boolean);
+  const staged = git(wt, ['diff', '--cached', '--name-only', '-z'], ctx.env).stdout.split('\0').filter(Boolean);
+  const files = [...new Set([...tracked, ...staged])];
+  if (files.length) git(wt, ['restore', '--source=HEAD', '--staged', '--worktree', '--', '.'], ctx.env);
+  const logsPrefix = `${ctx.backlogDir}/${slug}/logs/`;
+  const untracked = git(wt, ['ls-files', '--others', '--exclude-standard', '-z'], ctx.env).stdout.split('\0').filter(Boolean);
+  for (const file of untracked) {
+    if (file.startsWith(logsPrefix)) continue;
+    fs.rmSync(path.join(wt, file), { recursive: true, force: true });
+  }
+  fs.appendFileSync(path.join(wt, ctx.backlogDir, slug, 'logs', 'run.out'), `stage ${stage} discarded; ready to retry\n`);
+  return ok(`Discarded uncommitted changes from ${stage} in ${wt}. Resume with: ai-sdlc-helper start ${slug} --from ${stage}`);
+}
 
 /**
  * Deletes what a run left behind: its worktree (the path in its record, even when the settings changed since), its

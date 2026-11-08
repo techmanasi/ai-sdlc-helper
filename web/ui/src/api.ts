@@ -179,6 +179,7 @@ export const api = {
   start: (project: string, slug: string, from?: string, env?: Record<string, string>) => call<Outcome>('POST', `${r(project, slug)}/start`, { from, env }),
   stop: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/stop`, {}),
   discard: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/discard`, { stop: true }),
+  discardStage: (project: string, slug: string, stage?: string) => call<Outcome & { resumed?: Outcome }>('POST', `${r(project, slug)}/discard-stage`, { stage, stop: true }),
   restart: (project: string, slug: string, from?: string, env?: Record<string, string>) => call<Outcome>('POST', `${r(project, slug)}/restart`, { from, env }),
   answers: (project: string, slug: string, answers: Record<number, string>, env?: Record<string, string>) =>
     call<{ total: number; answered: number; resumed: Outcome | null }>('POST', `${r(project, slug)}/answers`, { answers, env }),

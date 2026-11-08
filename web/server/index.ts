@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
-  restart, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, syncPrComments, type Outcome, type RunContext,
+  restart, discardStage, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, syncPrComments, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -287,6 +287,12 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       if (action === 'start') return send(200, outcome(start(ctx, slug, { from: fromOf(body.from) })));
       if (action === 'stop') return send(200, outcome(await stop(ctx, slug)));
       if (action === 'discard') return send(200, outcome(await discard(ctx, slug, { yes: true, stop: body.stop === true })));
+      if (action === 'discard-stage') {
+        const d = await discardStage(ctx, slug, { stage: typeof body.stage === 'string' ? body.stage : undefined, stop: body.stop === true });
+        if (d.code !== 0 || body.resume === false) return send(200, outcome(d));
+        const resumed = start(ctx, slug, { from: typeof body.stage === 'string' ? body.stage : undefined });
+        return send(200, { ...outcome(d), resumed: outcome(resumed) });
+      }
       if (action === 'restart') return send(200, outcome(await restart(ctx, slug, { yes: true, from: fromOf(body.from) })));
       if (action === 'options') {
         const v = runView(ctx, slug, { changes: false, tailLines: 0 });

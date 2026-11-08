@@ -4,13 +4,13 @@ import { gitRoot, projectDir } from '../registry/projects.js';
 import { SLUG, STAGES } from '../runs/records.js';
 import { forceOf } from '../config/settings.js';
 import {
-  allChanges, discard, restart, runChanges, runContext, runWorktree, start, statusLines, statusRecords, stillGoing, stop, watchDir, watchFrame,
+  allChanges, discard, discardStage, restart, runChanges, runContext, runWorktree, start, statusLines, statusRecords, stillGoing, stop, watchDir, watchFrame,
   type Outcome, type RunContext,
 } from '../runs/index.js';
 import type { ParsedArgs } from './args.js';
 import type { Io } from './main.js';
 
-export const RUNS_COMMANDS = ['start', 'stop', 'restart', 'discard', 'status', 'watch'];
+export const RUNS_COMMANDS = ['start', 'stop', 'restart', 'discard', 'discard-stage', 'status', 'watch'];
 export const RUNS_VALUED = ['--from', '--project', '--agent', '--model', '--effort'];
 export const RUNS_FLAGS = ['--follow', '--stop', '--all'];
 
@@ -22,6 +22,8 @@ export const RUNS_USAGE = `
   restart <slug> [--from <stage>] [--agent <agent>] [--model <model>] [--effort <effort>] [--yes]
                                    stop, discard and start again from scratch (without --yes: show what goes, exit 6)
   discard <slug> [--yes] [--stop]  delete its worktree, branch and run record; the branch tip is saved first
+  discard-stage <slug> [--from <stage>] [--stop]
+                                   restore uncommitted changes from the stage and leave the run ready to retry
   status [--json]                  one line per recorded run
   watch <slug> [--follow [seconds]]
                                    its status.json, run state, uncommitted files and the end of run.out;
@@ -81,6 +83,7 @@ export async function runs(a: ParsedArgs, io: Io): Promise<number> {
       case 'stop': return print(io, await stop(ctx, slug));
       case 'restart': return print(io, await restart(ctx, slug, { from, force, yes: a.flag('--yes') }));
       case 'discard': return print(io, await discard(ctx, slug, { yes: a.flag('--yes'), stop: a.flag('--stop') }));
+      case 'discard-stage': return print(io, await discardStage(ctx, slug, { stage: from, stop: a.flag('--stop') }));
       default: { // watch
         const seconds = extra[0] === undefined ? 3 : Number(extra[0]);
         if (!/^\d+(\.\d+)?$/.test(extra[0] ?? '3') || !(seconds > 0)) { io.err(`Invalid interval '${extra[0]}': a positive number of seconds`); return 2; }

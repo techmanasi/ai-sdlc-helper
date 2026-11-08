@@ -376,6 +376,20 @@ describe('discard and restart', () => {
     expect((await cli(['discard', 'alpha', '--nope'])).status).toBe(2);
   });
 
+  test('discard-stage restores uncommitted stage files but preserves the worktree and branch', async () => {
+    expect((await cli(['start', 'alpha'])).status).toBe(0);
+    await finished('alpha');
+    const wt = path.join(wts, 'alpha');
+    fs.writeFileSync(path.join(wt, 'stage-change.txt'), 'temporary\n');
+    expect(fs.existsSync(path.join(wt, 'stage-change.txt'))).toBe(true);
+    const r = await cli(['discard-stage', 'alpha', '--from', 'implement']);
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(path.join(wt, 'stage-change.txt'))).toBe(false);
+    expect(fs.existsSync(wt)).toBe(true);
+    expect(git(repo, 'show-ref', '--verify', '--quiet', 'refs/heads/sdlc/alpha')).toBe('');
+    expect(r.stdout).toContain('ready to retry');
+  });
+
   test('discard works when the worktree was deleted by hand, and uses the record\'s path when the settings changed', async () => {
     const { wt } = await finishedRunWithWork();
     fs.rmSync(wt, { recursive: true, force: true });
