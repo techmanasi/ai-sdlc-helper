@@ -1,7 +1,6 @@
 // Stage agents: headless `claude -p` with the stage's prompt, model, tools and permission mode; the transcript is kept
 // and whatever the agent was refused is recorded for the developer to allow or deny.
 import fs from 'node:fs';
-import { spawn } from 'node:child_process';
 import { extract, modeFor, rulesFor } from '../permissions/index.js';
 import { toolNotes } from '../config/toolNotes.js';
 import { agentFor, harnessFor, testDir, testFramework } from '../config/settings.js';
@@ -10,6 +9,8 @@ import { modelEnvOf, modelFlags, providerEnv, stageModel } from './models.js';
 import { manualInput, prCommentsInput, renderPrompt } from './prompts.js';
 import { resumeHint } from './hints.js';
 import { DefaultHarnessRegistry } from './harness/registry.js';
+export { spawnAgentProcess, spawnClaude } from './agent-process.js';
+export type { AgentRequest, AgentSpawn } from './agent-process.js';
 
 const defaultRegistry = new DefaultHarnessRegistry();
 
@@ -169,54 +170,16 @@ export function extractAgentFailure(base: string, rc: number): AgentFailureInfo 
   return { summary, details: details.slice(0, 10) };
 }
 
-/** How long a usage limit is waited out: SDLC_LIMIT_RETRY seconds between tries (300), SDLC_LIMIT_MAX_WAIT in all (6 h). */
+/** Legacy configuration parser retained for compatibility; usage limits now stop immediately. */
 export function limitWait(env: NodeJS.ProcessEnv): { retry: number; maxWait: number } {
   const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : d);
   return { retry: num(env.SDLC_LIMIT_RETRY, 300), maxWait: num(env.SDLC_LIMIT_MAX_WAIT, 21600) };
 }
 
-/** Waits <seconds>, or less when the run is aborted. */
-const sleep = (seconds: number, signal?: AbortSignal) => new Promise<void>(resolve => {
-  const t = setTimeout(done, seconds * 1000);
-  function done() { clearTimeout(t); signal?.removeEventListener('abort', done); resolve(); }
-  signal?.addEventListener('abort', done);
-});
-
 /** Plan reads the published docs and type definitions of a new library from the web (it is installed only in Implement). */
 export const PLAN_TOOLS = ['WebFetch', 'WebSearch', 'mcp__context7'];
 
 /** One agent process: command, arguments, and the files its output goes to (one file when both are the same). */
-export interface AgentRequest {
-  command?: string;
-  args: string[];
-  cwd: string;
-  env: NodeJS.ProcessEnv;
-  stdout: string;
-  stderr: string;
-  signal?: AbortSignal;
-}
-
-/** Starts an agent and resolves with its exit code. Tests pass a stand-in. */
-export type AgentSpawn = (req: AgentRequest) => Promise<number>;
-
-/** Runs an agent process (`claude`, `codex`, `agy`, etc. from the request environment's PATH). */
-export const spawnClaude: AgentSpawn = req => new Promise(resolve => {
-  const out = fs.openSync(req.stdout, 'w');
-  const err = req.stderr === req.stdout ? out : fs.openSync(req.stderr, 'w');
-  let done = false;
-  const finish = (code: number) => {
-    if (done) return;
-    done = true;
-    fs.closeSync(out);
-    if (err !== out) fs.closeSync(err);
-    resolve(code);
-  };
-  const bin = req.command || 'claude';
-  const child = spawn(bin, req.args, { cwd: req.cwd, env: req.env, stdio: ['ignore', out, err], signal: req.signal });
-  child.on('error', e => { try { fs.writeSync(err, `${e.message}\n`); } catch { /* closed */ } finish(127); });
-  child.on('close', code => finish(code === null ? 1 : code));
-});
-
 /** The {{PLACEHOLDER}} values of the run's prompts. */
 export function promptValues(ctx: Ctx): Record<string, string> {
   return {
@@ -249,22 +212,19 @@ function harnessSelection(
   ctx: Ctx,
   stage: AgentStage,
   flags: { model: string; effort: string; hasEffort: boolean },
-  harnessId: string,
+  harness: { id: string; selectStageModel?: (opts: { defaultModel: string; defaultEffort: string; hasEffort: boolean; configuredModel?: string; configuredEffort?: string }) => { model: string; effort?: string } },
 ): { model: string; effort?: string } {
-  if (harnessId === 'claude') {
-    return {
-      model: flags.model,
-      effort: flags.hasEffort ? flags.effort : undefined,
-    };
-  }
-
   const selected = agentFor(ctx.config, stage);
   const up = stage.toUpperCase().replace(/-/g, '_');
-  const explicit = ctx.force?.model || ctx.env[`MODEL_${up}`] || (selected.harness === harnessId ? selected.model : undefined) || ctx.env.SDLC_MODEL;
-  const isClaudeDefault = explicit === 'sonnet' || explicit === 'opus' || explicit === 'haiku';
-  const model = explicit && !isClaudeDefault ? explicit : '';
-  const effort = ctx.force?.effort || ctx.env[`EFFORT_${up}`] || selected.effort || ctx.env.SDLC_EFFORT;
-  return effort ? { model, effort } : { model };
+  const configuredModel = ctx.force?.model || ctx.env[`MODEL_${up}`] || (selected.harness === harness.id ? selected.model : undefined) || ctx.env.SDLC_MODEL;
+  const configuredEffort = ctx.force?.effort || ctx.env[`EFFORT_${up}`] || selected.effort || ctx.env.SDLC_EFFORT;
+  return harness.selectStageModel?.({
+    defaultModel: flags.model,
+    defaultEffort: flags.effort,
+    hasEffort: flags.hasEffort,
+    configuredModel,
+    configuredEffort,
+  }) || { model: configuredModel || '', effort: configuredEffort };
 }
 
 /**
@@ -292,7 +252,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   const harnessId = harnessFor(ctx.config, stage);
   const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
 
-  const selection = harnessSelection(ctx, stage, flags, harnessId);
+  const selection = harnessSelection(ctx, stage, flags, harness);
 
   const invocation = harness.compileStageArgs({
     prompt,
@@ -305,34 +265,18 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     maxTurns: ctx.limits.maxTurns,
   });
 
-  // A usage limit is not the agent's failure: wait for the reset and run the same agent again.
-  const { retry, maxWait } = limitWait(ctx.env);
-  let waited = 0;
-  let rc: number;
-  for (;;) {
-    rc = await ctx.spawnAgent({
-      command: invocation.command,
-      args: invocation.args,
-      cwd: ctx.root, env: { ...ctx.env, ...flags.env, ...invocation.env }, stdout: `${base}.json`, stderr: `${base}.err`, signal: ctx.signal,
-    });
-    await tick();
-    const limit = usageLimit(`${base}.json`, `${base}.err`);
-    if (!limit) break;
-    if (waited >= maxWait) {
-      ctx.status.note = '';
-      stop(ctx, `   !! agent '${name}' hit the usage limit (${limit}) and it did not reset within ${maxWait}s`, 1);
-    }
-    if (waited === 0) ctx.out(`   .. usage limit reached (${limit}): retrying '${name}' every ${retry}s`);
-    ctx.status.note = `usage limit, ${limit}`;
-    ctx.status.write();
-    await sleep(retry, ctx.signal);
-    stopIfAborted(ctx);
-    waited += retry;
-  }
-  if (ctx.status.note) {
-    ctx.out(`   .. usage limit over, '${name}' ran`);
+  const rc = await ctx.spawnAgent({
+    command: invocation.command,
+    args: invocation.args,
+    cwd: ctx.root, env: { ...ctx.env, ...flags.env, ...invocation.env }, stdout: `${base}.json`, stderr: `${base}.err`, signal: ctx.signal,
+  });
+  await tick();
+  const limit = usageLimit(`${base}.json`, `${base}.err`);
+  if (limit) {
     ctx.status.note = '';
     ctx.status.write();
+    ctx.out(`   !! agent '${name}' hit the usage limit (${limit}); stopping immediately, see ${base}.err`);
+    stop(ctx, `agent '${name}' hit the usage limit: ${limit}`, 1);
   }
   let pending = 0;
   try {
@@ -346,7 +290,9 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     if (/model.*(?:not supported|unknown|invalid|not found)/i.test(failure.summary)) {
       harness.catalog?.invalidateCache();
     }
-    ctx.out(`   !! agent '${name}' failed, see ${ctx.log}/${name}.log`);
+    // `base` is rooted through `at(ctx, ...)`, so the path is actionable even
+    // when the UI/server process has a different working directory.
+    ctx.out(`   !! agent '${name}' failed, see ${base}.log`);
     if (stage === 'test-repair') resumeHint(ctx);
     if (failure.summary) {
       ctx.out(`      failure (exit ${rc}): ${failure.summary}`);
@@ -355,7 +301,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
       if (d !== failure.summary) ctx.out(`      ${d}`);
     }
     if (fs.existsSync(`${base}.err`) && fs.statSync(`${base}.err`).size > 0) {
-      ctx.out(`      see ${ctx.log}/${name}.err`);
+      ctx.out(`      see ${base}.err`);
     }
     stop(ctx, `agent '${name}' failed: ${failure.summary}`, 1);
   }
@@ -368,7 +314,7 @@ export async function runAudit(ctx: Ctx, prompt: string, flags: { args: string[]
   const logFile = at(ctx, `${ctx.log}/test-audit.log`);
   const harnessId = harnessFor(ctx.config, 'test-audit');
   const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
-  const selection = harnessSelection(ctx, 'test-audit', { model: flags.model || '', effort: flags.effort || '', hasEffort: Boolean(flags.effort) }, harnessId);
+  const selection = harnessSelection(ctx, 'test-audit', { model: flags.model || '', effort: flags.effort || '', hasEffort: Boolean(flags.effort) }, harness);
   const inv = harness.compileAuditArgs({
     prompt,
     model: selection.model,
