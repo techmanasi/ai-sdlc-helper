@@ -1,8 +1,10 @@
-// Lists the items in <backlogDir>/index.md with a derived status, and adds new ones (addBacklogItem).
+// Lists the items in <backlogDir>/index.md with a derived status, adds new ones (addBacklogItem) and edits unstarted ones.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { readSettings } from '../util.js';
+import { readRecord } from '../runs/records.js';
+import { hashOf } from '../config/edit.js';
 
 export const BACKLOG_USAGE = 'Usage: ai-sdlc-helper backlog [status[,status...]] [--status <list>] [--json]';
 export const STATUSES = ['pending', 'in-progress', 'blocked', 'parked', 'completed'] as const;
@@ -242,6 +244,187 @@ export function addBacklogItem(place: Pick<BacklogPlace, 'root' | 'backlogDir'>,
   const head = text ? (text.endsWith('\n') ? text : `${text}\n`) : '# Backlog\n\n';
   fs.writeFileSync(index, `${head}- [ ] \`${item.slug}\` - ${label}: ${title}\n`);
   return { index, brief };
+}
+
+/** What the edit checks need besides the backlog place: the run registry and the worktree base. A RunContext fits. */
+export interface EditPlace extends BacklogPlace { reg: string; wtBase: string }
+
+export interface BacklogEditView {
+  slug: string;
+  title: string;
+  type: 'feature' | 'bug';
+  priority: string | null;
+  brief: string | null;
+  marker: string;
+  status: Status;
+  archived: boolean;
+  editable: boolean;
+  reason: string;
+  hash: string;
+}
+
+export interface ItemEdit { title: string; type: string; priority?: string; brief: string; hash: string }
+export interface ItemEditResult { ok: true; index: string; brief: string; hash: string; notSaved: ('type' | 'priority')[] }
+
+/** A refused edit: <status> is the HTTP status the web server answers with; <hash> is the current version (stale edits). */
+export class BacklogEditError extends Error {
+  constructor(readonly status: 400 | 404 | 409, message: string, readonly hash?: string) { super(message); }
+}
+
+const PRIORITY_OPTIONS = ['P0 (security or data loss)', 'P1 (high)', 'P2 (normal)', 'P3 (low)'];
+
+interface Located { indexFile: string; lines: string[]; at: number; entry: IndexEntry; line: string; crlf: boolean; archived: boolean }
+
+function locateItem(place: BacklogPlace, slug: string): Located | null {
+  if (!safeSlug(slug)) return null;
+  const indexFile = path.join(place.root, place.backlogDir, 'index.md');
+  if (!fs.existsSync(indexFile)) return null;
+  const lines = fs.readFileSync(indexFile, 'utf8').split('\n');
+  let archiveAt = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const crlf = lines[i].endsWith('\r');
+    const line = crlf ? lines[i].slice(0, -1) : lines[i];
+    if (archiveAt === -1 && /^##\s+Archive/i.test(line)) archiveAt = i;
+    const entry = parseIndex(line)[0];
+    if (entry && entry.slug === slug) return { indexFile, lines, at: i, entry, line, crlf, archived: archiveAt !== -1 && archiveAt < i };
+  }
+  return null;
+}
+
+const briefFile = (place: BacklogPlace, slug: string): string => path.join(place.root, place.backlogDir, slug, 'brief.md');
+const readBriefText = (place: BacklogPlace, slug: string): string | null => {
+  try { return fs.readFileSync(briefFile(place, slug), 'utf8'); } catch { return null; }
+};
+const versionOf = (brief: string | null, line: string): string => hashOf(`${brief ?? ''}\u0000${line}`);
+
+function briefType(text: string): 'feature' | 'bug' | null {
+  const m = text.match(/^[ \t]*Type:[ \t]*(\S+)/im);
+  const v = m ? m[1].toLowerCase() : '';
+  return v === 'feature' || v === 'bug' ? v : null;
+}
+function briefPriority(text: string): string | null {
+  const m = text.match(/^[ \t]*Priority:[ \t]*(.*)$/im);
+  return m ? m[1].trim() : null;
+}
+function replaceFirst(text: string, key: 'Type' | 'Priority', value: string): { text: string; done: boolean } {
+  const re = new RegExp(`^([ \\t]*${key}:[ \\t]*)(.*)$`, 'im');
+  if (!re.test(text)) return { text, done: false };
+  return { text: text.replace(re, (_m, prefix: string) => `${prefix}${value}`), done: true };
+}
+
+function startedReason(place: EditPlace, slug: string): string | null {
+  const isDir = (p: string): boolean => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+  const rec = readRecord(place.reg, slug);
+  const recWt = rec?.worktree;
+  const started = rec !== null
+    || (typeof recWt === 'string' && recWt !== '' && isDir(recWt))
+    || isDir(path.join(place.wtBase, slug))
+    || branchExists(place, slug, {})
+    || fs.existsSync(path.join(place.root, place.backlogDir, slug, 'logs', 'status.json'));
+  return started ? `The pipeline for \`${slug}\` has started. To change the brief, stop the run and discard it, then edit.` : null;
+}
+
+function finishedReason(loc: Located, slug: string): string | null {
+  return loc.entry.marker === 'x' || loc.entry.marker === 'X' || loc.archived ? `\`${slug}\` is completed or archived and cannot be edited` : null;
+}
+
+function atomicWrite(file: string, text: string): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmpFile = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(tmpFile, text);
+    fs.renameSync(tmpFile, file);
+  } catch (e) {
+    try { fs.unlinkSync(tmpFile); } catch { /* already gone */ }
+    throw e;
+  }
+}
+
+function locateOrThrow(place: BacklogPlace, slug: string): Located {
+  const loc = locateItem(place, slug);
+  if (!loc) throw new BacklogEditError(404, `${slug} is not in ${place.backlogDir}/index.md`);
+  return loc;
+}
+
+function loadedTypeOf(loc: Located, brief: string | null): 'feature' | 'bug' {
+  const label = parseTitle(loc.entry.rest).type;
+  return (label === 'bug' || label === 'feature' ? label : null) ?? briefType(brief ?? '') ?? 'feature';
+}
+
+/** The item <slug> as the edit form needs it: its fields, whether it can be edited (and why not), and its version. */
+export function readBacklogEdit(place: EditPlace, slug: string): BacklogEditView {
+  const loc = locateOrThrow(place, slug);
+  const { title } = parseTitle(loc.entry.rest);
+  const brief = readBriefText(place, slug);
+  const reason = finishedReason(loc, slug) ?? startedReason(place, slug) ?? '';
+  const marker = loc.entry.marker;
+  let status: Status;
+  if (marker === 'x' || marker === 'X') status = 'completed';
+  else if (marker === '!') status = 'blocked';
+  else if (marker === '~') status = 'parked';
+  else status = branchExists(place, slug, {}) ? 'in-progress' : 'pending';
+  return {
+    slug, title, type: loadedTypeOf(loc, brief), priority: brief ? briefPriority(brief) : null, brief,
+    marker, status, archived: loc.archived, editable: !reason, reason, hash: versionOf(brief, loc.line),
+  };
+}
+
+/** Saves an edit of <slug>: its brief.md and its own index line, nothing else. Every check runs before the first write. */
+export function editBacklogItem(place: EditPlace, slug: string, edit: ItemEdit): ItemEditResult {
+  const loc = locateOrThrow(place, slug);
+  if (edit.type !== 'feature' && edit.type !== 'bug') throw new BacklogEditError(400, `type must be feature or bug, not '${edit.type}'`);
+  const title = typeof edit.title === 'string' ? edit.title.trim() : '';
+  if (!title || /[\r\n]/.test(title)) throw new BacklogEditError(400, 'title must be one non-empty line');
+  if (typeof edit.brief !== 'string' || !edit.brief.trim()) throw new BacklogEditError(400, 'brief must not be empty');
+  if (edit.priority !== undefined && !PRIORITY_OPTIONS.includes(edit.priority)) {
+    throw new BacklogEditError(400, `priority must be one of ${PRIORITY_OPTIONS.join(', ')}, not '${edit.priority}'`);
+  }
+  if (typeof edit.hash !== 'string' || !edit.hash) throw new BacklogEditError(400, 'hash is required');
+  const finished = finishedReason(loc, slug);
+  if (finished) throw new BacklogEditError(400, finished);
+  const started = startedReason(place, slug);
+  if (started) throw new BacklogEditError(409, started);
+  const current = readBriefText(place, slug);
+  const now = versionOf(current, loc.line);
+  if (now !== edit.hash) throw new BacklogEditError(409, `${slug} changed since you opened it; reload and apply the change again`, now);
+
+  let next = edit.brief.endsWith('\n') ? edit.brief : `${edit.brief}\n`;
+  const notSaved: ('type' | 'priority')[] = [];
+  if (edit.type !== loadedTypeOf(loc, current)) {
+    const r = replaceFirst(next, 'Type', edit.type);
+    next = r.text;
+    if (!r.done) notSaved.push('type');
+  }
+  if (edit.priority !== undefined) {
+    const r = replaceFirst(next, 'Priority', edit.priority);
+    next = r.text;
+    if (!r.done) notSaved.push('priority');
+  }
+
+  const noteMatch = loc.entry.rest.match(/\s*\((blocked|parked):\s*(.*)\)\s*$/);
+  const note = noteMatch ? ` ${noteMatch[0].trim()}` : '';
+  const label = edit.type === 'bug' ? 'Bug' : 'Feature';
+  const newLine = `- [${loc.entry.marker}] \`${slug}\` - ${label}: ${title}${note}`;
+  const lines = loc.lines.slice();
+  lines[loc.at] = loc.crlf ? `${newLine}\r` : newLine;
+
+  const brief = briefFile(place, slug);
+  const briefDirExisted = fs.existsSync(path.dirname(brief));
+  atomicWrite(brief, next);
+  try {
+    atomicWrite(loc.indexFile, lines.join('\n'));
+  } catch (e) {
+    // A refused save writes nothing: put brief.md (and its folder) back as they were.
+    try {
+      if (current !== null) atomicWrite(brief, current);
+      else {
+        fs.rmSync(brief, { force: true });
+        if (!briefDirExisted) fs.rmSync(path.dirname(brief), { recursive: true, force: true });
+      }
+    } catch { /* report the original error */ }
+    throw e;
+  }
+  return { ok: true, index: loc.indexFile, brief, hash: versionOf(next, newLine), notSaved };
 }
 
 /**

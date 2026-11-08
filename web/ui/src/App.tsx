@@ -145,7 +145,10 @@ export function App() {
   else if (!project) screen = <Projects projects={projects} reload={loadProjects} />;
   else if (route.startsWith('/run/')) screen = <Run slug={decodeURIComponent(route.slice(5))} key={route} />;
   else if (route === '/completed') screen = <Completed />;
-  else if (route === '/new') screen = <NewItem taken={(board?.items || []).map(i => i.slug)} />;
+  else if (route.startsWith('/edit/')) {
+    const [, , from, s] = route.split('/');
+    screen = <NewItem key={route} taken={[]} edit={{ slug: decodeURIComponent(s), back: from === 'run' ? `/run/${s}` : '/board' }} />;
+  } else if (route === '/new') screen = <NewItem taken={(board?.items || []).map(i => i.slug)} />;
   else if (route === '/projects') screen = <Projects projects={projects} reload={loadProjects} />;
   else if (route === '/settings') screen = <Settings />;
   else screen = <Board board={board} error={boardError} />;

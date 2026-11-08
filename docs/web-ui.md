@@ -275,6 +275,14 @@ finds it again. One run per project at a time.
 Events: `started`, `text`, `tool`, `items`, `question`, `draft`, `marked`, `error`, `done` (`code` 0 finished, 130 stopped,
 127 `claude` not found, other: its exit code).
 
+## Editing a backlog item
+
+Edit is on Board cards and run pages (`GET /api/projects/<p>/backlog/<slug>/edit` reads, `POST /api/projects/<p>/backlog/<slug>` saves).
+It works only before the pipeline starts; to edit again, stop the run and discard it. The slug is locked, and the form has Save and
+Cancel only. The change (`brief.md` and the item's index line) is left uncommitted in the main working tree. Type and Priority
+rewrite the brief's first `Type:` / `Priority:` line when they were changed; nothing is added when the line is missing. If the item
+changed since the form opened, the save is refused (409): reload and apply the change again.
+
 ## Engine support requests
 
 What the UI needs from `src/`. Until a request lands, its controls are drawn disabled and tagged `Future · E-n`.

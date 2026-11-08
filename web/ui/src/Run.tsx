@@ -331,6 +331,7 @@ export function Run({ slug }: { slug: string }) {
       <a href="#/board" onClick={e => { e.preventDefault(); go('/board'); }} class="small">← Board</a>
       <div class="row" style={{ gap: '10px 16px', alignItems: 'center', flexWrap: 'wrap' }}>
         <h1 class="mono" style={{ fontWeight: 500 }}>{slug}</h1>
+        <a class="btn btn-s" href={`#/edit/run/${slug}`} onClick={e => { e.preventDefault(); go(`/edit/run/${slug}`); }}>Edit</a>
         <StateTag state={v.state} />
         {v.stage && <span class="tag">at {v.stage}</span>}
         {v.attempt && (
