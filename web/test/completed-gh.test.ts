@@ -1,3 +1,4 @@
+import { eventually } from '../../test/wait.js';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -38,9 +39,9 @@ beforeEach(() => {
   git(repo, 'commit', '-q', '-m', 'init');
   fs.mkdirSync(path.join(base, 'ui'), { recursive: true });
   fs.writeFileSync(path.join(base, 'ui', 'index.html'), '<!doctype html><title>app</title>');
-  // A gh that takes 1.5 s and says every PR is merged.
+  // A gh that takes 3 s and says every PR is merged.
   fs.mkdirSync(path.join(base, 'bin'));
-  fs.writeFileSync(path.join(base, 'bin', 'gh'), `#!/bin/sh\necho x >> "${base}/gh-calls.txt"\nsleep 1.5\necho '{"url":"https://github.com/o/r/pull/9","state":"MERGED","number":9}'\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(base, 'bin', 'gh'), `#!/bin/sh\necho x >> "${base}/gh-calls.txt"\nsleep 3\necho '{"url":"https://github.com/o/r/pull/9","state":"MERGED","number":9}'\n`, { mode: 0o755 });
 });
 afterEach(async () => {
   if (server) await server.close();
@@ -51,11 +52,12 @@ describe('the Completed route with a slow gh', () => {
   test('another request is served while the PR statuses are fetched, and the second Completed request does not call gh again', async () => {
     const env = { ...process.env, ...GIT_ENV, PATH: `${path.join(base, 'bin')}:${process.env.PATH}`, AI_SDLC_HELPER_CONFIG_DIR: path.join(base, 'config'), SDLC_TRACE: '0' };
     server = await startServer({ port: 0, env, cwd: repo, uiDir: path.join(base, 'ui'), pollMs: 100, cli: ['/bin/sh', '-c', 'exit 3', 'sh'] });
-    const slow = get(server, '/api/projects/shop/completed');
-    await new Promise(r => setTimeout(r, 300)); // the gh calls are running now
+    let slowDone = false;
+    const slow = get(server, '/api/projects/shop/completed').finally(() => { slowDone = true; });
+    await eventually(() => fs.existsSync(path.join(base, 'gh-calls.txt'))); // the gh calls are running now
     const quick = await get(server, '/api/projects');
     expect(quick.status).toBe(200);
-    expect(quick.ms).toBeLessThan(1200); // a blocked loop would make this wait for the 1.5 s gh calls
+    expect(slowDone).toBe(false); // served while the gh calls were still running: a blocked loop would have waited for them
     const first = await slow;
     expect(first.status).toBe(200);
     expect(JSON.parse(first.body).completed.map((t: { slug: string }) => t.slug).sort()).toEqual(['a', 'b', 'c']);

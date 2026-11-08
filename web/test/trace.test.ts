@@ -1,3 +1,4 @@
+import { eventually } from '../../test/wait.js';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -67,12 +68,13 @@ describe('the trace of the UI server', () => {
     const bin = countingGit();
     process.env.PATH = `${bin}:${savedPath}`;
     const s = await start();
-    const settle = () => new Promise(r => setTimeout(r, 1300)); // the trace is written once a second
-    await settle();
+    const spawns = () => lines().filter(l => l.action === 'spawn:git').length;
+    // the trace is written once a second: wait until what the counting git saw has reached the file
+    await eventually(() => calls() > 0 && spawns() === calls());
     const callsBefore = calls();
-    const spawnsBefore = lines().filter(l => l.action === 'spawn:git').length;
+    const spawnsBefore = spawns();
     expect(await get(s, '/api/projects/shop/runs/one')).toBe(200);
-    await settle();
+    await eventually(() => lines().some(l => l.action === 'request') && spawns() === calls());
     const seen = calls() - callsBefore;
     const got = lines();
     expect(seen).toBeGreaterThan(0);
@@ -89,7 +91,7 @@ describe('the trace of the UI server', () => {
     await new Promise<void>((res, rej) => {
       const req = http.get({ host: '127.0.0.1', port: s.port, path: '/api/events?project=shop', headers: { 'x-sdlc-token': s.token } }, r => {
         let n = 0;
-        r.on('data', () => { if (++n >= 1) setTimeout(() => { req.destroy(); res(); }, 500); });
+        r.on('data', () => { if (++n === 1) eventually(() => lines().filter(l => l.action === 'timer:board-rebuild').length >= 2, 15_000).then(() => { req.destroy(); res(); }, rej); });
       });
       req.on('error', e => { if ((e as NodeJS.ErrnoException).code !== 'ECONNRESET') rej(e); });
     });
