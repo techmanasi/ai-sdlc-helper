@@ -33,7 +33,7 @@ export { parseJUnit } from './runners/junit.js';
 export { Keys, testLayout, layoutFromEnv, type TestLayout } from './testcheck/keys.js';
 export * as testcheck from './testcheck/checks.js';
 export {
-  runContext, start, stop, restart, discard, statusLines, statusRecords, watchFrame, runChanges, allChanges, runWorktree, pickBase,
+  runContext, start, stop, restart, discard, discardStage, statusLines, statusRecords, watchFrame, runChanges, allChanges, runWorktree, pickBase,
   pipelineArgv, pipelineEnv, type RunContext, type Outcome,
 } from './runs/index.js';
 export { alive, killTree, readRecord, recordedSlugs, registryDir, runState, type RunRecord } from './runs/records.js';
