@@ -80,7 +80,7 @@ describe('stageRecoveryHint diagnostics engine', () => {
     expect(recovery.stage).toBe('Plan');
     expect(recovery.diagnosis).toContain('Plan generation stopped');
     expect(recovery.autoAction?.command).toContain('--from plan');
-    expect(recovery.manualAction?.file).toBe('plan.md');
+    expect(recovery.manualAction?.file).toBe('plan-1.md');
     expect(recovery.escapeHatch?.command).toContain('--from red-tests');
   });
 
@@ -96,7 +96,7 @@ describe('stageRecoveryHint diagnostics engine', () => {
     expect(recovery.stage).toBe('Red tests');
     expect(recovery.diagnosis).toContain('green on red');
     expect(recovery.autoAction?.command).toContain('--from red-tests');
-    expect(recovery.manualAction?.file).toBe('log/red.json');
+    expect(recovery.manualAction?.file).toBe('logs/red.json');
     expect(recovery.escapeHatch?.command).toContain('--from implement');
   });
 
@@ -111,7 +111,7 @@ describe('stageRecoveryHint diagnostics engine', () => {
 
     expect(recovery.stage).toBe('Red tests');
     expect(recovery.diagnosis).toContain('failed to run');
-    expect(recovery.manualAction?.file).toBe('log/red.err');
+    expect(recovery.manualAction?.file).toBe('logs/tests.log');
   });
 
   it('diagnoses Implement with claimed test issues and offers test-repair path', () => {
@@ -142,7 +142,7 @@ describe('stageRecoveryHint diagnostics engine', () => {
     expect(recovery.stage).toBe('Implement');
     expect(recovery.diagnosis).toContain('attempts exhausted');
     expect(recovery.autoAction?.command).toContain('--from implement');
-    expect(recovery.manualAction?.file).toBe('log/now.json');
+    expect(recovery.manualAction?.file).toBe('logs/tests.json');
     expect(recovery.escapeHatch?.command).toContain('--from review');
   });
 

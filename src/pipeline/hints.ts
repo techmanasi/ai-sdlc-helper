@@ -196,8 +196,8 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
         command: resumeCommand(ctx.slug, 'plan'),
       },
       manualAction: {
-        file: 'plan.md',
-        instruction: 'Inspect generated plan.md and add or refine implementation steps.',
+        file: 'plan-1.md',
+        instruction: 'Inspect the generated plan-1.md and add or refine implementation steps.',
       },
       escapeHatch: {
         label: 'Accept current plan draft and proceed to Red Tests',
@@ -216,8 +216,8 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
           command: resumeCommand(ctx.slug, 'red-tests'),
         },
         manualAction: {
-          file: 'log/red.json',
-          instruction: 'Inspect failing test results in log/red.json and adjust test assertions to verify unbuilt behavior.',
+          file: 'logs/red.json',
+          instruction: 'Inspect failing test results in logs/red.json and adjust test assertions to verify unbuilt behavior.',
         },
         escapeHatch: {
           label: 'Proceed to Implement with current tests anyway',
@@ -233,8 +233,8 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
         command: resumeCommand(ctx.slug, 'red-tests'),
       },
       manualAction: {
-        file: 'log/red.err',
-        instruction: 'Check runner errors in log/red.err, fix imports/syntax, and run npm test locally.',
+        file: 'logs/tests.log',
+        instruction: 'Check runner errors in logs/tests.log, fix imports/syntax, and run npm test locally.',
       },
       escapeHatch: {
         label: 'Verify tests manually with npm test, then resume at Implement',
@@ -270,8 +270,8 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
         command: resumeCommand(ctx.slug, 'implement'),
       },
       manualAction: {
-        file: 'log/now.json',
-        instruction: 'Inspect failing assertions in log/now.json and fix source code or add test-issues.md.',
+        file: 'logs/tests.json',
+        instruction: 'Inspect failing assertions in logs/tests.json and fix source code or add test-issues.md.',
       },
       escapeHatch: {
         label: 'Proceed to Review with current implementation checkpoint',
@@ -343,8 +343,8 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
         command: resumeCommand(ctx.slug, 'implement'),
       },
       manualAction: {
-        file: 'log/review.md',
-        instruction: 'Inspect review findings in log/review.md and address requested changes in code.',
+        file: 'logs/review.log',
+        instruction: 'Inspect review findings in logs/review.log and address requested changes in code.',
       },
       escapeHatch: {
         label: 'Approve review findings and advance to Finalise',
@@ -380,8 +380,8 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
       command: resumeCommand(ctx.slug, normStage || 'spec'),
     },
     manualAction: {
-      file: 'log/run.out',
-      instruction: 'Inspect log/run.out for root cause details.',
+      file: 'logs/run.out',
+      instruction: 'Inspect logs/run.out for root cause details.',
     },
     escapeHatch: {
       label: 'Resume pipeline from Spec',
