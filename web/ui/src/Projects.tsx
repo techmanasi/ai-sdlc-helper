@@ -1,6 +1,7 @@
 // The registered projects (and the folder ui started in), their doctor checks, and adding one.
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, type Check, type Project, type SettingsView, type Source } from './api';
+import { dialogKey, firstFocusable, focusable, type FocusCandidate } from './dialog';
 import { Cli, ErrorBox, useApp } from './ui';
 
 function Doctor({ name }: { name: string }) {
@@ -269,8 +270,20 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
   );
 }
 
+const FOCUSABLE = 'button, input, select, textarea, a[href], [tabindex]';
+type Wrapped = FocusCandidate & { el: HTMLElement };
+const wrappers = (root: HTMLElement | null): Wrapped[] =>
+  root ? Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).map(el => ({
+    el,
+    disabled: el.matches(':disabled'),
+    visible: el.getClientRects().length > 0,
+    tabIndex: el.tabIndex,
+  })) : [];
+
 export function Projects({ projects, reload }: { projects: Project[]; reload(): void }) {
   const { project, go, toast } = useApp();
+  const dialog = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
   const [path, setPath] = useState('');
   const [name, setName] = useState('');
   const [out, setOut] = useState('');
@@ -278,6 +291,15 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [rev, setRev] = useState(0);
+  const close = () => setEditing(null);
+
+  useEffect(() => {
+    if (editing) firstFocusable(wrappers(dialog.current))?.el.focus();
+    else if (opener.current) {
+      if (opener.current.isConnected) opener.current.focus();
+      opener.current = null;
+    }
+  }, [editing]);
 
   const add = async (dir: string, n?: string) => {
     setBusy(true); setError(''); setOut('');
@@ -298,7 +320,7 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
             <div class="ph">
               <h2 class="mono">{p.name} {p.name === project && <span class="tag">current</span>} {!p.registered && <span class="tag s-paused">not registered</span>}</h2>
               <div class="row">
-                <button class="btn btn-s" type="button" onClick={() => setEditing(p.name)}>Config</button>
+                <button class="btn btn-s" type="button" onClick={e => { opener.current = e.currentTarget as HTMLElement; setEditing(p.name); }}>Config</button>
                 {p.name !== project && <button class="btn btn-s" type="button" onClick={() => go(`/board?project=${encodeURIComponent(p.name)}`)}>Open</button>}
                 {!p.registered && <button class="btn btn-s btn-p" type="button" disabled={busy} onClick={() => add(p.path)}>Register</button>}
               </div>
@@ -325,9 +347,19 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
         </section>
       </div>
       {editing && (
-        <div class="overlay" role="dialog" aria-modal="true" aria-label={`Config: ${editing}`} onClick={e => { if (e.target === e.currentTarget) setEditing(null); }}>
+        <div
+          class="overlay" role="dialog" aria-modal="true" aria-label={`Config: ${editing}`} ref={dialog} tabIndex={-1}
+          onClick={e => { if (e.target === e.currentTarget) close(); }}
+          onKeyDown={e => {
+            const items = focusable(wrappers(dialog.current)).map(w => w.el);
+            const a = dialogKey(e, items, document.activeElement as HTMLElement | null);
+            if (a.kind === 'close') close();
+            else if (a.kind === 'focus') { e.preventDefault(); a.target.focus(); }
+            else if (a.kind === 'prevent') e.preventDefault();
+          }}
+        >
           <section class="pn dialog dialog-wide">
-            <div class="ph"><h2 class="mono">Config · {editing}</h2><button class="btn btn-s" type="button" onClick={() => setEditing(null)}>Close</button></div>
+            <div class="ph"><h2 class="mono">Config · {editing}</h2><button class="btn btn-s" type="button" onClick={close}>Close</button></div>
             <div class="pb"><EditSetup name={editing} onSaved={() => { setRev(rev + 1); reload(); }} /></div>
           </section>
         </div>
