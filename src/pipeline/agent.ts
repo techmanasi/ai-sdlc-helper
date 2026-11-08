@@ -290,7 +290,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   if (limit) {
     ctx.status.note = '';
     ctx.status.write();
-    ctx.out(`   !! agent '${name}' hit the usage limit (${limit}); stopping immediately, see ${base}.err`);
+    ctx.out(`   !! agent '${name}' hit the usage limit (${limit}); stopping immediately, see ${ctx.log}/${name}.err`);
     stop(ctx, `agent '${name}' hit the usage limit: ${limit}`, 1);
   }
   let pending = 0;
@@ -305,9 +305,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     if (/model.*(?:not supported|unknown|invalid|not found)/i.test(failure.summary)) {
       harness.catalog?.invalidateCache();
     }
-    // `base` is rooted through `at(ctx, ...)`, so the path is actionable even
-    // when the UI/server process has a different working directory.
-    ctx.out(`   !! agent '${name}' failed, see ${base}.log`);
+    ctx.out(`   !! agent '${name}' failed, see ${ctx.log}/${name}.log`);
     if (stage === 'test-repair') resumeHint(ctx);
     if (failure.summary) {
       ctx.out(`      failure (exit ${rc}): ${failure.summary}`);
@@ -316,7 +314,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
       if (d !== failure.summary) ctx.out(`      ${d}`);
     }
     if (fs.existsSync(`${base}.err`) && fs.statSync(`${base}.err`).size > 0) {
-      ctx.out(`      see ${base}.err`);
+      ctx.out(`      see ${ctx.log}/${name}.err`);
     }
     stop(ctx, `agent '${name}' failed: ${failure.summary}`, 1);
   }
