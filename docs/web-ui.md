@@ -17,7 +17,7 @@ PRs #69, #79, #81, #83, #86, #100) is the reference. What it does today, and whe
 | Board: pending items and one column per stage (Spec … Review, Commit), a card per run with its state glyph | `boardView` | 1 |
 | Tick pending items, **Run selected**; items past the parallel cap wait in a queue that drains as runs end | `runSelected`, `drainQueue` (cap 2) | 1 (queue in 2) |
 | Pending item screen: type, priority, title, `brief.md`, **Start** | run view, not-started branch | 1 |
-| Run screen: stage strip with each stage's state and `model · effort`, current agent and its clock, the `note` | `stageStates`, `stageModel`, `stateLine` | 1 |
+| Run screen: stage strip with each stage's state and `model · effort`, current agent and its clock, the `note` (usage limit wait) | `stageStates`, `stageModel`, `stateLine` | 1 |
 | Files changed since base and uncommitted; tests passed and failing | `loadChanges`, `testCounts` | 1 |
 | Files changed per stage (8 shown, then "+N more") | `parseStageFiles` | 1 |
 | Recent output (end of `run.out`) | `tail` | 1 (live stream) |
@@ -53,7 +53,8 @@ nothing back:
 
 - Every panel names the file it reads (`status.json`, `questions.md`, `sdlc.config.json` …) and has **Edit raw**.
 - Every action shows its command (`$ ai-sdlc-helper start …`) with **Copy**, and a ⌘K palette runs any command.
-- A run's environment (`SDLC_BASE`, `MODEL_<STAGE>`, `EFFORT_<STAGE>`, `SDLC_DEP_SCRIPTS`, …) is editable and applies when the run starts or resumes.
+- A run's environment (`SDLC_BASE`, `MODEL_<STAGE>`, `EFFORT_<STAGE>`, `SDLC_LIMIT_RETRY`, `SDLC_LIMIT_MAX_WAIT`,
+  `SDLC_DEP_SCRIPTS`, …) is editable and applies when the run starts or resumes.
 - Settings are a form with the source of every value (config, detected, default), a live diff of `sdlc.config.json`,
   and Raw JSON for anything the form does not cover; unknown keys are kept.
 - What the engine cannot do yet is drawn but disabled, tagged `Future · E-n`, pointing to
@@ -164,7 +165,7 @@ shipped commit without opening a terminal.
 5. **Run screen:**
    - stage rail: Spec, Plan, Red tests, Implement, Test repair, Review, Ship (`status.json` names it `Commit`), each
      with its state and `model · effort`;
-   - the current agent, its clock, a usage limit that stopped the run, with its reset time;
+   - the current agent, its clock, the `note` while a usage limit is waited out (only when `SDLC_LIMIT_RETRY` is set; otherwise the run stops with the reset time);
    - files changed and uncommitted, tests passed and failing, files changed per stage;
    - live output (follows the end of `run.out`, pause on scroll, **Copy**);
    - when failed: the reason box and **Resume from <stage>** (the mod's rule: Plan and Red tests resume at their stage,

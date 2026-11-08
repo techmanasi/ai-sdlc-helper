@@ -185,6 +185,22 @@ export function extractAgentFailure(base: string, rc: number): AgentFailureInfo 
   return { summary, details: details.slice(0, 10) };
 }
 
+/**
+ * Usage limits stop the stage at once unless waiting is switched on: SDLC_LIMIT_RETRY seconds between tries (default 0 = off),
+ * SDLC_LIMIT_MAX_WAIT seconds in all (default 6 h, only used when waiting is on).
+ */
+export function limitWait(env: NodeJS.ProcessEnv): { retry: number; maxWait: number } {
+  const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : d);
+  return { retry: num(env.SDLC_LIMIT_RETRY, 0), maxWait: num(env.SDLC_LIMIT_MAX_WAIT, 21600) };
+}
+
+/** Waits <seconds>, or less when the run is aborted. */
+const sleep = (seconds: number, signal?: AbortSignal) => new Promise<void>(resolve => {
+  const t = setTimeout(done, seconds * 1000);
+  function done() { clearTimeout(t); signal?.removeEventListener('abort', done); resolve(); }
+  signal?.addEventListener('abort', done);
+});
+
 /** Plan reads the published docs and type definitions of a new library from the web (it is installed only in Implement). */
 export const PLAN_TOOLS = ['WebFetch', 'WebSearch', 'mcp__context7'];
 
@@ -274,18 +290,41 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     maxTurns: ctx.limits.maxTurns,
   });
 
-  const rc = await ctx.spawnAgent({
-    command: invocation.command,
-    args: invocation.args,
-    cwd: ctx.root, env: { ...ctx.env, ...flags.env, ...invocation.env }, stdout: `${base}.json`, stderr: `${base}.err`, signal: ctx.signal,
-  });
-  await tick();
-  const limit = usageLimit(`${base}.json`, `${base}.err`);
-  if (limit) {
+  // A usage limit is not the agent's failure. By default the stage stops at once; with SDLC_LIMIT_RETRY set, wait for the
+  // reset and run the same agent again.
+  const { retry, maxWait } = limitWait(ctx.env);
+  let waited = 0;
+  let rc: number;
+  for (;;) {
+    rc = await ctx.spawnAgent({
+      command: invocation.command,
+      args: invocation.args,
+      cwd: ctx.root, env: { ...ctx.env, ...flags.env, ...invocation.env }, stdout: `${base}.json`, stderr: `${base}.err`, signal: ctx.signal,
+    });
+    await tick();
+    const limit = usageLimit(`${base}.json`, `${base}.err`);
+    if (!limit) break;
+    if (retry <= 0) {
+      ctx.status.note = '';
+      ctx.status.write();
+      ctx.out(`   !! agent '${name}' hit the usage limit (${limit}); stopping immediately, see ${ctx.log}/${name}.err`);
+      stop(ctx, `agent '${name}' hit the usage limit: ${limit}`, 1);
+    }
+    if (waited >= maxWait) {
+      ctx.status.note = '';
+      stop(ctx, `   !! agent '${name}' hit the usage limit (${limit}) and it did not reset within ${maxWait}s`, 1);
+    }
+    if (waited === 0) ctx.out(`   .. usage limit reached (${limit}): retrying '${name}' every ${retry}s`);
+    ctx.status.note = `usage limit, ${limit}`;
+    ctx.status.write();
+    await sleep(retry, ctx.signal);
+    stopIfAborted(ctx);
+    waited += retry;
+  }
+  if (ctx.status.note) {
+    ctx.out(`   .. usage limit over, '${name}' ran`);
     ctx.status.note = '';
     ctx.status.write();
-    ctx.out(`   !! agent '${name}' hit the usage limit (${limit}); stopping immediately, see ${ctx.log}/${name}.err`);
-    stop(ctx, `agent '${name}' hit the usage limit: ${limit}`, 1);
   }
   let pending = 0;
   try {

@@ -74,7 +74,7 @@ ai-sdlc-helper ui        # http://127.0.0.1:4477; prints a URL that signs the br
 The board shows the backlog and a column per stage, live; tick items and run them. A run's screen shows its stages with
 model and effort, its output as it is written, the questions to answer and the refused actions to allow or deny, its
 files and run record, and every control: start, resume, resume at a stage, restart, stop, discard. Model, effort and any
-other variable (`SDLC_BASE`, `SDLC_DEP_SCRIPTS` …) can be set for a run before it starts or resumes. New backlog items
+other variable (`SDLC_BASE`, `SDLC_LIMIT_RETRY` …) can be set for a run before it starts or resumes. New backlog items
 are written in the page, projects are registered and checked there, and ⌘K / Ctrl-K runs any command of the tool.
 Light, dark or the system's theme. Settings are read-only for now; editing them and the prompts comes next
 ([docs/web-ui.md](docs/web-ui.md)).
@@ -106,7 +106,7 @@ No stage before Implement installs anything, and a brief should never ask the de
 The pipeline installs them at the start of Implement, in the suite's package with its package manager and without install scripts (`SDLC_DEP_SCRIPTS=run` allows them). In a worktree, a `node_modules` linked to the main checkout is first replaced by the worktree's own install, so the main checkout's packages never change.
 
 ### Usage limits
-When an agent's call ends because the account hit its usage limit (or a provider rate limit or quota), the run stops at once, the message names the reset time, and the agent is not run again. Resume it when the limit has reset: `ai-sdlc-helper pipeline <slug> --from <stage>`. Only a real provider error counts: text in the agent's output or tool results that merely mentions a limit does not.
+When an agent's call ends because the account hit its usage limit (or a provider rate limit or quota), the run stops at once, the message names the reset time, and the agent is not run again. Resume it when the limit has reset: `ai-sdlc-helper pipeline <slug> --from <stage>`. To wait instead, set `SDLC_LIMIT_RETRY` to a number of seconds (default `0` = stop): the run then stays `running`, `status.json` carries a `note` such as `usage limit, resets 1:10am (Asia/Dubai)`, and the same agent runs again every `SDLC_LIMIT_RETRY` seconds for up to `SDLC_LIMIT_MAX_WAIT` seconds (default 21600, 6 hours); past that the stage fails. Only a real provider error counts: text in the agent's output or tool results that merely mentions a limit does not.
 
 ## Commands
 The output of `ai-sdlc-helper help`:

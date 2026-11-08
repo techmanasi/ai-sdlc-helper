@@ -17,7 +17,7 @@ export interface StatusLine {
   run_started: string;
   updated: string;
   pid: number;
-  /** Why a running run waits; empty otherwise. A usage limit no longer waits, it stops the run. */
+  /** Why a running run waits, for example "usage limit, resets 1:10am (Asia/Dubai)" (only when SDLC_LIMIT_RETRY is set); empty otherwise. */
   note: string;
 }
 
