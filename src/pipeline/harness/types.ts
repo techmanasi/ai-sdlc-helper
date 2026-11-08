@@ -39,7 +39,8 @@ export interface PermissionRule {
 export interface StageCompileOptions {
   prompt: string;
   stage: StageName;
-  model: string;
+  /** Omit to use this harness's configured/account default model. */
+  model?: string;
   effort?: string;
   mode: 'acceptEdits' | 'bypass' | 'bypassPermissions';
   allowedCommands: string[];
@@ -79,11 +80,27 @@ export interface HarnessResult {
   rawJson?: Record<string, unknown>;
 }
 
+/** Pluggable adapter contract for dynamically discovering and validating models per harness. */
+export interface ModelCatalogAdapter {
+  readonly harnessId: HarnessId;
+  /** Query the live or cached model catalog */
+  listModels(env?: NodeJS.ProcessEnv): Promise<HarnessModel[]>;
+  /** Get the harness default model identifier, if known */
+  getDefaultModel(env?: NodeJS.ProcessEnv): Promise<string | undefined>;
+  /** Validate whether a model identifier is supported by the active account/backend */
+  validateModel(modelId: string, env?: NodeJS.ProcessEnv): Promise<boolean>;
+  /** Invalidate any cached catalog (e.g. after a model-incompatibility error) */
+  invalidateCache(): void;
+}
+
 /** Core contract every coding agent harness must implement. */
 export interface AgentHarness {
   readonly id: HarnessId;
   readonly name: string;
   readonly defaultBinary: string;
+
+  /** Optional pluggable model catalog adapter */
+  readonly catalog?: ModelCatalogAdapter;
 
   /** Probe local environment for CLI binary availability and version */
   detect(env?: NodeJS.ProcessEnv): Promise<HarnessDetection>;
@@ -95,7 +112,7 @@ export interface AgentHarness {
   compileStageArgs(opts: StageCompileOptions): HarnessInvocation;
 
   /** Compile arguments for read-only audit stages */
-  compileAuditArgs(opts: { prompt: string; model: string; effort?: string; cwd?: string }): HarnessInvocation;
+  compileAuditArgs(opts: { prompt: string; model?: string; effort?: string; cwd?: string }): HarnessInvocation;
 
   /** Parse JSON/text stdout and stderr into a normalized result */
   parseOutput(stdoutText: string, stderrText: string, cwd?: string): HarnessResult;

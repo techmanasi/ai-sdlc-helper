@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { extract, modeFor, rulesFor } from '../permissions/index.js';
 import { toolNotes } from '../config/toolNotes.js';
-import { harnessFor, testDir, testFramework } from '../config/settings.js';
+import { agentFor, harnessFor, testDir, testFramework } from '../config/settings.js';
 import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from './context.js';
 import { modelEnvOf, modelFlags, providerEnv, stageModel } from './models.js';
 import { manualInput, prCommentsInput, renderPrompt } from './prompts.js';
@@ -94,6 +94,7 @@ export interface AgentFailureInfo {
 export function extractAgentFailure(base: string, rc: number): AgentFailureInfo {
   const details: string[] = [];
   let summary = '';
+  let structuredSummary = '';
 
   const errFile = `${base}.err`;
   const jsonFile = `${base}.json`;
@@ -105,24 +106,26 @@ export function extractAgentFailure(base: string, rc: number): AgentFailureInfo 
       const lines = errText.split('\n').map(l => l.trim()).filter(Boolean);
       for (const line of lines) {
         if (!details.includes(line)) details.push(line);
+        if (/^reading additional input from stdin/i.test(line)) continue;
         if (!summary && /^(error|fatal|exception):/i.test(line)) {
           summary = line;
         }
       }
       if (!summary && lines.length > 0) {
-        summary = lines[lines.length - 1];
+        const candidate = lines.filter(l => !/^reading additional input from stdin/i.test(l)).pop();
+        if (candidate) summary = candidate;
       }
     } catch { /* ignore */ }
   }
 
-  if (fs.existsSync(jsonFile) && (!summary || details.length === 0)) {
+  if (fs.existsSync(jsonFile)) {
     try {
       const jsonText = fs.readFileSync(jsonFile, 'utf8');
       try {
         const d = JSON.parse(jsonText);
         const msg = d.error?.message || d.message || d.api_error || d.error || d.status;
         if (msg && typeof msg === 'string') {
-          if (!summary) summary = msg;
+          structuredSummary ||= msg;
           if (!details.includes(msg)) details.push(msg);
         }
       } catch {
@@ -130,9 +133,13 @@ export function extractAgentFailure(base: string, rc: number): AgentFailureInfo 
         for (const line of lines) {
           try {
             const event = JSON.parse(line);
-            const msg = event.error?.message || event.message || (event.type === 'error' ? event.content : null);
+            const msg = event.error?.message
+              || event.item?.error?.message
+              || (event.item?.type === 'error' ? event.item.message : null)
+              || event.message
+              || (event.type === 'error' ? (typeof event.content === 'string' ? event.content : event.message) : null);
             if (msg && typeof msg === 'string') {
-              if (!summary) summary = msg;
+              structuredSummary ||= msg;
               if (!details.includes(msg)) details.push(msg);
             }
           } catch { /* non-JSON */ }
@@ -140,6 +147,8 @@ export function extractAgentFailure(base: string, rc: number): AgentFailureInfo 
       }
     } catch { /* ignore */ }
   }
+
+  if (structuredSummary) summary = structuredSummary;
 
   if (fs.existsSync(logFile) && (!summary || details.length === 0)) {
     try {
@@ -232,6 +241,33 @@ export function stageNotes(ctx: Ctx, stage: AgentStage): string {
 }
 
 /**
+ * A model belongs to its harness. The global stage defaults are Claude names,
+ * so a different harness with no explicit model of its own must let its CLI select its
+ * account default instead of translating that name to another provider.
+ */
+function harnessSelection(
+  ctx: Ctx,
+  stage: AgentStage,
+  flags: { model: string; effort: string; hasEffort: boolean },
+  harnessId: string,
+): { model: string; effort?: string } {
+  if (harnessId === 'claude') {
+    return {
+      model: flags.model,
+      effort: flags.hasEffort ? flags.effort : undefined,
+    };
+  }
+
+  const selected = agentFor(ctx.config, stage);
+  const up = stage.toUpperCase().replace(/-/g, '_');
+  const explicit = ctx.force?.model || ctx.env[`MODEL_${up}`] || (selected.harness === harnessId ? selected.model : undefined) || ctx.env.SDLC_MODEL;
+  const isClaudeDefault = explicit === 'sonnet' || explicit === 'opus' || explicit === 'haiku';
+  const model = explicit && !isClaudeDefault ? explicit : '';
+  const effort = ctx.force?.effort || ctx.env[`EFFORT_${up}`] || selected.effort || ctx.env.SDLC_EFFORT;
+  return effort ? { model, effort } : { model };
+}
+
+/**
  * Runs the agent of <stage>, logged as <name> (<log>/<name>.json, .err and .log). Exits 2 when it was refused an action
  * (recorded in permissions.json), 1 when it failed.
  */
@@ -256,23 +292,13 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   const harnessId = harnessFor(ctx.config, stage);
   const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
 
-  let model = flags.model;
-  const effort = flags.effort;
-  if (harnessId === 'codex') {
-    if (model === 'opus') model = 'o1';
-    else if (model === 'sonnet') model = 'o3-mini';
-    else if (model === 'haiku') model = 'gpt-4o';
-  } else if (harnessId === 'agy') {
-    if (model === 'opus') model = 'gemini-3.8-pro';
-    else if (model === 'sonnet') model = 'gemini-3.8-flash-high';
-    else if (model === 'haiku') model = 'gemini-3.8-flash-medium';
-  }
+  const selection = harnessSelection(ctx, stage, flags, harnessId);
 
   const invocation = harness.compileStageArgs({
     prompt,
     stage,
-    model,
-    effort: flags.hasEffort ? effort : undefined,
+    model: selection.model,
+    effort: selection.effort,
     mode,
     allowedCommands: allowed,
     cwd: ctx.root,
@@ -317,6 +343,9 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   }
   if (rc !== 0) {
     const failure = extractAgentFailure(base, rc);
+    if (/model.*(?:not supported|unknown|invalid|not found)/i.test(failure.summary)) {
+      harness.catalog?.invalidateCache();
+    }
     ctx.out(`   !! agent '${name}' failed, see ${ctx.log}/${name}.log`);
     if (stage === 'test-repair') resumeHint(ctx);
     if (failure.summary) {
@@ -339,18 +368,11 @@ export async function runAudit(ctx: Ctx, prompt: string, flags: { args: string[]
   const logFile = at(ctx, `${ctx.log}/test-audit.log`);
   const harnessId = harnessFor(ctx.config, 'test-audit');
   const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
-  let model = flags.model || 'sonnet';
-  if (harnessId === 'codex') {
-    if (model === 'opus') model = 'o1';
-    else if (model === 'sonnet') model = 'o3-mini';
-  } else if (harnessId === 'agy') {
-    if (model === 'opus') model = 'gemini-3.8-pro';
-    else if (model === 'sonnet') model = 'gemini-3.8-flash-high';
-  }
+  const selection = harnessSelection(ctx, 'test-audit', { model: flags.model || '', effort: flags.effort || '', hasEffort: Boolean(flags.effort) }, harnessId);
   const inv = harness.compileAuditArgs({
     prompt,
-    model,
-    effort: flags.effort,
+    model: selection.model,
+    effort: selection.effort,
     cwd: ctx.root,
   });
   const rc = await ctx.spawnAgent({
@@ -362,6 +384,13 @@ export async function runAudit(ctx: Ctx, prompt: string, flags: { args: string[]
     stderr: errFile,
     signal: ctx.signal,
   });
+
+  if (rc !== 0) {
+    const failure = extractAgentFailure(at(ctx, `${ctx.log}/test-audit`), rc);
+    if (/model.*(?:not supported|unknown|invalid|not found)/i.test(failure.summary)) {
+      harness.catalog?.invalidateCache();
+    }
+  }
 
   const stdoutText = fs.existsSync(rawFile) ? fs.readFileSync(rawFile, 'utf8') : '';
   const stderrText = fs.existsSync(errFile) ? fs.readFileSync(errFile, 'utf8') : '';

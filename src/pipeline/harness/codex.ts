@@ -1,10 +1,18 @@
 import { which } from '../../shell.js';
-import type { AgentHarness, HarnessDetection, HarnessInvocation, HarnessModel, HarnessResult, StageCompileOptions } from './types.js';
+import type { AgentHarness, HarnessDetection, HarnessInvocation, HarnessModel, HarnessResult, ModelCatalogAdapter, StageCompileOptions } from './types.js';
+import { defaultCodexCatalog, CodexModelCatalogAdapter, STATIC_CODEX_MODELS } from './codex/catalog.js';
+
+export { defaultCodexCatalog, CodexModelCatalogAdapter, STATIC_CODEX_MODELS };
 
 export class CodexHarness implements AgentHarness {
   readonly id = 'codex' as const;
   readonly name = 'OpenAI Codex CLI';
   readonly defaultBinary = 'codex';
+  readonly catalog: ModelCatalogAdapter;
+
+  constructor(catalog: ModelCatalogAdapter = defaultCodexCatalog) {
+    this.catalog = catalog;
+  }
 
   async detect(env: NodeJS.ProcessEnv = process.env): Promise<HarnessDetection> {
     const bin = which(this.defaultBinary, { env });
@@ -14,12 +22,8 @@ export class CodexHarness implements AgentHarness {
     return { installed: true, path: bin };
   }
 
-  async listModels(_env: NodeJS.ProcessEnv = process.env): Promise<HarnessModel[]> {
-    return [
-      { id: 'o3-mini', name: 'OpenAI o3-mini', harness: this.id, supportsEffort: true, defaultEffort: 'high', description: 'Recommended: fast, high-reasoning coding model with configurable effort' },
-      { id: 'o1', name: 'OpenAI o1', harness: this.id, supportsEffort: true, defaultEffort: 'medium', description: 'Deep reasoning for complex planning and debugging' },
-      { id: 'gpt-4o', name: 'OpenAI GPT-4o', harness: this.id, supportsEffort: false, description: 'High-throughput multimodal engineering model' },
-    ];
+  async listModels(env: NodeJS.ProcessEnv = process.env): Promise<HarnessModel[]> {
+    return this.catalog.listModels(env);
   }
 
   /**
@@ -72,7 +76,7 @@ export class CodexHarness implements AgentHarness {
     };
   }
 
-  compileAuditArgs(opts: { prompt: string; model: string; effort?: string; cwd?: string }): HarnessInvocation {
+  compileAuditArgs(opts: { prompt: string; model?: string; effort?: string; cwd?: string }): HarnessInvocation {
     const args: string[] = ['exec'];
     if (opts.cwd) args.push('-C', opts.cwd);
     if (opts.model) args.push('-m', opts.model);
