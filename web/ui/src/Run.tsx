@@ -458,25 +458,17 @@ export function Run({ slug }: { slug: string }) {
           </div>
         </details>
         <div class="row" style={{ alignItems: 'center' }}>
-          <span class="small s-failed">Discards work</span>
+          <span class="small s-failed">Whole run</span>
           {confirm === 'restart'
             ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Restart', () => api.restart(project, slug, undefined, envObj))}>{busy === 'Restart' ? <><Spinner /> Restarting…</> : 'Confirm: discard and start again'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
-            : <button class="btn btn-d" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('restart')}>Restart from Spec…</button>}
+            : <button class="btn btn-d" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('restart')}>Restart whole run from Spec…</button>}
           {confirm === 'discard'
             ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Discard', () => api.discard(project, slug))}>{busy === 'Discard' ? <><Spinner /> Discarding…</> : 'Confirm discard'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
-            : <button class="btn btn-d" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('discard')}>Discard run…</button>}
-          {v.state !== 'not started' && v.state !== 'running' && v.resumeFrom && (
-            confirm === 'discard-stage'
-              ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act(`Retry ${v.stage}`, async () => {
-                const r = await api.discardStage(project, slug, v.resumeFrom);
-                return r.resumed && !r.resumed.ok ? r.resumed : r;
-              })}>{busy === `Retry ${v.stage}` ? <><Spinner /> Retrying…</> : `Confirm: discard ${v.stage} and retry`}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
-              : <button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('discard-stage')}>Discard {v.stage} changes and retry…</button>
-          )}
+            : <button class="btn btn-d" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('discard')}>Discard entire run…</button>}
         </div>
         {confirm === 'restart' && <p class="small s-failed" style={{ margin: 0 }}>Deletes the worktree at {v.worktree || 'its folder'} and the branch {v.branch} (its tip is saved), then starts over from Spec.</p>}
         {confirm === 'discard' && <p class="small s-failed" style={{ margin: 0 }}>Deletes the worktree at {v.worktree || 'its folder'}, the branch {v.branch} (its tip is saved) and the run record.</p>}
-        {confirm === 'discard-stage' && <p class="small s-failed" style={{ margin: 0 }}>Restores uncommitted files from {v.stage}, preserves earlier commits and logs, then resumes that stage.</p>}
+        {confirm.startsWith('discard-stage:') && <p class="small s-failed" style={{ margin: 0 }}>Deletes only the files {STAGES.find(x => x.key === confirm.slice(14))?.name} made and have not been committed. The other stages, their files and the logs stay; start the run again from that stage afterwards.</p>}
       </div>
       <Cli args={startArgs} />
       {envArgs.length > 0 && <p class="mono small muted" style={{ margin: 0 }}>with {envArgs.join(' ')}</p>}
@@ -557,6 +549,11 @@ export function Run({ slug }: { slug: string }) {
                     ))}
                   {s.key === 'test-repair' && v.models['test-audit'] && <span class="mono small muted">audit: {v.models['test-audit'].model} · {v.models['test-audit'].effort}</span>}
                   {v.stageFiles[s.name] && <span class="small muted">{v.stageFiles[s.name].length} files</span>}
+                  {s.key && s.key !== 'finalise' && v.state !== 'not started' && v.state !== 'running' && (v.stageFiles[s.name]?.length || st === 'paused' || st === 'failed') && (
+                    confirm === `discard-stage:${s.key}`
+                      ? <span class="row" style={{ gap: '4px' }}><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act(`Discard ${s.name}`, () => api.discardStage(project, slug, s.key))}>{busy === `Discard ${s.name}` ? <><Spinner /> Discarding…</> : `Confirm: discard ${s.name}`}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></span>
+                      : <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => setConfirm(`discard-stage:${s.key}`)}>Discard {s.name}…</button>
+                  )}
                   {s.name === 'Finalise' && v.deniedPermissions && v.deniedPermissions.length > 0 && <span class="small s-failed">{v.deniedPermissions.length} denied</span>}
                   {s.key && s.key !== 'implement' && s.key !== 'finalise' && <span class="small"><Future id="E-7" /> skip</span>}
                 </div>

@@ -10,7 +10,7 @@ import { shellArgv } from '../shell.js';
 import { PERSONAL_ENV, personalAgentOf } from '../config/personal.js';
 import { forceEnv, resolve, worktreeBase, type Force } from '../config/settings.js';
 import { findContaining, readRegistry, type ProjectOverrides } from '../registry/projects.js';
-import { worktreeChanges } from '../changes/index.js';
+import { forgetStage, stageWork, worktreeChanges } from '../changes/index.js';
 import {
   alive, isRunning, killTree, mainTree, projectRoot, now, readRecord, recordFile, recordedSlugs, registryDir, runState, writeRecord, type RunRecord,
 } from './records.js';
@@ -341,21 +341,22 @@ export async function discardStage(ctx: RunContext, slug: string, opts: StageDis
   try { status = JSON.parse(fs.readFileSync(statusFile, 'utf8')); } catch { /* use requested stage */ }
   const stage = stageKey(opts.stage || status.stage || '');
   if (!stage) return fail(2, `Could not determine the current stage for ${slug}; pass --stage <stage>`);
-  // The item's own folder holds the Spec and Plan documents (and the stage's logs). They stay uncommitted until the red-tests
-  // commit, so restoring or cleaning them would throw away the earlier stages. Only code and tests outside it are discarded.
-  const itemDir = `${ctx.backlogDir}/${slug}`;
-  const outside = (f: string): boolean => f !== itemDir && !f.startsWith(`${itemDir}/`);
-  const tracked = git(wt, ['diff', '--name-only', '-z', 'HEAD'], ctx.env).stdout.split('\0').filter(Boolean);
-  const staged = git(wt, ['diff', '--cached', '--name-only', '-z'], ctx.env).stdout.split('\0').filter(Boolean);
-  const files = [...new Set([...tracked, ...staged])].filter(outside);
-  if (files.length) git(wt, ['restore', '--source=HEAD', '--staged', '--worktree', '--', '.', `:(exclude)${itemDir}`], ctx.env);
-  const untracked = git(wt, ['ls-files', '--others', '--exclude-standard', '-z'], ctx.env).stdout.split('\0').filter(Boolean);
-  for (const file of untracked) {
-    if (!outside(file)) continue;
-    fs.rmSync(path.join(wt, file), { recursive: true, force: true });
+  // Only what this stage made is discarded: the files stage-files.json credits to it and what changed since the last mark.
+  // Another stage's files (the Spec and Plan documents are uncommitted until the red-tests commit) are never touched.
+  const marks = path.join(wt, ctx.backlogDir, slug, 'logs', 'stage-files.json');
+  const own = (name: string): boolean => stageKey(name) === stage;
+  const work = stageWork(marks, { root: wt }, own);
+  const tracked = new Set(git(wt, ['ls-tree', '-r', '--name-only', '-z', 'HEAD'], ctx.env).stdout.split('\0').filter(Boolean));
+  for (const file of work) {
+    if (tracked.has(file)) git(wt, ['restore', '--source=HEAD', '--staged', '--worktree', '--', file], ctx.env);
+    else {
+      git(wt, ['rm', '-r', '-f', '-q', '--cached', '--ignore-unmatch', '--', file], ctx.env);
+      fs.rmSync(path.join(wt, file), { recursive: true, force: true });
+    }
   }
+  try { forgetStage(marks, { root: wt }, own); } catch { /* the pane's file list is best effort */ }
   fs.appendFileSync(path.join(wt, ctx.backlogDir, slug, 'logs', 'run.out'), `stage ${stage} discarded; ready to retry\n`);
-  return ok(`Discarded uncommitted changes from ${stage} in ${wt}; ready to retry. Resume with: ai-sdlc-helper start ${slug} --from ${stage}`);
+  return ok(`Discarded ${work.length} file(s) made by ${stage} in ${wt}; ready to retry. Resume with: ai-sdlc-helper start ${slug} --from ${stage}`);
 }
 
 /**
