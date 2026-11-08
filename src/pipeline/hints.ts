@@ -143,7 +143,7 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
         },
         manualAction: {
           file: 'questions.md',
-          instruction: "Answer the questions under '## Answer:' in questions.md, then resume.",
+          instruction: "Answer the questions under '**Answer:**' in questions.md, then resume.",
         },
         escapeHatch: {
           label: 'Bypass Spec stage and proceed directly to Plan',
