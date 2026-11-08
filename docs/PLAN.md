@@ -79,7 +79,7 @@ Its PRs merged after `sdlc-as-package` branched (#92, #94, #97–#100), applied 
   first (`src/pipeline/deps.ts`, any package manager, the suite's package); prompts and skills state the rule.
 - #98: a Test repair claim citing the plan is justified; `SDLC_BASE` was already kept out of the pipeline; a refused
   command line is named by its first part no allow rule covers, and is not asked again once allowed.
-- #99: a usage limit is waited out (`SDLC_LIMIT_RETRY`, `SDLC_LIMIT_MAX_WAIT`) with a `note` in status.json.
+- #99: a usage limit is waited out with a `note` in status.json when `SDLC_LIMIT_RETRY` is set (`SDLC_LIMIT_MAX_WAIT` caps it); by default (`SDLC_LIMIT_RETRY=0`) the stage stops at once.
 - `changes mark` credits a stage with an earlier stage's file it changed and committed.
 - #92 (husky lint in that repo) and the pane parts of #98–#100 (phase 5) are not code in this package.
 

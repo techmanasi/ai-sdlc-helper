@@ -165,7 +165,7 @@ shipped commit without opening a terminal.
 5. **Run screen:**
    - stage rail: Spec, Plan, Red tests, Implement, Test repair, Review, Ship (`status.json` names it `Commit`), each
      with its state and `model · effort`;
-   - the current agent, its clock, the `note` while a usage limit is waited out;
+   - the current agent, its clock, the `note` while a usage limit is waited out (only when `SDLC_LIMIT_RETRY` is set; otherwise the run stops with the reset time);
    - files changed and uncommitted, tests passed and failing, files changed per stage;
    - live output (follows the end of `run.out`, pause on scroll, **Copy**);
    - when failed: the reason box and **Resume from <stage>** (the mod's rule: Plan and Red tests resume at their stage,

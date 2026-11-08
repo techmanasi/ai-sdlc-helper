@@ -869,7 +869,7 @@ export function Run({ slug }: { slug: string }) {
               ))}
               <div class="row">
                 <button class="btn btn-s" type="button" onClick={() => setEnv(rows => [...rows, ['', '']])}>Add variable</button>
-                {['SDLC_AUTO_ACCEPT', 'SDLC_BASE', 'SDLC_LIMIT_MAX_WAIT', 'SDLC_DEP_SCRIPTS', 'SDLC_ALLOW_MERGED'].filter(k => !envObj[k]).map(k => <button class="btn btn-s" type="button" onClick={() => setEnvVar(k, k === 'SDLC_AUTO_ACCEPT' ? '1' : '')}>{k}</button>)}
+                {['SDLC_AUTO_ACCEPT', 'SDLC_BASE', 'SDLC_LIMIT_RETRY', 'SDLC_LIMIT_MAX_WAIT', 'SDLC_DEP_SCRIPTS', 'SDLC_ALLOW_MERGED'].filter(k => !envObj[k]).map(k => <button class="btn btn-s" type="button" onClick={() => setEnvVar(k, k === 'SDLC_AUTO_ACCEPT' ? '1' : '')}>{k}</button>)}
               </div>
             </div>
           </Panel>
