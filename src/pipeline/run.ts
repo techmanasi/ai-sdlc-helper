@@ -11,7 +11,7 @@ import { snapshot } from '../changes/index.js';
 import { repoRulesFile } from '../permissions/index.js';
 import { Keys, testLayout } from '../testcheck/keys.js';
 import { AGENT_STAGES, Exit, FROM_STAGES, SetupError, stop, tick, type Ctx, type From } from './context.js';
-import { spawnClaude, type AgentSpawn } from './agent.js';
+import { spawnAgentProcess, type AgentSpawn } from './agent.js';
 import { projectRoot } from '../runs/records.js';
 import { Git } from './git.js';
 import { envModels, modelEnvOf, registryFile, stageModels } from './models.js';
@@ -189,7 +189,7 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
   const ctx: Ctx = {
     root, config, layout: lay, slug, from, fromN: FROM_STAGES.indexOf(from) + 1, docs, log, backlog,
     branch: `${config.git.branchPrefix}${slug}`, env, envModels: envModels(root, env), force: { ...(opts.model ? { model: opts.model } : {}), ...(opts.effort ? { effort: opts.effort } : {}) }, registryFile: registryFile(env), limits,
-    priorStage, git, keys: new Keys(testLayout(config), root), status, spawnAgent: opts.spawnAgent || spawnClaude, signal: opts.signal,
+    priorStage, git, keys: new Keys(testLayout(config), root), status, spawnAgent: opts.spawnAgent || spawnAgentProcess, signal: opts.signal,
     promptsDir: opts.promptsDir || PROMPTS_DIR, guide: codeSearchGuide(search, root),
     allowed: [...new Set([...allowedTools(config), `Bash(${testFileCmd}:*)`, `Bash(${fetchCmd}:*)`])], testFileCmd, fetchCmd,
     // Repository-wide allow rules live in the main working tree, so every worktree run sees them.

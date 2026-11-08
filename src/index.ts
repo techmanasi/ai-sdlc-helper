@@ -42,7 +42,7 @@ export {
   type TestCounts, type ViewState,
 } from './runs/view.js';
 export { runPipeline, firstPending, type PipelineOptions } from './pipeline/run.js';
-export { spawnClaude, type AgentSpawn, type AgentRequest } from './pipeline/agent.js';
+export { spawnAgentProcess, spawnClaude, type AgentSpawn, type AgentRequest } from './pipeline/agent.js';
 export {
   FINALISE_PERMISSIONS,
 } from './permissions/index.js';

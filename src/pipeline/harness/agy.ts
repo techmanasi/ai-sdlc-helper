@@ -6,6 +6,10 @@ export class AgyHarness implements AgentHarness {
   readonly name = 'Google Antigravity CLI';
   readonly defaultBinary = 'agy';
 
+  selectStageModel(opts: { configuredModel?: string; configuredEffort?: string }): { model: string; effort?: string } {
+    return { model: opts.configuredModel || '', effort: opts.configuredEffort };
+  }
+
   async detect(env: NodeJS.ProcessEnv = process.env): Promise<HarnessDetection> {
     const bin = which(this.defaultBinary, { env });
     if (!bin) {

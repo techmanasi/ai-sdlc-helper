@@ -6,6 +6,15 @@ export class ClaudeHarness implements AgentHarness {
   readonly name = 'Anthropic Claude Code';
   readonly defaultBinary = 'claude';
 
+  selectStageModel(opts: { defaultModel: string; defaultEffort: string; hasEffort: boolean; configuredModel?: string; configuredEffort?: string }): { model: string; effort?: string } {
+    return {
+      // stageModel has already resolved provider/model indirection; use the
+      // provider-owned value rather than passing a raw registry spec through.
+      model: opts.defaultModel,
+      effort: opts.hasEffort ? opts.defaultEffort : undefined,
+    };
+  }
+
   async detect(env: NodeJS.ProcessEnv = process.env): Promise<HarnessDetection> {
     const bin = which(this.defaultBinary, { env });
     if (!bin) {

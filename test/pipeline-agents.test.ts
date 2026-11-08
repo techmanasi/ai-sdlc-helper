@@ -86,45 +86,28 @@ describe('stage agents', () => {
 });
 
 describe('a usage limit', () => {
-  test('is waited out: the same agent runs again after the reset, with a note in status.json meanwhile', async () => {
+  test('stops immediately and does not retry', async () => {
     const f = fixture();
     let calls = 0;
-    let noteDuringWait = '';
     const spawnAgent = async (req: AgentRequest) => {
       calls++;
-      if (calls === 2) noteDuringWait = statusOf(f.dir).note;
-      fs.writeFileSync(req.stdout, calls === 1 ? LIMIT : result());
+      fs.writeFileSync(req.stdout, LIMIT);
       fs.writeFileSync(req.stderr, '');
-      if (calls > 1) fs.writeFileSync(path.join(f.dir, DOCS, 'questions.md'), '### Q1: x\nwhy\n**Suggested:** y\n**Answer:**\n');
-      return calls === 1 ? 1 : 0;
+      return 1;
     };
-    const r = await pipeline(f, { SDLC_LIMIT_RETRY: '0.05' }, { spawnAgent });
-    expect(r.status).toBe(2);
-    expect(calls).toBe(2);
-    expect(noteDuringWait).toBe('usage limit, resets 1:10am (Asia/Dubai)');
-    expect(r.stdout).toContain("   .. usage limit reached (resets 1:10am (Asia/Dubai)): retrying 'spec-1' every 0.05s");
-    expect(r.stdout).toContain("   .. usage limit over, 'spec-1' ran");
-    expect(r.stdout).not.toContain('failed, see');
-    expect(statusOf(f.dir)).toMatchObject({ state: 'paused', note: '' });
-  });
-
-  test('fails the stage when it does not reset in time; any other failure is not retried', async () => {
-    let f = fixture();
-    let calls = 0;
-    const always = async (req: AgentRequest) => { calls++; fs.writeFileSync(req.stdout, LIMIT); fs.writeFileSync(req.stderr, ''); return 1; };
-    let r = await pipeline(f, { SDLC_LIMIT_RETRY: '0.05', SDLC_LIMIT_MAX_WAIT: '0.1' }, { spawnAgent: always });
-    expect(r.status).toBe(1);
-    expect(calls).toBe(3);
-    expect(r.stdout).toContain("   !! agent 'spec-1' hit the usage limit (resets 1:10am (Asia/Dubai)) and it did not reset within 0.1s");
-    expect(statusOf(f.dir)).toMatchObject({ state: 'failed', note: '' });
-
-    f = fixture();
-    calls = 0;
-    const broken = async (req: AgentRequest) => { calls++; fs.writeFileSync(req.stdout, result({ subtype: 'error', is_error: true })); fs.writeFileSync(req.stderr, ''); return 1; };
-    r = await pipeline(f, { SDLC_LIMIT_RETRY: '0.05' }, { spawnAgent: broken });
+    const r = await pipeline(f, {}, { spawnAgent });
     expect(r.status).toBe(1);
     expect(calls).toBe(1);
-    expect(r.stdout).toContain("   !! agent 'spec-1' failed, see");
+    expect(r.stdout).toContain("   !! agent 'spec-1' hit the usage limit (resets 1:10am (Asia/Dubai)); stopping immediately");
+    expect(statusOf(f.dir)).toMatchObject({ state: 'failed', note: '' });
+
+    const f2 = fixture();
+    calls = 0;
+    const broken = async (req: AgentRequest) => { calls++; fs.writeFileSync(req.stdout, result({ subtype: 'error', is_error: true })); fs.writeFileSync(req.stderr, ''); return 1; };
+    const r2 = await pipeline(f2, {}, { spawnAgent: broken });
+    expect(r2.status).toBe(1);
+    expect(calls).toBe(1);
+    expect(r2.stdout).toContain("   !! agent 'spec-1' failed, see");
   });
 });
 

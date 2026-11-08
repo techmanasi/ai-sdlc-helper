@@ -116,6 +116,15 @@ export interface AgentHarness {
 
   /** Parse JSON/text stdout and stderr into a normalized result */
   parseOutput(stdoutText: string, stderrText: string, cwd?: string): HarnessResult;
+
+  /** Resolve stage model/effort without making the pipeline know provider semantics. */
+  selectStageModel?(opts: {
+    defaultModel: string;
+    defaultEffort: string;
+    hasEffort: boolean;
+    configuredModel?: string;
+    configuredEffort?: string;
+  }): { model: string; effort?: string };
 }
 
 /** Metadata for pluggable external harnesses loaded as extensions. */

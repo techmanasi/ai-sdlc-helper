@@ -28,6 +28,10 @@ export class DeclarativeHarness implements AgentHarnessPlugin {
     };
   }
 
+  selectStageModel(opts: { configuredModel?: string; configuredEffort?: string }): { model: string; effort?: string } {
+    return { model: opts.configuredModel || '', effort: opts.configuredEffort };
+  }
+
   async detect(env: NodeJS.ProcessEnv = process.env): Promise<HarnessDetection> {
     const bin = which(this.defaultBinary, { env });
     if (!bin) {
