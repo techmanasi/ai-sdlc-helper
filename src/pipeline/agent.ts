@@ -35,42 +35,57 @@ export function usageLimit(jsonFile: string, errFile?: string): string | null {
     return null;
   };
 
+  // Only typed provider error events are inspected. The transcript also holds tool output and assistant text, which
+  // can quote limit strings as ordinary source code, so it is never scanned as free text.
+  const fromEvent = (event: Record<string, unknown>): string | null => {
+    const err = (event.error ?? null) as { code?: unknown; message?: unknown } | null;
+    const code = err?.code ?? event.code;
+    if (code === 'rate_limit_exceeded' || code === 'rate_limit' || event.type === 'rate_limit') return 'rate limit reached';
+    if (code === 'insufficient_quota' || code === 'quota_exceeded') return 'quota exceeded';
+    const isError = event.type === 'error' || event.type === 'turn.failed' || err !== null;
+    if (!isError) return null;
+    const message = [code === 'usage_limit_reached' ? 'usage_limit_reached' : '', err?.message, typeof event.message === 'string' ? event.message : '']
+      .filter((m): m is string => typeof m === 'string' && m.length > 0).join('\n');
+    const hit = checkText(message);
+    if (hit) return hit;
+    return /hit your usage limit/i.test(message) ? 'usage limit reached' : null;
+  };
+
   try {
     if (fs.existsSync(jsonFile)) {
       const raw = fs.readFileSync(jsonFile, 'utf8');
+      let single: Record<string, unknown> | null = null;
       try {
-        const d = JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) single = parsed as Record<string, unknown>;
+      } catch { /* not a single object: JSONL */ }
+      if (single) {
+        const d = single as { api_error?: unknown; result?: unknown; is_error?: unknown; status?: unknown; error?: { code?: unknown; status?: unknown } };
         if (d.api_error === 'usage_limit_reached') {
           const m = /resets[^\n"\\]*/.exec(String(d.result || ''));
           return m ? m[0].trim() : 'resets later';
         }
-        if (d.status === 'RATE_LIMITED' || d.error?.code === 429 || d.error?.code === 'rate_limit_exceeded' || d.code === 'rate_limit') {
-          return 'rate limit reached';
+        if (d.status === 'RATE_LIMITED' || d.error?.code === 429) return 'rate limit reached';
+        if (d.status === 'QUOTA_EXCEEDED' || d.error?.status === 'RESOURCE_EXHAUSTED') return 'quota exceeded';
+        const hit = fromEvent(single);
+        if (hit) return hit;
+        // The result of a failed run is the provider's message; the result of a successful run is the agent's own text.
+        if (d.is_error === true && typeof d.result === 'string') {
+          const fromResult = checkText(d.result);
+          if (fromResult) return fromResult;
         }
-        if (d.status === 'QUOTA_EXCEEDED' || d.error?.status === 'RESOURCE_EXHAUSTED' || d.error?.code === 'insufficient_quota' || d.error?.code === 'quota_exceeded') {
-          return 'quota exceeded';
-        }
-      } catch {
-        const lines = raw.split('\n').filter(l => l.trim().length > 0);
-        for (const line of lines) {
+      } else {
+        for (const line of raw.split('\n')) {
+          if (!line.trim()) continue;
           try {
             const event = JSON.parse(line);
-            if (event.error?.code === 'rate_limit_exceeded' || event.code === 'rate_limit' || event.type === 'rate_limit') {
-              return 'rate limit reached';
+            if (event && typeof event === 'object') {
+              const hit = fromEvent(event as Record<string, unknown>);
+              if (hit) return hit;
             }
-            if (event.error?.code === 'insufficient_quota' || event.error?.code === 'quota_exceeded' || event.code === 'quota_exceeded') {
-              return 'quota exceeded';
-            }
-            if (event.error?.message && /quota|rate limit/i.test(event.error.message)) {
-              return checkText(event.error.message);
-            }
-          } catch {
-            /* ignore non-JSON line */
-          }
+          } catch { /* ignore non-JSON line */ }
         }
       }
-      const fromRaw = checkText(raw);
-      if (fromRaw) return fromRaw;
     }
   } catch { /* ignore read failure */ }
 

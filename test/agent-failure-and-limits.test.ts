@@ -58,6 +58,58 @@ describe('Universal Agent Error & Quota Handling', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
+  describe('does not mistake transcript content for a provider limit', () => {
+    const quoted = [
+      'const code = "usage_limit_reached";',
+      'throw new Error("quota exceeded"); // rate_limit_exceeded',
+      'cache resets every hour; 429 Too Many Requests handled elsewhere',
+    ].join('\n');
+    const withTmp = (fn: (jsonFile: string, errFile: string) => void): void => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-limit-'));
+      try { fn(path.join(tmp, 'agent.json'), path.join(tmp, 'agent.err')); } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+    };
+
+    it('ignores quota strings in Codex tool output and assistant text of a successful turn', () => {
+      withTmp((jsonFile, errFile) => {
+        fs.writeFileSync(jsonFile, [
+          JSON.stringify({ type: 'thread.started' }),
+          JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'graft grep usage_limit_reached', aggregated_output: quoted, exit_code: 0 } }),
+          JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'The detector matches usage_limit_reached and resets 1am.' } }),
+          JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1 } }),
+        ].join('\n') + '\n');
+        fs.writeFileSync(errFile, 'Reading additional input from stdin...\n2026-11-08T08:28:53Z ERROR codex_core::tools::router: error=apply_patch verification failed\n');
+        expect(usageLimit(jsonFile, errFile)).toBeNull();
+      });
+    });
+
+    it('ignores quota strings in the result text of a successful single-object transcript', () => {
+      withTmp((jsonFile) => {
+        fs.writeFileSync(jsonFile, JSON.stringify({ type: 'result', is_error: false, result: quoted }));
+        expect(usageLimit(jsonFile)).toBeNull();
+      });
+    });
+
+    it('still detects real Codex provider error events', () => {
+      withTmp((jsonFile) => {
+        fs.writeFileSync(jsonFile, '{"type":"turn.started"}\n{"type":"error","message":"You\'ve hit your usage limit. Try again later."}\n');
+        expect(usageLimit(jsonFile)).toBe('usage limit reached');
+        fs.writeFileSync(jsonFile, '{"type":"turn.failed","error":{"message":"exceeded your current quota"}}\n');
+        expect(usageLimit(jsonFile)).toBe('quota exceeded');
+        fs.writeFileSync(jsonFile, '{"type":"error","error":{"code":"usage_limit_reached","message":"resets 3pm"}}\n');
+        expect(usageLimit(jsonFile)).toBe('resets 3pm');
+        fs.writeFileSync(jsonFile, '{"type":"turn.failed","error":{"code":"rate_limit_exceeded"}}\n');
+        expect(usageLimit(jsonFile)).toBe('rate limit reached');
+      });
+    });
+
+    it('still detects a Claude error result that reports a limit', () => {
+      withTmp((jsonFile) => {
+        fs.writeFileSync(jsonFile, JSON.stringify({ type: 'result', is_error: true, result: 'Claude usage limit reached. Your limit resets 2am (Asia/Dubai)' }));
+        expect(usageLimit(jsonFile)).toBe('resets 2am (Asia/Dubai)');
+      });
+    });
+  });
+
   it('extractAgentFailure extracts actionable CLI and stderr errors', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-fail-'));
     const base = path.join(tmp, 'impl-1');
