@@ -10,7 +10,7 @@ import { shellArgv } from '../shell.js';
 import { PERSONAL_ENV, personalAgentOf } from '../config/personal.js';
 import { forceEnv, resolve, worktreeBase, type Force } from '../config/settings.js';
 import { findContaining, readRegistry, type ProjectOverrides } from '../registry/projects.js';
-import { worktreeChanges } from '../changes/index.js';
+import { forgetStage, stageWork, worktreeChanges } from '../changes/index.js';
 import {
   alive, isRunning, killTree, mainTree, projectRoot, now, readRecord, recordFile, recordedSlugs, registryDir, runState, writeRecord, type RunRecord,
 } from './records.js';
@@ -341,18 +341,31 @@ export async function discardStage(ctx: RunContext, slug: string, opts: StageDis
   try { status = JSON.parse(fs.readFileSync(statusFile, 'utf8')); } catch { /* use requested stage */ }
   const stage = stageKey(opts.stage || status.stage || '');
   if (!stage) return fail(2, `Could not determine the current stage for ${slug}; pass --stage <stage>`);
-  const tracked = git(wt, ['diff', '--name-only', '-z', 'HEAD'], ctx.env).stdout.split('\0').filter(Boolean);
-  const staged = git(wt, ['diff', '--cached', '--name-only', '-z'], ctx.env).stdout.split('\0').filter(Boolean);
-  const files = [...new Set([...tracked, ...staged])];
-  if (files.length) git(wt, ['restore', '--source=HEAD', '--staged', '--worktree', '--', '.'], ctx.env);
-  const logsPrefix = `${ctx.backlogDir}/${slug}/logs/`;
-  const untracked = git(wt, ['ls-files', '--others', '--exclude-standard', '-z'], ctx.env).stdout.split('\0').filter(Boolean);
-  for (const file of untracked) {
-    if (file.startsWith(logsPrefix)) continue;
-    fs.rmSync(path.join(wt, file), { recursive: true, force: true });
+  // Only the latest stage may go: discarding an earlier one would leave the later stages built on files that are gone.
+  if (status.stage && stageKey(status.stage) !== stage) return fail(2, `Only the latest stage (${status.stage}) can be discarded, not ${stage}`);
+  // Only what this stage made is discarded: the files stage-files.json credits to it and what changed since the last mark.
+  // Another stage's files (the Spec and Plan documents are uncommitted until the red-tests commit) are never touched.
+  const marks = path.join(wt, ctx.backlogDir, slug, 'logs', 'stage-files.json');
+  const own = (name: string): boolean => stageKey(name) === stage;
+  const work = stageWork(marks, { root: wt }, own);
+  const tracked = new Set(git(wt, ['ls-tree', '-r', '--name-only', '-z', 'HEAD'], ctx.env).stdout.split('\0').filter(Boolean));
+  for (const file of work) {
+    if (tracked.has(file)) git(wt, ['restore', '--source=HEAD', '--staged', '--worktree', '--', file], ctx.env);
+    else {
+      git(wt, ['rm', '-r', '-f', '-q', '--cached', '--ignore-unmatch', '--', file], ctx.env);
+      fs.rmSync(path.join(wt, file), { recursive: true, force: true });
+    }
   }
+  try { forgetStage(marks, { root: wt }, own); } catch { /* the pane's file list is best effort */ }
+  // The run now stands at the latest earlier stage that still has work, so that is the one that can be discarded next.
+  try {
+    const order = ['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise'];
+    const left = Object.keys((JSON.parse(fs.readFileSync(marks, 'utf8')) as { stages?: Record<string, unknown> }).stages || {});
+    const before = order.filter(n => stageKey(n) !== stage && order.findIndex(m => stageKey(m) === stage) > order.indexOf(n) && left.includes(n));
+    fs.writeFileSync(statusFile, `${JSON.stringify({ ...status, stage: before[before.length - 1] || '' })}\n`);
+  } catch { /* no marks or status: nothing to move */ }
   fs.appendFileSync(path.join(wt, ctx.backlogDir, slug, 'logs', 'run.out'), `stage ${stage} discarded; ready to retry\n`);
-  return ok(`Discarded uncommitted changes from ${stage} in ${wt}; ready to retry. Resume with: ai-sdlc-helper start ${slug} --from ${stage}`);
+  return ok(`Discarded ${work.length} file(s) made by ${stage} in ${wt}; ready to retry. Resume with: ai-sdlc-helper start ${slug} --from ${stage}`);
 }
 
 /**

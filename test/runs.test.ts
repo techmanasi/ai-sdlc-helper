@@ -376,18 +376,61 @@ describe('discard and restart', () => {
     expect((await cli(['discard', 'alpha', '--nope'])).status).toBe(2);
   });
 
-  test('discard-stage restores uncommitted stage files but preserves the worktree and branch', async () => {
+  // What the pipeline records after each stage (logs/stage-files.json): the files credited to it, and the tree at the last mark.
+  const credit = (wt: string, stages: Record<string, string[]>) => fs.writeFileSync(
+    path.join(wt, 'Docs/backlog/alpha/logs/stage-files.json'), JSON.stringify({ marker: { files: {}, head: git(wt, 'rev-parse', 'HEAD') }, stages }));
+
+  // The stage the run stopped at (logs/status.json), which is the only one discard-stage accepts.
+  const stoppedAt = (wt: string, stage: string) => {
+    const file = path.join(wt, 'Docs/backlog/alpha/logs/status.json');
+    let cur: Record<string, unknown> = {};
+    try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* none yet */ }
+    fs.writeFileSync(file, JSON.stringify({ ...cur, stage }));
+  };
+
+  test('discard-stage deletes the files the stage made but preserves the worktree and branch', async () => {
     expect((await cli(['start', 'alpha'])).status).toBe(0);
     await finished('alpha');
     const wt = path.join(wts, 'alpha');
     fs.writeFileSync(path.join(wt, 'stage-change.txt'), 'temporary\n');
-    expect(fs.existsSync(path.join(wt, 'stage-change.txt'))).toBe(true);
+    credit(wt, { Implement: ['stage-change.txt'] });
+    stoppedAt(wt, 'Implement');
     const r = await cli(['discard-stage', 'alpha', '--from', 'implement']);
     expect(r.status).toBe(0);
     expect(fs.existsSync(path.join(wt, 'stage-change.txt'))).toBe(false);
     expect(fs.existsSync(wt)).toBe(true);
     expect(git(repo, 'show-ref', '--verify', '--quiet', 'refs/heads/sdlc/alpha')).toBe('');
     expect(r.stdout).toContain('ready to retry');
+  });
+
+  test('discard-stage touches only that stage: the documents of the earlier stages stay, and so do the logs', async () => {
+    expect((await cli(['start', 'alpha'])).status).toBe(0);
+    await finished('alpha');
+    const wt = path.join(wts, 'alpha');
+    const docs = path.join(wt, 'Docs/backlog/alpha');
+    fs.writeFileSync(path.join(docs, 'specs-1.md'), 'spec\n');
+    fs.writeFileSync(path.join(docs, 'plan-1.md'), 'plan\n');
+    fs.writeFileSync(path.join(docs, 'test-cases-1.md'), 'cases\n');
+    fs.writeFileSync(path.join(wt, 'stage-change.txt'), 'temporary\n');
+    fs.writeFileSync(path.join(wt, 'in-flight.txt'), 'made after the last mark\n');
+    credit(wt, { Spec: ['Docs/backlog/alpha/specs-1.md'], Plan: ['Docs/backlog/alpha/plan-1.md'], 'Red tests': ['Docs/backlog/alpha/test-cases-1.md', 'stage-change.txt', 'Docs/backlog/alpha/specs-1.md'] });
+    stoppedAt(wt, 'Red tests');
+    const refused = await cli(['discard-stage', 'alpha', '--from', 'plan']);
+    expect(refused.status).toBe(2);
+    expect(fs.readFileSync(path.join(docs, 'plan-1.md'), 'utf8')).toBe('plan\n');
+    const r = await cli(['discard-stage', 'alpha', '--from', 'red-tests']);
+    expect(r.status).toBe(0);
+    expect(fs.readFileSync(path.join(docs, 'specs-1.md'), 'utf8')).toBe('spec\n'); // credited to Spec as well: not taken back
+    expect(fs.readFileSync(path.join(docs, 'plan-1.md'), 'utf8')).toBe('plan\n');
+    expect(fs.existsSync(path.join(docs, 'test-cases-1.md'))).toBe(false);
+    expect(fs.existsSync(path.join(wt, 'stage-change.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(wt, 'in-flight.txt'))).toBe(false); // changed since the last mark: the stage in progress
+    expect(fs.existsSync(path.join(docs, 'logs/status.json'))).toBe(true);
+    const marks = JSON.parse(fs.readFileSync(path.join(docs, 'logs/stage-files.json'), 'utf8'));
+    expect(Object.keys(marks.stages).sort()).toEqual(['Plan', 'Spec']); // Red tests is forgotten
+    expect(JSON.parse(fs.readFileSync(path.join(docs, 'logs/status.json'), 'utf8')).stage).toBe('Plan'); // the run stands at Plan now: it is the one to discard next
+    expect((await cli(['discard-stage', 'alpha', '--from', 'spec'])).status).toBe(2);
+    expect((await cli(['discard-stage', 'alpha', '--from', 'plan'])).status).toBe(0);
   });
 
   test('discard works when the worktree was deleted by hand, and uses the record\'s path when the settings changed', async () => {

@@ -23,7 +23,7 @@ export const RUNS_USAGE = `
                                    stop, discard and start again from scratch (without --yes: show what goes, exit 6)
   discard <slug> [--yes] [--stop]  delete its worktree, branch and run record; the branch tip is saved first
   discard-stage <slug> [--from <stage>] [--stop]
-                                   restore uncommitted changes from the stage and leave the run ready to retry
+                                   restore uncommitted code and tests, keep the item's documents, and leave the run ready to retry
   status [--json]                  one line per recorded run
   watch <slug> [--follow [seconds]]
                                    its status.json, run state, uncommitted files and the end of run.out;

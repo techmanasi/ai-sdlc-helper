@@ -170,6 +170,34 @@ export function mark(target: string, stage: string, opts: ChangesOptions): void 
   fs.writeFileSync(target, JSON.stringify(state));
 }
 
+/**
+ * The files of the stage that is being redone: what <stage-files.json> credits to it, plus what changed since the last mark
+ * (a stage that stopped early was never credited). A file an earlier stage is credited with is left out, so redoing a stage
+ * never takes back another stage's work. <is> says whether a stage name in the file is the one asked for.
+ */
+export function stageWork(target: string, opts: ChangesOptions, is: (name: string) => boolean): string[] {
+  let state: StageFiles = { marker: null, stages: {} };
+  try { state = { ...state, ...JSON.parse(fs.readFileSync(target, 'utf8')) }; } catch { /* nothing recorded */ }
+  const mine = new Set<string>();
+  const others = new Set<string>();
+  for (const [name, files] of Object.entries(state.stages)) for (const f of files) (is(name) ? mine : others).add(f);
+  if (state.marker) {
+    const before = state.marker.files;
+    const now = currentState(opts.root);
+    for (const f of Object.keys(now)) if (!has(before, f) || before[f] !== now[f]) mine.add(f);
+  }
+  return [...mine].filter(f => !others.has(f)).sort();
+}
+
+/** Forgets what <stage-files.json> credits to the redone stage and moves the marker to the tree as it is now. */
+export function forgetStage(target: string, opts: ChangesOptions, is: (name: string) => boolean): void {
+  let state: StageFiles = { marker: null, stages: {} };
+  try { state = { ...state, ...JSON.parse(fs.readFileSync(target, 'utf8')) }; } catch { return; }
+  for (const name of Object.keys(state.stages)) if (is(name)) delete state.stages[name];
+  state.marker = { files: currentState(opts.root), head: git(opts.root, ['rev-parse', 'HEAD']).trim() };
+  fs.writeFileSync(target, JSON.stringify(state));
+}
+
 export interface WorktreeChanges {
   /** Files changed since the merge-base with <base> (committed) or not committed yet, sorted, each once. */
   files: string[];
