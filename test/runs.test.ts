@@ -380,12 +380,21 @@ describe('discard and restart', () => {
   const credit = (wt: string, stages: Record<string, string[]>) => fs.writeFileSync(
     path.join(wt, 'Docs/backlog/alpha/logs/stage-files.json'), JSON.stringify({ marker: { files: {}, head: git(wt, 'rev-parse', 'HEAD') }, stages }));
 
+  // The stage the run stopped at (logs/status.json), which is the only one discard-stage accepts.
+  const stoppedAt = (wt: string, stage: string) => {
+    const file = path.join(wt, 'Docs/backlog/alpha/logs/status.json');
+    let cur: Record<string, unknown> = {};
+    try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* none yet */ }
+    fs.writeFileSync(file, JSON.stringify({ ...cur, stage }));
+  };
+
   test('discard-stage deletes the files the stage made but preserves the worktree and branch', async () => {
     expect((await cli(['start', 'alpha'])).status).toBe(0);
     await finished('alpha');
     const wt = path.join(wts, 'alpha');
     fs.writeFileSync(path.join(wt, 'stage-change.txt'), 'temporary\n');
     credit(wt, { Implement: ['stage-change.txt'] });
+    stoppedAt(wt, 'Implement');
     const r = await cli(['discard-stage', 'alpha', '--from', 'implement']);
     expect(r.status).toBe(0);
     expect(fs.existsSync(path.join(wt, 'stage-change.txt'))).toBe(false);
@@ -405,6 +414,10 @@ describe('discard and restart', () => {
     fs.writeFileSync(path.join(wt, 'stage-change.txt'), 'temporary\n');
     fs.writeFileSync(path.join(wt, 'in-flight.txt'), 'made after the last mark\n');
     credit(wt, { Spec: ['Docs/backlog/alpha/specs-1.md'], Plan: ['Docs/backlog/alpha/plan-1.md'], 'Red tests': ['Docs/backlog/alpha/test-cases-1.md', 'stage-change.txt', 'Docs/backlog/alpha/specs-1.md'] });
+    stoppedAt(wt, 'Red tests');
+    const refused = await cli(['discard-stage', 'alpha', '--from', 'plan']);
+    expect(refused.status).toBe(2);
+    expect(fs.readFileSync(path.join(docs, 'plan-1.md'), 'utf8')).toBe('plan\n');
     const r = await cli(['discard-stage', 'alpha', '--from', 'red-tests']);
     expect(r.status).toBe(0);
     expect(fs.readFileSync(path.join(docs, 'specs-1.md'), 'utf8')).toBe('spec\n'); // credited to Spec as well: not taken back

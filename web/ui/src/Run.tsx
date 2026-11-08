@@ -549,7 +549,7 @@ export function Run({ slug }: { slug: string }) {
                     ))}
                   {s.key === 'test-repair' && v.models['test-audit'] && <span class="mono small muted">audit: {v.models['test-audit'].model} · {v.models['test-audit'].effort}</span>}
                   {v.stageFiles[s.name] && <span class="small muted">{v.stageFiles[s.name].length} files</span>}
-                  {s.key && s.key !== 'finalise' && v.state !== 'not started' && v.state !== 'running' && (v.stageFiles[s.name]?.length || st === 'paused' || st === 'failed') && (
+                  {s.key && s.key !== 'finalise' && s.name === v.stage && !running && v.state !== 'not started' && v.state !== 'done' && (v.stageFiles[s.name]?.length || st === 'paused' || st === 'failed') && (
                     confirm === `discard-stage:${s.key}`
                       ? <span class="row" style={{ gap: '4px' }}><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act(`Discard ${s.name}`, () => api.discardStage(project, slug, s.key))}>{busy === `Discard ${s.name}` ? <><Spinner /> Discarding…</> : `Confirm: discard ${s.name}`}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></span>
                       : <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => setConfirm(`discard-stage:${s.key}`)}>Discard {s.name}…</button>

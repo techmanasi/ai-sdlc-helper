@@ -341,6 +341,8 @@ export async function discardStage(ctx: RunContext, slug: string, opts: StageDis
   try { status = JSON.parse(fs.readFileSync(statusFile, 'utf8')); } catch { /* use requested stage */ }
   const stage = stageKey(opts.stage || status.stage || '');
   if (!stage) return fail(2, `Could not determine the current stage for ${slug}; pass --stage <stage>`);
+  // Only the latest stage may go: discarding an earlier one would leave the later stages built on files that are gone.
+  if (status.stage && stageKey(status.stage) !== stage) return fail(2, `Only the latest stage (${status.stage}) can be discarded, not ${stage}`);
   // Only what this stage made is discarded: the files stage-files.json credits to it and what changed since the last mark.
   // Another stage's files (the Spec and Plan documents are uncommitted until the red-tests commit) are never touched.
   const marks = path.join(wt, ctx.backlogDir, slug, 'logs', 'stage-files.json');
