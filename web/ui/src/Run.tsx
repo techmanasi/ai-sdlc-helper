@@ -17,6 +17,7 @@ const STAGES = [
 ];
 const MODELS = ['', 'opus', 'sonnet', 'haiku', 'fable'];
 const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
+const unique = <T,>(values: T[]): T[] => [...new Set(values)];
 const envKey = (kind: 'MODEL' | 'EFFORT', key: string) => `${kind}_${key.toUpperCase().replace(/-/g, '_')}`;
 const AGENT_ENV = (key: string) => `AGENT_${key.toUpperCase().replace(/-/g, '_')}`;
 const ENV_STORE = (project: string, slug: string) => `sdlc-env:${project}:${slug}`;
@@ -442,15 +443,15 @@ export function Run({ slug }: { slug: string }) {
                   if (envObj.SDLC_FORCE_MODEL && !(catalog.models[h || catalog.config?.agent?.harness || 'claude'] || []).some(m => m.id === envObj.SDLC_FORCE_MODEL)) setEnvVar('SDLC_FORCE_MODEL', '');
                 }}>
                   <option value="">agent: project's</option>
-                  {catalog.harnesses.map(h => <option value={h}>{h}</option>)}
+                  {unique(catalog.harnesses).map(h => <option value={h}>{h}</option>)}
                 </select>
                 <select class="sel" aria-label="run model" value={envObj.SDLC_FORCE_MODEL || ''} onChange={e => setEnvVar('SDLC_FORCE_MODEL', (e.target as HTMLSelectElement).value)}>
                   <option value="">model: per stage</option>
-                  {(catalog.models[envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'] || []).map(m => <option value={m.id}>{m.id}</option>)}
+                  {unique((catalog.models[envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'] || []).map(m => m.id)).map(id => <option value={id}>{id}</option>)}
                 </select>
                 <select class="sel" aria-label="run effort" value={envObj.SDLC_FORCE_EFFORT || ''} onChange={e => setEnvVar('SDLC_FORCE_EFFORT', (e.target as HTMLSelectElement).value)}>
                   <option value="">effort: per stage</option>
-                  {catalog.efforts.map(x => <option value={x}>{x}</option>)}
+                  {unique(catalog.efforts).map(x => <option value={x}>{x}</option>)}
                 </select>
               </div>
             )}
@@ -533,15 +534,15 @@ export function Run({ slug }: { slug: string }) {
                             setEnvVar(AGENT_ENV(s.key), (e.target as HTMLSelectElement).value);
                             setEnvVar(envKey('MODEL', s.key), '');
                           }}>
-                            <option value="">{catalog.config?.agent?.stages?.[s.key]?.harness || catalog.config?.agent?.harness || 'agent'}</option>
-                            {catalog.harnesses.map(h => <option value={h}>{h}</option>)}
+                            <option value="">{(() => { const h = catalog.config?.agent?.stages?.[s.key]?.harness || catalog.config?.agent?.harness; return h ? `default (${h})` : 'agent'; })()}</option>
+                            {unique(catalog.harnesses).map(h => <option value={h}>{h}</option>)}
                           </select>
                         )}
                         <select class="sel" aria-label={`${s.name} model`} value={envObj[envKey('MODEL', s.key)] || ''} onChange={e => setEnvVar(envKey('MODEL', s.key), (e.target as HTMLSelectElement).value)}>
-                          {['', ...(catalog ? (catalog.models[envObj[AGENT_ENV(s.key)] || catalog.config?.agent?.stages?.[s.key]?.harness || catalog.config?.agent?.harness || 'claude'] || []).map(m => m.id) : MODELS.slice(1))].map(m => <option value={m}>{m || (inUse ? inUse.model : 'default')}</option>)}
+                          {unique(['', ...(catalog ? (catalog.models[envObj[AGENT_ENV(s.key)] || catalog.config?.agent?.stages?.[s.key]?.harness || catalog.config?.agent?.harness || 'claude'] || []).map(m => m.id) : MODELS.slice(1))]).map(m => <option value={m}>{m || (inUse && inUse.model ? `default (${inUse.model})` : 'default')}</option>)}
                         </select>
                         <select class="sel" aria-label={`${s.name} effort`} value={envObj[envKey('EFFORT', s.key)] || ''} onChange={e => setEnvVar(envKey('EFFORT', s.key), (e.target as HTMLSelectElement).value)}>
-                          {EFFORTS.map(m => <option value={m}>{m || (inUse ? inUse.effort : 'default')}</option>)}
+                          {unique(EFFORTS).map(m => <option value={m}>{m || (inUse && inUse.effort ? `default (${inUse.effort})` : 'default')}</option>)}
                         </select>
                       </div>
                     ))}

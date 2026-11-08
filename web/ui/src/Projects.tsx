@@ -28,6 +28,7 @@ function Doctor({ name }: { name: string }) {
 /** One agent / model / effort triple: '' in a field means "not set here" (the project's, or the stage default, applies). */
 interface Pick { harness: string; model: string; effort: string }
 const NONE: Pick = { harness: '', model: '', effort: '' };
+const unique = <T,>(values: T[]): T[] => [...new Set(values)];
 type Scope = 'project' | 'personal';
 type RowSources = { harness?: Source; model?: Source; effort?: Source };
 const FIELD_NAMES = ['harness', 'model', 'effort'] as const;
@@ -66,18 +67,18 @@ function Pickers({ id, pick, set, data, harness, inherit }: {
         change({ harness: (e.target as HTMLSelectElement).value, ...(keep ? {} : { model: '', effort: '' }) });
       }}>
         <option value="">{inherit.agent ? `default (${inherit.agent})` : 'choose'}</option>
-        {data.harnesses.map(h => <option value={h}>{h}</option>)}
+        {unique(data.harnesses).map(h => <option value={h}>{h}</option>)}
       </select>
       <select id={`${id}-m`} class="inp mono" aria-label="model" value={pick.model} onChange={e => change({ model: (e.target as HTMLSelectElement).value })}>
         <option value="">{inherit.model ? `default (${inherit.model})` : 'default'}</option>
-        {models.map(m => <option value={m.id}>{m.id}</option>)}
+        {unique(models.map(m => m.id)).map(id => <option value={id}>{id}</option>)}
         {pick.model && !models.some(m => m.id === pick.model) && <option value={pick.model}>{pick.model}</option>}
       </select>
       {takesEffort
         ? (
           <select id={`${id}-e`} class="inp mono" aria-label="effort" value={pick.effort} onChange={e => change({ effort: (e.target as HTMLSelectElement).value })}>
             <option value="">{inherit.effort ? `default (${inherit.effort})` : 'default'}</option>
-            {data.efforts.map(x => <option value={x}>{x}</option>)}
+            {unique(data.efforts).map(x => <option value={x}>{x}</option>)}
           </select>
         )
         : <span class="small muted">no effort</span>}
@@ -203,18 +204,18 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
           const keep = (data.models[h] || []).some(m => m.id === def.model);
           setDef({ harness: h, model: keep ? def.model : '', effort: keep ? def.effort : '' });
         }}>
-          {data.harnesses.map(h => <option value={h}>{h}</option>)}
+          {unique(data.harnesses).map(h => <option value={h}>{h}</option>)}
         </select>
         <select id="def-m" class="inp mono" aria-label="model" value={def.model} onChange={e => setDef({ ...def, model: (e.target as HTMLSelectElement).value })}>
           <option value="">{scope === 'personal' && defFile.model && def.harness === (defFile.harness || 'claude') ? `project file (${defFile.model})` : 'per-stage default'}</option>
-          {(data.models[def.harness] || []).map(m => <option value={m.id}>{m.id}</option>)}
+          {unique((data.models[def.harness] || []).map(m => m.id)).map(id => <option value={id}>{id}</option>)}
         </select>
         {(data.models[def.harness] || []).find(m => m.id === def.model)?.supportsEffort === false
           ? <span class="small muted">no effort</span>
           : (
             <select id="def-e" class="inp mono" aria-label="effort" value={def.effort} onChange={e => setDef({ ...def, effort: (e.target as HTMLSelectElement).value })}>
               <option value="">{scope === 'personal' && defFile.effort && def.harness === (defFile.harness || 'claude') ? `project file (${defFile.effort})` : 'per-stage default'}</option>
-              {data.efforts.map(x => <option value={x}>{x}</option>)}
+              {unique(data.efforts).map(x => <option value={x}>{x}</option>)}
             </select>
           )}
         <Origin own={shown.top} files={data.files} />
