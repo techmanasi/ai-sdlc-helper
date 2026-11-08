@@ -9,6 +9,6 @@ Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 - [ ] `stage-files-tree-viewer` - Feature: collapsible tree viewer for files changed per stage in web UI
 - [ ] `non-node-ecosystem-support` - Feature: support non-Node/non-TypeScript ecosystems (Python, Go, Rust) for test detection, red-checks, and execution
 - [ ] `ui-code-indexer-setup` - Feature: interactive UI button to configure and build graft/graphify code indexers
-- [ ] `config-modal-keyboard` - Improvement: Projects page Config modal closes on Esc, keeps focus inside, and returns it to the Config button
+- [x] `config-modal-keyboard` - Improvement: Projects page Config modal closes on Esc, keeps focus inside, and returns it to the Config button
 - [ ] `red-tests-minimal-case-tests` - Improvement: Red tests stage writes the fewest tests covering every case, one named test per case ID, shared non-blocking setup
 - [ ] `trace-worth-check` - Improvement: check that the always-on trace and its log rotation are worth their cost, or whether an outside tool can do it
