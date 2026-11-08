@@ -74,7 +74,7 @@ export class AgyHarness implements AgentHarness {
       if (rawJson && Array.isArray(rawJson.denied_actions)) {
         for (const action of rawJson.denied_actions) {
           denials.push({
-            tool: String(action.tool || 'command'),
+            tool: String(action.tool || action.tool_name || action.action || 'command'),
             detail: String(action.detail || action.command || ''),
             rule: String(action.rule || ''),
           });

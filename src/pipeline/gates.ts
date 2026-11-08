@@ -88,6 +88,13 @@ export function targetTestFiles(ctx: Ctx): string[] {
   return [...files].filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f)));
 }
 
+/** The test files the working tree adds, changes or deletes against HEAD (before the red commit exists), that a suite holds. */
+export function newTestFiles(ctx: Ctx): string[] {
+  const changed = ctx.git.lines('ls-files', '-m', '-o', '-d', '--exclude-standard', '--', ...(ctx.layout?.testPathspecs || []));
+  return [...new Set(changed.map(f => f.trim()).filter(Boolean))].sort()
+    .filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f)));
+}
+
 /** The test files added or modified in the task's red commit (ctx.redSha). */
 export function redCommitTestFiles(ctx: Ctx): string[] {
   if (!ctx.redSha || !ctx.git) return [];
