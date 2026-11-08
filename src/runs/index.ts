@@ -341,14 +341,17 @@ export async function discardStage(ctx: RunContext, slug: string, opts: StageDis
   try { status = JSON.parse(fs.readFileSync(statusFile, 'utf8')); } catch { /* use requested stage */ }
   const stage = stageKey(opts.stage || status.stage || '');
   if (!stage) return fail(2, `Could not determine the current stage for ${slug}; pass --stage <stage>`);
+  // The item's own folder holds the Spec and Plan documents (and the stage's logs). They stay uncommitted until the red-tests
+  // commit, so restoring or cleaning them would throw away the earlier stages. Only code and tests outside it are discarded.
+  const itemDir = `${ctx.backlogDir}/${slug}`;
+  const outside = (f: string): boolean => f !== itemDir && !f.startsWith(`${itemDir}/`);
   const tracked = git(wt, ['diff', '--name-only', '-z', 'HEAD'], ctx.env).stdout.split('\0').filter(Boolean);
   const staged = git(wt, ['diff', '--cached', '--name-only', '-z'], ctx.env).stdout.split('\0').filter(Boolean);
-  const files = [...new Set([...tracked, ...staged])];
-  if (files.length) git(wt, ['restore', '--source=HEAD', '--staged', '--worktree', '--', '.'], ctx.env);
-  const logsPrefix = `${ctx.backlogDir}/${slug}/logs/`;
+  const files = [...new Set([...tracked, ...staged])].filter(outside);
+  if (files.length) git(wt, ['restore', '--source=HEAD', '--staged', '--worktree', '--', '.', `:(exclude)${itemDir}`], ctx.env);
   const untracked = git(wt, ['ls-files', '--others', '--exclude-standard', '-z'], ctx.env).stdout.split('\0').filter(Boolean);
   for (const file of untracked) {
-    if (file.startsWith(logsPrefix)) continue;
+    if (!outside(file)) continue;
     fs.rmSync(path.join(wt, file), { recursive: true, force: true });
   }
   fs.appendFileSync(path.join(wt, ctx.backlogDir, slug, 'logs', 'run.out'), `stage ${stage} discarded; ready to retry\n`);

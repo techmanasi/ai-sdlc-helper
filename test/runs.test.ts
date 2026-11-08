@@ -390,6 +390,21 @@ describe('discard and restart', () => {
     expect(r.stdout).toContain('ready to retry');
   });
 
+  test('discard-stage keeps the documents of the earlier stages: they are uncommitted until the red-tests commit', async () => {
+    expect((await cli(['start', 'alpha'])).status).toBe(0);
+    await finished('alpha');
+    const wt = path.join(wts, 'alpha');
+    const docs = path.join(wt, 'Docs/backlog/alpha');
+    fs.writeFileSync(path.join(docs, 'specs-1.md'), 'spec\n');
+    fs.writeFileSync(path.join(docs, 'plan-1.md'), 'plan\n');
+    fs.writeFileSync(path.join(wt, 'stage-change.txt'), 'temporary\n');
+    const r = await cli(['discard-stage', 'alpha', '--from', 'red-tests']);
+    expect(r.status).toBe(0);
+    expect(fs.readFileSync(path.join(docs, 'specs-1.md'), 'utf8')).toBe('spec\n');
+    expect(fs.readFileSync(path.join(docs, 'plan-1.md'), 'utf8')).toBe('plan\n');
+    expect(fs.existsSync(path.join(wt, 'stage-change.txt'))).toBe(false);
+  });
+
   test('discard works when the worktree was deleted by hand, and uses the record\'s path when the settings changed', async () => {
     const { wt } = await finishedRunWithWork();
     fs.rmSync(wt, { recursive: true, force: true });
