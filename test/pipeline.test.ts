@@ -37,9 +37,10 @@ describe('a full run', () => {
     // the tests at the red commit: the new file failed to load, the old tests passed
     const red = JSON.parse(read(f.dir, `${LOG}/red.json`));
     expect(red.runner).toBe('node-test');
-    expect(red.tests.map(t => [t.file, t.status])).toEqual([['src/existing.test.mjs', 'passed'], ['src/flaky.test.mjs', 'passed']]);
+    // only the new test file is run for the red results: the project's other tests are not
+    expect(red.tests).toEqual([]);
     expect(red.suiteErrors.map(e => e.file)).toEqual(['src/sum.test.mjs']);
-    expect(read(f.dir, `${LOG}/tests.log`)).toMatch(/^app \(node-test\): 3 passed, 0 failed/);
+    expect(read(f.dir, `${LOG}/tests.log`)).not.toContain('existing.test.mjs');
 
     // the agents were told this project's framework, test files and commands, and allowed its test commands only
     expect(r.prompts).toContain("node:test tests (describe/it from 'node:test', assert from 'node:assert/strict'), in JavaScript, in files matching src/**/*.test.mjs");
@@ -102,14 +103,27 @@ describe('a full run', () => {
     }
   });
 
-  test('the red gate fails when the new tests pass before implementation', async () => {
+  test('the red gate fails when the new tests pass before implementation, and runs only the new tests: an unrelated failing test does not hide it', async () => {
     const f = fixture({ 'red-tests': `echo cases > "$FAKE_DOCS/test-cases-1.md"\nprintf "import { test } from 'node:test';\\ntest('trivially true', () => {});\\n" > src/sum.test.mjs` });
+    fs.writeFileSync(path.join(f.dir, 'src/broken.test.mjs'), "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('already broken', () => assert.equal(1, 2));\n");
+    git(f.dir, 'add', '-A');
+    git(f.dir, 'commit', '-q', '-m', 'add an unrelated failing test');
     const r = await pipeline(f);
     expect(r.status).toBe(1);
     expect(r.stdout).toContain(`RED GATE FAILED: new tests pass before implementation. See ${LOG}/tests.log`);
+    expect(read(f.dir, `${LOG}/tests.log`)).not.toContain('broken.test.mjs');
     expect(subjects(f.dir)).toEqual([]);
     expect(r.calls).toEqual(['spec', 'plan', 'red-tests']);
     expect(statusOf(f.dir)).toMatchObject({ state: 'failed', stage: 'Red tests' });
+  });
+
+  test('the red gate stops when the Red tests agent leaves no new or changed test file', async () => {
+    const f = fixture({ 'red-tests': 'echo cases > "$FAKE_DOCS/test-cases-1.md"' });
+    const r = await pipeline(f);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('RED GATE FAILED: the Red tests agent added or changed no test file');
+    expect(r.calls).toEqual(['spec', 'plan', 'red-tests']);
+    expect(subjects(f.dir)).toEqual([]);
   });
 
   test('a test changed during Implement stops the run (guard)', async () => {
@@ -124,8 +138,8 @@ describe('a full run', () => {
     const marker = path.join(f.fake, 'flaky-marker');
     const r = await pipeline(f, { FAKE_FLAKY: marker });
     expect([r.status, r.stderr]).toEqual([0, '']);
-    // once at the red gate, once at the green gate (the implement agent re-arms it)
-    expect(r.stdout.match(/WARNING: flaky test failed, then passed on retry; not counted as a failure: src\/flaky.test.mjs :: sometimes slow/g)).toHaveLength(2);
+    // the red gate runs only the new tests, so the project's flaky test is met once, at the green gate (the implement agent re-arms it)
+    expect(r.stdout.match(/WARNING: flaky test failed, then passed on retry; not counted as a failure: src\/flaky.test.mjs :: sometimes slow/g)).toHaveLength(1);
     expect(r.stdout).toContain(' tests and integration green');
     expect(read(f.dir, `${LOG}/flaky-tests.md`)).toContain('src/flaky.test.mjs :: sometimes slow :: first run: failed :: re-run: passed');
   });

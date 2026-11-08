@@ -41,6 +41,13 @@ async function cli(cwd: string, ...args: string[]) {
 }
 
 describe('extract', () => {
+  test('keeps Antigravity command denials pending despite a broad Bash allow rule', () => {
+    fs.writeFileSync(files.state, JSON.stringify({ pending: [], allow: ['Bash'], bypass: [], denied: [] }));
+    const agy = JSON.stringify({ status: 'SUCCESS', response: '', denied_actions: [{ action: 'command', display_name: 'RunCommand' }] });
+    expect(run(agy, 'plan')).toBe(1);
+    expect(loadState(files.state).pending[0]).toMatchObject({ stage: 'plan', tool: 'Bash', detail: '' });
+  });
+
   test('writes the agent text to the log and records each refused action as pending, once, unless it was already decided', () => {
     const two = () => agentJson([denial('Bash', { command: 'git push origin main' }), denial('Edit', { file_path: `${CWD}/server/app.js` })]);
 

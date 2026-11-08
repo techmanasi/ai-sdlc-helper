@@ -249,7 +249,7 @@ export function extract({ jsonFile, logFile, stateFile, stage, cwd, errFile, all
   const note = data.subtype && data.subtype !== 'success' ? `[agent ended: ${data.subtype}]\n` : '';
   fs.writeFileSync(logFile, `${note}${text}${text.endsWith('\n') ? '' : '\n'}${err}`);
 
-  const rawDenials: Array<{ tool: string; input?: unknown; detail?: string }> = [];
+  const rawDenials: Array<{ tool: string; input?: unknown; detail?: string; unresolved?: boolean }> = [];
   if (Array.isArray(data.permission_denials)) {
     for (const d of data.permission_denials) {
       const tool = String(d.tool_name || '');
@@ -258,9 +258,13 @@ export function extract({ jsonFile, logFile, stateFile, stage, cwd, errFile, all
   }
   if (Array.isArray(data.denied_actions)) {
     for (const a of data.denied_actions) {
-      const tool = String(a.tool || 'Bash');
+      // Antigravity reports a refused RunCommand as { action, display_name }
+      // without the command text. Keep it actionable instead of treating a
+      // broad persisted Bash rule as proof that the request was allowed.
+      const agyCommandDenial = a.action === 'command' && !a.tool && !a.command && !a.detail;
+      const tool = String(a.tool || a.tool_name || 'Bash');
       const detail = String(a.detail || a.command || '');
-      rawDenials.push({ tool, detail, input: { command: detail } });
+      rawDenials.push({ tool, detail, input: { command: detail }, unresolved: agyCommandDenial && !detail });
     }
   }
 
@@ -277,7 +281,7 @@ export function extract({ jsonFile, logFile, stateFile, stage, cwd, errFile, all
     };
     const same = (a: { tool: string; detail: string }) => a.tool === ask.tool && a.detail === ask.detail;
     if (state.denied.some(same) || state.pending.some(a => same(a) && a.stage === stage)) continue;
-    if (!ask.protected && (state.allow.includes(ask.rule) || decidedLine(tool, inputObj, allowed, state.allow))) continue;
+    if (!d.unresolved && !ask.protected && (state.allow.includes(ask.rule) || decidedLine(tool, inputObj, allowed, state.allow))) continue;
     state.pending.push(ask);
   }
 
