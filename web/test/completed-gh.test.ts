@@ -39,9 +39,9 @@ beforeEach(() => {
   git(repo, 'commit', '-q', '-m', 'init');
   fs.mkdirSync(path.join(base, 'ui'), { recursive: true });
   fs.writeFileSync(path.join(base, 'ui', 'index.html'), '<!doctype html><title>app</title>');
-  // A gh that takes 3 s and says every PR is merged.
+  // A gh that waits until the test releases it, then says every PR is merged.
   fs.mkdirSync(path.join(base, 'bin'));
-  fs.writeFileSync(path.join(base, 'bin', 'gh'), `#!/bin/sh\necho x >> "${base}/gh-calls.txt"\nsleep 3\necho '{"url":"https://github.com/o/r/pull/9","state":"MERGED","number":9}'\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(base, 'bin', 'gh'), `#!/bin/sh\necho x >> "${base}/gh-calls.txt"\nwhile [ ! -f "${base}/gh-release" ]; do sleep 0.05; done\necho '{"url":"https://github.com/o/r/pull/9","state":"MERGED","number":9}'\n`, { mode: 0o755 });
 });
 afterEach(async () => {
   if (server) await server.close();
@@ -58,6 +58,7 @@ describe('the Completed route with a slow gh', () => {
     const quick = await get(server, '/api/projects');
     expect(quick.status).toBe(200);
     expect(slowDone).toBe(false); // served while the gh calls were still running: a blocked loop would have waited for them
+    fs.writeFileSync(path.join(base, 'gh-release'), '');
     const first = await slow;
     expect(first.status).toBe(200);
     expect(JSON.parse(first.body).completed.map((t: { slug: string }) => t.slug).sort()).toEqual(['a', 'b', 'c']);

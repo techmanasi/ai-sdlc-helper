@@ -69,17 +69,20 @@ describe('the trace of the UI server', () => {
     process.env.PATH = `${bin}:${savedPath}`;
     const s = await start();
     const spawns = () => lines().filter(l => l.action === 'spawn:git').length;
-    // the trace is written once a second: wait until what the counting git saw has reached the file
-    await eventually(() => calls() > 0 && spawns() === calls());
+    const requests = () => lines().filter(l => l.action === 'request').length;
+    // The trace is written once a second, in order. A request line marks everything before it as written, so a first
+    // request fixes the baseline (the test's own git calls and the server's start-up ones are not part of what is counted).
+    expect(await get(s, '/api/projects')).toBe(200);
+    await eventually(() => requests() >= 1);
     const callsBefore = calls();
     const spawnsBefore = spawns();
     expect(await get(s, '/api/projects/shop/runs/one')).toBe(200);
-    await eventually(() => lines().some(l => l.action === 'request') && spawns() === calls());
+    await eventually(() => requests() >= 2);
     const seen = calls() - callsBefore;
     const got = lines();
     expect(seen).toBeGreaterThan(0);
     expect(got.filter(l => l.action === 'spawn:git').length - spawnsBefore).toBe(seen);
-    const req = got.filter(l => l.action === 'request');
+    const req = got.filter(l => l.action === 'request' && l.why === 'GET /api/projects/:project/runs/:slug');
     expect(req).toHaveLength(1);
     expect(req[0].why).toBe('GET /api/projects/:project/runs/:slug');
     expect(req[0].run).toBe('one');
