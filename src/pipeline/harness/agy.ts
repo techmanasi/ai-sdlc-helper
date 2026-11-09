@@ -1,4 +1,5 @@
 import { which } from '../../shell.js';
+import { agyTranscript } from './agy-transcript.js';
 import type { AgentHarness, HarnessDetection, HarnessInvocation, HarnessModel, HarnessResult, StageCompileOptions } from './types.js';
 
 export class AgyHarness implements AgentHarness {
@@ -62,6 +63,10 @@ export class AgyHarness implements AgentHarness {
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--effort', opts.effort);
     return { command: this.defaultBinary, args, env: {} };
+  }
+
+  transcript(rawJson: unknown) {
+    return agyTranscript(rawJson);
   }
 
   parseOutput(stdoutText: string, stderrText: string): HarnessResult {

@@ -9,6 +9,7 @@ import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.
 import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { projectSlugs, runChanges, runWorktree, type RunContext } from './index.js';
 import { getPrFromBrief, getPrStatusCached } from '../pipeline/finalise.js';
+import { readRounds, type Round } from '../pipeline/observe.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
 import { withAnswerLines } from '../pipeline/questions.js';
@@ -70,6 +71,8 @@ export interface RunView {
   hasPrComments?: boolean;
   testIssues?: string | null;
   recovery?: StageRecovery | null;
+  /** What each agent round did (logs/attempts.jsonl), with its warnings; empty before the first round. */
+  attempts: Round[];
 }
 
 const readText = (file: string): string | null => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
@@ -347,6 +350,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
       };
     })(),
     hasPrComments: fs.existsSync(path.join(docsDir, 'pr-comments.md')),
+    attempts: readRounds(logs),
     recovery: ['paused', 'failed', 'refused', 'stopped', 'interrupted'].includes(state)
       ? stageRecoveryHint({
           slug,
