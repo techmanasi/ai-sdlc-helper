@@ -35,7 +35,10 @@ export interface RunCard {
   /** The pull request of a finished run, last read from GitHub; null while the run is not done. */
   pullRequest?: PrCard | null;
 }
-export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; checkedAt: string | null; failed: boolean }
+export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
+export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; checkedAt: string | null; failed: boolean; ci: CiState | null; failing: string[] }
+/** What "Sync PR" brings: the PR's state and CI, the number of review comments saved, and the error lines of a failing CI. */
+export interface PrSync { ok: boolean; pr: PrCard; count: number; summary: string[]; err?: string[] }
 export interface Board { items: BacklogItem[] | null; runs: RunCard[]; maxParallel: number; running: number }
 export interface Question { n: number; title: string; body: string; suggested: string; answer: string }
 export interface Ask { stage: string; tool: string; detail: string; rule: string; protected: boolean }
@@ -56,6 +59,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   changes: { changed: number; uncommitted: number; files: string[] } | null;
   tail: string[]; docs: string[]; discarded: string; resumeFrom: string; redCommit: string; gitAgeMs: number | null;
   createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean;
+  prCi?: CiState | null; prFailing?: string[]; ciSummary?: string[];
   testIssues?: string | null;
   recovery?: StageRecovery | null;
 }
@@ -186,7 +190,8 @@ export const api = {
     return call<RunView>('GET', `${r(project, slug)}${q ? `?${q}` : ''}`);
   },
   file: (project: string, slug: string, path: string) => call<{ text: string }>('GET', `${r(project, slug)}/file?path=${encodeURIComponent(path)}`),
-  syncPr: (project: string, slug: string) => call<{ pr: PrCard }>('POST', `${r(project, slug)}/pr-sync`, {}),
+  syncPr: (project: string, slug: string) => call<PrSync>('POST', `${r(project, slug)}/pr-sync`, {}),
+  ciFix: (project: string, slug: string) => call<{ ok: boolean; summary: string[]; resumed: Outcome }>('POST', `${r(project, slug)}/ci-fix`, {}),
   start: (project: string, slug: string, from?: string, env?: Record<string, string>) => call<Outcome>('POST', `${r(project, slug)}/start`, { from, env }),
   stop: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/stop`, {}),
   discard: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/discard`, { stop: true }),
@@ -202,8 +207,6 @@ export const api = {
     call<{ ok: boolean; pr: string | null; out: string[]; err: string[] }>('POST', `${r(project, slug)}/pr`, {}),
   getRunPr: (project: string, slug: string) =>
     call<{ pr: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; markdown: string | null }>('GET', `${r(project, slug)}/pr`),
-  syncRunPrComments: (project: string, slug: string) =>
-    call<{ ok: boolean; pr?: string | null; markdown: string; count: number; err?: string[] }>('POST', `${r(project, slug)}/pr-sync`, {}),
   testIssues: (project: string, slug: string) => call<{ slug: string; text: string | null }>('GET', `${r(project, slug)}/test-issues`),
   saveTestIssues: (project: string, slug: string, text: string, resume = true) =>
     call<{ ok: boolean; text: string; resumed: Outcome | null }>('POST', `${r(project, slug)}/test-issues`, { text, resume }),
@@ -212,7 +215,7 @@ export const api = {
   createCompletedPr: (project: string, slug: string) =>
     call<{ ok: boolean; pr: string | null; out: string[]; err: string[] }>('POST', `${p(project)}/completed/${encodeURIComponent(slug)}/pr`, {}),
   syncCompletedPrComments: (project: string, slug: string) =>
-    call<{ ok: boolean; pr?: string | null; markdown: string; count: number; err?: string[] }>('POST', `${p(project)}/completed/${encodeURIComponent(slug)}/sync`, {}),
+    call<PrSync>('POST', `${p(project)}/completed/${encodeURIComponent(slug)}/sync`, {}),
   archiveTask: (project: string, slug: string) => call<{ ok: boolean; archived: boolean }>('POST', `${p(project)}/archive/${encodeURIComponent(slug)}`, {}),
   archiveAll: (project: string, opts?: { olderThanDays?: number }) => call<{ ok: boolean; count: number }>('POST', `${p(project)}/archive`, opts || {}),
   command: (project: string, args: string[]) => call<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }>('POST', `${p(project)}/command`, { args }),

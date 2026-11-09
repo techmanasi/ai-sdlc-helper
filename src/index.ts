@@ -9,6 +9,7 @@ export {
   type Config, type Suite, type Layout,
 } from './config/settings.js';
 export { suggest, setupPlan, provision, locateTestDir, packagesBelow, describeProject, rankRunners } from './config/suggest.js';
+export { syncPr, writeCiFailure, CI_FAILURE_FILE, type PrSync } from './runs/prsync.js';
 export { renderSkill, renderTemplate, skillNames } from './config/skills.js';
 export { argsProblem } from './cli/args.js';
 export { currentState, skipReason, snapshot, changed, mirror, mark, parseKeys, worktreeChanges, type Changed } from './changes/index.js';
@@ -56,7 +57,7 @@ export {
 } from './backlog/archive.js';
 export {
   finalise, type FinaliseOptions, type FinaliseResult,
-  getPrFromBrief, recordPrInBrief, createOrGetPr, getPrStatus, getPrStatusCached, getPrStatusAsync, syncPrStatus, prPollOptions, PR_POLL_MS, onPrStatusChange, fetchPrComments, type PrStatus, type PrRead, type PrComment,
+  getPrFromBrief, recordPrInBrief, createOrGetPr, getPrStatus, getPrStatusCached, getPrStatusAsync, syncPrStatus, prPollOptions, PR_POLL_MS, onPrStatusChange, fetchPrComments, type PrStatus, type PrRead, type CiState, type PrComment,
 } from './pipeline/finalise.js';
 export { STAGE_DEFAULTS, resolveProvider, stageModel, providerEnv, type Provider } from './pipeline/models.js';
 export { agentSources, mergeAgent, personalAgentOf, type AgentSources, type Source } from './config/personal.js';

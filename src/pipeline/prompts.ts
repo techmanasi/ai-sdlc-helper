@@ -65,3 +65,15 @@ export function prCommentsInput(docsDir: string): string {
   if (!content) return '';
   return `\n\n## Pull Request Review Comments\nPlease address the following reviewer comments from the pull request:\n\n${content}\n`;
 }
+
+/**
+ * The failing CI of the task's pull request, from <docsDir>/ci-failure.md (written by "Sync PR" or "Restart Implement with the CI
+ * failure"): the Implement agent fixes what CI reported. Empty when there is none.
+ */
+export function ciFailureInput(docsDir: string): string {
+  const file = path.join(docsDir, 'ci-failure.md');
+  if (!exists(file)) return '';
+  const content = text(file).trim();
+  if (!content) return '';
+  return `\n\n## CI failure of the pull request\nThe pull request's CI failed after your last push. Fix the code so these checks pass: reproduce each failure locally with the project's own commands first (the lint, typecheck and test commands CI runs), then change the source. Never edit a test to make it pass, and never disable a lint rule. The pipeline's gate runs again after your turn.\n\n${content}\n`;
+}

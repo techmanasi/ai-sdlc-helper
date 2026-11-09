@@ -8,7 +8,7 @@ import { backlogItems, type BacklogItem } from '../backlog/index.js';
 import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.js';
 import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { projectSlugs, runChanges, runWorktree, type RunContext } from './index.js';
-import { getPrFromBrief, getPrStatusCached, prPollOptions, syncPrStatus, type PrRead } from '../pipeline/finalise.js';
+import { ciSummaryOf, getPrFromBrief, getPrStatusCached, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
 import { withAnswerLines } from '../pipeline/questions.js';
@@ -67,6 +67,10 @@ export interface RunView {
   createPr?: boolean;
   pr?: string | null;
   prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null;
+  /** The CI of the PR, and the names of its failing checks; ciSummary: error lines of the failure (ci-failure.md), when there is one. */
+  prCi?: CiState | null;
+  prFailing?: string[];
+  ciSummary?: string[];
   hasPrComments?: boolean;
   testIssues?: string | null;
   recovery?: StageRecovery | null;
@@ -336,6 +340,8 @@ export function runView(ctx: RunContext, slug: string, opts: {
         return {
           pr: p || null,
           prState: null,
+          prCi: null,
+          prFailing: [],
         };
       }
       const b = rec?.branch || `${ctx.branchPrefix}${slug}`;
@@ -344,9 +350,12 @@ export function runView(ctx: RunContext, slug: string, opts: {
       return {
         pr: p || (st ? st.url : null),
         prState: st ? st.state : null,
+        prCi: st?.ci ?? null,
+        prFailing: st?.failing ?? [],
       };
     })(),
     hasPrComments: fs.existsSync(path.join(docsDir, 'pr-comments.md')),
+    ciSummary: ciSummaryOf(readText(path.join(docsDir, 'ci-failure.md')) || ''),
     recovery: ['paused', 'failed', 'refused', 'stopped', 'interrupted'].includes(state)
       ? stageRecoveryHint({
           slug,
@@ -382,6 +391,10 @@ export interface PrCard {
   checkedAt: string | null;
   /** The last check failed. */
   failed: boolean;
+  /** The CI of the PR: null before it is known; 'none' when the PR has no checks. */
+  ci: CiState | null;
+  /** The names of the failing checks. */
+  failing: string[];
 }
 
 const prCard = (url: string | null, r: PrRead): PrCard => ({
@@ -390,6 +403,8 @@ const prCard = (url: string | null, r: PrRead): PrCard => ({
   ...(r.status?.number ? { number: r.status.number } : {}),
   checkedAt: r.ageMs === null ? null : new Date(Date.now() - r.ageMs).toISOString(),
   failed: Boolean(r.failed),
+  ci: r.status?.ci ?? null,
+  failing: r.status?.failing ?? [],
 });
 
 /** The key GitHub is asked about for a run: the PR link in its brief, else its branch. */
