@@ -11,6 +11,7 @@ import {
   AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, syncPrComments, type Outcome, type RunContext,
+  SEARCH_SETTINGS, codeBuildArgv, codeIndexers, codeSearchErrors, codeSearchStatus, which,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -34,6 +35,8 @@ export interface ServerOptions {
   stream?: Partial<StreamTimings>;
   /** The claude command triage runs spawn (tests); default 'claude'. */
   claude?: string;
+  /** Command timeout in ms (default 120000). */
+  commandTimeoutMs?: number;
 }
 
 export interface RunningServer {
@@ -91,6 +94,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   const uiDir = opts.uiDir || path.join(here, '..', 'ui');
   const cli = opts.cli || [process.execPath, path.join(here, '..', '..', 'bin.js')];
   const pollMs = opts.pollMs ?? 2000;
+  const timeoutMs = opts.commandTimeoutMs === undefined ? COMMAND_TIMEOUT_MS : Math.max(1000, opts.commandTimeoutMs);
   const current = opts.cwd ? await gitTop(opts.cwd, env) : null;
   let port = opts.port ?? DEFAULT_PORT;
 
@@ -150,19 +154,23 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     return v;
   };
 
-  /** Runs a command line of this tool in <cwd>, as the palette does: a separate process, so a long one cannot block us. */
-  const runCommand = (args: string[], cwd: string): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> =>
+  /** Runs a process in <cwd> with a timeout. */
+  const runProcess = (file: string, args: string[], cwd: string): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> =>
     new Promise(res => {
-      const p = spawn(cli[0], [...cli.slice(1), ...args], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      const exec = which(file, { env }) || file;
+      const p = spawn(exec, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
       let stdout = '';
       let stderr = '';
       let timedOut = false;
-      const timer = setTimeout(() => { timedOut = true; p.kill('SIGTERM'); }, COMMAND_TIMEOUT_MS);
+      const timer = setTimeout(() => { timedOut = true; p.kill('SIGTERM'); }, timeoutMs);
       p.stdout.on('data', d => { if (stdout.length < 1e6) stdout += d; });
       p.stderr.on('data', d => { if (stderr.length < 1e6) stderr += d; });
       p.on('error', e => { clearTimeout(timer); res({ code: null, stdout, stderr: `${stderr}${e.message}`, timedOut }); });
       p.on('close', code => { clearTimeout(timer); res({ code, stdout, stderr, timedOut }); });
     });
+
+  /** Runs a command line of this tool in <cwd>, as the palette does: a separate process, so a long one cannot block us. */
+  const runCommand = (args: string[], cwd: string) => runProcess(cli[0], [...cli.slice(1), ...args], cwd);
 
   /** A file of the item's folder (in the run's worktree when it has one), named relative to that folder. */
   function itemFile(ctx: RunContext, slug: string, rel: string): string {
@@ -228,6 +236,57 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       if (body.hash !== undefined && typeof body.hash !== 'string') throw new HttpError(400, 'hash must be text');
       const r = editSettings(p.path, body.patch, body.hash);
       return send(r.ok ? 200 : 400, { ...r, activeRuns: activeRuns(p) });
+    }
+    const codeSearchFile = (proj: Project): Record<string, any> => {
+      const file = path.join(proj.path, 'sdlc.config.json');
+      let obj: Record<string, any> = {};
+      try {
+        const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+        obj = parsed as Record<string, any>;
+      } catch { return {}; }
+      return codeSearchErrors(obj).length ? {} : obj;
+    };
+    if (what === 'code-search' && parts.length === 3 && method === 'GET') {
+      return send(200, codeSearchStatus(p.path, codeSearchFile(p), env));
+    }
+    if (what === 'code-search' && parts.length === 4 && parts[3] === 'setup' && method === 'POST') {
+      if (typeof body.indexer !== 'string' || !body.indexer) throw new HttpError(400, 'indexer is required');
+      if (body.build !== undefined && typeof body.build !== 'boolean') throw new HttpError(400, 'build must be a boolean');
+      const file = codeSearchFile(p);
+      const all = codeIndexers(file);
+      const indexer = body.indexer;
+      if (!SEARCH_SETTINGS.includes(indexer) && !all[indexer]) {
+        throw new HttpError(400, `"${indexer}" is not a code indexer (use auto, none, ${Object.keys(all).join(', ')})`);
+      }
+      let buildOutput: { code: number | null; stdout: string; stderr: string; timedOut: boolean } | undefined;
+      if (body.build) {
+        if (SEARCH_SETTINGS.includes(indexer)) {
+          throw new HttpError(400, `${indexer} has no index to build`);
+        }
+        const ix = all[indexer];
+        const currentStatus = codeSearchStatus(p.path, file, env);
+        const ixStatus = currentStatus.indexers.find(x => x.name === indexer);
+        if (!ixStatus || !ixStatus.installed) {
+          throw new HttpError(400, `${indexer} is not installed (no ${ix.command || indexer} command on PATH)`);
+        }
+        const argv = codeBuildArgv(ix);
+        if (!argv) {
+          throw new HttpError(400, `${indexer} requires an interactive build: ${ix.build || ''}`);
+        }
+        buildOutput = await runProcess(argv.file, argv.args, p.path);
+        if (buildOutput.code !== 0 || buildOutput.timedOut) {
+          const errorMsg = buildOutput.timedOut
+            ? `Build command timed out after ${Math.round(timeoutMs / 1000)} seconds`
+            : `Build command failed with exit code ${buildOutput.code ?? 'unknown'}`;
+          return send(400, { ok: false, error: errorMsg, buildOutput });
+        }
+      }
+      const r = editSettings(p.path, { agent: { codeSearch: indexer } });
+      if (!r.ok) {
+        return send(400, { ok: false, error: r.errors.join('; '), ...(buildOutput ? { buildOutput } : {}) });
+      }
+      return send(200, { ok: true, codeSearch: indexer, ...(buildOutput ? { buildOutput } : {}) });
     }
     if (what === 'overrides' && method === 'POST') {
       if (!body.patch || typeof body.patch !== 'object' || Array.isArray(body.patch)) throw new HttpError(400, 'patch must be an object');

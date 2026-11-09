@@ -358,3 +358,19 @@ database only when queries over it are too slow, or when Node 22 is the minimum.
   keep both? The engine functions are shared either way.
 - Prompt overrides: keep them in the project (`.sdlc/prompts/`) so the team shares them, in the user directory only, or
   both as planned?
+
+## Code search setup
+
+The Projects doctor row offers **Setup Code Indexer** when its code indexer check needs attention. Settings always shows
+the configured setting, the effective search engine, any warning, and a **Setup Code Indexer** or **Configure Code Indexer**
+button. Both buttons open the same dialog. It shows whether each indexer command is on the server's PATH and whether its
+index exists in the project. Install the suggested command on the server host, then click **Refresh**. An installed
+indexer can be built, selected without rebuilding, or rebuilt when it has a headless build command. **Auto** picks the
+first available indexer; **None** uses Grep and Glob without warnings. Graphify requires `/graphify .` in Claude Code,
+so its index cannot be built from this dialog.
+
+The dialog uses `GET /api/projects/:project/code-search` for status and
+`POST /api/projects/:project/code-search/setup` to save `agent.codeSearch` in `sdlc.config.json`. A build runs in the
+project root with a 120-second timeout. Failed builds return their output and do not change the settings file. Custom
+indexers may declare `agent.codeIndexers.<name>.buildCommand` as a program and whitespace-separated arguments, with no
+shell syntax, to enable the build button.
