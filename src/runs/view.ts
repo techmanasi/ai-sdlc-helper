@@ -8,7 +8,7 @@ import { backlogItems, type BacklogItem } from '../backlog/index.js';
 import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.js';
 import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { projectSlugs, runChanges, runWorktree, type RunContext } from './index.js';
-import { getPrFromBrief, getPrStatusCached } from '../pipeline/finalise.js';
+import { getPrFromBrief, getPrStatusCached, prPollOptions, syncPrStatus, type PrRead } from '../pipeline/finalise.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
 import { withAnswerLines } from '../pipeline/questions.js';
@@ -340,7 +340,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
       }
       const b = rec?.branch || `${ctx.branchPrefix}${slug}`;
       // Never waits for gh: the last known status, refreshed in the background (a cold cache shows it on the next load).
-      const st = getPrStatusCached(ctx.root, p || b, ctx.env).status;
+      const st = getPrStatusCached(ctx.root, p || b, ctx.env, prPollOptions(ctx.env)).status;
       return {
         pr: p || (st ? st.url : null),
         prState: st ? st.state : null,
@@ -369,7 +369,39 @@ export type RunCard = Pick<RunView, 'slug' | 'state' | 'stage' | 'agent' | 'mode
   permissions: number;
   deniedPermissions?: number;
   changes: { changed: number; uncommitted: number } | null;
+  /** The pull request of a finished run, as last read from GitHub (once an hour, or when the user syncs it); null for a run that is not done. */
+  pullRequest: PrCard | null;
 };
+
+export interface PrCard {
+  url: string | null;
+  /** Null until the first check answers (or when the check failed and nothing was known). */
+  state: 'OPEN' | 'MERGED' | 'CLOSED' | null;
+  number?: number;
+  /** When GitHub was last asked, ISO time; null before the first answer. */
+  checkedAt: string | null;
+  /** The last check failed. */
+  failed: boolean;
+}
+
+const prCard = (url: string | null, r: PrRead): PrCard => ({
+  url: r.status?.url || url,
+  state: r.status ? r.status.state : null,
+  ...(r.status?.number ? { number: r.status.number } : {}),
+  checkedAt: r.ageMs === null ? null : new Date(Date.now() - r.ageMs).toISOString(),
+  failed: Boolean(r.failed),
+});
+
+/** The key GitHub is asked about for a run: the PR link in its brief, else its branch. */
+function prKeyOf(ctx: RunContext, slug: string, v: Pick<RunView, 'pr' | 'branch'>): string {
+  return v.pr || v.branch || `${ctx.branchPrefix}${slug}`;
+}
+
+/** Asks GitHub about the pull request of <slug> now (the "Sync PR status" button) and answers it as the board card shows it. */
+export async function syncRunPr(ctx: RunContext, slug: string): Promise<PrCard> {
+  const v = runView(ctx, slug, { changes: false, tailLines: 0, checkPr: false });
+  return prCard(v.pr || null, await syncPrStatus(ctx.root, prKeyOf(ctx, slug, v), ctx.env));
+}
 
 export interface BoardView {
   /** The backlog items, null when the project has no backlog index. */
@@ -389,6 +421,8 @@ export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): Bo
       message: v.message, tests: v.tests, branch: v.branch, questions: v.questions.length, permissions: v.permissions.length,
       deniedPermissions: v.deniedPermissions.length,
       changes: v.changes && { changed: v.changes.changed, uncommitted: v.changes.uncommitted },
+      // Never waits for gh: the last known status, asked again at most once an hour (a cold cache fills within a poll).
+      pullRequest: v.state === 'done' ? prCard(v.pr || null, getPrStatusCached(ctx.root, prKeyOf(ctx, slug, v), ctx.env, prPollOptions(ctx.env))) : null,
     };
   });
   return { items: backlog ? backlog.items : null, runs, maxParallel: ctx.maxParallel, running: runs.filter(r => r.state === 'running').length };

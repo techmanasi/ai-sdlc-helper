@@ -32,7 +32,10 @@ export interface RunCard {
   slug: string; state: ViewState; stage: string; agent: string; model: string; effort: string; attempt?: string; note: string; updated: string;
   message: string; tests: TestCounts | null; branch: string; questions: number; permissions: number; deniedPermissions?: number;
   changes: { changed: number; uncommitted: number } | null;
+  /** The pull request of a finished run, last read from GitHub; null while the run is not done. */
+  pullRequest?: PrCard | null;
 }
+export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; checkedAt: string | null; failed: boolean }
 export interface Board { items: BacklogItem[] | null; runs: RunCard[]; maxParallel: number; running: number }
 export interface Question { n: number; title: string; body: string; suggested: string; answer: string }
 export interface Ask { stage: string; tool: string; detail: string; rule: string; protected: boolean }
@@ -183,6 +186,7 @@ export const api = {
     return call<RunView>('GET', `${r(project, slug)}${q ? `?${q}` : ''}`);
   },
   file: (project: string, slug: string, path: string) => call<{ text: string }>('GET', `${r(project, slug)}/file?path=${encodeURIComponent(path)}`),
+  syncPr: (project: string, slug: string) => call<{ pr: PrCard }>('POST', `${r(project, slug)}/pr-sync`, {}),
   start: (project: string, slug: string, from?: string, env?: Record<string, string>) => call<Outcome>('POST', `${r(project, slug)}/start`, { from, env }),
   stop: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/stop`, {}),
   discard: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/discard`, { stop: true }),

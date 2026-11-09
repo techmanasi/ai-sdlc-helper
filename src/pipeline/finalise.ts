@@ -103,6 +103,17 @@ const prCache = new Map<string, PrEntry>();
 const inflight = new Map<string, Promise<PrStatus | null>>();
 const PR_CACHE_TTL_MS = 60_000;
 const PR_TIMEOUT_MS = 3000;
+/** How often the web server asks GitHub again for a PR it already knows: once an hour (SDLC_PR_POLL_MS changes it). */
+export const PR_POLL_MS = 3_600_000;
+
+/** How a reader of the cache sees an entry: <ttlMs> is how long it counts as fresh; a failed refresh is tried again at once unless <retryFailed> is false. */
+export interface PrReadOptions { ttlMs?: number; retryFailed?: boolean }
+
+/** The web server's reading of the cache: a status is checked again only every hour, and a failed check waits as long. */
+export function prPollOptions(env: NodeJS.ProcessEnv = process.env): PrReadOptions {
+  const ms = Number(env.SDLC_PR_POLL_MS);
+  return { ttlMs: Number.isFinite(ms) && ms > 0 ? ms : PR_POLL_MS, retryFailed: false };
+}
 
 /** Clears the in-memory PR cache (e.g. after creating or updating a PR). */
 export function clearPrCache(): void {
@@ -162,6 +173,8 @@ export interface PrRead {
   stale: boolean;
   /** Nothing is known yet; a refresh is running. */
   pending: boolean;
+  /** The last check failed (the value, if any, is from an earlier one). */
+  failed?: boolean;
 }
 
 type PrListener = (e: { cwd: string; branchOrUrl: string; status: PrStatus | null }) => void;
@@ -206,20 +219,23 @@ function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEn
   return p;
 }
 
-function readEntry(e: PrEntry | undefined, now: number): PrRead {
+function readEntry(e: PrEntry | undefined, now: number, o: PrReadOptions = {}): PrRead {
   if (!e) return { status: null, ageMs: null, stale: false, pending: true };
   const ageMs = now - e.time;
-  return { status: e.val, ageMs, stale: Boolean(e.failed) || ageMs >= PR_CACHE_TTL_MS, pending: false };
+  // A merged PR does not change again: it is not asked for twice.
+  if (e.val && e.val.state === 'MERGED' && !e.failed) return { status: e.val, ageMs, stale: false, pending: false };
+  const stale = (e.failed && o.retryFailed !== false) || ageMs >= (o.ttlMs ?? PR_CACHE_TTL_MS);
+  return { status: e.val, ageMs, stale, pending: false, ...(e.failed ? { failed: true } : {}) };
 }
 
 /**
  * The PR status without waiting: the cached value at once (with its age), and a refresh in the background when it is
  * older than the cache time. With nothing cached it answers pending and starts the refresh. Never blocks the event loop.
  */
-export function getPrStatusCached(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv = process.env): PrRead {
+export function getPrStatusCached(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv = process.env, o: PrReadOptions = {}): PrRead {
   if (!branchOrUrl || !branchOrUrl.trim()) return { status: null, ageMs: null, stale: false, pending: false };
   const e = prCache.get(prKey(cwd, branchOrUrl));
-  const r = readEntry(e, Date.now());
+  const r = readEntry(e, Date.now(), o);
   if (!e || r.stale) void refreshPrStatus(cwd, branchOrUrl, env);
   return r;
 }
@@ -228,12 +244,19 @@ export function getPrStatusCached(cwd: string, branchOrUrl: string, env: NodeJS.
  * Like getPrStatusCached, but with nothing cached it waits for the first answer (asynchronously, so other requests and
  * streams keep running). A cached value, however old, is returned at once.
  */
-export async function getPrStatusAsync(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv = process.env): Promise<PrRead> {
+export async function getPrStatusAsync(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv = process.env, o: PrReadOptions = {}): Promise<PrRead> {
   if (!branchOrUrl || !branchOrUrl.trim()) return { status: null, ageMs: null, stale: false, pending: false };
   const e = prCache.get(prKey(cwd, branchOrUrl));
-  if (e) return getPrStatusCached(cwd, branchOrUrl, env);
+  if (e) return getPrStatusCached(cwd, branchOrUrl, env, o);
   await refreshPrStatus(cwd, branchOrUrl, env);
-  return readEntry(prCache.get(prKey(cwd, branchOrUrl)), Date.now());
+  return readEntry(prCache.get(prKey(cwd, branchOrUrl)), Date.now(), o);
+}
+
+/** Asks GitHub now, whatever the cache holds (the user pressed "Sync PR status"), and answers the new status. */
+export async function syncPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv = process.env): Promise<PrRead> {
+  if (!branchOrUrl || !branchOrUrl.trim()) return { status: null, ageMs: null, stale: false, pending: false };
+  await refreshPrStatus(cwd, branchOrUrl, env);
+  return readEntry(prCache.get(prKey(cwd, branchOrUrl)), Date.now(), prPollOptions(env));
 }
 
 export interface PrComment {

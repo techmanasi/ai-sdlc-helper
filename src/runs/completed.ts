@@ -6,7 +6,7 @@ import { spawnSync } from '../trace.js';
 import { backlogItems, parseBrief, parseIndex } from '../backlog/index.js';
 import { readRecord } from './records.js';
 import { pickBase, runWorktree, type RunContext } from './index.js';
-import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, getPrStatusAsync, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
+import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, getPrStatusAsync, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
 
 export interface CompletedTask {
   slug: string;
@@ -114,7 +114,7 @@ async function pooled<T>(items: T[], limit: number, fn: (item: T) => Promise<unk
  */
 export async function listCompletedTasksAsync(ctx: RunContext): Promise<CompletedTask[]> {
   const known = new Map<string, PrStatus | null>();
-  await pooled([...new Set(completedPrKeys(ctx))], 4, async key => { known.set(key, (await getPrStatusAsync(ctx.root, key, ctx.env)).status); });
+  await pooled([...new Set(completedPrKeys(ctx))], 4, async key => { known.set(key, (await getPrStatusAsync(ctx.root, key, ctx.env, prPollOptions(ctx.env))).status); });
   return completedTasks(ctx, key => known.get(key) ?? null);
 }
 
@@ -210,7 +210,7 @@ export async function getCompletedTaskDetailAsync(ctx: RunContext, slug: string)
   const briefFile = path.join(ctx.root, ctx.backlogDir, slug, 'brief.md');
   const pr = getPrFromBrief(fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '');
   const key = pr || (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
-  const status = (await getPrStatusAsync(ctx.root, key, ctx.env)).status;
+  const status = (await getPrStatusAsync(ctx.root, key, ctx.env, prPollOptions(ctx.env))).status;
   return completedDetail(ctx, slug, k => (k === key ? status : null));
 }
 

@@ -4,7 +4,8 @@ import { api, type Board as BoardData, type RunCard, type RunView } from './api'
 import { usePoll } from './usePoll';
 import { useStream } from './useStream';
 import { applyRunEvent } from './stream';
-import { Cli, ErrorBox, GLYPH, Panel, Spinner, stateClass, useApp } from './ui';
+import { awaitsMerge } from './stages';
+import { Cli, ErrorBox, GLYPH, Panel, PrIcon, Spinner, stateClass, useApp } from './ui';
 
 export const COLUMNS = ['Backlog', 'Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise'];
 
@@ -14,10 +15,21 @@ export function columnOf(r: RunCard): string {
   return COLUMNS.includes(r.stage) ? r.stage : 'Backlog';
 }
 
+const clock = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null);
+
 export const needsYou = (r: RunCard) => r.state === 'paused' || r.questions > 0 || r.permissions > 0;
 
 function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): void }) {
-  const { go } = useApp();
+  const { go, project, toast } = useApp();
+  const [syncing, setSyncing] = useState(false);
+  const sync = async () => {
+    setSyncing(true);
+    try {
+      const { pr } = await api.syncPr(project, r.slug);
+      toast(pr.state ? `${r.slug}: PR ${pr.number ? `#${pr.number} ` : ''}is ${pr.state.toLowerCase()}` : `${r.slug}: no PR status (GitHub did not answer)`);
+    } catch (e) { toast(`${r.slug}: ${e instanceof Error ? e.message : String(e)}`); } finally { setSyncing(false); }
+  };
+  const waiting = awaitsMerge(r);
   const what = r.questions ? `${r.questions} question${r.questions > 1 ? 's' : ''} to answer`
     : r.permissions ? `${r.permissions} refused action${r.permissions > 1 ? 's' : ''}`
       : r.deniedPermissions ? `${r.deniedPermissions} denied permission${r.deniedPermissions > 1 ? 's' : ''}`
@@ -25,9 +37,16 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
   return (
     <div class={`card card-${r.state.replace(' ', '-')} ${on ? 'card-on' : ''}`}>
       <button type="button" class="mono" onClick={select} style={{ all: 'unset', cursor: 'pointer' }} aria-pressed={on}>
-        <span class={stateClass(r.state)}>{r.state === 'running' ? <Spinner /> : GLYPH[r.state]} {r.slug}</span>
+        <span class={waiting ? 's-pr' : stateClass(r.state)}>{r.state === 'running' ? <Spinner /> : waiting ? <PrIcon title={r.pullRequest?.state === 'CLOSED' ? 'Pull request closed, not merged' : 'Pull request not merged yet'} /> : GLYPH[r.state]} {r.slug}</span>
       </button>
-      <span class="small">{what}</span>
+      <span class="small">{waiting ? (r.pullRequest?.state === 'CLOSED' ? 'PR closed without merging' : r.pullRequest?.state === 'OPEN' ? 'Waiting for the PR to be merged' : 'Checking the PR…') : what}</span>
+      {r.state === 'done' && (
+        <span class="mono muted small">
+          {r.pullRequest?.url ? <a href={r.pullRequest.url} target="_blank" rel="noreferrer">{r.pullRequest.number ? `PR #${r.pullRequest.number}` : 'PR'}</a> : 'no PR'}
+          {r.pullRequest?.state ? ` ${r.pullRequest.state.toLowerCase()}` : ''}{r.pullRequest?.checkedAt ? ` · checked ${clock(r.pullRequest.checkedAt)}` : ''}{r.pullRequest?.failed ? ' · last check failed' : ''}{' '}
+          <button type="button" class="btn btn-s" disabled={syncing} onClick={sync} title="Ask GitHub for this PR's status now (it is checked once an hour otherwise)">{syncing ? <><Spinner /> Syncing…</> : 'Sync PR status'}</button>
+        </span>
+      )}
       <span class="mono muted small">{[r.attempt && (r.state === 'running' ? `running iteration ${r.attempt}` : `iteration ${r.attempt}`), r.model && `${r.model} · ${r.effort}`, r.changes && `${r.changes.changed} files`].filter(Boolean).join(' · ') || r.state}</span>
       <a href={`#/run/${r.slug}`} onClick={e => { e.preventDefault(); go(`/run/${r.slug}`); }} class="small">Open</a>
       <a href={`#/edit/board/${r.slug}`} onClick={e => { e.preventDefault(); go(`/edit/board/${r.slug}`); }} class="small">Edit</a>
@@ -76,7 +95,7 @@ export function Board({ board, error }: { board: BoardData | null; error: string
   const match = (...s: (string | null)[]) => !f || s.some(x => x && x.toLowerCase().includes(f));
   const runSlugs = new Set(board.runs.map(r => r.slug));
   const items = (board.items || []).filter(i => !runSlugs.has(i.slug) && (showDone || i.status !== 'completed') && match(i.slug, i.title, i.type));
-  const runs = board.runs.filter(r => (showDone || r.state !== 'done') && match(r.slug, r.stage, r.state, r.model));
+  const runs = board.runs.filter(r => (showDone || r.state !== 'done' || awaitsMerge(r)) && match(r.slug, r.stage, r.state, r.model));
   const chosen = Object.keys(picked).filter(k => picked[k]);
   const waiting = board.runs.filter(needsYou);
 

@@ -39,7 +39,7 @@ export {
 } from './runs/index.js';
 export { alive, killTree, readRecord, recordedSlugs, registryDir, runState, type RunRecord } from './runs/records.js';
 export {
-  answerQuestions, boardView, parseQuestions, resumeStage, runView, runPaths, runTail, RUN_PARTS, clearGitFacts, type RunPart, type BoardView, type Question, type RunCard, type RunView,
+  answerQuestions, boardView, syncRunPr, parseQuestions, resumeStage, runView, runPaths, runTail, RUN_PARTS, clearGitFacts, type RunPart, type BoardView, type PrCard, type Question, type RunCard, type RunView,
   type TestCounts, type ViewState,
 } from './runs/view.js';
 export { runPipeline, firstPending, type PipelineOptions } from './pipeline/run.js';
@@ -56,7 +56,7 @@ export {
 } from './backlog/archive.js';
 export {
   finalise, type FinaliseOptions, type FinaliseResult,
-  getPrFromBrief, recordPrInBrief, createOrGetPr, getPrStatus, getPrStatusCached, getPrStatusAsync, onPrStatusChange, fetchPrComments, type PrStatus, type PrRead, type PrComment,
+  getPrFromBrief, recordPrInBrief, createOrGetPr, getPrStatus, getPrStatusCached, getPrStatusAsync, syncPrStatus, prPollOptions, PR_POLL_MS, onPrStatusChange, fetchPrComments, type PrStatus, type PrRead, type PrComment,
 } from './pipeline/finalise.js';
 export { STAGE_DEFAULTS, resolveProvider, stageModel, providerEnv, type Provider } from './pipeline/models.js';
 export { agentSources, mergeAgent, personalAgentOf, type AgentSources, type Source } from './config/personal.js';
