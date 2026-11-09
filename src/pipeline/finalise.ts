@@ -193,12 +193,17 @@ function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEn
   if (running) return running;
   const t0 = performance.now();
   const p = new Promise<PrStatus | null>(resolve => {
-    execFile('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number'], { cwd, env, encoding: 'utf8', timeout: PR_TIMEOUT_MS }, (err, stdout) => {
+    execFile('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number'], { cwd, env, encoding: 'utf8', timeout: PR_TIMEOUT_MS }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as unknown as { code: number }).code : -1) : 0;
       trace({ action: 'spawn:gh', why: 'pr', ms: Math.round((performance.now() - t0) * 1000) / 1000, code });
       const before = prCache.get(key);
       let status: PrStatus | null;
-      if (err) {
+      // "no pull requests found" is GitHub's answer for a branch without a PR, not a failed check.
+      const none = Boolean(err) && /no pull requests found/i.test(String(stderr || ''));
+      if (none) {
+        status = null;
+        prCache.set(key, { time: Date.now(), val: null });
+      } else if (err) {
         status = before ? before.val : null;
         prCache.set(key, { time: Date.now(), val: status, failed: true });
       } else {
@@ -209,7 +214,7 @@ function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEn
         if (status) prCache.set(prKey(cwd, status.url), entry);
       }
       inflight.delete(key);
-      if (!err && (!before || JSON.stringify(before.val) !== JSON.stringify(status))) {
+      if ((!err || none) && (!before || JSON.stringify(before.val) !== JSON.stringify(status))) {
         for (const fn of prListeners) { try { fn({ cwd, branchOrUrl, status }); } catch { /* a listener must not break the refresh */ } }
       }
       resolve(status);

@@ -61,6 +61,15 @@ describe('PR status checked once an hour', () => {
     expect(getPrStatusCached(dir, 'f', env, o)).toMatchObject({ failed: true, status: { state: 'OPEN' } });
   });
 
+  test('"no pull requests found" is an answer, not a failed check', async () => {
+    fs.writeFileSync(path.join(dir, 'bin', 'gh'), '#!/bin/sh\necho + >> "' + dir + '/gh.log"\necho \'no pull requests found for branch "x"\' >&2\nexit 1\n', { mode: 0o755 });
+    const r = await syncPrStatus(dir, 'x', env);
+    expect(r).toMatchObject({ status: null, pending: false });
+    expect(r.failed).toBeUndefined();
+    expect(getPrStatusCached(dir, 'x', env, prPollOptions({}))).toMatchObject({ status: null, stale: false, pending: false });
+    expect(calls()).toBe(1);
+  });
+
   test('a merged PR is never asked for again', async () => {
     answer('MERGED');
     const o = prPollOptions({});
