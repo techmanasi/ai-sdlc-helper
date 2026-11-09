@@ -1,17 +1,14 @@
----
-name: monitor-pipeline-run
-description: How to observe, monitor and debug an ai-sdlc-helper pipeline run (spec, plan, red-tests, implement, test-repair, review, finalise) that is running or has failed. Use when asked to watch a run, check its status, find out why a round or stage failed, or when a run "keeps failing the same way".
----
+Observe, monitor and debug a run of the SDLC pipeline (`ai-sdlc-helper start <slug>`) that is running or has failed. Use it when asked to watch a run, find out why a round or stage failed, or when a run keeps failing the same way.
 
 # Monitor and debug a pipeline run
 
 A run is detached: it keeps going while you wait. Waiting for the stage or state to change is not monitoring. Check **what each agent round did**, every round, before you wait again.
 
-Drive the run only through the web UI (start, stop, resume, discard, permissions, answers). Reading files and logs is always fine.
+Drive the run the way the user asked (when they say the web UI, only the web UI: start, stop, resume, discard, permissions, answers). Reading files and logs is always fine.
 
 ## Where the evidence is
 
-Worktree: `../ai-sdlc-helper-sdlc/<slug>` (branch `sdlc/<slug>`). Logs: `<worktree>/docs/backlog/<slug>/logs/`.
+Worktree: `../<project>-sdlc/<slug>` (branch `{{BRANCH_PREFIX}}<slug>`). Logs: `<worktree>/{{BACKLOG_DIR}}/<slug>/logs/`.
 
 | File | Tells you |
 |---|---|
@@ -59,8 +56,7 @@ Do the check when a round ends and also halfway through a long one. A wait loop 
 - Find the root cause before changing anything. Do not patch a symptom (hint text, a retry) while the cause is unread.
 - Never write the agent's deliverables yourself (for example the defect claim in `test-issues.md`). Find why the agent did not produce it.
 - Do not rebuild `dist/` while a pipeline is running.
-- Code fixes go in the main checkout on a branch with tests; the run picks them up on the next start.
-- Run `npm run check` with output redirected to a log (about 15 minutes); do not wait on it in a subagent.
+- Fix the tool in its own checkout on a branch with tests; the run picks the fix up on the next start. Run long checks with output redirected to a log, and do not wait on them in a subagent.
 
 ## Status report
 
