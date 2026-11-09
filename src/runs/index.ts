@@ -359,7 +359,7 @@ export async function discardStage(ctx: RunContext, slug: string, opts: StageDis
   try { forgetStage(marks, { root: wt }, own); } catch { /* the pane's file list is best effort */ }
   // The run now stands at the latest earlier stage that still has work, so that is the one that can be discarded next.
   try {
-    const order = ['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise'];
+    const order = ['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise', 'Resolve conflicts'];
     const left = Object.keys((JSON.parse(fs.readFileSync(marks, 'utf8')) as { stages?: Record<string, unknown> }).stages || {});
     const before = order.filter(n => stageKey(n) !== stage && order.findIndex(m => stageKey(m) === stage) > order.indexOf(n) && left.includes(n));
     fs.writeFileSync(statusFile, `${JSON.stringify({ ...status, stage: before[before.length - 1] || '' })}\n`);

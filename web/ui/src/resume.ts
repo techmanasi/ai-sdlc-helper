@@ -22,10 +22,10 @@ export interface ResumeOption {
 export const RESUME_STAGES = [
   { name: 'Spec', key: 'spec' }, { name: 'Plan', key: 'plan' }, { name: 'Red tests', key: 'red-tests' },
   { name: 'Implement', key: 'implement' }, { name: 'Test repair', key: 'test-repair' }, { name: 'Review', key: 'review' },
-  { name: 'Finalise', key: 'finalise' },
+  { name: 'Finalise', key: 'finalise' }, { name: 'Resolve conflicts', key: 'resolve-conflicts' },
 ];
 
-/** The seven stages with whether a branch-keeping resume at each of them works. */
+/** The stages with whether a branch-keeping resume at each of them works. */
 export function resumeOptions(f: ResumeFacts): ResumeOption[] {
   return RESUME_STAGES.map(({ key, name }) => {
     const suggested = key === f.resumeFrom;

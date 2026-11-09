@@ -125,6 +125,7 @@ export function answerQuestions(file: string, answers: Record<string, string>): 
 
 /** The stage a run resumes at: Plan and Red tests at their own stage, Test repair if claims exist, else Implement. */
 export function resumeStage(stage: string, hasTestIssues = false): string {
+  if (stage === 'Resolve conflicts' || stage === 'resolve-conflicts') return 'resolve-conflicts';
   if (stage === 'Finalise' || stage === 'finalise') return 'finalise';
   if (stage === 'Review' || stage === 'review') return 'review';
   if (stage === 'Test repair' || stage === 'test-repair') return hasTestIssues === true ? 'test-repair' : 'implement';
@@ -140,6 +141,7 @@ const FROM_TO_STAGE: Record<string, string> = {
   'test-repair': 'Test repair',
   review: 'Review',
   finalise: 'Finalise',
+  'resolve-conflicts': 'Resolve conflicts',
 };
 
 function viewState(rec: Partial<RunRecord> | null, status: any): ViewState {
@@ -330,7 +332,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
     ...(() => {
       const p = getPrFromBrief(readText(path.join(docsDir, 'brief.md')) || '')
         || getPrFromBrief(readText(path.join(ctx.root, ctx.backlogDir, slug, 'brief.md')) || '');
-      if (opts.checkPr === false || !want('git') || (!p && state !== 'done' && stage.toLowerCase() !== 'finalise')) {
+      if (opts.checkPr === false || !want('git') || (!p && state !== 'done' && stage.toLowerCase() !== 'finalise' && stage !== 'Resolve conflicts')) {
         return {
           pr: p || null,
           prState: null,

@@ -5,6 +5,7 @@ import type { Ctx } from './context.js';
 /** Maps a stage name to a valid pipeline --from stage value. */
 export const toFromStage = (stage: string, hasTestIssues = false): string => {
   const norm = (stage || '').toLowerCase().replace(/\s+/g, '-');
+  if (norm.includes('resolve-conflicts')) return 'resolve-conflicts';
   if (norm.includes('finalise')) return 'finalise';
   if (norm.includes('review')) return 'review';
   if (norm.includes('repair')) return hasTestIssues ? 'test-repair' : 'implement';
@@ -349,6 +350,30 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
       escapeHatch: {
         label: 'Approve review findings and advance to Finalise',
         command: resumeCommand(ctx.slug, 'finalise'),
+      },
+    };
+  }
+
+  if (normStage === 'resolve-conflicts') {
+    const offered = isPaused && /did not push/.test(tailText);
+    return {
+      stage: 'Resolve conflicts',
+      diagnosis: offered
+        ? 'Resolve conflicts did not push: the resolution could break this task or the work merged meanwhile. A follow-up backlog item is offered.'
+        : 'Resolve conflicts stopped before pushing; the branch is back where it was.',
+      autoAction: {
+        label: offered ? 'Resume Resolve conflicts once the follow-up question is answered' : 'Retry Resolve conflicts',
+        command: resumeCommand(ctx.slug, 'resolve-conflicts'),
+      },
+      manualAction: {
+        file: offered ? 'questions.md' : 'logs/resolve-conflicts.md',
+        instruction: offered
+          ? 'Read logs/resolve-conflicts.md, then answer yes in questions.md to add the follow-up item (anything else adds nothing).'
+          : 'Read logs/resolve-conflicts.md, fix what it names, then resume.',
+      },
+      escapeHatch: {
+        label: 'Rebase by hand',
+        command: 'git fetch origin && git rebase origin/main',
       },
     };
   }

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from '../trace.js';
 
 export const SLUG = /^[a-z0-9][a-z0-9-]*$/;
-export const STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'review', 'finalise'] as const;
+export const STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'review', 'finalise', 'resolve-conflicts'] as const;
 
 export interface RunRecord {
   slug: string;
