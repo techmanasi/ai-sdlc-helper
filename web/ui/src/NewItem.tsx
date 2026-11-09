@@ -199,8 +199,9 @@ function TriageDrawer({ known, onLoad, onClose, onRun }: { known: TriageRun | nu
   );
 }
 
-export function NewItem({ taken }: { taken: string[] }) {
+export function NewItem({ taken, edit }: { taken: string[]; edit?: { slug: string; back: string } }) {
   const { project, go, toast } = useApp();
+  const [loaded, setLoaded] = useState<{ type: string; priority: string; hash: string; editable: boolean; reason: string; marker: string } | null>(null);
   const [slug, setSlug] = useState('');
   const [type, setType] = useState('feature');
   const [priority, setPriority] = useState('P2 (normal)');
@@ -215,8 +216,33 @@ export function NewItem({ taken }: { taken: string[] }) {
 
   // A run that is still active when the page loads reopens the drawer.
   useEffect(() => {
+    if (edit) return;
     api.triage(project).then(({ run }) => { setTriageRun(run); if (run) setDrawer(true); }).catch(() => { /* the drawer reports it when opened */ });
   }, [project]);
+
+  // Edit mode: the item is loaded once; its version (hash) travels back with the save.
+  useEffect(() => {
+    if (!edit) return;
+    api.editView(project, edit.slug).then(view => {
+      const mapped = mapPriority(view.priority ?? '');
+      setSlug(view.slug); setTitle(view.title); setType(view.type); setPriority(mapped.value);
+      setPriorityNote(view.priority === null ? '' : mapped.note);
+      setBrief(view.brief ?? template(view.slug, view.type, mapped.value));
+      setLoaded({ type: view.type, priority: mapped.value, hash: view.hash, editable: view.editable, reason: view.reason, marker: view.marker });
+    }).catch(e => setError((e as Error).message));
+  }, [project, edit?.slug]);
+
+  const saveEdit = async () => {
+    if (!edit || !loaded) return;
+    setBusy(true); setError('');
+    try {
+      const r = await api.editItem(project, slug, { title, type, brief, hash: loaded.hash, ...(priority !== loaded.priority ? { priority } : {}) });
+      toast(`Saved \`${slug}\` (uncommitted)${r.notSaved.length ? ' · Type/Priority not saved into the brief (no such line)' : ''}`);
+      go(edit.back);
+    } catch (e) { setError((e as Error).message); }
+    setBusy(false);
+  };
+  const locked = edit ? !loaded?.editable || busy : false;
 
   const edited = Boolean(slug || title || type !== 'feature' || priority !== 'P2 (normal)' || brief !== template('', 'feature', 'P2 (normal)'));
   const onLoad = (d: Draft) => {
@@ -256,33 +282,34 @@ export function NewItem({ taken }: { taken: string[] }) {
   return (
     <div class="col">
       <div class="row">
-        <h1 class="grow">New backlog item</h1>
-        <button class="btn" type="button" onClick={() => setDrawer(true)}>Draft with the triage agent</button>
-        <button class="btn" type="button" disabled title="Waits on engine request E-14">Import from issue URL <Future id="E-14" /></button>
+        <h1 class="grow">{edit ? `Edit backlog item ${edit.slug}` : 'New backlog item'}</h1>
+        {!edit && <button class="btn" type="button" onClick={() => setDrawer(true)}>Draft with the triage agent</button>}
+        {!edit && <button class="btn" type="button" disabled title="Waits on engine request E-14">Import from issue URL <Future id="E-14" /></button>}
       </div>
-      {drawer && <TriageDrawer known={triageRun} onLoad={onLoad} onClose={() => setDrawer(false)} onRun={setTriageRun} />}
+      {edit && loaded && !loaded.editable && <div class="banner">{loaded.reason}</div>}
+      {!edit && drawer && <TriageDrawer known={triageRun} onLoad={onLoad} onClose={() => setDrawer(false)} onRun={setTriageRun} />}
       <section class="pn">
         <div class="pb" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
           <div class="col" style={{ gap: '6px' }}>
             <label class="lbl" for="slug">Slug</label>
-            <input id="slug" class="inp mono" value={slug} placeholder="add-rate-limit" onInput={e => setSlug((e.target as HTMLInputElement).value.trim())} />
-            <span class={`small ${slug && (!slugOk || !slugFree) ? 's-failed' : 'muted'}`}>{!slug ? 'lowercase letters, digits and dashes' : !slugOk ? 'only lowercase letters, digits and dashes' : !slugFree ? 'already in the backlog' : '✔ free'}</span>
+            <input id="slug" class="inp mono" value={slug} readOnly={Boolean(edit)} placeholder="add-rate-limit" onInput={e => setSlug((e.target as HTMLInputElement).value.trim())} />
+            {!edit && <span class={`small ${slug && (!slugOk || !slugFree) ? 's-failed' : 'muted'}`}>{!slug ? 'lowercase letters, digits and dashes' : !slugOk ? 'only lowercase letters, digits and dashes' : !slugFree ? 'already in the backlog' : '✔ free'}</span>}
           </div>
           <div class="col" style={{ gap: '6px' }}>
             <label class="lbl" for="type">Type</label>
-            <select id="type" class="inp" value={type} onChange={e => setType((e.target as HTMLSelectElement).value)}><option>feature</option><option>bug</option></select>
+            <select id="type" class="inp" disabled={locked} value={type} onChange={e => setType((e.target as HTMLSelectElement).value)}><option>feature</option><option>bug</option></select>
           </div>
           <div class="col" style={{ gap: '6px' }}>
             <label class="lbl" for="prio">Priority</label>
-            <select id="prio" class="inp" value={priority} onChange={e => { setPriority((e.target as HTMLSelectElement).value); setPriorityNote(''); }}>{PRIORITIES.map(p => <option>{p}</option>)}</select>
+            <select id="prio" class="inp" disabled={locked} value={priority} onChange={e => { setPriority((e.target as HTMLSelectElement).value); setPriorityNote(''); }}>{PRIORITIES.map(p => <option>{p}</option>)}</select>
             {priorityNote && <span class="small muted">{priorityNote}</span>}
           </div>
           <div class="col" style={{ gap: '6px', gridColumn: '1 / -1' }}>
             <label class="lbl" for="title">Title (the index line)</label>
-            <input id="title" class="inp" value={title} onInput={e => setTitle((e.target as HTMLInputElement).value)} />
+            <input id="title" class="inp" disabled={locked} value={title} onInput={e => setTitle((e.target as HTMLInputElement).value)} />
           </div>
         </div>
-        <div class="mono small muted" style={{ padding: '0 14px 12px' }}>index.md ← - [ ] `{slug || '<slug>'}` - {type === 'bug' ? 'Bug' : 'Feature'}: {title || '<title>'}</div>
+        <div class="mono small muted" style={{ padding: '0 14px 12px' }}>index.md ← - [{loaded?.marker ?? ' '}] `{slug || '<slug>'}` - {type === 'bug' ? 'Bug' : 'Feature'}: {title || '<title>'}</div>
       </section>
       <section class="pn">
         <div class="ph">
@@ -290,13 +317,13 @@ export function NewItem({ taken }: { taken: string[] }) {
           <div class="segs" role="tablist" aria-label="Editor view">
             {(['write', 'split', 'preview'] as const).map(m => <button class={`seg ${view === m ? 'seg-on' : ''}`} type="button" role="tab" aria-selected={view === m} onClick={() => setView(m)}>{m[0].toUpperCase() + m.slice(1)}</button>)}
           </div>
-          <button class="btn btn-s" type="button" onClick={() => setBrief(template(slug, type, priority))}>Insert template</button>
+          <button class="btn btn-s" type="button" disabled={locked} onClick={() => setBrief(template(slug, type, priority))}>Insert template</button>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap' }}>
           {view !== 'preview' && (
             <>
               <label class="sr" for="brief">Brief, Markdown</label>
-              <textarea id="brief" class="mono" value={brief} onInput={e => setBrief((e.target as HTMLTextAreaElement).value)}
+              <textarea id="brief" class="mono" disabled={locked} value={brief} onInput={e => setBrief((e.target as HTMLTextAreaElement).value)}
                 style={{ flex: '1 1 420px', minWidth: 0, minHeight: '480px', border: 0, borderRight: '1px solid var(--ln)', background: 'var(--code)', color: 'var(--tx)', padding: '14px', fontSize: '12.5px', lineHeight: 1.7, resize: 'vertical' }} />
             </>
           )}
@@ -313,9 +340,15 @@ export function NewItem({ taken }: { taken: string[] }) {
       </section>
       <ErrorBox error={error} />
       <div class="row">
-        <button class="btn btn-p" type="button" disabled={busy || !slugOk || !slugFree || !title.trim()} onClick={() => save(true)}>Save and start</button>
-        <button class="btn" type="button" disabled={busy || !slugOk || !slugFree || !title.trim()} onClick={() => save(false)}>Save</button>
-        <a class="btn" href="#/board" onClick={e => { e.preventDefault(); go('/board'); }}>Cancel</a>
+        {edit ? (
+          <button class="btn btn-p" type="button" disabled={locked || !title.trim() || !brief.trim()} onClick={saveEdit}>Save</button>
+        ) : (
+          <>
+            <button class="btn btn-p" type="button" disabled={busy || !slugOk || !slugFree || !title.trim()} onClick={() => save(true)}>Save and start</button>
+            <button class="btn" type="button" disabled={busy || !slugOk || !slugFree || !title.trim()} onClick={() => save(false)}>Save</button>
+          </>
+        )}
+        <a class="btn" href={`#${edit ? edit.back : '/board'}`} onClick={e => { e.preventDefault(); go(edit ? edit.back : '/board'); }}>Cancel</a>
         <span class="mono small muted" style={{ marginLeft: 'auto' }}>writes in the main working tree · not committed</span>
       </div>
     </div>

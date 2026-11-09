@@ -30,6 +30,7 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
       <span class="small">{what}</span>
       <span class="mono muted small">{[r.attempt && (r.state === 'running' ? `running iteration ${r.attempt}` : `iteration ${r.attempt}`), r.model && `${r.model} · ${r.effort}`, r.changes && `${r.changes.changed} files`].filter(Boolean).join(' · ') || r.state}</span>
       <a href={`#/run/${r.slug}`} onClick={e => { e.preventDefault(); go(`/run/${r.slug}`); }} class="small">Open</a>
+      <a href={`#/edit/board/${r.slug}`} onClick={e => { e.preventDefault(); go(`/edit/board/${r.slug}`); }} class="small">Edit</a>
     </div>
   );
 }
@@ -135,6 +136,7 @@ export function Board({ board, error }: { board: BoardData | null; error: string
                     <span class="small muted">{[i.type, i.priority, i.title].filter(Boolean).join(' · ')}</span>
                     {i.note && <span class="small s-paused">{i.note}</span>}
                     <a href={`#/run/${i.slug}`} onClick={e => { e.preventDefault(); go(`/run/${i.slug}`); }} class="small">Open</a>
+                    <a href={`#/edit/board/${i.slug}`} onClick={e => { e.preventDefault(); go(`/edit/board/${i.slug}`); }} class="small">Edit</a>
                   </div>
                 ))}
                 {cards.map(r => <RunCardView r={r} on={selected === r.slug} select={() => setSelected(s => (s === r.slug ? '' : r.slug))} />)}

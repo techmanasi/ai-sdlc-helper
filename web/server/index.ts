@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
+  AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, syncPrComments, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
@@ -250,7 +250,27 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
           return send(200, { ok: true, ...r, started });
         } catch (e) { throw new HttpError(400, (e as Error).message); }
       }
-      if (method === 'GET' && parts[3]) {
+      const editErr = (e: unknown): never => {
+        if (e instanceof BacklogEditError) throw new HttpError(e.status, e.message);
+        throw e;
+      };
+      if (method === 'GET' && parts[3] && parts[4] === 'edit' && parts.length === 5) {
+        const slug = slugOf(parts[3]);
+        try { return send(200, readBacklogEdit(ctx, slug)); } catch (e) { return editErr(e); }
+      }
+      if (method === 'POST' && parts.length === 4) {
+        const slug = slugOf(parts[3]);
+        try {
+          return send(200, editBacklogItem(ctx, slug, {
+            title: body.title, type: body.type, brief: body.brief, hash: body.hash,
+            ...(body.priority !== undefined && body.priority !== null ? { priority: body.priority } : {}),
+          }));
+        } catch (e) {
+          if (e instanceof BacklogEditError && e.hash) return send(409, { ok: false, error: e.message, hash: e.hash });
+          return editErr(e);
+        }
+      }
+      if (method === 'GET' && parts[3] && parts.length === 4) {
         const slug = slugOf(parts[3]);
         const file = path.join(ctx.root, ctx.backlogDir, slug, 'brief.md');
         return send(200, { slug, brief: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null });

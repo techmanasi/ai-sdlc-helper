@@ -16,6 +16,7 @@ export { extract, rulesFor, modeFor, decide, ruleFor, detailFor, isProtected, lo
 export { resolvePath as modelsFile, loadRegistry, validateProvider, validateRegistry, probe, modelsMain, type Registry } from './models/index.js';
 export {
   addBacklogItem, backlogItems, backlogMain, backlogPlace, parseIndex, parseTitle, type BacklogItem, type NewItem,
+  readBacklogEdit, editBacklogItem, BacklogEditError, type EditPlace, type BacklogEditView, type ItemEdit, type ItemEditResult,
 } from './backlog/index.js';
 export { main, type Io } from './cli/main.js';
 export { configDir } from './configDir.js';

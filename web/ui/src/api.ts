@@ -97,6 +97,10 @@ export interface Check { name: string; ok: boolean; required: boolean; detail: s
 export type TriageState = 'running' | 'choosing' | 'waiting' | 'ready' | 'interrupted' | 'stopped' | 'failed' | 'done';
 export type DraftStatus = 'pending' | 'saved' | 'skipped';
 export interface TriageItem { slug: string; type: string; priority: string; title: string; summary: string }
+export interface BacklogEditView {
+  slug: string; title: string; type: 'feature' | 'bug'; priority: string | null; brief: string | null; marker: string;
+  status: string; archived: boolean; editable: boolean; reason: string; hash: string;
+}
 export interface TriageDraft { slug: string; type: 'bug' | 'feature'; priority: string; title: string; brief: string }
 export interface TriageQuestion { id: string; text: string; suggested: string }
 export interface TriageRun { runId: string; state: TriageState; worktree: string; slugs: string[]; drafts: { slug: string; status: DraftStatus }[] }
@@ -169,6 +173,9 @@ export const api = {
   editOverrides: (project: string, patch: Record<string, unknown>) =>
     call<{ ok: boolean; errors: string[] }>('POST', `${p(project)}/overrides`, { patch }),
   brief: (project: string, slug: string) => call<{ brief: string | null }>('GET', `${p(project)}/backlog/${encodeURIComponent(slug)}`),
+  editView: (project: string, slug: string) => call<BacklogEditView>('GET', `${p(project)}/backlog/${encodeURIComponent(slug)}/edit`),
+  editItem: (project: string, slug: string, body: { title: string; type: string; priority?: string; brief: string; hash: string }) =>
+    call<{ ok: true; index: string; brief: string; hash: string; notSaved: string[] }>('POST', `${p(project)}/backlog/${encodeURIComponent(slug)}`, body),
   addItem: (project: string, item: { slug: string; type: string; title: string; brief: string; start?: boolean }) =>
     call<{ ok: boolean; started: Outcome | null }>('POST', `${p(project)}/backlog`, item),
   run: (project: string, slug: string, o: { parts?: string; refresh?: boolean } = {}) => {
