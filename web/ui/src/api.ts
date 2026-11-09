@@ -64,6 +64,8 @@ export interface AttemptRound {
   denied: Array<{ tool: string; detail: string }>;
   steps: Array<{ tool: string; target: string; status: 'ok' | 'denied' | 'error' }>;
   filesChanged: string[]; warnings: string[];
+  /** The round has started and not finished. */
+  running?: boolean;
   gate?: { failing: string[]; warnings: string[] };
 }
 export interface CompletedTask {

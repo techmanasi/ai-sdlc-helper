@@ -1,5 +1,5 @@
 // The tool calls of an agy round, read from the conversation agy stores for it (a sqlite file named in the result's
-// conversation_id). Needs the sqlite3 command; without it, or without the file, the round has no steps.
+// conversation_id; read without -readonly, which cannot open it). Needs the sqlite3 command; without it, or without the file, the round has no steps.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,7 +27,7 @@ export function agyTranscript(rawJson: unknown, home = os.homedir()): Transcript
   if (typeof id !== 'string' || !/^[\w-]+$/.test(id)) return [];
   const db = path.join(home, '.gemini', 'antigravity-cli', 'conversations', `${id}.db`);
   if (!fs.existsSync(db)) return [];
-  const r = spawnSync('sqlite3', ['-readonly', '-json', db, 'select idx, hex(step_payload) as p, hex(error_details) as e from steps where step_type = 132 order by idx'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 15000 });
+  const r = spawnSync('sqlite3', ['-json', db, 'select idx, hex(step_payload) as p, hex(error_details) as e from steps where step_type = 132 order by idx'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 15000 });
   if (r.status !== 0 || !r.stdout.trim()) return [];
   const text = (hex: unknown) => (typeof hex === 'string' ? Buffer.from(hex, 'hex').toString('latin1') : '');
   let rows: Array<{ p?: string; e?: string }> = [];

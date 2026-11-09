@@ -909,7 +909,8 @@ export function Run({ slug }: { slug: string }) {
                     <details open={warnings.length > 0}>
                       <summary>
                         <span class="mono">{r.agent}</span> <span class="muted">{r.stage}</span>
-                        {' '}<span class="small muted">{r.durationSec ?? '?'}s · {r.turns ?? '?'} turns · {r.filesChanged.length} files{r.gate ? ` · ${r.gate.failing.length} failing` : ''}</span>
+                        {r.running && <span class="small"> <Spinner /> running since {r.at.slice(11)}</span>}
+                        {!r.running && <>{' '}<span class="small muted">{r.durationSec ?? '?'}s · {r.turns ?? '?'} turns · {r.filesChanged.length} files{r.gate ? ` · ${r.gate.failing.length} failing` : ''}</span></>}
                         {warnings.length > 0 && <span class="small" style={{ color: 'var(--bad, #d33)' }}> · {warnings.length} warning{warnings.length > 1 ? 's' : ''}</span>}
                       </summary>
                       {warnings.length > 0 && <ul class="small" style={{ margin: '4px 0', paddingLeft: '18px' }}>{warnings.map(w => <li>{w}</li>)}</ul>}

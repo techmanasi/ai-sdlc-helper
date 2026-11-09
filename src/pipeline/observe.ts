@@ -29,6 +29,14 @@ export interface AgentRound {
   warnings: string[];
 }
 
+/** Written when a round starts, so the run page shows it at once; the finished round replaces it. */
+export interface RoundStart {
+  kind: 'start';
+  at: string;
+  stage: string;
+  agent: string;
+}
+
 export interface GateResult {
   kind: 'gate';
   at: string;
@@ -37,7 +45,7 @@ export interface GateResult {
   warnings: string[];
 }
 
-export type Round = AgentRound & { gate?: GateResult };
+export type Round = AgentRound & { gate?: GateResult; /** The round has started and not finished. */ running?: boolean };
 
 /** Added lines that look like debugging left behind: console output tagged DEBUG, or a log written under /tmp. */
 const DEBUG_LINE: RegExp[] = [
@@ -140,7 +148,7 @@ export function repeatedFailures(previous: string[] | null, now: string[]): bool
   return now.every(f => was.has(f));
 }
 
-export function appendRound(logDir: string, row: AgentRound | GateResult): void {
+export function appendRound(logDir: string, row: AgentRound | GateResult | RoundStart): void {
   try {
     fs.mkdirSync(logDir, { recursive: true });
     fs.appendFileSync(path.join(logDir, 'attempts.jsonl'), `${JSON.stringify(row)}\n`);
@@ -153,10 +161,14 @@ export function readRounds(logDir: string): Round[] {
   try { text = fs.readFileSync(path.join(logDir, 'attempts.jsonl'), 'utf8'); } catch { return []; }
   const rounds: Round[] = [];
   for (const line of text.split('\n').filter(Boolean)) {
-    let row: AgentRound | GateResult;
+    let row: AgentRound | GateResult | RoundStart;
     try { row = JSON.parse(line); } catch { continue; }
-    if (row.kind === 'agent') rounds.push(row);
-    else if (row.kind === 'gate') {
+    if (row.kind === 'start') {
+      rounds.push({ kind: 'agent', at: row.at, stage: row.stage, agent: row.agent, durationSec: null, exitCode: 0, responseChars: 0, turns: null, tokens: null, denied: [], steps: [], filesChanged: [], warnings: [], running: true });
+    } else if (row.kind === 'agent') {
+      const open = rounds.findIndex(r => r.running && r.agent === row.agent);
+      if (open >= 0) rounds[open] = row; else rounds.push(row);
+    } else if (row.kind === 'gate') {
       const mine = [...rounds].reverse().find(r => r.agent === row.agent);
       if (mine) mine.gate = row;
     }

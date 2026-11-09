@@ -350,7 +350,8 @@ export function runView(ctx: RunContext, slug: string, opts: {
       };
     })(),
     hasPrComments: fs.existsSync(path.join(docsDir, 'pr-comments.md')),
-    attempts: readRounds(logs),
+    // A round still marked running when the run is not running it (or runs another agent) was cut short.
+    attempts: readRounds(logs).map(r => (r.running && !(state === 'running' && (s.agent || '') === r.agent) ? { ...r, running: false, warnings: [...r.warnings, 'the round did not finish: the run stopped'] } : r)),
     recovery: ['paused', 'failed', 'refused', 'stopped', 'interrupted'].includes(state)
       ? stageRecoveryHint({
           slug,

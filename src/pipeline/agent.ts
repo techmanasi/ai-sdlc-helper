@@ -266,6 +266,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     prompt += prCommentsInput(at(ctx, ctx.docs));
   }
   ctx.out(`   -> agent: ${name}`);
+  appendRound(at(ctx, ctx.log), { kind: 'start', at: stamp(), stage, agent: name });
   const flags = stageFlags(ctx, stage);
   ctx.status.agent = name;
   ctx.status.agentStarted = stamp();
