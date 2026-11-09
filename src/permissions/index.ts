@@ -262,10 +262,10 @@ export function extract({ jsonFile, logFile, stateFile, stage, cwd, errFile, all
       // without the command text. Keep it actionable instead of treating a
       // broad persisted Bash rule as proof that the request was allowed.
       // Other refused tools (read_file, write_file, …) arrive the same way: the tool is in `action`, never a Bash command.
-      const agyDenial = typeof a.action === 'string' && !a.tool && !a.tool_name && !a.command && !a.detail;
+      const agyDenial = typeof a.action === 'string' && !a.tool && !a.tool_name && !a.command;
       const tool = String(a.tool || a.tool_name || (typeof a.action === 'string' && a.action !== 'command' ? a.action : 'Bash'));
       const detail = String(a.detail || a.command || '');
-      rawDenials.push({ tool, detail, input: { command: detail }, unresolved: agyDenial && !detail });
+      rawDenials.push({ tool, detail, input: { command: detail }, unresolved: agyDenial });
     }
   }
 

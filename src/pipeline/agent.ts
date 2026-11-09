@@ -306,6 +306,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
       cwd: ctx.root, env: { ...ctx.env, ...flags.env, ...invocation.env }, stdout: `${base}.json`, stderr: `${base}.err`, signal: ctx.signal,
     });
     await tick();
+    try { harness.normalizeOutput?.(`${base}.json`); } catch { /* the raw output stays as it is */ }
     const limit = usageLimit(`${base}.json`, `${base}.err`);
     if (!limit) break;
     if (retry <= 0) {

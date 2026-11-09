@@ -114,6 +114,9 @@ export interface AgentHarness {
   /** Compile arguments for read-only audit stages */
   compileAuditArgs(opts: { prompt: string; model?: string; effort?: string; cwd?: string }): HarnessInvocation;
 
+  /** Turn the agent's raw stdout file into the single JSON result the pipeline reads, when the harness prints another format. */
+  normalizeOutput?(file: string): void;
+
   /** Parse JSON/text stdout and stderr into a normalized result */
   parseOutput(stdoutText: string, stderrText: string, cwd?: string): HarnessResult;
 
