@@ -135,7 +135,7 @@ describe('tool notes', () => {
   });
 
   test('the Red tests and Test audit prompts carry the shipped Vitest note for a Vitest project', () => {
-    const values = Object.fromEntries(['DOCS', 'LOG', 'TEST_DIR', 'TEST_CMD', 'TEST_FILE_CMD', 'RED_SHA', 'SLUG', 'TEST_FRAMEWORK', 'TEST_FILES', 'FETCH_CMD'].map(k => [k, `<${k}>`]));
+    const values = Object.fromEntries(['DOCS', 'LOG', 'TEST_DIR', 'TEST_CMD', 'TEST_FILE_CMD', 'RED_SHA', 'SLUG', 'TEST_FRAMEWORK', 'TEST_FILES', 'FETCH_CMD', 'LINT_NOTE', 'LINT_TESTS_NOTE'].map(k => [k, `<${k}>`]));
     const config = one('vitest');
     const red = renderPrompt('red-tests', values, 'GUIDE', undefined, toolNotes('red-tests', config, {}));
     expect(red.endsWith(`${NOTES_HEADING}\n\n${vitest.sections['red-tests']!.text}`)).toBe(true);
