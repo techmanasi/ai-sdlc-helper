@@ -13,7 +13,7 @@ import { buildDocTree, type DocTreeNode } from './tree';
 const STAGES = [
   { name: 'Spec', key: 'spec' }, { name: 'Plan', key: 'plan' }, { name: 'Red tests', key: 'red-tests' },
   { name: 'Implement', key: 'implement' }, { name: 'Test repair', key: 'test-repair' }, { name: 'Review', key: 'review' },
-  { name: 'Finalise', key: 'finalise' },
+  { name: 'Finalise', key: 'finalise' }, { name: 'Resolve conflicts', key: 'resolve-conflicts' },
 ];
 const MODELS = ['', 'opus', 'sonnet', 'haiku', 'fable'];
 const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -374,6 +374,8 @@ export function Run({ slug }: { slug: string }) {
               act(auto.label, () => api.start(project, slug, 'test-repair', customEnv));
             } else if (auto.command.includes('--from review')) {
               act(auto.label, () => api.start(project, slug, 'review', customEnv));
+            } else if (auto.command.includes('--from resolve-conflicts')) {
+              act(auto.label, () => api.start(project, slug, 'resolve-conflicts', customEnv));
             } else if (auto.command.includes('--from finalise')) {
               act(auto.label, () => api.start(project, slug, 'finalise', customEnv));
             } else {
@@ -527,6 +529,32 @@ export function Run({ slug }: { slug: string }) {
                       )}
                     </div>
                   )}
+                  {s.key === 'resolve-conflicts' && (
+                    <div class="col" style={{ gap: '4px' }}>
+                      <span class="small muted">rebases onto the base · agent only on code conflicts · pushes with lease</span>
+                      {(v.state === 'done' || states[i - 1] === 'done') && !running ? (
+                        <button
+                          class="btn btn-xs btn-p"
+                          type="button"
+                          disabled={!!busy}
+                          title="Fetch the base, rebase this run's branch onto it, resolve conflicts and push with --force-with-lease"
+                          onClick={() => act('Resolve conflicts', () => api.start(project, slug, 'resolve-conflicts', envObj))}
+                        >
+                          {busy === 'Resolve conflicts' ? <><Spinner /> Starting…</> : 'Resolve conflicts'}
+                        </button>
+                      ) : (
+                        <label class="row small" style={{ gap: '6px', alignItems: 'center', cursor: running ? 'not-allowed' : 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={envObj.SDLC_RESOLVE_CONFLICTS !== '0'}
+                            disabled={running}
+                            onChange={e => setEnvVar('SDLC_RESOLVE_CONFLICTS', (e.target as HTMLInputElement).checked ? '' : '0')}
+                          />
+                          <span>Run after Finalise</span>
+                        </label>
+                      )}
+                    </div>
+                  )}
                   {s.key && s.key !== 'finalise' && (locked || running
                     ? <span class="mono small muted">{inUse ? `${inUse.model} · ${inUse.effort}` : 'default'}{st === 'active' ? ' · in use' : ''}</span>
                     : (
@@ -556,7 +584,7 @@ export function Run({ slug }: { slug: string }) {
                       : <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => setConfirm(`discard-stage:${s.key}`)}>Discard {s.name}…</button>
                   )}
                   {s.name === 'Finalise' && v.deniedPermissions && v.deniedPermissions.length > 0 && <span class="small s-failed">{v.deniedPermissions.length} denied</span>}
-                  {s.key && s.key !== 'implement' && s.key !== 'finalise' && <span class="small"><Future id="E-7" /> skip</span>}
+                  {s.key && s.key !== 'implement' && s.key !== 'finalise' && s.key !== 'resolve-conflicts' && <span class="small"><Future id="E-7" /> skip</span>}
                 </div>
               );
             })}

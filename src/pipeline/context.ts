@@ -7,11 +7,11 @@ import type { Git } from './git.js';
 import type { Status } from './status.js';
 
 /** The stages a run can start at (FROM), in order. */
-export const FROM_STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'review', 'finalise'] as const;
+export const FROM_STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'review', 'finalise', 'resolve-conflicts'] as const;
 export type From = typeof FROM_STAGES[number];
 
 /** The stages that run an agent, each with its own prompt, model and effort. */
-export const AGENT_STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'test-audit', 'review'] as const;
+export const AGENT_STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'test-audit', 'review', 'resolve-conflicts'] as const;
 export type AgentStage = typeof AGENT_STAGES[number];
 
 /** Ends the run with an exit code: 0 done, 1 failed, 2 paused for the developer. What to say was printed already. */

@@ -71,6 +71,7 @@ describe('a full run', () => {
       spec: { model: 'opus', effort: 'medium' }, plan: { model: 'opus', effort: 'medium' }, 'red-tests': { model: 'sonnet', effort: 'medium' },
       implement: { model: 'sonnet', effort: 'medium' }, 'test-repair': { model: 'sonnet', effort: 'medium' },
       'test-audit': { model: 'opus', effort: 'medium' }, review: { model: 'opus', effort: 'medium' },
+      'resolve-conflicts': { model: 'opus', effort: 'medium' },
     });
     for (const k of ['agent_started', 'run_started', 'updated']) expect(st[k]).toMatch(STAMP);
     const stageFiles = JSON.parse(read(f.dir, `${LOG}/stage-files.json`)).stages;

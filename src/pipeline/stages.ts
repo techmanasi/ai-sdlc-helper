@@ -19,7 +19,7 @@ import { withAnswerLines } from './questions.js';
 
 const short = (sha: string) => sha.slice(0, 7);
 export const redPattern = (slug: string) => `^test(${slug}): add failing tests`;
-const repairPattern = (slug: string) => `^test(${slug}): repair invalid tests`;
+export const repairPattern = (slug: string) => `^test(${slug}): repair invalid tests`;
 
 /** Credits the files changed since the last mark to <stage> (<log>/stage-files.json, shown per stage in the pane). */
 export function markStage(ctx: Ctx, stage: string): void {
@@ -208,7 +208,7 @@ export function resumeAtTests(ctx: Ctx): void {
     if (errs.length) { ctx.err(errs.map(e => `REJECT: ${e}`).join('\n')); stop(ctx, null); }
   } else {
     // Review and Finalise resume from the latest locked tests (the red-tests commit, or the Test repair commit after it).
-    ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug), ...(ctx.from === 'review' || ctx.from === 'finalise' ? [repairPattern(ctx.slug)] : [])]);
+    ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug), ...(ctx.from === 'review' || ctx.from === 'finalise' || ctx.from === 'resolve-conflicts' ? [repairPattern(ctx.slug)] : [])]);
     if (!ctx.redSha) stop(ctx, `FROM=${ctx.from} but no red-tests commit found for ${ctx.slug}`);
   }
   ctx.out(`Resuming at ${ctx.from} from tests commit ${short(ctx.redSha)}`);

@@ -18,6 +18,8 @@ export const STAGE_DEFAULTS: Record<AgentStage, { model: string; effort: string 
   // a different model from Test repair, so the audit is independent
   'test-audit': { model: 'opus', effort: 'medium' },
   review: { model: 'opus', effort: 'medium' },
+  // only runs on a code or test conflict, where judging both sides' intent matters
+  'resolve-conflicts': { model: 'opus', effort: 'medium' },
 };
 export const EFFORTS: string[] = [...EFFORT_LEVELS];
 

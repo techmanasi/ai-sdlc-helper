@@ -262,7 +262,7 @@ describe('editing a project\'s setup', () => {
     await post('/api/projects', { path: repo });
     const s = (await get(settingsUrl)).json;
     expect(s).toMatchObject({ harnesses: ['claude', 'agy', 'codex'], overrides: {}, registered: true, activeRuns: [] });
-    expect(s.stages).toEqual(['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'test-audit', 'review']);
+    expect(s.stages).toEqual(['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'test-audit', 'review', 'resolve-conflicts']);
     expect(s.hash).toMatch(/^[0-9a-f]{64}$/);
     expect(s.efforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
     expect(s.stageDefaults.review).toEqual({ model: 'opus', effort: 'medium' });

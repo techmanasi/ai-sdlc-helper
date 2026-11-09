@@ -19,6 +19,7 @@ import { PROMPTS_DIR } from './prompts.js';
 import { Status, finalState, previousStage } from './status.js';
 import { formatRecoveryCli, stageRecoveryHint } from './hints.js';
 import { redCommitTestFiles, resultsAt } from './gates.js';
+import { resolveConflictsStage } from './resolve-conflicts.js';
 import {
   implementStage, markStage, planStage, redTestsStage, refuseRedone, resumeAtTests, reviewStage, finaliseStage, specStage,
   testRepairStage,
@@ -81,7 +82,7 @@ const gitTop = (dir: string): string => {
 };
 
 /**
- * Runs the pipeline. Resolves the exit code: 0 done (finalised), 1 failed, 2 paused for the developer (Spec or Plan
+ * Runs the pipeline. Resolves the exit code: 0 done (finalised, and brought up to date with the base when pushed), 1 failed, 2 paused for the developer (Spec or Plan
  * questions, refused agent actions). Once the item's log folder exists, its status.json holds the final state.
  */
 export async function runPipeline(opts: PipelineOptions): Promise<number> {
@@ -90,7 +91,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
   const callerEnv = opts.env || process.env;
   const from = (opts.from || callerEnv.FROM || 'spec') as From;
   if (!FROM_STAGES.includes(from)) {
-    out(`ERROR: unknown FROM=${from} (use spec, plan, red-tests, implement, test-repair, review or finalise)`);
+    out(`ERROR: unknown FROM=${from} (use spec, plan, red-tests, implement, test-repair, review, finalise or resolve-conflicts)`);
     return 1;
   }
   // FROM says where THIS run starts; nothing it starts (tests, agents, pipelines the tests start) inherits it.
@@ -240,5 +241,6 @@ async function stages(ctx: Ctx): Promise<void> {
     }
   }
   if (fromN <= 6) await reviewStage(ctx);
-  await finaliseStage(ctx);
+  if (fromN <= 7) await finaliseStage(ctx);
+  await resolveConflictsStage(ctx);
 }
