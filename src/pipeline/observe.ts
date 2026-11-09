@@ -37,6 +37,13 @@ export interface RoundStart {
   agent: string;
 }
 
+/** Written when a pipeline run starts: the page shows the rounds since the last one. */
+export interface RunMark {
+  kind: 'run';
+  at: string;
+  from: string;
+}
+
 export interface GateResult {
   kind: 'gate';
   at: string;
@@ -148,22 +155,24 @@ export function repeatedFailures(previous: string[] | null, now: string[]): bool
   return now.every(f => was.has(f));
 }
 
-export function appendRound(logDir: string, row: AgentRound | GateResult | RoundStart): void {
+export function appendRound(logDir: string, row: AgentRound | GateResult | RoundStart | RunMark): void {
   try {
     fs.mkdirSync(logDir, { recursive: true });
     fs.appendFileSync(path.join(logDir, 'attempts.jsonl'), `${JSON.stringify(row)}\n`);
   } catch { /* observability never stops a run */ }
 }
 
-/** The rounds of a run in order, each agent round with the gate result that followed it. */
+/** The rounds since the pipeline was last started, in order, each agent round with the gate result that followed it. */
 export function readRounds(logDir: string): Round[] {
   let text = '';
   try { text = fs.readFileSync(path.join(logDir, 'attempts.jsonl'), 'utf8'); } catch { return []; }
   const rounds: Round[] = [];
   for (const line of text.split('\n').filter(Boolean)) {
-    let row: AgentRound | GateResult | RoundStart;
+    let row: AgentRound | GateResult | RoundStart | RunMark;
     try { row = JSON.parse(line); } catch { continue; }
-    if (row.kind === 'start') {
+    if (row.kind === 'run') {
+      rounds.length = 0;
+    } else if (row.kind === 'start') {
       rounds.push({ kind: 'agent', at: row.at, stage: row.stage, agent: row.agent, durationSec: null, exitCode: 0, responseChars: 0, turns: null, tokens: null, denied: [], steps: [], filesChanged: [], warnings: [], running: true });
     } else if (row.kind === 'agent') {
       const open = rounds.findIndex(r => r.running && r.agent === row.agent);
