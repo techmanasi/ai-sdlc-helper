@@ -71,6 +71,7 @@ export interface RunView {
   /** The CI of the PR, and the names of its failing checks; ciSummary: error lines of the failure (ci-failure.md), when there is one. */
   prCi?: CiState | null;
   prFailing?: string[];
+  prConflicts?: 'none' | 'conflicting' | 'unknown' | null;
   ciSummary?: string[];
   hasPrComments?: boolean;
   testIssues?: string | null;
@@ -345,6 +346,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
           prState: null,
           prCi: null,
           prFailing: [],
+          prConflicts: null,
         };
       }
       const b = rec?.branch || `${ctx.branchPrefix}${slug}`;
@@ -355,6 +357,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
         prState: st ? st.state : null,
         prCi: st?.ci ?? null,
         prFailing: st?.failing ?? [],
+        prConflicts: st?.conflicts ?? null,
       };
     })(),
     hasPrComments: fs.existsSync(path.join(docsDir, 'pr-comments.md')),
@@ -400,6 +403,8 @@ export interface PrCard {
   ci: CiState | null;
   /** The names of the failing checks. */
   failing: string[];
+  /** Whether the branch conflicts with its base; null before it is known. */
+  conflicts: 'none' | 'conflicting' | 'unknown' | null;
 }
 
 const prCard = (url: string | null, r: PrRead): PrCard => ({
@@ -410,6 +415,7 @@ const prCard = (url: string | null, r: PrRead): PrCard => ({
   failed: Boolean(r.failed),
   ci: r.status?.ci ?? null,
   failing: r.status?.failing ?? [],
+  conflicts: r.status?.conflicts ?? null,
 });
 
 /** The key GitHub is asked about for a run: the PR link in its brief, else its branch. */

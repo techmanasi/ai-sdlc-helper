@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { awaitsMerge, resolveShown } from '../web/ui/src/stages.js';
+import { awaitsMerge, resolveShown, showTestIssues, testRepairStarted } from '../web/ui/src/stages.js';
 
 const pr = (state: 'OPEN' | 'MERGED' | 'CLOSED' | null) => ({ url: 'https://github.com/o/r/pull/85', state, number: 85, checkedAt: null, failed: false });
 
@@ -30,5 +30,24 @@ describe('Resolve conflicts on the stage rail', () => {
     expect(resolveShown(view({ record: { from: 'resolve-conflicts' } }))).toBe(true);
     expect(resolveShown(view({ stageFiles: { 'Resolve conflicts': ['a.ts'] } }))).toBe(true);
     expect(resolveShown(view({ docs: ['logs/resolve-conflicts.json'] }))).toBe(true);
+  });
+});
+
+describe('the test defect claims panel', () => {
+  const view = (o: Record<string, unknown> = {}) => ({ testIssues: 'a :: b :: c', stage: 'Implement', state: 'failed', stageFiles: {}, docs: ['test-issues.md'], ...o });
+
+  test('shows while Implement is over and Test repair has not started', () => {
+    expect(showTestIssues(view())).toBe(true);
+    expect(showTestIssues(view({ state: 'paused' }))).toBe(true);
+  });
+
+  test('hides once Test repair started, ran, or the run is past it, and when there are no claims', () => {
+    expect(showTestIssues(view({ stage: 'Test repair', state: 'paused' }))).toBe(false);
+    expect(showTestIssues(view({ stage: 'Review', state: 'running' }))).toBe(false);
+    expect(showTestIssues(view({ stage: 'Finalise', state: 'done' }))).toBe(false);
+    expect(showTestIssues(view({ stageFiles: { 'Test repair': ['x.md'] } }))).toBe(false);
+    expect(showTestIssues(view({ docs: ['test-issues.md', 'test-repair-1.md'] }))).toBe(false);
+    expect(showTestIssues(view({ testIssues: null }))).toBe(false);
+    expect(testRepairStarted(view())).toBe(false);
   });
 });

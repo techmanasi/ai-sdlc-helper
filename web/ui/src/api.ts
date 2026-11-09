@@ -36,7 +36,7 @@ export interface RunCard {
   pullRequest?: PrCard | null;
 }
 export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
-export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; checkedAt: string | null; failed: boolean; ci: CiState | null; failing: string[] }
+export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; checkedAt: string | null; failed: boolean; ci: CiState | null; failing: string[]; conflicts: 'none' | 'conflicting' | 'unknown' | null }
 /** What "Sync PR" brings: the PR's state and CI, the number of review comments saved, and the error lines of a failing CI. */
 export interface PrSync { ok: boolean; pr: PrCard; count: number; summary: string[]; err?: string[] }
 export interface Board { items: BacklogItem[] | null; runs: RunCard[]; maxParallel: number; running: number }
@@ -59,7 +59,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   changes: { changed: number; uncommitted: number; files: string[] } | null;
   tail: string[]; docs: string[]; discarded: string; resumeFrom: string; redCommit: string; gitAgeMs: number | null;
   createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean;
-  prCi?: CiState | null; prFailing?: string[]; ciSummary?: string[];
+  prCi?: CiState | null; prFailing?: string[]; prConflicts?: 'none' | 'conflicting' | 'unknown' | null; ciSummary?: string[];
   testIssues?: string | null;
   recovery?: StageRecovery | null;
   /** What each agent round did, with its warnings (logs/attempts.jsonl). */
