@@ -219,6 +219,41 @@ describe('start', () => {
     await finished('fail-one');
   });
 
+  test('--from resolve-conflicts with no worktree and no local branch makes the worktree from origin\'s PR branch; with the branch nowhere it refuses', async () => {
+    const origin = path.join(tmp, 'origin.git');
+    git(tmp, 'init', '-q', '--bare', origin);
+    git(repo, 'remote', 'add', 'origin', origin);
+    git(repo, 'checkout', '-q', '-b', 'sdlc/alpha');
+    fs.writeFileSync(path.join(repo, 'task.txt'), 'the task\n');
+    git(repo, 'add', 'task.txt');
+    git(repo, 'commit', '-q', '-m', 'feat(alpha): implement');
+    git(repo, 'push', '-q', 'origin', 'sdlc/alpha');
+    git(repo, 'checkout', '-q', 'main');
+    git(repo, 'branch', '-q', '-D', 'sdlc/alpha');
+
+    expect((await cli(['start', 'alpha', '--from', 'resolve-conflicts'])).status).toBe(0);
+    await finished('alpha');
+    expect(git(path.join(wts, 'alpha'), 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('sdlc/alpha');
+    expect(fs.readFileSync(path.join(wts, 'alpha', 'task.txt'), 'utf8')).toBe('the task\n');
+    expect(ranLines(path.join(wts, 'alpha'))[0]).toContain('args=--from resolve-conflicts');
+
+    const r = await cli(['start', 'fail-one', '--from', 'resolve-conflicts']);
+    expect(r.status).toBe(1);
+    expect(record('fail-one').message).toBe('Nothing to resolve: branch sdlc/fail-one is neither here nor on origin.');
+    expect(fs.existsSync(path.join(wts, 'fail-one'))).toBe(false);
+    expect(git(repo, 'branch', '--list', 'sdlc/fail-one')).toBe('');
+  });
+
+  test('--from resolve-conflicts on an item already merged is success (exit 0) with no worktree; any other start is still refused', async () => {
+    git(repo, ...MERGED('alpha'));
+    const r = await cli(['start', 'alpha', '--from', 'resolve-conflicts']);
+    expect(r.status).toBe(0);
+    expect(record('alpha')).toMatchObject({ state: 'exited', exit_code: '0', worktree: '', pid: 0 });
+    expect(record('alpha').message).toBe('alpha is already merged into main: nothing to resolve');
+    expect(fs.existsSync(path.join(wts, 'alpha'))).toBe(false);
+    expect((await cli(['start', 'alpha'])).status).toBe(5);
+  });
+
   test('a base without the committed settings is refused before any worktree is made, with what to do', async () => {
     git(repo, 'branch', 'other', 'main');
     // a base that has the brief but not sdlc.config.json

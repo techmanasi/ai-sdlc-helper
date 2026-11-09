@@ -220,6 +220,19 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
     }
 
     const docs = `${ctx.backlogDir}/${slug}`;
+    // Resolving conflicts of a PR that is already merged is done: success, with no worktree made.
+    if (opts.from === 'resolve-conflicts') {
+      const mergedBase = pickBase(ctx);
+      if (mergedBase) {
+        git(ctx.root, ['fetch', '-q', 'origin', mergedBase], ctx.env);
+        if (isMerged(ctx, slug, mergedBase) || isMerged(ctx, slug, `origin/${mergedBase}`)) {
+          const message = `${slug} is already merged into ${mergedBase}: nothing to resolve`;
+          fs.appendFileSync(log, `${message}\n`);
+          writeRecord(ctx.reg, { slug, worktree: '', pid: 0, started: now(), state: 'exited', exit_code: '0', interrupted: false, finished: now(), message });
+          return ok(message);
+        }
+      }
+    }
     const wt = rec?.worktree && exists(path.join(rec.worktree, '.git')) ? rec.worktree : path.join(ctx.wtBase, slug);
     const branch = branchOf(ctx, slug, rec?.worktree === wt ? rec : null);
     const base = pickBase(ctx);
@@ -242,8 +255,18 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
         return refuse(1, `Missing ${docs}/brief.md`);
       }
       fs.mkdirSync(path.dirname(wt), { recursive: true });
+      // Resolving conflicts works on the PR branch itself: with no local branch it is taken from origin, never started
+      // afresh from the base (which would have nothing to resolve).
+      let startPoint = base;
+      if (opts.from === 'resolve-conflicts' && !branchExists(ctx, branch)) {
+        git(ctx.root, ['fetch', '-q', 'origin', branch], ctx.env);
+        if (!gitOk(ctx.root, ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${branch}`], ctx.env)) {
+          return refuse(1, `Nothing to resolve: branch ${branch} is neither here nor on origin.`);
+        }
+        startPoint = `origin/${branch}`;
+      }
       const add = branchExists(ctx, branch) ? git(ctx.root, ['worktree', 'add', wt, branch], ctx.env)
-        : git(ctx.root, ['worktree', 'add', wt, '-b', branch, base], ctx.env);
+        : git(ctx.root, ['worktree', 'add', wt, '-b', branch, startPoint], ctx.env);
       fs.appendFileSync(log, add.stdout + add.stderr);
       if (add.status !== 0) return refuse(1, `git worktree add ${wt} failed: ${add.stderr.trim().split('\n').pop()}`);
       created = true;

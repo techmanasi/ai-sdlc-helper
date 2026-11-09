@@ -10,6 +10,7 @@ import { parseQuestions } from '../runs/view.js';
 import { projectRoot } from '../runs/records.js';
 import { withAnswerLines } from './questions.js';
 import { at, stamp, stop, tick, type Ctx } from './context.js';
+import { getPrFromBrief, getPrStatus } from './finalise.js';
 import { runAgent } from './agent.js';
 import { integrationPass, targetTestFiles, testsPass } from './gates.js';
 import { resumeCommand } from './hints.js';
@@ -77,6 +78,8 @@ export interface ResolveOptions {
   docDirs?: string[];
   /** Where the recovery record (shas before the rebase) is written. */
   recordFile?: string;
+  /** Why there is nothing to do because the PR is already merged (after the fetch); null when it is not. */
+  mergedReason?: () => string | null;
   /** Called once the stage has something to do (the branch is on the remote and the base was fetched). */
   onStart?: () => void;
   /** Resolves a stop on code or test files; without one, such a stop ends the stage. */
@@ -147,12 +150,22 @@ export function leasePush(git: Git, remote: string, branch: string, lease: strin
   }
 }
 
+/** 'clean' or 'conflicts' from a merge of <theirs> into <ours> that touches no checkout; 'unknown' when git cannot say. */
+function trialMerge(git: Git, ours: string, theirs: string): 'clean' | 'conflicts' | 'unknown' {
+  try {
+    git.run('merge-tree', '--write-tree', ours, theirs);
+    return 'clean';
+  } catch (e) {
+    return (e as { status?: number }).status === 1 ? 'conflicts' : 'unknown';
+  }
+}
+
 /**
  * Brings <branch> up to date with <remote>/<base>: nothing to do when the branch already contains the base; otherwise a
  * rebase, conflicts resolved commit by commit, the check, and a push with the lease. Every stop leaves the local branch
  * where it was and the remote untouched (a rebased attempt is kept under refs/sdlc-attempt/<branch>).
  */
-export async function resolveConflicts(o: ResolveOptions): Promise<ResolveOutcome> {
+async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOutcome> {
   const { git, branch, out } = o;
   const remote = o.remote || 'origin';
   const base = o.base || 'main';
@@ -161,11 +174,18 @@ export async function resolveConflicts(o: ResolveOptions): Promise<ResolveOutcom
 
   if (git.tryRun('remote', 'get-url', remote) === null) return { kind: 'skipped', reason: `no ${remote} remote: nothing to bring up to date` };
   if (git.tryRun('fetch', '-q', remote) === null) return { kind: 'stopped', reason: `git fetch ${remote} failed`, offer: false, resolved };
+  const merged = o.mergedReason?.();
+  if (merged) return { kind: 'skipped', reason: merged };
   const remoteRef = `refs/remotes/${remote}/${branch}`;
   let remoteSha = sha(git, remoteRef);
   if (!remoteSha) return { kind: 'skipped', reason: `${branch} is not on ${remote} (Finalise did not push it): nothing to bring up to date` };
   const upstream = sha(git, `refs/remotes/${remote}/${base}`);
   if (!upstream) return { kind: 'skipped', reason: `${remote}/${base} does not exist` };
+  // Someone may have resolved it already (or main moved without touching the task): a trial merge in the object store
+  // shows whether any conflict is left. Without git's merge-tree --write-tree the stage goes on as before.
+  if (!isAncestor(git, upstream, remoteSha) && trialMerge(git, remoteSha, upstream) === 'clean') {
+    return { kind: 'skipped', reason: `${branch} has no conflicts with ${remote}/${base}: nothing to resolve` };
+  }
   o.onStart?.();
 
   if (git.run('rev-parse', '--abbrev-ref', 'HEAD').trim() !== branch) git.run('checkout', '-q', branch);
@@ -296,6 +316,37 @@ export async function resolveConflicts(o: ResolveOptions): Promise<ResolveOutcom
   } catch (e) {
     restore();
     throw e;
+  }
+}
+
+/** Finalise stamps `pr: <url>` into the brief and leaves it uncommitted: that is the pipeline's own change, not the user's. */
+const isBriefOnly = (git: Git): string[] | null => {
+  const dirty = git.run('status', '--porcelain', '--untracked-files=no').split('\n').filter(Boolean);
+  const files = dirty.map((l) => l.slice(3).trim());
+  return dirty.length && dirty.every((l) => l[0] === ' ' && l[1] === 'M') && files.every((f) => path.basename(f) === 'brief.md') ? files : null;
+};
+
+/**
+ * resolveConflictsOnCleanTree, after setting aside the pipeline's own uncommitted brief header (the PR link) and putting it back
+ * on every exit. Any other uncommitted change still stops the stage.
+ */
+export async function resolveConflicts(o: ResolveOptions): Promise<ResolveOutcome> {
+  const files = o.git.tryRun('rev-parse', '--git-dir') === null ? null : isBriefOnly(o.git);
+  if (!files) return resolveConflictsOnCleanTree(o);
+  const saved = files.map((f) => ({ f, text: fs.readFileSync(path.join(o.git.root, f), 'utf8') }));
+  o.git.run('checkout', '--', ...files);
+  try {
+    return await resolveConflictsOnCleanTree(o);
+  } finally {
+    for (const { f, text } of saved) {
+      const file = path.join(o.git.root, f);
+      const header = /^---\n[\s\S]*?\n---\n/.exec(text)?.[0];
+      // Put the header back on whatever the brief is now; a brief that was rewritten meanwhile keeps its own text.
+      if (header && fs.existsSync(file)) {
+        const now = fs.readFileSync(file, 'utf8');
+        if (!now.startsWith('---\n')) fs.writeFileSync(file, `${header}\n${now.replace(/^\n+/, '')}`);
+      }
+    }
   }
 }
 
@@ -483,6 +534,20 @@ function answerFollowUp(ctx: Ctx): void {
   ctx.out(`Added the follow-up item ${newSlug} to ${path.join(main, ctx.config.backlogDir, 'index.md')} (not committed).`);
 }
 
+/** Set when the PR is merged: GitHub says so, or the task's red-tests commit is in <base> (a squash keeps its message). */
+function mergedReason(ctx: Ctx, base: string): string | null {
+  const briefFile = at(ctx, `${ctx.docs}/brief.md`);
+  const url = fs.existsSync(briefFile) ? getPrFromBrief(fs.readFileSync(briefFile, 'utf8')) : null;
+  const pr = getPrStatus(ctx.root, url || ctx.branch, ctx.env);
+  if (pr?.state === 'MERGED') return `the pull request is already merged (${pr.url}): nothing to resolve`;
+  for (const ref of [`origin/${base}`, base]) {
+    if (ctx.git.tryRun('log', ref, '-1', '--format=%h', `--grep=^test(${ctx.slug}): add failing tests`)?.trim()) {
+      return `${ctx.slug} is already merged into ${base}: nothing to resolve`;
+    }
+  }
+  return null;
+}
+
 /**
  * Resolve conflicts: after Finalise (or started by hand on a finished run), brings the PR branch up to date with the base.
  * Skipped without a stage of its own when there is no remote branch, or with SDLC_RESOLVE_CONFLICTS=0.
@@ -503,6 +568,7 @@ export async function resolveConflictsStage(ctx: Ctx): Promise<void> {
   const recordFile = at(ctx, `${ctx.log}/resolve-conflicts.json`);
   const result = await resolveConflicts({
     git: ctx.git, branch: ctx.branch, base, docDirs: [ctx.config.backlogDir], recordFile, out: l => ctx.out(l),
+    mergedReason: () => mergedReason(ctx, base),
     onStart: () => { stage(ctx, RESOLVE_STAGE); ctx.status.attempt = '1/1'; ctx.status.write(); },
     resolveCode: async c => {
       writeContext(ctx, c);

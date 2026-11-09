@@ -143,7 +143,8 @@ function completedTasks(ctx: RunContext, prOf: (key: string) => PrStatus | null)
     const prStatus = prOf(pr || branch);
     if (!pr && prStatus?.url) {
       pr = prStatus.url;
-      try {
+      // A run with a worktree gets its link on the PR branch (when the PR is created); the main checkout stays unedited.
+      if (!runWorktree(ctx, slug)) try {
         const updated = recordPrInBrief(briefText, pr);
         fs.writeFileSync(briefFile, updated);
       } catch { /* best effort */ }
@@ -375,31 +376,26 @@ export function createPrForCompleted(
 
   out.push(`PR created: ${prUrl}`);
 
-  // Record PR in brief.md
-  if (fs.existsSync(briefFile)) {
-    const updated = recordPrInBrief(fs.readFileSync(briefFile, 'utf8'), prUrl);
-    fs.writeFileSync(briefFile, updated);
-    const briefRel = path.relative(ctx.root, briefFile);
-    const curBranch = git(ctx.root, ['rev-parse', '--abbrev-ref', 'HEAD'], ctx.env).stdout.trim();
-    if (curBranch === branch) {
-      git(ctx.root, ['add', '--', briefRel], ctx.env);
-      git(ctx.root, ['commit', '-q', '-m', `chore(${slug}): link pull request`, '--', briefRel], ctx.env);
-      git(ctx.root, ['push', 'origin', branch], ctx.env);
-      out.push('Updated brief.md and committed PR link to branch.');
-    } else {
-      out.push('Updated brief.md with PR link.');
-    }
-  }
-
+  // Record the PR in brief.md on the PR branch only: in the run's worktree, where that branch is checked out (the main
+  // checkout is touched only when it is the one on the branch), never as a stray edit in the main checkout.
+  const briefRel = path.join(ctx.backlogDir, slug, 'brief.md');
   const wt = runWorktree(ctx, slug);
-  if (wt) {
-    const wtBriefFile = path.join(wt, ctx.backlogDir, slug, 'brief.md');
-    if (fs.existsSync(wtBriefFile)) {
-      try {
-        fs.writeFileSync(wtBriefFile, recordPrInBrief(fs.readFileSync(wtBriefFile, 'utf8'), prUrl));
-      } catch { /* best effort */ }
-    }
+  // The link is committed to the PR branch and pushed at once, so no checkout is left with an uncommitted brief.
+  let committed = false;
+  for (const dir of [ctx.root, wt]) {
+    if (!dir || git(dir, ['rev-parse', '--abbrev-ref', 'HEAD'], ctx.env).stdout.trim() !== branch) continue;
+    const file = path.join(dir, briefRel);
+    if (!fs.existsSync(file)) continue;
+    fs.writeFileSync(file, recordPrInBrief(fs.readFileSync(file, 'utf8'), prUrl));
+    git(dir, ['add', '--', briefRel], ctx.env);
+    const c = git(dir, ['commit', '-q', '-m', `chore(${slug}): link pull request`, '--', briefRel], ctx.env);
+    if (c.status !== 0) { err.push(`Could not commit the PR link: ${c.stderr.trim()}`); continue; }
+    const push = git(dir, ['push', 'origin', branch], ctx.env);
+    if (push.status !== 0) err.push(`Push warning (PR link): ${push.stderr.trim()}`);
+    else { out.push('Committed the PR link in brief.md and pushed it to the branch.'); committed = true; }
+    break;
   }
+  if (!committed) out.push('The PR link was not committed: no checkout has the PR branch.');
 
   return { ok: true, pr: prUrl, out, err };
 }
