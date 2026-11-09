@@ -7,3 +7,10 @@ import { beforeEach } from 'vitest';
 // of the loop before each test lets the replies in. Captured here so a test's fake timers cannot replace it.
 const realSetImmediate = setImmediate;
 beforeEach(() => new Promise<void>(resolve => realSetImmediate(resolve)));
+
+// The pipeline runs this suite as its green gate with the run's own settings in the environment (AGENT_<STAGE>,
+// MODEL_<STAGE>, EFFORT_<STAGE>, SDLC_AUTO_ACCEPT, SDLC_CREATE_PR, SDLC_SLUG, MAX_*). Tests that start a pipeline or build
+// agent commands read those same names, so a run configured with per-stage agents made them fail. Tests set what they need.
+for (const name of Object.keys(process.env)) {
+  if (/^(AGENT|MODEL|EFFORT)_[A-Z_]+$/.test(name) || ['SDLC_AUTO_ACCEPT', 'SDLC_CREATE_PR', 'SDLC_SLUG', 'SDLC_MODEL', 'SDLC_EFFORT', 'SDLC_AGENT', 'MAX_TURNS', 'MAX_ATTEMPTS', 'MAX_REPAIR_TESTS'].includes(name)) delete process.env[name];
+}
