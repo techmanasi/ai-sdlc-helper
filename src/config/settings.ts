@@ -128,6 +128,13 @@ const SUITE_SCHEMA = {
   name: 'string', dir: 'string', runner: [...RUNNERS, 'auto'], testCmd: 'string',
   testGlobs: 'string[]', sourceGlobs: 'string[]', setup: 'string', report: 'string', tools: 'string[]',
 };
+/** `npm run lint` for a project whose package.json has a lint script and whose settings name none: the green gate runs it. */
+export function detectedLint(root: string): string | null {
+  let pkg: Json | null = null;
+  try { pkg = readJson(path.join(root, 'package.json')) as Json | null; } catch { return null; }
+  return pkg && pkg.scripts && typeof pkg.scripts === 'object' && typeof pkg.scripts.lint === 'string' && pkg.scripts.lint.trim() ? 'npm run lint' : null;
+}
+
 export const SCHEMA: Json = {
   $schema: 'string',
   backlogDir: 'string',
@@ -323,7 +330,7 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
       maxWorkers: file.tests && file.tests.maxWorkers !== undefined ? file.tests.maxWorkers : null,
       ...(file.tests && file.tests.preliminary ? { preliminary: file.tests.preliminary } : {}),
     },
-    lint: file.lint ? run(file.lint) : null,
+    lint: file.lint ? run(file.lint) : detectedLint(root) ? run(detectedLint(root)!) : null,
     worktree: {
       base: (file.worktree && file.worktree.base) || '../{repo}-sdlc',
       link: (file.worktree && file.worktree.link) || defaultLinks,
