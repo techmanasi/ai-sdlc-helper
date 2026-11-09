@@ -80,6 +80,8 @@ export function overrideErrors(o: Json): string[] {
   for (const [k, v] of Object.entries(o)) {
     if (k === 'worktreeBase') { if (typeof v !== 'string' || !v) errors.push('worktreeBase: must be a non-empty string'); }
     else if (k === 'maxParallel') { if (!(Number.isInteger(v) && (v as number) > 0)) errors.push('maxParallel: must be a whole number above 0'); }
+    else if (k === 'fullSuite') { if (v !== 'local' && v !== 'ci') errors.push(`fullSuite: must be one of local, ci (got ${JSON.stringify(v)})`); }
+    else if (k === 'ciWaitMinutes') { if (!(Number.isInteger(v) && (v as number) >= 1)) errors.push(`ciWaitMinutes: must be a whole number of minutes, 1 or more (got ${JSON.stringify(v)})`); }
     else if (k === 'agent') { if (!isObject(v)) errors.push('agent: must be an object'); else errors.push(...personalErrors(v).map(e => (e.startsWith('agent') ? e : `agent.${e}`))); }
     else errors.push(`${k}: unknown override`);
   }

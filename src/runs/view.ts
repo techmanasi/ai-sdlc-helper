@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { exists } from '../util.js';
+import { resolve as resolveConfig } from '../config/settings.js';
 import { backlogItems, type BacklogItem } from '../backlog/index.js';
 import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.js';
 import { alive, readRecord, runState, type RunRecord } from './records.js';
@@ -83,6 +84,39 @@ export interface RunView {
   recovery?: StageRecovery | null;
   /** What each agent round did (logs/attempts.jsonl), with its warnings; empty before the first round. */
   attempts: Round[];
+  /** CI full-suite gate status; null unless tests.fullSuite is "ci". */
+  ci?: CiView | null;
+}
+
+export interface CiView {
+  enabled: boolean;
+  state: string;
+  pr: string | null;
+  prDraft: boolean;
+  reason?: string;
+  failingChecks: string[];
+  warnings: string[];
+}
+
+function ciView(root: string, env: NodeJS.ProcessEnv, status: any, brief: string | null): CiView | null {
+  const c = status && typeof status === 'object' ? status.ci : null;
+  if (!c || typeof c !== 'object') return null;
+  let mode: string = 'local';
+  try {
+    const r = resolveConfig(root, { env });
+    mode = r.config ? r.config.tests.fullSuite : String(env.SDLC_FULL_SUITE || readJson(path.join(root, 'sdlc.config.json'))?.tests?.fullSuite || 'local');
+  } catch { /* keep local */ }
+  if (mode !== 'ci') return null;
+  const strs = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  return {
+    enabled: c.enabled !== false,
+    state: typeof c.state === 'string' ? c.state : 'waiting',
+    pr: typeof c.pr === 'string' ? c.pr : (brief ? getPrFromBrief(brief) : null),
+    prDraft: c.prDraft === true,
+    ...(typeof c.reason === 'string' ? { reason: c.reason } : {}),
+    failingChecks: strs(c.failingChecks),
+    warnings: strs(c.warnings),
+  };
 }
 
 const readText = (file: string): string | null => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
@@ -375,6 +409,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
         prConflicts: st?.conflicts ?? null,
       };
     })(),
+    ci: ciView(ctx.root, ctx.env, status, readText(path.join(docsDir, 'brief.md'))),
     hasPrComments: (() => { try { return !prCommentsEmpty(fs.readFileSync(path.join(docsDir, 'pr-comments.md'), 'utf8')); } catch { return false; } })(),
     undo: (() => { const c = readCheckpoint(ctx, slug); return c ? { from: c.from, at: c.at } : null; })(),
     mergeFix: stage === 'Resolve conflicts' && ['failed', 'paused'].includes(state) ? mergeFixKept(worktree, rec?.branch || `${ctx.branchPrefix}${slug}`, logs) : false,

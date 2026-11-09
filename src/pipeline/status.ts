@@ -19,6 +19,23 @@ export interface StatusLine {
   pid: number;
   /** Why a running run waits, for example "usage limit, resets 1:10am (Asia/Dubai)" (only when SDLC_LIMIT_RETRY is set); empty otherwise. */
   note: string;
+  /** The full suite in CI (tests.fullSuite "ci"); absent when the setting is off. */
+  ci?: CiStatus;
+}
+
+/** Where the full suite stands when it runs in CI, for the run page and `watch`. */
+export interface CiStatus {
+  enabled: boolean;
+  /** waiting, running, green, red: side effect, green with warnings, timed out (paused), unavailable: running locally. */
+  state: string;
+  /** Why CI is unavailable (the run runs the full suite locally). */
+  reason?: string;
+  /** The PR link. */
+  pr?: string | null;
+  /** Whether the PR is still a draft (Finalise marks it ready). */
+  prDraft?: boolean;
+  failingChecks?: string[];
+  warnings?: string[];
 }
 
 /** <logDir>/status.json, written with the same fields, order and values as the shell pipeline wrote them. */
@@ -32,6 +49,7 @@ export class Status {
   attempt = '';
   agentStarted = '';
   note = '';
+  ci?: CiStatus;
   readonly runStarted = stamp();
 
   constructor(readonly file: string, readonly slug: string, readonly pid = process.pid) {}
@@ -41,6 +59,7 @@ export class Status {
       slug: this.slug, state: this.state, stage: this.stage, agent: this.agent, model: this.model, effort: this.effort,
       models: this.models, attempt: this.attempt, agent_started: this.agentStarted, run_started: this.runStarted,
       updated: stamp(), pid: this.pid, note: this.note,
+      ...(this.ci ? { ci: this.ci } : {}),
     };
   }
 

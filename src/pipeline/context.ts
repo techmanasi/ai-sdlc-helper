@@ -6,6 +6,7 @@ import type { Keys } from '../testcheck/keys.js';
 import type { AgentSpawn } from './agent.js';
 import type { Git } from './git.js';
 import type { Status } from './status.js';
+import type { CiStepResult } from './ci.js';
 
 /** The stages a run can start at (FROM), in order. */
 export const FROM_STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'review', 'finalise', 'resolve-conflicts'] as const;
@@ -83,6 +84,13 @@ export interface Ctx {
   origRedSha: string;
   /** The log of the check that failed last (tests.log or integration.log). */
   failLog: string;
+  /** The full suite in CI: whether CI is reachable (undefined until checked after Red tests), and why it is not. */
+  ciAvailable?: boolean;
+  ciFallbackReason?: string;
+  /** Test files of CI side-effect failures so far: Implement's local gate runs them too. */
+  ciSideEffectFiles?: string[];
+  /** The latest CI result of Implement. */
+  ciLastResult?: CiStepResult;
   out(line: string): void;
   err(line: string): void;
 }

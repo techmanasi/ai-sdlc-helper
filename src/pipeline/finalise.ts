@@ -59,7 +59,7 @@ export function recordPrInBrief(text: string, prUrl: string): string {
 }
 
 /** Finds or creates a GitHub PR for the branch. */
-export function createOrGetPr(cwd: string, branch: string, title: string, body: string, base?: string): string | null {
+export function createOrGetPr(cwd: string, branch: string, title: string, body: string, base?: string, opts: { draft?: boolean } = {}): string | null {
   // Check if PR already exists
   try {
     const view = spawnSync('gh', ['pr', 'view', branch, '--json', 'url', '-q', '.url'], { cwd, encoding: 'utf8' });
@@ -79,6 +79,7 @@ export function createOrGetPr(cwd: string, branch: string, title: string, body: 
   try {
     const args = ['pr', 'create', '--head', branch, '--title', title, '--body', body];
     if (base) args.push('--base', base);
+    if (opts.draft) args.push('--draft');
     const create = spawnSync('gh', args, { cwd, encoding: 'utf8' });
     if (create.status === 0) {
       const match = (create.stdout + '\n' + create.stderr).match(/https?:\/\/[^\s]+/);
@@ -95,10 +96,37 @@ export function createOrGetPr(cwd: string, branch: string, title: string, body: 
 /** The CI of a pull request: its checks are running, all passed, one failed, or it has none. */
 export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
 
+/** Marks a draft PR ready for review (`gh pr ready`); true when gh succeeded. */
+export function markPrReady(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  try {
+    const r = spawnSync('gh', ['pr', 'ready', branchOrUrl], { cwd, encoding: 'utf8', env, timeout: 30_000 });
+    clearPrCache();
+    return r.status === 0;
+  } catch { return false; }
+}
+
+/** One check of a PR's status rollup: a check run (status, conclusion, detailsUrl) or a commit status (state). */
+export interface CheckRunStatus {
+  __typename?: string;
+  name?: string;
+  context?: string;
+  status?: string;
+  conclusion?: string;
+  state?: string;
+  detailsUrl?: string;
+  targetUrl?: string;
+  workflowName?: string;
+}
+
 export interface PrStatus {
   url: string;
   state: 'OPEN' | 'MERGED' | 'CLOSED';
   number?: number;
+  isDraft?: boolean;
+  /** The raw checks of the PR (for matching them to a pushed commit). */
+  statusCheckRollup?: CheckRunStatus[];
+  /** The commit the PR's head is at (for matching checks to a pushed commit). */
+  headRefOid?: string;
   /** From the PR's status checks (gh's statusCheckRollup); absent when the answer did not include them. */
   ci?: CiState;
   /** The names of the failing checks. */
@@ -132,6 +160,8 @@ export function ciOf(rollup: unknown): { ci: CiState; failing: string[] } {
   }
   return { ci: failing.length ? 'failed' : pending ? 'in progress' : 'passed', failing: [...new Set(failing)] };
 }
+
+const PR_FIELDS = 'url,state,number,isDraft,statusCheckRollup,headRefOid,mergeable';
 
 interface PrEntry { time: number; val: PrStatus | null; failed?: boolean }
 const prCache = new Map<string, PrEntry>();
@@ -167,6 +197,9 @@ function parsePr(stdout: string): PrStatus | null {
         number: typeof data.number === 'number' ? data.number : undefined,
         ...(Array.isArray(data.statusCheckRollup) ? ciOf(data.statusCheckRollup) : {}),
         ...(typeof data.mergeable === 'string' ? { conflicts: conflictsOf(data.mergeable) } : {}),
+        ...(typeof data.isDraft === 'boolean' ? { isDraft: data.isDraft } : {}),
+        ...(Array.isArray(data.statusCheckRollup) ? { statusCheckRollup: data.statusCheckRollup } : {}),
+        ...(typeof data.headRefOid === 'string' ? { headRefOid: data.headRefOid } : {}),
       };
     }
   } catch { /* best effort */ }
@@ -189,7 +222,7 @@ export function getPrStatus(
 
   let result: PrStatus | null = null;
   try {
-    const view = spawnSync('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number,statusCheckRollup,mergeable'], {
+    const view = spawnSync('gh', ['pr', 'view', branchOrUrl, '--json', PR_FIELDS], {
       cwd, encoding: 'utf8', env, timeout: PR_TIMEOUT_MS,
     });
     if (view.status === 0 && view.stdout.trim()) result = parsePr(view.stdout);
@@ -230,7 +263,7 @@ function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEn
   if (running) return running;
   const t0 = performance.now();
   const p = new Promise<PrStatus | null>(resolve => {
-    execFile('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number,statusCheckRollup,mergeable'], { cwd, env, encoding: 'utf8', timeout: PR_TIMEOUT_MS }, (err, stdout, stderr) => {
+    execFile('gh', ['pr', 'view', branchOrUrl, '--json', PR_FIELDS], { cwd, env, encoding: 'utf8', timeout: PR_TIMEOUT_MS }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as unknown as { code: number }).code : -1) : 0;
       trace({ action: 'spawn:gh', why: 'pr', ms: Math.round((performance.now() - t0) * 1000) / 1000, code });
       const before = prCache.get(key);

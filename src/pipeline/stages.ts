@@ -1,22 +1,25 @@
 // The stages: Spec, Plan, Red tests, Implement, Test repair, Review and Finalise, each with its gate.
 import fs from 'node:fs';
 import path from 'node:path';
-import { mark } from '../changes/index.js';
+import { changed, mark } from '../changes/index.js';
 import {
   diffcheck, mergeRetry, namecheck, precheck, redcheck, resumecheck, retryArgs, unclaimed,
 } from '../testcheck/checks.js';
 import { runSuites } from '../runners/run.js';
 import { exists } from '../util.js';
 import { answerQuestions, parseQuestions } from '../runs/view.js';
+import { agentFor } from '../config/settings.js';
 import { at, setAside, stamp, stop, stopIfAborted, tick, type Ctx } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agent.js';
 import { newTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass } from './gates.js';
 import { renderPrompt } from './prompts.js';
 import { resumeCommand, resumeHint } from './hints.js';
-import { finalise } from './finalise.js';
+import { finalise, getPrFromBrief, markPrReady } from './finalise.js';
 import { installDeps } from './deps.js';
 import { appendRound, repeatedFailures } from './observe.js';
 import { withAnswerLines } from './questions.js';
+import { checkCiAvailability, waitForCiAndClassify, type CiStepResult } from './ci.js';
+import { ciFailureText, ciState, ciStatusLine, ciWarnings, duration, localCounts, setCiStatus } from './ci-rounds.js';
 
 const short = (sha: string) => sha.slice(0, 7);
 export const redPattern = (slug: string) => `^test(${slug}): add failing tests`;
@@ -210,13 +213,39 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   // must not make a new test that passes look red.
   const added = newTestFiles(ctx);
   if (added.length === 0) stop(ctx, `RED GATE FAILED: the Red tests agent added or changed no test file. See ${ctx.log}/tests.log`);
-  if (testsPass(ctx, { targetFiles: added, onlyTargets: true })) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
+  if (testsPass(ctx, { targetFiles: added, onlyTargets: true, noAllowFailures: true })) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
   await tick();
   ctx.git.run('add', '-A', '--', ctx.docs);
   ctx.git.addTests(ctx.layout.testPathspecs);
   ctx.git.run('commit', '-q', '-m', `test(${ctx.slug}): add failing tests and spec/plan docs`);
   ctx.redSha = ctx.git.head();
   ctx.lockSha = ctx.redSha;
+  // The full suite in CI: the tests are locked, so push and open the draft PR now (a failed red gate never gets here).
+  if (ctx.config.tests.fullSuite === 'ci') await openCi(ctx);
+}
+
+/** Whether the full suite runs in CI for this run: the setting is on and CI has not been given up on. */
+const ciOn = (ctx: Ctx): boolean => ctx.config.tests.fullSuite === 'ci' && ctx.ciAvailable !== false;
+
+/** The PR link recorded in brief.md, or null. */
+function briefPr(ctx: Ctx): string | null {
+  try { return getPrFromBrief(fs.readFileSync(at(ctx, `${ctx.docs}/brief.md`), 'utf8')); } catch { return null; }
+}
+
+/** From now on the run behaves as if tests.fullSuite were "local": says why, and records it for the run page. */
+function fallBack(ctx: Ctx, reason: string): void {
+  ctx.ciAvailable = false;
+  ctx.ciFallbackReason = reason;
+  ctx.out(`CI unavailable (${reason}): running the full suite locally`);
+  setCiStatus(ctx, { state: 'unavailable: running locally', reason });
+}
+
+/** Pushes the branch and opens (or finds) the draft PR; when CI cannot be used the run falls back to the local full suite. */
+async function openCi(ctx: Ctx): Promise<void> {
+  const r = await checkCiAvailability(ctx);
+  if (!r.available) { fallBack(ctx, r.reason || 'unknown'); return; }
+  ctx.ciAvailable = true;
+  setCiStatus(ctx, { state: 'waiting', pr: r.pr ?? briefPr(ctx), ...(r.prDraft !== undefined ? { prDraft: r.prDraft } : {}) });
 }
 
 /**
@@ -248,16 +277,44 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
   setAside(ctx, [`${ctx.docs}/test-issues.md`]);
   installDeps(ctx);
   await tick();
+  // A resumed run (a new process) learns whether CI is reachable; an unchanged head that was already pushed is waited on first.
+  const resumed = ctx.config.tests.fullSuite === 'ci' && ctx.from === 'implement';
+  // Only a CI pause (which saved the attempts) left a wait to resume: a head pushed by Red tests, or after a failed
+  // stage, is not waited on again.
+  const pushedUnchanged = resumed && fs.existsSync(attemptsFile(ctx)) && headIsPushed(ctx);
+  if (ctx.config.tests.fullSuite === 'ci' && ctx.ciAvailable === undefined) await openCi(ctx);
+  let used = resumed ? takeAttempts(ctx) : (takeAttempts(ctx), 0);
+  let last: { sha: string; result: CiStepResult } | null = null;
   // A resumed run never trusts a previous run's test log: the first attempt reads one from this run.
   if (ctx.fromN === 4) {
     const isScoped = ctx.config.tests?.preliminary !== 'full';
     const targets = targetTestFiles(ctx);
-    testsPass(ctx, { targetFiles: targets, onlyTargets: isScoped && targets.length > 0 });
+    testsPass(ctx, { targetFiles: targets, onlyTargets: (isScoped || ciOn(ctx)) && targets.length > 0 });
     await tick();
   }
+  // Fixed: the next CI run decides, and the merged result is checked before it is pushed.
+  const fixed = () => setAside(ctx, [`${ctx.docs}/ci-failure.md`, `${ctx.docs}/merge-failure.md`]);
   let previousFails: string[] | null = null;
-  for (let i = 1; i <= maxAttempts; i++) {
-    ctx.out(` attempt ${i}`);
+  if (pushedUnchanged && ciOn(ctx)) {
+    // The wait that was interrupted: it does not use an attempt.
+    const sha = ctx.git.head();
+    const result = await awaitCi(ctx, sha, used);
+    last = { sha, result };
+    if (settleCi(ctx, result) === 'green') { fixed(); ctx.out(' CI green'); return true; }
+  }
+  for (let i = used + 1; i <= maxAttempts; i++) {
+    const viaCi = ciOn(ctx);
+    const started = new Date();
+    const endRound = (status: string) => {
+      const ended = new Date();
+      ctx.out(`  start time: ${stamp(started)}  end time: ${stamp(ended)}  (${duration(ended.getTime() - started.getTime())})`);
+      ctx.out(`  status: ${status}`);
+    };
+    if (viaCi) {
+      const model = ctx.status.models?.implement;
+      ctx.out(`Round ${i}: implement`);
+      ctx.out(`  agent ${agentFor(ctx.config, 'implement').harness} is running implement with model ${model?.model || 'default'} and effort ${model?.effort || 'default'}`);
+    } else ctx.out(` attempt ${i}`);
     ctx.status.attempt = `${i}/${maxAttempts}`;
     await runAgent(ctx, `impl-${i}`, 'implement');
     await tick();
@@ -268,11 +325,46 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
       stop(ctx, null);
     }
     await tick();
-    if (await successCheck(ctx)) {
-      setAside(ctx, [`${ctx.docs}/ci-failure.md`, `${ctx.docs}/merge-failure.md`]); // fixed: the next CI run decides, and the merged result is checked before it is pushed
-      ctx.out(' tests and integration green');
-      return true;
+    if (viaCi) ctx.out(`  Red tests: running locally (${new Set([...targetTestFiles(ctx), ...(ctx.ciSideEffectFiles || [])]).size} files)`);
+    const green = await successCheck(ctx);
+    if (viaCi) {
+      const n = localCounts(ctx);
+      ctx.out(green ? `  Red tests: passed locally${n ? ` (${n.total} tests)` : ''}` : `  Red tests: failed locally${n ? ` (${n.failed} of ${n.total} tests failed)` : ''}`);
     }
+    if (green && !viaCi) { fixed(); ctx.out(' tests and integration green'); return true; }
+    if (green) {
+      // The local gate passed: commit what this attempt changed, push, and let CI run the full suite on that commit.
+      let sha: string;
+      let committed = false;
+      try {
+        committed = commitAttempt(ctx, i);
+        ctx.git.run('push', '-u', 'origin', ctx.branch);
+        sha = ctx.git.head();
+      } catch (e) {
+        endRound('Push failed (paused)');
+        setCiStatus(ctx, { state: 'timed out (paused)', reason: 'push failed' });
+        saveAttempts(ctx, i - 1);
+        return stop(ctx, `PAUSED: ${String((e as Error).message).split('\n')[0]}. Fix it and resume with FROM=implement (${resumeCommand(ctx.slug, 'implement')})`, 2);
+      }
+      let result: CiStepResult;
+      if (!committed && last && last.sha === sha) result = last.result; // nothing new to check: CI already answered for this head
+      else {
+        try { result = await awaitCi(ctx, sha, i - 1); } catch (e) { endRound('Paused'); throw e; }
+        last = { sha, result };
+      }
+      endRound(ciStatusLine(result, ctx.config.ci.waitMinutes));
+      const kind = settleCi(ctx, result);
+      if (kind === 'green') { fixed(); return true; }
+      if (kind === 'red') {
+        await tick();
+        const n = result.sideEffects.length;
+        ctx.out(`   !! attempt ${i} failed in CI: ${n} side-effect failure${n === 1 ? '' : 's'}`);
+        for (const f of result.sideEffects.slice(0, 8)) ctx.out(`      ${f.file || f.checkName}${f.testName ? ` :: ${f.testName}` : ''}`);
+        continue;
+      }
+      // CI has no workflow: the rest of the stage runs the full suite locally, starting with this attempt's gate.
+      if (await successCheck(ctx)) { fixed(); ctx.out(' tests and integration green'); return true; }
+    } else if (viaCi) endRound('Red - local gate failed (see the test log)');
     await tick();
     const fails = formatCheckFailures(ctx);
     const same = repeatedFailures(previousFails, fails);
@@ -292,6 +384,79 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
     }
   }
   return false;
+}
+
+const attemptsFile = (ctx: Ctx): string => at(ctx, `${ctx.log}/ci-attempts.json`);
+
+/** Remembers how many Implement attempts were used before a pause, so a resume keeps the budget. */
+function saveAttempts(ctx: Ctx, attempts: number): void {
+  try { fs.writeFileSync(attemptsFile(ctx), `${JSON.stringify({ attempts })}\n`); } catch { /* best effort */ }
+}
+
+/** The attempts saved by a pause (0 when none); the file is removed. */
+function takeAttempts(ctx: Ctx): number {
+  let n = 0;
+  try { n = Number(JSON.parse(fs.readFileSync(attemptsFile(ctx), 'utf8')).attempts) || 0; } catch { /* none */ }
+  fs.rmSync(attemptsFile(ctx), { force: true });
+  return Math.max(0, n);
+}
+
+/** Whether the branch head is the one origin has: a resume on it need not push again. */
+function headIsPushed(ctx: Ctx): boolean {
+  try {
+    const remote = String(ctx.git.run('rev-parse', '--verify', '--quiet', `refs/remotes/origin/${ctx.branch}`)).trim();
+    return remote !== '' && remote === ctx.git.head();
+  } catch { return false; }
+}
+
+/** Commits the files this attempt changed (Finalise's rules: baseline-filtered, no secrets, generated or large files). False when there are none. */
+function commitAttempt(ctx: Ctx, attempt: number): boolean {
+  let include: string[] = [];
+  try { include = changed(at(ctx, `${ctx.log}/baseline.json`), { root: ctx.root, maxBytes: ctx.config.finalise.maxFileBytes }).include; } catch { include = []; }
+  if (!include.length) return false;
+  ctx.git.run('add', '-A', '--', ...include);
+  ctx.git.run('commit', '-q', '-m', `feat(${ctx.slug}): implement (attempt ${attempt})`, '-m', include.slice(0, 50).join('\n'), '--', ...include);
+  return true;
+}
+
+/**
+ * Waits for CI on <sha> and says what it found. A timeout, or a CI query that fails, pauses the run (exit 2): the attempts
+ * used so far (<usedBefore>) are kept for the resume.
+ */
+async function awaitCi(ctx: Ctx, sha: string, usedBefore: number): Promise<CiStepResult> {
+  const pr = ctx.status.ci?.pr || briefPr(ctx) || ctx.branch;
+  const number = /\/pull\/(\d+)/.exec(pr)?.[1];
+  ctx.out(`  Full suite in CI: running (${number ? `PR #${number}` : pr}, commit ${short(sha)})`);
+  setCiStatus(ctx, { state: 'running', failingChecks: [], warnings: [] });
+  const answeredBefore = ctx.ciLastResult !== undefined && ctx.ciLastResult.status !== 'unavailable';
+  let result = await waitForCiAndClassify(ctx, sha, { prUrl: pr, startTime: Date.now() });
+  // "no workflow" falls back only on the first wait (4.3); once CI has answered, a missing check is a CI problem: pause.
+  if (result.status === 'unavailable' && answeredBefore) result = { ...result, status: 'timed-out', reason: `CI registered no check for ${short(sha)}` };
+  ctx.ciLastResult = result;
+  if (result.status === 'timed-out') {
+    ctx.out(`  status: ${result.reason ? `${result.reason} (paused)` : ciStatusLine(result, ctx.config.ci.waitMinutes)}`);
+    setCiStatus(ctx, { state: 'timed out (paused)' });
+    saveAttempts(ctx, usedBefore);
+    stop(ctx, `PAUSED: CI did not finish. To wait for it again, resume with FROM=implement (${resumeCommand(ctx.slug, 'implement')}).`, 2);
+  }
+  return result;
+}
+
+/** Acts on a CI result: green, red (side effects feed the next round), or fallback to the local full suite. */
+function settleCi(ctx: Ctx, result: CiStepResult): 'green' | 'red' | 'fallback' {
+  if (result.status === 'unavailable') {
+    fallBack(ctx, result.reason || 'no workflow');
+    return 'fallback';
+  }
+  const failingChecks = [...new Set(result.sideEffects.map(f => f.checkName))];
+  setCiStatus(ctx, { state: ciState(result), failingChecks: result.failingChecks || failingChecks, warnings: ciWarnings(result) });
+  if (result.status === 'red') {
+    ctx.ciSideEffectFiles = [...new Set([...(ctx.ciSideEffectFiles || []), ...result.testFiles])];
+    try { fs.writeFileSync(at(ctx, `${ctx.log}/tests.log`), ciFailureText(result, [...new Set([...targetTestFiles(ctx), ...ctx.ciSideEffectFiles])])); } catch { /* best effort */ }
+    ctx.failLog = `${ctx.log}/tests.log`;
+    return 'red';
+  }
+  return 'green';
 }
 
 /** Re-runs the unclaimed failing tests of now.json once; those that pass are flaky (merged back as passed, listed). */
@@ -412,14 +577,27 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
       if (typeof d.createPr === 'boolean') createPr = d.createPr;
     } catch { /* best effort */ }
   }
+  // The PR opened after Red tests: from this run's status, or (a resumed run, a new process) the link in brief.md, read
+  // before finalise() can record a PR of its own there.
+  const opened = ctx.config.tests.fullSuite === 'ci' ? (ctx.status.ci?.pr || briefPr(ctx)) : null;
   const res = finalise({
     git: ctx.git, slug: ctx.slug, docs: ctx.docs, baseline: `${ctx.log}/baseline.json`, backlog: ctx.backlog,
     maxBytes: ctx.config.finalise.maxFileBytes, envExample: ctx.config.finalise.envExample,
     createPr, baseBranch: ctx.config.git.base || undefined,
     out: l => ctx.out(l), err: l => ctx.err(l),
   });
-  if (res.pr) {
-    ctx.out(`Review pull request: ${res.pr}`);
+  // The full suite ran in CI: the PR opened as a draft after Red tests is now ready for review (never a second PR, no squashing).
+  const draft = opened || null;
+  if (draft) {
+    try { ctx.git.run('push', '-u', 'origin', ctx.branch); } catch (e) { ctx.err(`WARNING: git push to origin failed: ${(e as Error).message}`); }
+    if (markPrReady(ctx.root, draft, ctx.env)) {
+      ctx.out(`Pull request ready for review: ${draft}`);
+      if (ctx.status.ci) { ctx.status.ci = { ...ctx.status.ci, prDraft: false }; ctx.status.write(); }
+    }
+    else ctx.err(`WARNING: could not mark ${draft} ready for review (gh pr ready)`);
+  }
+  if (res.pr || draft) {
+    ctx.out(`Review pull request: ${res.pr || draft}`);
   } else {
     ctx.out(`Review with: git log --oneline ${ctx.redSha}~1..HEAD ; then open a PR.`);
   }

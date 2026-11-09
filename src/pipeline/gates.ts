@@ -9,6 +9,7 @@ import { testRunDefaults } from '../config/settings.js';
 import { spawnShell } from '../shell.js';
 import type { RunResult } from '../runners/types.js';
 import { at, tick, type Ctx } from './context.js';
+import { checkAllowedFailures, isRedTest } from './allow-failures.js';
 
 const firstLines = (s: string | null, n = 20) => String(s || '').trim().split('\n').slice(0, n).map(l => `      ${l}`).join('\n');
 
@@ -118,28 +119,53 @@ export function redCommitTestFiles(ctx: Ctx): string[] {
  * immediately without running the full test suite. Only when target tests pass (or if all suites were covered)
  * does it proceed to run the full suite for zero-trust verification (unless opts.onlyTargets is true).
  */
-export function testsPass(ctx: Ctx, opts: { targetFiles?: string[]; onlyTargets?: boolean } = {}): boolean {
+export function testsPass(ctx: Ctx, opts: { targetFiles?: string[]; onlyTargets?: boolean; noAllowFailures?: boolean } = {}): boolean {
   const logFile = at(ctx, `${ctx.log}/tests.log`);
-  const targets = (opts.targetFiles || []).filter(f => ctx.config.suites.some(s => holds(s, f)));
+  // The red gate (noAllowFailures) wants the new tests to fail: an allow entry must not turn their failure into a pass.
+  const passes = (merged: RunResult): boolean => (opts.noAllowFailures ? merged.ok : passesWithAllowed(ctx, merged));
+  // With the full suite in CI (and CI reachable) the local gate runs the red tests, and in Implement the files of earlier
+  // CI side effects, and nothing else.
+  const scoped = ctx.config.tests.fullSuite === 'ci' && ctx.ciAvailable === true;
+  const wanted = [...(opts.targetFiles || [])];
+  if (scoped && ctx.status && ctx.status.stage === 'Implement') wanted.push(...(ctx.ciSideEffectFiles || []));
+  const targets = [...new Set(wanted)].filter(f => ctx.config.suites.some(s => holds(s, f)));
 
   if (targets.length > 0) {
     const fast = runSuites(ctx.config, { root: ctx.root, ...testRuns(ctx), files: targets, env: ctx.env });
     if ('error' in fast) { fs.writeFileSync(logFile, `ERROR: ${fast.error}\n`); return false; }
-    if (!fast.merged.ok) {
-      recordResults(ctx, fast, logFile);
-      return false;
-    }
     const allFiles = ctx.config.suites.flatMap(s => suiteFiles(ctx.root, s));
-    if (opts.onlyTargets || (allFiles.length > 0 && allFiles.every(f => targets.includes(f)))) {
+    const final = scoped || opts.onlyTargets || (allFiles.length > 0 && allFiles.every(f => targets.includes(f)));
+    if (!fast.merged.ok || final) {
       recordResults(ctx, fast, logFile);
-      return true;
+      // passes() may append the allowed failures to the log just written.
+      if (!passes(fast.merged)) return false;
+      if (final) return true;
     }
   }
 
   const r = runSuites(ctx.config, { root: ctx.root, ...testRuns(ctx), env: ctx.env });
   if ('error' in r) { fs.writeFileSync(logFile, `ERROR: ${r.error}\n`); return false; }
   recordResults(ctx, r, logFile);
-  return r.merged.ok;
+  return passes(r.merged);
+}
+
+/**
+ * Whether a run passes: it is ok, or every failure is waived by tests.allowFailures (each with a WARNING). A runner or file
+ * error is never a waivable test, and a red test is never waived.
+ */
+function passesWithAllowed(ctx: Ctx, merged: RunResult): boolean {
+  if (merged.ok) return true;
+  const allow = ctx.config.tests.allowFailures || [];
+  if (!allow.length || merged.suiteErrors.length) return false;
+  const failed = merged.tests.filter(t => t.status === 'failed').map(t => ({ file: t.file, name: t.name }));
+  if (!failed.length) return false;
+  const { allowed, blocked } = checkAllowedFailures(failed, allow, (f, n) => isRedTest(ctx, f, n), msg => ctx.out(msg));
+  for (const a of allowed) ctx.out(`WARNING: allowed failure (tests.allowFailures): ${a.file} :: ${a.name}`);
+  if (allowed.length) {
+    const list = allowed.map(a => `  ALLOWED  ${a.file} :: ${a.name}`).join('\n');
+    try { fs.appendFileSync(at(ctx, `${ctx.log}/tests.log`), `\nNot blocking (tests.allowFailures):\n${list}\n`); } catch { /* the WARNING lines say it */ }
+  }
+  return blocked.length === 0;
 }
 
 /** Runs <cmd> with bash from the root (a POSIX shell or cmd.exe on Windows), its output in <logFile>; resolves its exit code. */
