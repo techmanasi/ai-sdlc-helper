@@ -103,10 +103,18 @@ export interface PrStatus {
   ci?: CiState;
   /** The names of the failing checks. */
   failing?: string[];
+  /** Whether the branch merges into its base: 'conflicting' needs Resolve conflicts. Absent when the answer did not say. */
+  conflicts?: 'none' | 'conflicting' | 'unknown';
 }
 
 const BAD_CONCLUSIONS = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR']);
 const GOOD_CONCLUSIONS = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
+
+/** GitHub's `mergeable` of a PR as the run page uses it. */
+export function conflictsOf(mergeable: string): 'none' | 'conflicting' | 'unknown' {
+  const m = mergeable.toUpperCase();
+  return m === 'CONFLICTING' ? 'conflicting' : m === 'MERGEABLE' ? 'none' : 'unknown';
+}
 
 /** The CI state and the failing check names of gh's statusCheckRollup (check runs and commit statuses). Any failure is "failed", even while other checks still run. */
 export function ciOf(rollup: unknown): { ci: CiState; failing: string[] } {
@@ -158,6 +166,7 @@ function parsePr(stdout: string): PrStatus | null {
         state: (data.state || 'OPEN').toUpperCase() as 'OPEN' | 'MERGED' | 'CLOSED',
         number: typeof data.number === 'number' ? data.number : undefined,
         ...(Array.isArray(data.statusCheckRollup) ? ciOf(data.statusCheckRollup) : {}),
+        ...(typeof data.mergeable === 'string' ? { conflicts: conflictsOf(data.mergeable) } : {}),
       };
     }
   } catch { /* best effort */ }
@@ -180,7 +189,7 @@ export function getPrStatus(
 
   let result: PrStatus | null = null;
   try {
-    const view = spawnSync('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number,statusCheckRollup'], {
+    const view = spawnSync('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number,statusCheckRollup,mergeable'], {
       cwd, encoding: 'utf8', env, timeout: PR_TIMEOUT_MS,
     });
     if (view.status === 0 && view.stdout.trim()) result = parsePr(view.stdout);
@@ -221,7 +230,7 @@ function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEn
   if (running) return running;
   const t0 = performance.now();
   const p = new Promise<PrStatus | null>(resolve => {
-    execFile('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number,statusCheckRollup'], { cwd, env, encoding: 'utf8', timeout: PR_TIMEOUT_MS }, (err, stdout, stderr) => {
+    execFile('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number,statusCheckRollup,mergeable'], { cwd, env, encoding: 'utf8', timeout: PR_TIMEOUT_MS }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as unknown as { code: number }).code : -1) : 0;
       trace({ action: 'spawn:gh', why: 'pr', ms: Math.round((performance.now() - t0) * 1000) / 1000, code });
       const before = prCache.get(key);

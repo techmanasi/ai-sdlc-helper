@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { ciFailureReport, ciOf, ciSummaryOf, clearPrCache, getPrStatusAsync } from '../src/pipeline/finalise.js';
+import { ciFailureReport, ciOf, ciSummaryOf, clearPrCache, conflictsOf, getPrStatusAsync } from '../src/pipeline/finalise.js';
 import { ciFailureInput } from '../src/pipeline/prompts.js';
 import { runContext } from '../src/runs/index.js';
 import { syncPr, writeCiFailure } from '../src/runs/prsync.js';
@@ -118,6 +118,24 @@ describe('the CI of a pull request', () => {
     expect(r.summary).toContain('Process completed with exit code 1.');
     expect(fs.readFileSync(path.join(root, 'Docs/backlog/add-tokens/pr-comments.md'), 'utf8')).toContain('please rename');
     expect(fs.existsSync(path.join(base, 'wts/add-tokens/Docs/backlog/add-tokens/ci-failure.md'))).toBe(true);
+  });
+});
+
+describe('the conflict state of a pull request', () => {
+  test('conflictsOf reads GitHub\'s mergeable', () => {
+    expect(conflictsOf('CONFLICTING')).toBe('conflicting');
+    expect(conflictsOf('MERGEABLE')).toBe('none');
+    expect(conflictsOf('UNKNOWN')).toBe('unknown');
+  });
+
+  test('the status read from GitHub carries it, and a PR answered without it carries none', async () => {
+    ghShim([run('check (18)', 'SUCCESS')]);
+    const out = JSON.parse(fs.readFileSync(path.join(base, 'out.json'), 'utf8'));
+    fs.writeFileSync(path.join(base, 'out.json'), JSON.stringify({ ...out, mergeable: 'CONFLICTING' }));
+    expect((await getPrStatusAsync(root, 'sdlc/add-tokens', env)).status).toMatchObject({ ci: 'passed', conflicts: 'conflicting' });
+    clearPrCache();
+    fs.writeFileSync(path.join(base, 'out.json'), JSON.stringify(out));
+    expect((await getPrStatusAsync(root, 'sdlc/add-tokens', env)).status?.conflicts).toBeUndefined();
   });
 });
 

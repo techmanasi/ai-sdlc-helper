@@ -24,6 +24,14 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
   const { go, project, toast } = useApp();
   const [syncing, setSyncing] = useState(false);
   const [fixing, setFixing] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const resolve = async () => {
+    setResolving(true);
+    try {
+      const o = await api.start(project, r.slug, 'resolve-conflicts');
+      toast(o.ok ? `${r.slug}: resolving conflicts` : `${r.slug}: ${o.err.join(' ') || 'could not start'}`);
+    } catch (e) { toast(`${r.slug}: ${e instanceof Error ? e.message : String(e)}`); } finally { setResolving(false); }
+  };
   const [summary, setSummary] = useState<string[]>([]);
   const fix = async () => {
     setFixing(true);
@@ -38,7 +46,7 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
       const sync = await api.syncPr(project, r.slug);
       setSummary(sync.summary);
       const { pr } = sync;
-      toast(pr.state ? `${r.slug}: PR ${pr.number ? `#${pr.number} ` : ''}is ${pr.state.toLowerCase()}${pr.ci && pr.ci !== 'none' ? `, CI ${pr.ci}` : ''}; ${sync.count} comment(s)` : `${r.slug}: no PR status (GitHub did not answer)`);
+      toast(pr.state ? `${r.slug}: PR ${pr.number ? `#${pr.number} ` : ''}is ${pr.state.toLowerCase()}${pr.ci && pr.ci !== 'none' ? `, CI ${pr.ci}` : ''}${pr.conflicts === 'conflicting' ? ', conflicts with the base' : ''}; ${sync.count} comment(s)` : `${r.slug}: no PR status (GitHub did not answer)`);
     } catch (e) { toast(`${r.slug}: ${e instanceof Error ? e.message : String(e)}`); } finally { setSyncing(false); }
   };
   const waiting = awaitsMerge(r);
@@ -59,7 +67,7 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
           <button type="button" class="btn btn-s" disabled={syncing} onClick={sync} title="Ask GitHub now for this PR's state, CI status and review comments (checked once an hour otherwise)">{syncing ? <><Spinner /> Syncing…</> : 'Sync PR'}</button>
         </span>
       )}
-      {r.state === 'done' && r.pullRequest?.state === 'OPEN' && <PrCi ci={r.pullRequest.ci} failing={r.pullRequest.failing} summary={summary} busy={fixing} onFix={fix} />}
+      {r.state === 'done' && r.pullRequest?.state === 'OPEN' && <PrCi ci={r.pullRequest.ci} failing={r.pullRequest.failing} summary={summary} busy={fixing} onFix={fix} conflicts={r.pullRequest.conflicts} resolveBusy={resolving} onResolve={resolve} />}
       <span class="mono muted small">{[r.attempt && (r.state === 'running' ? `running iteration ${r.attempt}` : `iteration ${r.attempt}`), r.model && `${r.model} · ${r.effort}`, r.changes && `${r.changes.changed} files`].filter(Boolean).join(' · ') || r.state}</span>
       <a href={`#/run/${r.slug}`} onClick={e => { e.preventDefault(); go(`/run/${r.slug}`); }} class="small">Open</a>
       <a href={`#/edit/board/${r.slug}`} onClick={e => { e.preventDefault(); go(`/edit/board/${r.slug}`); }} class="small">Edit</a>
