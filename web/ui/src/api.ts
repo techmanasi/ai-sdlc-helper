@@ -191,7 +191,7 @@ export const api = {
   },
   file: (project: string, slug: string, path: string) => call<{ text: string }>('GET', `${r(project, slug)}/file?path=${encodeURIComponent(path)}`),
   syncPr: (project: string, slug: string) => call<PrSync>('POST', `${r(project, slug)}/pr-sync`, {}),
-  ciFix: (project: string, slug: string) => call<{ ok: boolean; summary: string[]; resumed: Outcome }>('POST', `${r(project, slug)}/ci-fix`, {}),
+  ciFix: (project: string, slug: string, env?: Record<string, string>) => call<{ ok: boolean; summary: string[]; resumed: Outcome }>('POST', `${r(project, slug)}/ci-fix`, { env }),
   start: (project: string, slug: string, from?: string, env?: Record<string, string>) => call<Outcome>('POST', `${r(project, slug)}/start`, { from, env }),
   stop: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/stop`, {}),
   discard: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/discard`, { stop: true }),

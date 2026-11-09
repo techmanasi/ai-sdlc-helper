@@ -843,7 +843,7 @@ export function Run({ slug }: { slug: string }) {
                         summary={v.ciSummary || []}
                         busy={busy === 'Restart Implement with the CI failure'}
                         onFix={() => act('Restart Implement with the CI failure', async () => {
-                          const f = await api.ciFix(project, slug);
+                          const f = await api.ciFix(project, slug, envObj);
                           toast(f.resumed.ok ? 'Implement restarted with the CI failure' : (f.resumed.err.join(' ') || 'Could not start Implement'));
                           return {};
                         })}
