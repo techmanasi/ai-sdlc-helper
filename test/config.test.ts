@@ -249,9 +249,10 @@ describe('settings', () => {
 
   test('tests: retry and maxWorkers, unset by default; validated with the setting at fault; show prints what they come to', async () => {
     const jest = { 'package.json': { scripts: { test: 'jest' } } };
-    expect(ok(project(jest)).tests).toEqual({ retry: null, maxWorkers: null });
-    expect(ok(project({ ...jest, 'sdlc.config.json': { tests: { retry: false, maxWorkers: 3 } } })).tests).toEqual({ retry: false, maxWorkers: 3 });
-    expect(ok(project({ ...jest, 'sdlc.config.json': { tests: { maxWorkers: 'auto' } } })).tests).toEqual({ retry: null, maxWorkers: 'auto' });
+    const ciDefaults = { fullSuite: 'local', allowFailures: [] };
+    expect(ok(project(jest)).tests).toEqual({ retry: null, maxWorkers: null, ...ciDefaults });
+    expect(ok(project({ ...jest, 'sdlc.config.json': { tests: { retry: false, maxWorkers: 3 } } })).tests).toEqual({ retry: false, maxWorkers: 3, ...ciDefaults });
+    expect(ok(project({ ...jest, 'sdlc.config.json': { tests: { maxWorkers: 'auto' } } })).tests).toEqual({ retry: null, maxWorkers: 'auto', ...ciDefaults });
     expect(ok(project({ ...jest, 'sdlc.config.json': { tests: { maxWorkers: null } } })).tests.maxWorkers).toBeNull();
 
     const bad = errorsOf(project({ ...jest, 'sdlc.config.json': { tests: { retry: 'yes', maxWorkers: 0, extra: 1 } } }));
@@ -267,7 +268,7 @@ describe('settings', () => {
     expect(testRunDefaults({ retry: true, maxWorkers: 2 }).run).toEqual({ retry: true, maxWorkers: 2 });
 
     const shown = JSON.parse((await cli('show', project({ ...jest, 'sdlc.config.json': { tests: { maxWorkers: 2 } } }))).stdout);
-    expect(shown.tests).toEqual({ retry: null, maxWorkers: 2 });
+    expect(shown.tests).toEqual({ retry: null, maxWorkers: 2, ...ciDefaults });
     expect(shown.testRuns).toEqual({ pipeline: { retry: true, maxWorkers: 2 }, run: { retry: false, maxWorkers: 2 } });
   });
 
