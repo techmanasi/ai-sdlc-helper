@@ -268,7 +268,11 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
       stop(ctx, null);
     }
     await tick();
-    if (await successCheck(ctx)) { ctx.out(' tests and integration green'); return true; }
+    if (await successCheck(ctx)) {
+      fs.rmSync(at(ctx, `${ctx.docs}/ci-failure.md`), { force: true }); // fixed: the next CI run decides
+      ctx.out(' tests and integration green');
+      return true;
+    }
     await tick();
     const fails = formatCheckFailures(ctx);
     const same = repeatedFailures(previousFails, fails);

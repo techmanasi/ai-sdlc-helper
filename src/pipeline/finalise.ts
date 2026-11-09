@@ -92,10 +92,37 @@ export function createOrGetPr(cwd: string, branch: string, title: string, body: 
   return null;
 }
 
+/** The CI of a pull request: its checks are running, all passed, one failed, or it has none. */
+export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
+
 export interface PrStatus {
   url: string;
   state: 'OPEN' | 'MERGED' | 'CLOSED';
   number?: number;
+  /** From the PR's status checks (gh's statusCheckRollup); absent when the answer did not include them. */
+  ci?: CiState;
+  /** The names of the failing checks. */
+  failing?: string[];
+}
+
+const BAD_CONCLUSIONS = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR']);
+const GOOD_CONCLUSIONS = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
+
+/** The CI state and the failing check names of gh's statusCheckRollup (check runs and commit statuses). Any failure is "failed", even while other checks still run. */
+export function ciOf(rollup: unknown): { ci: CiState; failing: string[] } {
+  const items = Array.isArray(rollup) ? rollup as Array<Record<string, unknown>> : [];
+  if (!items.length) return { ci: 'none', failing: [] };
+  const failing: string[] = [];
+  let pending = false;
+  for (const c of items) {
+    const name = String(c.name || c.context || 'check');
+    const done = c.status ? String(c.status).toUpperCase() === 'COMPLETED' : String(c.state || '').toUpperCase() !== 'PENDING' && String(c.state || '').toUpperCase() !== 'EXPECTED';
+    const verdict = String((c.conclusion || c.state || '')).toUpperCase();
+    if (!done) pending = true;
+    else if (BAD_CONCLUSIONS.has(verdict)) failing.push(name);
+    else if (!GOOD_CONCLUSIONS.has(verdict)) pending = true;
+  }
+  return { ci: failing.length ? 'failed' : pending ? 'in progress' : 'passed', failing: [...new Set(failing)] };
 }
 
 interface PrEntry { time: number; val: PrStatus | null; failed?: boolean }
@@ -130,6 +157,7 @@ function parsePr(stdout: string): PrStatus | null {
         url: data.url,
         state: (data.state || 'OPEN').toUpperCase() as 'OPEN' | 'MERGED' | 'CLOSED',
         number: typeof data.number === 'number' ? data.number : undefined,
+        ...(Array.isArray(data.statusCheckRollup) ? ciOf(data.statusCheckRollup) : {}),
       };
     }
   } catch { /* best effort */ }
@@ -152,7 +180,7 @@ export function getPrStatus(
 
   let result: PrStatus | null = null;
   try {
-    const view = spawnSync('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number'], {
+    const view = spawnSync('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number,statusCheckRollup'], {
       cwd, encoding: 'utf8', env, timeout: PR_TIMEOUT_MS,
     });
     if (view.status === 0 && view.stdout.trim()) result = parsePr(view.stdout);
@@ -193,7 +221,7 @@ function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEn
   if (running) return running;
   const t0 = performance.now();
   const p = new Promise<PrStatus | null>(resolve => {
-    execFile('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number'], { cwd, env, encoding: 'utf8', timeout: PR_TIMEOUT_MS }, (err, stdout, stderr) => {
+    execFile('gh', ['pr', 'view', branchOrUrl, '--json', 'url,state,number,statusCheckRollup'], { cwd, env, encoding: 'utf8', timeout: PR_TIMEOUT_MS }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as unknown as { code: number }).code : -1) : 0;
       trace({ action: 'spawn:gh', why: 'pr', ms: Math.round((performance.now() - t0) * 1000) / 1000, code });
       const before = prCache.get(key);
@@ -483,4 +511,85 @@ export function finalise(o: FinaliseOptions): FinaliseResult {
   }
 
   return { committed: include.length, pr: prUrl };
+}
+
+export interface CiReport {
+  ok: boolean;
+  ci: CiState;
+  failing: string[];
+  /** A few distinct error lines, for the run page. */
+  summary: string[];
+  /** What the Implement agent is given: the failing checks and the error lines of their logs. */
+  markdown: string;
+  err?: string[];
+}
+
+const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+const ERROR_LINE = /\berror\b|\bfail(?:ed|ure|ing)?\b|✖|✗|×|AssertionError|expected .* to |TS\d{4}|no-[a-z-]+|exit code/i;
+
+/** The message of a `gh run view --log-failed` line (job, step and timestamp dropped), with the step it ran in. */
+function logMessage(line: string): { step: string; message: string } | null {
+  const m = /^[^\t]*\t([^\t]*)\t\s*\S*\d{2}:\d{2}:\d{2}[.\dZ]*\s?(.*)$/.exec(line.replace(ANSI_RE, ''));
+  if (!m) return null;
+  return { step: m[1].trim(), message: m[2].replace(/^##\[(?:error|group|endgroup)\]/, '').trim() };
+}
+
+/** The failing checks of a PR and the error lines of their logs (asks GitHub: waits for gh). */
+export function ciFailureReport(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv = process.env): CiReport {
+  const none: CiReport = { ok: false, ci: 'none', failing: [], summary: [], markdown: '' };
+  const view = spawnSync('gh', ['pr', 'view', branchOrUrl, '--json', 'url,statusCheckRollup'], { cwd, encoding: 'utf8', env, timeout: 15_000 });
+  if (view.status !== 0 || !view.stdout.trim()) return { ...none, err: [`could not read the checks of ${branchOrUrl}`] };
+  let data: { url?: string; statusCheckRollup?: Array<Record<string, unknown>> };
+  try { data = JSON.parse(view.stdout.trim()); } catch { return { ...none, err: ['gh answered something that is not JSON'] }; }
+  const { ci, failing } = ciOf(data.statusCheckRollup);
+  if (ci !== 'failed') return { ok: true, ci, failing: [], summary: [], markdown: '' };
+
+  const runs = new Set<string>();
+  for (const c of data.statusCheckRollup || []) {
+    const bad = BAD_CONCLUSIONS.has(String(c.conclusion || c.state || '').toUpperCase());
+    const m = bad ? /\/actions\/runs\/(\d+)/.exec(String(c.detailsUrl || c.targetUrl || '')) : null;
+    if (m) runs.add(m[1]);
+  }
+  const seen = new Set<string>();
+  const blocks: string[] = [];
+  const summary: string[] = [];
+  for (const id of runs) {
+    const logs = spawnSync('gh', ['run', 'view', id, '--log-failed'], { cwd, encoding: 'utf8', env, timeout: 60_000, maxBuffer: 32 * 1024 * 1024 });
+    const lines = (logs.stdout || '').split('\n').map(logMessage).filter((l): l is { step: string; message: string } => l !== null && l.message !== '');
+    const picked = lines.filter(l => ERROR_LINE.test(l.message));
+    const use = (picked.length ? picked : lines.slice(-30));
+    const out: string[] = [];
+    let step = '';
+    for (const l of use) {
+      const key = `${l.step}|${l.message}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (l.step !== step) { out.push(`[${l.step}]`); step = l.step; }
+      out.push(l.message.slice(0, 300));
+      if (summary.length < 6 && !summary.includes(l.message.slice(0, 200))) summary.push(l.message.slice(0, 200));
+      if (out.length >= 80) break;
+    }
+    if (out.length) blocks.push(`### Run ${id}\n\n\`\`\`\n${out.join('\n')}\n\`\`\``);
+  }
+  const markdown = [
+    '# CI failure of the pull request',
+    '',
+    data.url ? `Pull request: ${data.url}` : '',
+    `Failing checks: ${failing.join(', ')}`,
+    '',
+    blocks.length ? blocks.join('\n\n') : 'The logs of the failing checks could not be read; run the same checks locally (the project\'s lint, typecheck and tests) to reproduce them.',
+    '',
+  ].join('\n');
+  return { ok: true, ci, failing, summary, markdown };
+}
+
+/** The error lines of a ci-failure.md (what is inside its code blocks, without the `[step]` headers), at most <max>. */
+export function ciSummaryOf(markdown: string, max = 6): string[] {
+  const out: string[] = [];
+  let inside = false;
+  for (const line of markdown.split('\n')) {
+    if (line.startsWith('```')) { inside = !inside; continue; }
+    if (inside && line.trim() && !/^\[.*\]$/.test(line.trim()) && out.length < max) out.push(line.trim().slice(0, 200));
+  }
+  return out;
 }

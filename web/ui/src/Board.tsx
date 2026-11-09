@@ -5,6 +5,7 @@ import { usePoll } from './usePoll';
 import { useStream } from './useStream';
 import { applyRunEvent } from './stream';
 import { awaitsMerge } from './stages';
+import { PrCi } from './PrCi';
 import { Cli, ErrorBox, GLYPH, Panel, PrIcon, Spinner, stateClass, useApp } from './ui';
 
 export const COLUMNS = ['Backlog', 'Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise'];
@@ -22,11 +23,22 @@ export const needsYou = (r: RunCard) => r.state === 'paused' || r.questions > 0 
 function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): void }) {
   const { go, project, toast } = useApp();
   const [syncing, setSyncing] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  const [summary, setSummary] = useState<string[]>([]);
+  const fix = async () => {
+    setFixing(true);
+    try {
+      const f = await api.ciFix(project, r.slug);
+      toast(f.resumed.ok ? `${r.slug}: Implement restarted with the CI failure` : `${r.slug}: ${f.resumed.err.join(' ') || 'could not start'}`);
+    } catch (e) { toast(`${r.slug}: ${e instanceof Error ? e.message : String(e)}`); } finally { setFixing(false); }
+  };
   const sync = async () => {
     setSyncing(true);
     try {
-      const { pr } = await api.syncPr(project, r.slug);
-      toast(pr.state ? `${r.slug}: PR ${pr.number ? `#${pr.number} ` : ''}is ${pr.state.toLowerCase()}` : `${r.slug}: no PR status (GitHub did not answer)`);
+      const sync = await api.syncPr(project, r.slug);
+      setSummary(sync.summary);
+      const { pr } = sync;
+      toast(pr.state ? `${r.slug}: PR ${pr.number ? `#${pr.number} ` : ''}is ${pr.state.toLowerCase()}${pr.ci && pr.ci !== 'none' ? `, CI ${pr.ci}` : ''}; ${sync.count} comment(s)` : `${r.slug}: no PR status (GitHub did not answer)`);
     } catch (e) { toast(`${r.slug}: ${e instanceof Error ? e.message : String(e)}`); } finally { setSyncing(false); }
   };
   const waiting = awaitsMerge(r);
@@ -44,9 +56,10 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
         <span class="mono muted small">
           {r.pullRequest?.url ? <a href={r.pullRequest.url} target="_blank" rel="noreferrer">{r.pullRequest.number ? `PR #${r.pullRequest.number}` : 'PR'}</a> : 'no PR'}
           {r.pullRequest?.state ? ` ${r.pullRequest.state.toLowerCase()}` : ''}{r.pullRequest?.checkedAt ? ` · checked ${clock(r.pullRequest.checkedAt)}` : ''}{r.pullRequest?.failed ? ' · last check failed' : ''}{' '}
-          <button type="button" class="btn btn-s" disabled={syncing} onClick={sync} title="Ask GitHub for this PR's status now (it is checked once an hour otherwise)">{syncing ? <><Spinner /> Syncing…</> : 'Sync PR status'}</button>
+          <button type="button" class="btn btn-s" disabled={syncing} onClick={sync} title="Ask GitHub now for this PR's state, CI status and review comments (checked once an hour otherwise)">{syncing ? <><Spinner /> Syncing…</> : 'Sync PR'}</button>
         </span>
       )}
+      {r.state === 'done' && r.pullRequest?.state === 'OPEN' && <PrCi ci={r.pullRequest.ci} failing={r.pullRequest.failing} summary={summary} busy={fixing} onFix={fix} />}
       <span class="mono muted small">{[r.attempt && (r.state === 'running' ? `running iteration ${r.attempt}` : `iteration ${r.attempt}`), r.model && `${r.model} · ${r.effort}`, r.changes && `${r.changes.changed} files`].filter(Boolean).join(' · ') || r.state}</span>
       <a href={`#/run/${r.slug}`} onClick={e => { e.preventDefault(); go(`/run/${r.slug}`); }} class="small">Open</a>
       <a href={`#/edit/board/${r.slug}`} onClick={e => { e.preventDefault(); go(`/edit/board/${r.slug}`); }} class="small">Edit</a>
