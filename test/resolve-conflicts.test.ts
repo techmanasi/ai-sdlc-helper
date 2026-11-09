@@ -156,13 +156,55 @@ describe('resolveConflicts: documentation-only conflicts', () => {
     expect(JSON.parse(read(w.root, 'record.json'))).toMatchObject({ branch: BRANCH, remoteSha: remoteBefore, upstream: mainSha });
   });
 
-  test('a clean rebase (main moved, no conflict) is verified and pushed with the lease', async () => {
+  test('main moved but nothing conflicts (the user resolved it, or the work is apart): success with nothing changed, no check, no push', async () => {
     const w = world();
-    const mainSha = w.mergeIntoMain({ 'src/elsewhere.ts': 'export const x = 1;\n' });
+    w.mergeIntoMain({ 'src/elsewhere.ts': 'export const x = 1;\n' });
+    const before = g(w.run, 'rev-parse', 'HEAD');
+    const remoteBefore = w.remoteSha();
+    const verify = vi.fn(async () => true);
+    const onStart = vi.fn();
+    const r = await resolveConflicts(w.opts({ verify, onStart }));
+    expect(r).toMatchObject({ kind: 'skipped', reason: expect.stringContaining('no conflicts') });
+    expect(onStart).not.toHaveBeenCalled();
+    expect(verify).not.toHaveBeenCalled();
+    expect(g(w.run, 'rev-parse', 'HEAD')).toBe(before);
+    expect(w.remoteSha()).toBe(remoteBefore);
+    expect(leasePushes(w.git)).toEqual([]);
+  });
+
+  test('an already merged PR is success before anything starts', async () => {
+    const w = world();
+    w.mergeIntoMain({ 'docs/notes.md': 'changed\n' });
+    const onStart = vi.fn();
+    const r = await resolveConflicts(w.opts({ onStart, mergedReason: () => 'the pull request is already merged' }));
+    expect(r).toEqual({ kind: 'skipped', reason: 'the pull request is already merged' });
+    expect(onStart).not.toHaveBeenCalled();
+    expect(leasePushes(w.git)).toEqual([]);
+  });
+
+  test('the PR link Finalise stamps into the brief (uncommitted) does not stop the stage, and is back after it', async () => {
+    const brief = 'docs/backlog/task/brief.md';
+    const w = world({ 'docs/notes.md': '# Notes\n\nthe task line\n', [brief]: '# task\n\nBody.\n' });
+    const header = '---\npr: https://github.com/o/r/pull/1\n---\n\n';
+    fs.writeFileSync(path.join(w.run, brief), `${header}# task\n\nBody.\n`);
+    const mainSha = w.mergeIntoMain({ 'docs/notes.md': '# Notes\n\nthe merged line\n' });
     const r = await resolveConflicts(w.opts({ verify: async () => true }));
-    expect(r).toMatchObject({ kind: 'pushed', resolved: [], pushes: 1 });
+    expect(r).toMatchObject({ kind: 'pushed', pushes: 1 });
     expect(g(w.remote, 'merge-base', '--is-ancestor', mainSha, BRANCH)).toBe('');
-    noBareForce(w.git);
+    expect(read(w.run, brief)).toBe(`${header}# task\n\nBody.\n`);
+    expect(g(w.remote, 'show', `${BRANCH}:${brief}`)).not.toContain('pr:');
+  });
+
+  test('any other uncommitted change still stops the stage before it touches anything', async () => {
+    const w = world({ 'docs/notes.md': '# Notes\n\nthe task line\n', 'src/task.ts': 'export const task = true;\n' });
+    w.mergeIntoMain({ 'docs/notes.md': '# Notes\n\nthe merged line\n' });
+    fs.writeFileSync(path.join(w.run, 'src/task.ts'), 'export const task = false;\n');
+    const before = g(w.run, 'rev-parse', 'HEAD');
+    const r = await resolveConflicts(w.opts({ verify: async () => true }));
+    expect(r).toMatchObject({ kind: 'stopped' });
+    expect(g(w.run, 'rev-parse', 'HEAD')).toBe(before);
+    expect(read(w.run, 'src/task.ts')).toBe('export const task = false;\n');
+    expect(leasePushes(w.git)).toEqual([]);
   });
 });
 
@@ -243,8 +285,8 @@ describe('resolveConflicts: code conflicts', () => {
 
 describe('resolveConflicts: the lease', () => {
   test('fails when someone pushed meanwhile; what arrived is fetched, taken onto the rebased branch, and pushed with a new lease', async () => {
-    const w = world();
-    const mainSha = w.mergeIntoMain({ 'src/elsewhere.ts': 'export const x = 1;\n' });
+    const w = world({ 'docs/notes.md': '# Notes\n\nthe task line\n', 'src/task.ts': 'export const task = true;\n' });
+    const mainSha = w.mergeIntoMain({ 'docs/notes.md': '# Notes\n\nthe merged line\n' });
     const remoteBefore = w.remoteSha();
     let arrived = '';
     // The check runs after the rebase and before the push: a reviewer pushes a fix to the PR branch then.
@@ -273,8 +315,8 @@ describe('resolveConflicts: the lease', () => {
   });
 
   test('stops without overwriting when what arrived conflicts with the rebased branch', async () => {
-    const w = world({ 'src/app.ts': APP.replace('c = 3', 'c = 30') });
-    w.mergeIntoMain({ 'src/app.ts': APP.replace('a = 1', 'a = 10') });
+    const w = world({ 'docs/notes.md': '# Notes\n\nthe task line\n', 'src/app.ts': APP.replace('c = 3', 'c = 30') });
+    w.mergeIntoMain({ 'docs/notes.md': '# Notes\n\nthe merged line\n', 'src/app.ts': APP.replace('a = 1', 'a = 10') });
     const before = g(w.run, 'rev-parse', 'HEAD');
     let arrived = '';
     const r = await resolveConflicts(w.opts({
