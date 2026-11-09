@@ -94,13 +94,6 @@ export interface ModelCatalogAdapter {
 }
 
 /** Core contract every coding agent harness must implement. */
-/** One tool call of an agent round: what it used, on what, and whether it was allowed. */
-export interface TranscriptStep {
-  tool: string;
-  target: string;
-  status: 'ok' | 'denied' | 'error';
-}
-
 export interface AgentHarness {
   readonly id: HarnessId;
   readonly name: string;
@@ -123,9 +116,6 @@ export interface AgentHarness {
 
   /** Parse JSON/text stdout and stderr into a normalized result */
   parseOutput(stdoutText: string, stderrText: string, cwd?: string): HarnessResult;
-
-  /** What the agent did in a round, from its own record of the conversation (optional: empty when it keeps none). */
-  transcript?(rawJson: unknown): TranscriptStep[];
 
   /** Resolve stage model/effort without making the pipeline know provider semantics. */
   selectStageModel?(opts: {

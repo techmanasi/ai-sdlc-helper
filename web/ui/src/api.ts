@@ -62,7 +62,6 @@ export interface AttemptRound {
   at: string; stage: string; agent: string; durationSec: number | null; exitCode: number; responseChars: number;
   turns: number | null; tokens: number | null;
   denied: Array<{ tool: string; detail: string }>;
-  steps: Array<{ tool: string; target: string; status: 'ok' | 'denied' | 'error' }>;
   filesChanged: string[]; warnings: string[];
   /** The round has started and not finished. */
   running?: boolean;

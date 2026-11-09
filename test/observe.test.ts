@@ -1,13 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { describe, expect, test } from 'vitest';
 import { Git } from '../src/pipeline/git.js';
 import {
   agentFacts, appendRound, changedBetween, debugLeftovers, readRounds, repeatedFailures, roundWarnings, snapshot,
   type AgentRound,
 } from '../src/pipeline/observe.js';
-import { agyTranscript, parseStep } from '../src/pipeline/harness/agy-transcript.js';
 import { tmp } from './helpers.js';
 
 function repo(): { root: string; git: Git } {
@@ -25,7 +24,7 @@ function repo(): { root: string; git: Git } {
 
 const round = (over: Partial<AgentRound> = {}): AgentRound => ({
   kind: 'agent', at: '2026-11-10T00:00:00', stage: 'implement', agent: 'impl-1', durationSec: 1, exitCode: 0, responseChars: 5,
-  turns: 1, tokens: 1, denied: [], steps: [], filesChanged: ['a.ts'], warnings: [], ...over,
+  turns: 1, tokens: 1, denied: [], filesChanged: ['a.ts'], warnings: [], ...over,
 });
 
 describe('what a round changed', () => {
@@ -101,29 +100,22 @@ describe('agentFacts', () => {
 });
 
 describe('roundWarnings', () => {
-  const opts = { root: '/work/app', editsCode: true, debug: [] as string[] };
-  const base = { exitCode: 0, responseChars: 10, denied: [], steps: [], filesChanged: ['a.ts'] };
+  const opts = { editsCode: true, debug: [] as string[] };
+  const base = { exitCode: 0, responseChars: 10, denied: [], filesChanged: ['a.ts'] };
 
   test('a round that did its work has no warning', () => {
     expect(roundWarnings(base, opts)).toEqual([]);
   });
 
-  test('names a refused tool, an empty answer and no changes', () => {
+  test('names a refused tool (with its target when the harness gives one), an empty answer and no changes', () => {
     expect(roundWarnings({ ...base, responseChars: 0, filesChanged: [], denied: [{ tool: 'read_file', detail: '' }] }, opts)).toEqual([
       'refused read_file', 'empty answer: the agent said nothing', 'no files changed in this round',
     ]);
+    expect(roundWarnings({ ...base, denied: [{ tool: 'Bash', detail: 'git push origin main' }] }, opts)).toEqual(['refused Bash git push origin main']);
   });
 
   test('a stage that does not edit code is not blamed for changing nothing', () => {
     expect(roundWarnings({ ...base, filesChanged: [] }, { ...opts, editsCode: false })).toEqual([]);
-  });
-
-  test('names the target the transcript shows, once, and access outside the project', () => {
-    const steps = [{ tool: 'read_file', target: '/work/app/a.ts', status: 'ok' as const }, { tool: 'read_file', target: '/tmp/debug-error.log', status: 'denied' as const }];
-    expect(roundWarnings({ ...base, denied: [{ tool: 'read_file', detail: '' }], steps }, opts)).toEqual([
-      'refused read_file /tmp/debug-error.log',
-      'tried to use /tmp/debug-error.log, outside the project',
-    ]);
   });
 
   test('names debug code and does not warn about an empty answer when the agent failed', () => {
@@ -167,41 +159,5 @@ describe('the rounds file', () => {
     appendRound(dir, round({ agent: 'impl-1' }));
     expect(readRounds(dir).map(r => r.agent)).toEqual(['impl-1']);
     expect(readRounds(path.join(dir, 'missing'))).toEqual([]);
-  });
-});
-
-describe('the agy transcript', () => {
-  const payload = (tool: string, args: string) => `\u0012\tx\u001a${tool}\u0012\u0014${args}`;
-
-  test('reads a tool call and its target, a refused call from the error text, and ignores other steps', () => {
-    expect(parseStep(payload('read_file', '{"Path":"/a/b.ts"}'), '')).toEqual({ tool: 'read_file', target: '/a/b.ts', status: 'ok' });
-    expect(parseStep(payload('run_command', '{"CommandLine":"git diff"}'), '')).toEqual({ tool: 'run_command', target: 'git diff', status: 'ok' });
-    expect(parseStep(payload('read_file', '{"Path":"/tmp/x.log"}'), 'permission check failed for read_file "/tmp/x.log": user denied')).toEqual({ tool: 'read_file', target: '/tmp/x.log', status: 'denied' });
-    expect(parseStep(payload('read_file', '{"Path":"/a"}'), 'file not found')).toMatchObject({ status: 'error' });
-    expect(parseStep('plain text with no call', '')).toBeNull();
-  });
-
-  const hasSqlite = spawnSync('sqlite3', ['-version']).status === 0;
-
-  test.skipIf(!hasSqlite)('reads the tool calls of a stored conversation, in order, and nothing for an unknown one', () => {
-    const home = tmp();
-    const dir = path.join(home, '.gemini', 'antigravity-cli', 'conversations');
-    fs.mkdirSync(dir, { recursive: true });
-    const hex = (s: string) => Buffer.from(s, 'latin1').toString('hex');
-    const db = path.join(dir, 'abc-123.db');
-    const sql = [
-      'create table steps (idx integer, step_type integer, status integer, step_payload blob, error_details blob);',
-      `insert into steps values (0, 15, 3, x'${hex('result text')}', null);`,
-      `insert into steps values (1, 132, 3, x'${hex(payload('read_file', '{"Path":"/w/a.ts"}'))}', null);`,
-      `insert into steps values (2, 132, 7, x'${hex(payload('read_file', '{"Path":"/tmp/d.log"}'))}', x'${hex('permission check failed for read_file "/tmp/d.log": user denied permission')}');`,
-    ].join('\n');
-    expect(spawnSync('sqlite3', [db, sql]).status).toBe(0);
-    expect(agyTranscript({ conversation_id: 'abc-123' }, home)).toEqual([
-      { tool: 'read_file', target: '/w/a.ts', status: 'ok' },
-      { tool: 'read_file', target: '/tmp/d.log', status: 'denied' },
-    ]);
-    expect(agyTranscript({ conversation_id: 'nope' }, home)).toEqual([]);
-    expect(agyTranscript({ conversation_id: '../etc' }, home)).toEqual([]);
-    expect(agyTranscript(null, home)).toEqual([]);
   });
 });

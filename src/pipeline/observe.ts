@@ -5,7 +5,6 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Git } from './git.js';
-import type { TranscriptStep } from './harness/types.js';
 
 export type Snapshot = Map<string, string>;
 
@@ -22,8 +21,6 @@ export interface AgentRound {
   tokens: number | null;
   /** Actions the agent was refused: the tool, and the target when the harness names it. */
   denied: Array<{ tool: string; detail: string }>;
-  /** What the agent did, tool by tool, when the harness can tell (empty otherwise). */
-  steps: TranscriptStep[];
   /** Files whose content differs from before the round. */
   filesChanged: string[];
   warnings: string[];
@@ -133,15 +130,10 @@ export function agentFacts(jsonFile: string): { durationSec: number | null; turn
   };
 }
 
-/** The warnings of one agent round. <root> is the checkout the agent works in; stages that edit code are expected to change files. */
-export function roundWarnings(r: Pick<AgentRound, 'exitCode' | 'responseChars' | 'denied' | 'steps' | 'filesChanged'>, opts: { root: string; editsCode: boolean; debug: string[] }): string[] {
+/** The warnings of one agent round; stages that edit code are expected to change files. */
+export function roundWarnings(r: Pick<AgentRound, 'exitCode' | 'responseChars' | 'denied' | 'filesChanged'>, opts: { editsCode: boolean; debug: string[] }): string[] {
   const w: string[] = [];
-  // A refusal the harness reports without a target is dropped when the transcript names it.
-  for (const d of r.denied) if (d.detail || !r.steps.some(s => s.status === 'denied' && s.tool === d.tool)) w.push(`refused ${d.tool}${d.detail ? ` ${d.detail}` : ''}`);
-  for (const s of r.steps) {
-    if (s.status === 'denied' && !r.denied.some(d => d.detail === s.target)) w.push(`refused ${s.tool} ${s.target}`);
-    if (s.target && path.isAbsolute(s.target) && path.relative(opts.root, s.target).startsWith('..')) w.push(`${s.status === 'denied' ? 'tried to use' : 'used'} ${s.target}, outside the project`);
-  }
+  for (const d of r.denied) w.push(`refused ${d.tool}${d.detail ? ` ${d.detail}` : ''}`);
   if (r.exitCode === 0 && r.responseChars === 0) w.push('empty answer: the agent said nothing');
   if (opts.editsCode && r.exitCode === 0 && !r.filesChanged.length) w.push('no files changed in this round');
   for (const d of opts.debug) w.push(`debug code left in the source: ${d}`);
@@ -173,7 +165,7 @@ export function readRounds(logDir: string): Round[] {
     if (row.kind === 'run') {
       rounds.length = 0;
     } else if (row.kind === 'start') {
-      rounds.push({ kind: 'agent', at: row.at, stage: row.stage, agent: row.agent, durationSec: null, exitCode: 0, responseChars: 0, turns: null, tokens: null, denied: [], steps: [], filesChanged: [], warnings: [], running: true });
+      rounds.push({ kind: 'agent', at: row.at, stage: row.stage, agent: row.agent, durationSec: null, exitCode: 0, responseChars: 0, turns: null, tokens: null, denied: [], filesChanged: [], warnings: [], running: true });
     } else if (row.kind === 'agent') {
       const open = rounds.findIndex(r => r.running && r.agent === row.agent);
       if (open >= 0) rounds[open] = row; else rounds.push(row);

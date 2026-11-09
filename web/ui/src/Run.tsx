@@ -914,7 +914,6 @@ export function Run({ slug }: { slug: string }) {
                         {warnings.length > 0 && <span class="small" style={{ color: 'var(--bad, #d33)' }}> · {warnings.length} warning{warnings.length > 1 ? 's' : ''}</span>}
                       </summary>
                       {warnings.length > 0 && <ul class="small" style={{ margin: '4px 0', paddingLeft: '18px' }}>{warnings.map(w => <li>{w}</li>)}</ul>}
-                      {r.steps.length > 0 && <ul class="mono small muted" style={{ margin: '4px 0', paddingLeft: '18px' }}>{r.steps.map(s => <li>{s.status === 'ok' ? '' : `${s.status}: `}{s.tool} {s.target}</li>)}</ul>}
                       {r.filesChanged.length > 0 && <div class="mono small muted">changed: {r.filesChanged.join(', ')}</div>}
                     </details>
                   );
