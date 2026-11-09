@@ -6,6 +6,9 @@ import * as filesModule from '../src/runners/files.js';
 import type { RunResult } from '../src/runners/types.js';
 import { targetTestFiles, testsPass, successCheck } from '../src/pipeline/gates.js';
 import type { Ctx } from '../src/pipeline/context.js';
+import { renderPrompt } from '../src/pipeline/prompts.js';
+import { formatCheckFailures, lintFailures } from '../src/pipeline/stages.js';
+import { lintNote, promptValues } from '../src/pipeline/agent.js';
 import { tmp } from './helpers.js';
 
 function makeCtx(dir: string, overrides: Partial<Ctx> = {}): Ctx {
@@ -286,5 +289,69 @@ describe('successCheck', () => {
       expect.anything(),
       expect.objectContaining({ files: ['test/failed.test.ts'] }),
     );
+  });
+});
+
+describe('the linter in the green gate', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+  const STYLISH = '\n/work/repo/src/a.ts\n  70:81  error  Unnecessary escape character: \\/  no-useless-escape\n\n/work/repo/test/b.test.ts\n  1:32  error  \'vi\' is defined but never used  @typescript-eslint/no-unused-vars\n\n✖ 2 problems (2 errors, 0 warnings)\n';
+
+  const withLint = (dir: string, cmd: string) => { const ctx = makeCtx(dir); (ctx.config as any).lint = cmd; return ctx; };
+
+  test('passing tests are not enough: a failing lint command fails the gate, with its output in logs/lint.log', async () => {
+    const dir = tmp('sdlc-gates-lint-');
+    fs.writeFileSync(path.join(dir, 'out.txt'), STYLISH);
+    vi.spyOn(runners, 'runSuites').mockReturnValue(mockRunResult(true));
+    const ctx = withLint(dir, 'cat out.txt; exit 1');
+    expect(await successCheck(ctx)).toBe(false);
+    expect(ctx.failLog).toBe('logs/lint.log');
+    expect(fs.readFileSync(path.join(dir, 'logs/lint.log'), 'utf8')).toContain('no-useless-escape');
+    expect(formatCheckFailures(ctx)).toEqual([
+      'LINT: /work/repo/src/a.ts:70:81 Unnecessary escape character: \\/ (no-useless-escape)',
+      "LINT: /work/repo/test/b.test.ts:1:32 'vi' is defined but never used (@typescript-eslint/no-unused-vars)",
+    ]);
+  });
+
+  test('a clean lint passes the gate, and a project without a lint command is not checked', async () => {
+    const dir = tmp('sdlc-gates-lint-ok-');
+    vi.spyOn(runners, 'runSuites').mockReturnValue(mockRunResult(true));
+    expect(await successCheck(withLint(dir, 'exit 0'))).toBe(true);
+    const bare = tmp('sdlc-gates-lint-none-');
+    expect(await successCheck(makeCtx(bare))).toBe(true);
+    expect(fs.existsSync(path.join(bare, 'logs/lint.log'))).toBe(false);
+  });
+
+  test('failing tests are reported before lint is run', async () => {
+    const dir = tmp('sdlc-gates-lint-order-');
+    vi.spyOn(runners, 'runSuites').mockReturnValue(mockRunResult(false));
+    const ctx = withLint(dir, 'exit 1');
+    expect(await successCheck(ctx)).toBe(false);
+    expect(ctx.failLog).toBe('logs/tests.log');
+    expect(fs.existsSync(path.join(dir, 'logs/lint.log'))).toBe(false);
+  });
+
+  test('lintFailures falls back to the lines that say error when the output is not in the stylish format', () => {
+    expect(lintFailures('src/a.ts(3,1): error TS1005: x expected\nnoise\n')).toEqual(['LINT: src/a.ts(3,1): error TS1005: x expected']);
+  });
+
+  test('the Implement prompt names the linter and its log; with no linter it says nothing', () => {
+    const ctx = withLint(tmp('sdlc-lint-note-'), 'npm run lint');
+    expect(lintNote(ctx)).toContain("'npm run lint'");
+    expect(lintNote(ctx)).toContain('logs/lint.log');
+    expect(lintNote(makeCtx(tmp('sdlc-lint-note-none-')))).toBe('');
+  });
+
+  test('the Red tests and Implement prompts carry the lint requirement, filled in from the run', () => {
+    const ctx = withLint(tmp('sdlc-lint-prompts-'), 'npm run lint');
+    const values = promptValues(ctx);
+    const red = renderPrompt('red-tests', values, 'GUIDE');
+    const impl = renderPrompt('implement', values, 'GUIDE');
+    expect(red).toContain("lints the project ('npm run lint'), your test files included");
+    expect(impl).toContain("also runs the linter ('npm run lint')");
+    expect(red).not.toMatch(/\{\{[A-Z_]+\}\}/);
+    expect(impl).not.toMatch(/\{\{[A-Z_]+\}\}/);
+    const bare = promptValues(makeCtx(tmp('sdlc-lint-prompts-none-')));
+    expect(renderPrompt('red-tests', bare, 'GUIDE')).not.toContain('lint');
+    expect(renderPrompt('implement', bare, 'GUIDE')).not.toContain('linter');
   });
 });

@@ -6,7 +6,7 @@ import { describe, expect, test } from 'vitest';
 import { detect, literalList } from '../src/config/detect.js';
 import { resolve, testDir, testRunDefaults, workerLimit, worktreeBase } from '../src/config/settings.js';
 import { locateTestDir as locateOf, provision, setupPlan, suggest as suggestOf } from '../src/config/suggest.js';
-import { project, run } from './helpers.js';
+import { project, run, tmp } from './helpers.js';
 
 // The tests read whichever fields the status they expect carries.
 const suggest = (...a: Parameters<typeof suggestOf>): any => suggestOf(...a);
@@ -581,5 +581,21 @@ describe('trace settings in sdlc.config.json', () => {
     expect(r.config).toBeNull();
     expect(r.errors.join('\n')).toMatch(/trace\.keepFiles/);
     expect(r.errors.join('\n')).toMatch(/trace\.extra: unknown setting/);
+  });
+});
+
+describe('the lint command of a project', () => {
+  test('is the lint setting, else npm run lint when package.json has a lint script, else none', () => {
+    const files = { suites: [{ name: 'unit', dir: '.', runner: 'node-test', testCmd: 'npm test', testGlobs: ['test/**/*.test.js'] }], agent: { codeSearch: 'none' } };
+    const lintOf = (extra: Record<string, unknown>, pkg?: unknown) => {
+      const dir = fs.realpathSync(tmp('sdlc-lint-detect-'));
+      fs.writeFileSync(path.join(dir, 'sdlc.config.json'), JSON.stringify({ ...files, ...extra }));
+      if (pkg) fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(pkg));
+      return resolve(dir, { env: { PATH: process.env.PATH } }).config?.lint;
+    };
+    expect(lintOf({ lint: 'make lint' }, { scripts: { lint: 'eslint .' } })).toBe('make lint');
+    expect(lintOf({}, { scripts: { lint: 'eslint .' } })).toBe('npm run lint');
+    expect(lintOf({}, { scripts: { test: 'vitest' } })).toBeNull();
+    expect(lintOf({})).toBeNull();
   });
 });
