@@ -3,7 +3,10 @@ export { CONFIG_FILE } from './util.js';
 export { RUNNERS, detect, detectPackage, literalList, packageGlobs, type Detection, type Runner } from './config/detect.js';
 export { globToRegex, expandGlob } from './config/globs.js';
 export { projectNode, satisfiesMajor, nodeRun, wrapCommand, type NodeRun, type ProjectNode } from './config/node.js';
-export { CODE_INDEXERS, codeIndexers, codeSearchErrors, codeSearchFor, codeSearchGuide, type CodeIndexer } from './config/codeSearch.js';
+export {
+  CODE_INDEXERS, SEARCH_SETTINGS, codeBuildArgv, codeIndexers, codeSearchErrors, codeSearchFor, codeSearchGuide, codeSearchStatus,
+  type CodeIndexer, type CodeIndexerStatus, type CodeSearchView,
+} from './config/codeSearch.js';
 export {
   EFFORT_LEVELS, HARNESS_IDS, agentFor, harnessFor, resolve, validate, testDir, testSpec, testFiles, agentRules, allowedTools, testFramework, keyDir, layout, worktreeBase,
   type Config, type Suite, type Layout,
@@ -25,6 +28,7 @@ export {
   readRegistry, writeRegistry, registryFile, projectDir, gitRoot, RegistryError, type ProjectEntry, type ProjectOverrides,
 } from './registry/projects.js';
 export { doctor, type Check, type DoctorOptions, type Spawn } from './registry/doctor.js';
+export { which } from './shell.js';
 export { ADAPTERS, runSuite, runSuites, mergeResults, summary, type RunOptions } from './runners/run.js';
 export type { RunResult, TestCase, SuiteError } from './runners/types.js';
 export { parseJestLike } from './runners/jest.js';

@@ -2,9 +2,11 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api, type Check, type Project, type SettingsView, type Source } from './api';
 import { Cli, ErrorBox, useApp } from './ui';
+import { CodeSearchModal } from './CodeSearchModal';
 
 function Doctor({ name }: { name: string }) {
   const [checks, setChecks] = useState<Check[] | null>(null);
+  const [setup, setSetup] = useState(false);
   const [error, setError] = useState('');
   const run = () => { setChecks(null); setError(''); api.doctor(name).then(r => setChecks(r.checks)).catch(e => setError((e as Error).message)); };
   useEffect(run, [name]);
@@ -17,10 +19,11 @@ function Doctor({ name }: { name: string }) {
       {checks.map(c => (
         <div style={{ display: 'grid', gridTemplateColumns: '22px minmax(0,1fr)', gap: '2px 8px', padding: '7px 0', borderTop: '1px solid var(--ln)', fontSize: '13px' }}>
           <span class={c.ok ? 's-done' : c.required ? 's-failed' : 's-paused'}>{c.ok ? '✔' : c.required ? '✘' : '!'}</span>
-          <span><strong>{c.name}</strong> · {c.detail}{!c.ok && c.fix && <><br /><span class="muted">Fix: {c.fix}</span></>}</span>
+          <span><strong>{c.name}</strong> · {c.detail}{!c.ok && c.fix && <><br /><span class="muted">Fix: {c.fix}</span></>}{c.name === 'code indexer' && !c.ok && <><br /><button class="btn btn-p btn-s" type="button" onClick={() => setSetup(true)}>Setup Code Indexer</button></>}</span>
         </div>
       ))}
       <div class="row" style={{ paddingTop: '10px' }}><button class="btn btn-s" type="button" onClick={run}>Run doctor again</button></div>
+      {setup && <CodeSearchModal project={name} onChanged={() => {}} onClose={() => { setSetup(false); run(); }} />}
     </div>
   );
 }

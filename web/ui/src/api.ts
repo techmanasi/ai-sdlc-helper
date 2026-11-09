@@ -93,6 +93,9 @@ export interface CompletedTaskDetail extends CompletedTask {
 
 export interface Outcome { ok: boolean; code: number; out: string[]; err: string[] }
 export interface Check { name: string; ok: boolean; required: boolean; detail: string; fix?: string }
+export interface CodeIndexerStatus { name: string; command?: string; index?: string; installed: boolean; indexed: boolean; setup?: string; build?: string; canBuild: boolean }
+export interface CodeSearchView { setting: string; effective: string; warning: string | null; indexers: CodeIndexerStatus[] }
+export interface CodeSearchSetupResult { ok: boolean; codeSearch?: string; error?: string; buildOutput?: { code: number | null; stdout: string; stderr: string; timedOut: boolean } }
 
 export type TriageState = 'running' | 'choosing' | 'waiting' | 'ready' | 'interrupted' | 'stopped' | 'failed' | 'done';
 export type DraftStatus = 'pending' | 'saved' | 'skipped';
@@ -168,6 +171,13 @@ export const api = {
   eventsUrl: (project: string) => `/api/events?project=${encodeURIComponent(project)}`,
   board: (project: string) => call<Board>('GET', `${p(project)}/board`),
   settings: (project: string) => call<SettingsView>('GET', `${p(project)}/settings`),
+  codeSearch: (project: string) => call<CodeSearchView>('GET', `${p(project)}/code-search`),
+  codeSearchSetup: async (project: string, body: { indexer: string; build?: boolean }): Promise<CodeSearchSetupResult> => {
+    const response = await fetch(`${p(project)}/code-search/setup`, {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    return await response.json() as CodeSearchSetupResult;
+  },
   editSettings: (project: string, patch: Record<string, unknown>, hash?: string) =>
     call<{ ok: boolean; errors: string[]; hash: string; activeRuns: string[] }>('POST', `${p(project)}/settings`, { patch, hash }),
   editOverrides: (project: string, patch: Record<string, unknown>) =>

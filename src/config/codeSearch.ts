@@ -20,12 +20,15 @@ export interface CodeIndexer {
   setup?: string;
   /** How to build the index once the command is installed. */
   build?: string;
+  /** The command line that builds the index headlessly, program and arguments, no shell syntax. */
+  buildCommand?: string;
 }
 
 export const CODE_INDEXERS: Record<string, Omit<CodeIndexer, 'name'>> = {
   graft: {
     command: 'graft', index: 'graft', tools: ['mcp__graft'], commands: ['graft'],
     setup: 'npm install -g @nanonets/graft, then graft build', build: 'graft build',
+    buildCommand: 'graft build',
   },
   graphify: {
     command: 'graphify', index: 'graphify-out/graph.json', tools: [], commands: ['graphify'],
@@ -33,7 +36,7 @@ export const CODE_INDEXERS: Record<string, Omit<CodeIndexer, 'name'>> = {
     build: 'build the graph with /graphify . in Claude Code',
   },
 };
-export const INDEXER_SCHEMA = { command: 'string', index: 'string', tools: 'string[]', commands: 'string[]', guide: 'string', guideFile: 'string', setup: 'string', build: 'string' };
+export const INDEXER_SCHEMA = { name: 'string', command: 'string', index: 'string', tools: 'string[]', commands: 'string[]', guide: 'string', guideFile: 'string', setup: 'string', build: 'string', buildCommand: 'string' };
 export const SEARCH_SETTINGS = ['auto', 'none'];
 export const PARTS_DIR = path.join(ASSETS_DIR, 'prompts', 'parts');
 
@@ -62,6 +65,12 @@ export function codeSearchErrors(file: Json = {}): string[] {
     if (!CODE_INDEXERS[name] && !ix.command) errors.push(`agent.codeIndexers.${name}: needs "command" (the program that must be on PATH)`);
     if (!CODE_INDEXERS[name] && !ix.guide && !ix.guideFile) errors.push(`agent.codeIndexers.${name}: needs "guide" or "guideFile" (how the agents should search with it)`);
     if (ix.command && !PROGRAM.test(ix.command)) errors.push(`agent.codeIndexers.${name}.command: a program name, not a command line`);
+    if (ix.buildCommand !== undefined) {
+      const words = typeof ix.buildCommand === 'string' ? ix.buildCommand.trim().split(/\s+/).filter(Boolean) : [];
+      if (!words.length || !PROGRAM.test(words[0]) || !words.every(w => /^[\w.@+\/=:-]+$/.test(w))) {
+        errors.push(`agent.codeIndexers.${name}.buildCommand: a program and its arguments, no shell syntax`);
+      }
+    }
   }
   if (agent.codeSearch && !SEARCH_SETTINGS.includes(agent.codeSearch) && !all[agent.codeSearch]) {
     errors.push(`agent.codeSearch: "${agent.codeSearch}" is not a code indexer (use auto, none, ${Object.keys(all).join(', ')})`);
@@ -120,4 +129,59 @@ export function codeSearchGuide(search: CodeSearch, root: string, partsDir = PAR
   if (ix && ix.guideFile) return fs.readFileSync(path.resolve(root, ix.guideFile), 'utf8').trim();
   const own = ix ? path.join(partsDir, `code-search.${ix.name}.md`) : null;
   return fs.readFileSync(own && exists(own) ? own : path.join(partsDir, 'code-search.md'), 'utf8').trim();
+}
+
+/** Splits an indexer's buildCommand into a file and argument list, or null when absent or empty. */
+export function codeBuildArgv(ix: CodeIndexer): { file: string; args: string[] } | null {
+  if (!ix.buildCommand) return null;
+  const parts = ix.buildCommand.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return null;
+  return { file: parts[0], args: parts.slice(1) };
+}
+
+export interface CodeIndexerStatus {
+  name: string;
+  command?: string;
+  index?: string;
+  installed: boolean;
+  indexed: boolean;
+  setup?: string;
+  build?: string;
+  canBuild: boolean;
+}
+
+export interface CodeSearchView {
+  setting: string;
+  effective: string;
+  warning: string | null;
+  indexers: CodeIndexerStatus[];
+}
+
+/** Reports installation on PATH, index presence, and effective search engine for each indexer. */
+export function codeSearchStatus(root: string, file: Json = {}, env: NodeJS.ProcessEnv = process.env): CodeSearchView {
+  const setting: string = (file.agent && file.agent.codeSearch) || 'auto';
+  const resolved = codeSearchFor(root, file, env);
+  const all = codeIndexers(file);
+  const indexers: CodeIndexerStatus[] = Object.values(all).map(ix => {
+    const installed = Boolean(ix.command && onPath(ix.command, env));
+    const indexed = ix.index ? exists(path.join(root, ix.index)) : installed;
+    const canBuild = codeBuildArgv(ix) !== null;
+    const item: CodeIndexerStatus = {
+      name: ix.name,
+      installed,
+      indexed,
+      canBuild,
+    };
+    if (ix.command !== undefined) item.command = ix.command;
+    if (ix.index !== undefined) item.index = ix.index;
+    if (ix.setup !== undefined) item.setup = ix.setup;
+    if (ix.build !== undefined) item.build = ix.build;
+    return item;
+  });
+  return {
+    setting,
+    effective: resolved.codeSearch,
+    warning: resolved.warning,
+    indexers,
+  };
 }
