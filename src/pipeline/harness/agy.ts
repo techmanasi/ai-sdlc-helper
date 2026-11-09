@@ -113,6 +113,8 @@ export class AgyHarness implements AgentHarness {
  */
 export function agyRule(rule: string): string {
   if (rule === 'Bash') return 'command(*)';
+  // A refused agy tool other than a command (read_file, write_file, …) is allowed under its own name, for any target.
+  if (/^[a-z]+(?:_[a-z]+)+$/.test(rule)) return `${rule}(*)`;
   const target = rule.match(/^Bash\((.*)\)$/);
   return `command(${target ? target[1] : rule})`;
 }

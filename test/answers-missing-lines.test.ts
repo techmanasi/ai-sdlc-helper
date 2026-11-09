@@ -50,6 +50,11 @@ describe('agy permission rules', () => {
     expect(agyRule('git status')).toBe('command(git status)');
   });
 
+  test('agyRule allows a refused agy tool under its own name, for any target', () => {
+    expect(agyRule('read_file')).toBe('read_file(*)');
+    expect(agyRule('write_file')).toBe('write_file(*)');
+  });
+
   test('compileStageArgs puts the translated rules in --settings', () => {
     const inv = new AgyHarness().compileStageArgs({ prompt: 'p', stage: 'spec', mode: 'bypass', allowedCommands: ['Bash', 'Bash(npm run check:*)'] });
     const settings = JSON.parse(inv.args[inv.args.indexOf('--settings') + 1]);
