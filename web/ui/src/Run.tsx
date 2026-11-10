@@ -408,6 +408,9 @@ export function Run({ slug }: { slug: string }) {
           {confirm === 'stop'
             ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Stop', () => api.stop(project, slug))}>{busy === 'Stop' ? <><Spinner /> Stopping…</> : 'Confirm stop'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep running</button></>
             : <button class="btn" type="button" disabled={!running || !!busy} onClick={() => setConfirm('stop')}>Stop</button>}
+          {v.undo && (confirm === 'undo'
+            ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Undo', async () => { const o = await api.undo(project, slug); setConfirm(''); return o; })}>{busy === 'Undo' ? <><Spinner /> Undoing…</> : 'Confirm undo'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
+            : <button class="btn" type="button" disabled={!!busy} title={`Put the branch and files back as they were before the last start (${v.undo.from}, ${v.undo.at}). Stops the run if it is running; what is thrown away is saved in git.`} onClick={() => setConfirm('undo')}>Undo last start</button>)}
           {editorLink && <a class="btn" href={editorLink}>Open in editor</a>}
           {v.worktree && <CopyButton text={v.worktree} label="Copy path" />}
         </div>
@@ -479,11 +482,18 @@ export function Run({ slug }: { slug: string }) {
       {envArgs.length > 0 && <p class="mono small muted" style={{ margin: 0 }}>with {envArgs.join(' ')}</p>}
       {v.discarded && <p class="small muted" style={{ margin: 0 }}>Discarded before. To get that branch back: <span class="mono">{v.discarded}</span></p>}
 
-      <Panel title="Stages" extra={<span class="small muted">A stage's model and effort apply when the run starts or resumes (MODEL_&lt;STAGE&gt;, EFFORT_&lt;STAGE&gt;). Changing them while it runs: <Future id="E-2" /></span>}>
+      <Panel title="Stages" extra={<div class="row" style={{ gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <span class="small muted">A stage's model and effort apply when the run starts or resumes (MODEL_&lt;STAGE&gt;, EFFORT_&lt;STAGE&gt;). Changing them while it runs: <Future id="E-2" /></span>
+        <label class="row small" style={{ gap: '6px', alignItems: 'center', cursor: running ? 'not-allowed' : 'pointer' }}>
+          <input type="checkbox" checked={envObj.SDLC_RESOLVE_CONFLICTS !== '0'} disabled={running}
+            onChange={e => setEnvVar('SDLC_RESOLVE_CONFLICTS', (e.target as HTMLInputElement).checked ? '' : '0')} />
+          <span>Resolve conflicts automatically after Finalise</span>
+        </label>
+      </div>}>
         <div class="rail-scroll">
           <div class="rail">
             {STAGES.map((s, i) => {
-              if (s.key === 'resolve-conflicts' && !resolveShown(v)) return null;
+              if (s.key === 'resolve-conflicts') return null;
               const st = states[i];
               const inUse = s.key && v.models[s.key];
               const locked = running && st !== 'pending';
@@ -529,55 +539,6 @@ export function Run({ slug }: { slug: string }) {
                             <span>Create PR</span>
                           </label>
                         )
-                      )}
-                    </div>
-                  )}
-                  {s.key === 'finalise' && !resolveShown(v) && (
-                    (v.state === 'done' || st === 'done') && !running ? (
-                      <button
-                        class="btn btn-xs"
-                        type="button"
-                        disabled={!!busy}
-                        title="Fetch the base, rebase this run's branch onto it, resolve conflicts and push with --force-with-lease"
-                        onClick={() => act('Resolve conflicts', () => api.start(project, slug, 'resolve-conflicts', envObj))}
-                      >
-                        {busy === 'Resolve conflicts' ? <><Spinner /> Starting…</> : 'Resolve conflicts'}
-                      </button>
-                    ) : (
-                      <label class="row small" style={{ gap: '6px', alignItems: 'center', cursor: running ? 'not-allowed' : 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={envObj.SDLC_RESOLVE_CONFLICTS !== '0'}
-                          disabled={running}
-                          onChange={e => setEnvVar('SDLC_RESOLVE_CONFLICTS', (e.target as HTMLInputElement).checked ? '' : '0')}
-                        />
-                        <span>Resolve conflicts after Finalise</span>
-                      </label>
-                    )
-                  )}
-                  {s.key === 'resolve-conflicts' && (
-                    <div class="col" style={{ gap: '4px' }}>
-                      <span class="small muted">rebases onto the base · agent only on code conflicts · pushes with lease</span>
-                      {(v.state === 'done' || states[i - 1] === 'done') && !running ? (
-                        <button
-                          class="btn btn-xs btn-p"
-                          type="button"
-                          disabled={!!busy}
-                          title="Fetch the base, rebase this run's branch onto it, resolve conflicts and push with --force-with-lease"
-                          onClick={() => act('Resolve conflicts', () => api.start(project, slug, 'resolve-conflicts', envObj))}
-                        >
-                          {busy === 'Resolve conflicts' ? <><Spinner /> Starting…</> : 'Resolve conflicts'}
-                        </button>
-                      ) : (
-                        <label class="row small" style={{ gap: '6px', alignItems: 'center', cursor: running ? 'not-allowed' : 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={envObj.SDLC_RESOLVE_CONFLICTS !== '0'}
-                            disabled={running}
-                            onChange={e => setEnvVar('SDLC_RESOLVE_CONFLICTS', (e.target as HTMLInputElement).checked ? '' : '0')}
-                          />
-                          <span>Run after Finalise</span>
-                        </label>
                       )}
                     </div>
                   )}
@@ -856,29 +817,27 @@ export function Run({ slug }: { slug: string }) {
                       </div>
                     )}
                     {v.prState === 'MERGED' && (
-                      <div class="banner s-done">
+                      <div class="banner banner-ok s-done">
                         ✔ Pull Request is merged into base!
                       </div>
                     )}
-                    {(v.hasPrComments || v.prConflicts === 'conflicting') && (
+                    {v.prState !== 'MERGED' && (v.hasPrComments || v.prConflicts === 'conflicting' || (resolveShown(v) && states[STAGES.length - 1] === 'active')) && (
                       <div class="row" style={{ gap: '8px', alignItems: 'center', marginTop: '4px', flexWrap: 'wrap' }}>
                         {v.hasPrComments && (
-                          <button
-                            class="btn btn-s"
-                            type="button"
-                            onClick={() => openFile('pr-comments.md')}
-                          >
-                            View PR Comments (pr-comments.md)
-                          </button>
+                          <>
+                            <button class="btn btn-s" type="button" onClick={() => openFile('pr-comments.md')}>
+                              View PR Comments (pr-comments.md)
+                            </button>
+                            <button
+                              class="btn btn-s btn-p"
+                              type="button"
+                              disabled={running || !!busy}
+                              onClick={() => act('Resume to fix PR comments', () => api.start(project, slug, 'implement', envObj))}
+                            >
+                              {busy === 'Resume to fix PR comments' ? <><Spinner /> Resuming…</> : 'Resume at Implement to fix PR comments'}
+                            </button>
+                          </>
                         )}
-                        <button
-                          class="btn btn-s btn-p"
-                          type="button"
-                          disabled={running || !!busy}
-                          onClick={() => act('Resume to fix PR comments', () => api.start(project, slug, 'implement', envObj))}
-                        >
-                          {busy === 'Resume to fix PR comments' ? <><Spinner /> Resuming…</> : v.hasPrComments ? 'Resume at Implement to fix PR comments' : 'Resume at Implement'}
-                        </button>
                         {v.prConflicts === 'conflicting' && (
                           <button
                             class="btn btn-s btn-p"
@@ -887,9 +846,10 @@ export function Run({ slug }: { slug: string }) {
                             title="Fetch the base, rebase this run's branch onto it, resolve the conflicts and push with --force-with-lease"
                             onClick={() => act('Resolve conflicts', () => api.start(project, slug, 'resolve-conflicts', envObj))}
                           >
-                            {busy === 'Resolve conflicts' ? <><Spinner /> Starting…</> : 'Resolve conflicts'}
+                            {busy === 'Resolve conflicts' ? <><Spinner /> Starting…</> : states[STAGES.length - 1] === 'failed' || states[STAGES.length - 1] === 'paused' ? 'Resolve conflicts again' : 'Resolve conflicts'}
                           </button>
                         )}
+                        {resolveShown(v) && states[STAGES.length - 1] === 'active' && <span class="small s-running"><Spinner /> Resolving conflicts…</span>}
                       </div>
                     )}
                   </div>

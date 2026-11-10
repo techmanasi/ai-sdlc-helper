@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
-  restart, discardStage, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, type Outcome, type RunContext,
+  restart, discardStage, undoLast, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -306,6 +306,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       const ctx = contextFor(p, envOf(body.env));
       if (action === 'start') return send(200, outcome(start(ctx, slug, { from: fromOf(body.from) })));
       if (action === 'stop') return send(200, outcome(await stop(ctx, slug)));
+      if (action === 'undo') return send(200, outcome(await undoLast(ctx, slug, { stop: true })));
       if (action === 'discard') return send(200, outcome(await discard(ctx, slug, { yes: true, stop: body.stop === true })));
       if (action === 'discard-stage') {
         const d = await discardStage(ctx, slug, { stage: typeof body.stage === 'string' ? body.stage : undefined, stop: body.stop === true });

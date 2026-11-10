@@ -124,9 +124,9 @@ describe('resolveConflicts: nothing to do', () => {
 });
 
 describe('resolveConflicts: documentation-only conflicts', () => {
-  test('are resolved keeping both sides, rebased in a straight line on main, verified and pushed with the lease only', async () => {
-    const w = world({ 'docs/notes.md': '# Notes\n\nthe task line\n', 'docs/backlog/index.md': `${INDEX}- [ ] \`task\` - Feature: task\n`, 'src/task.ts': 'export const task = true;\n' });
-    const mainSha = w.mergeIntoMain({ 'docs/notes.md': '# Notes\n\nthe merged line\n', 'docs/backlog/index.md': `${INDEX}- [ ] \`other\` - Feature: other\n` });
+  test('where both sides only added lines are resolved keeping both sides, rebased in a straight line on main, verified and pushed with the lease only', async () => {
+    const w = world({ 'docs/notes.md': `${NOTES}the task line\n`, 'docs/backlog/index.md': `${INDEX}- [ ] \`task\` - Feature: task\n`, 'src/task.ts': 'export const task = true;\n' });
+    const mainSha = w.mergeIntoMain({ 'docs/notes.md': `${NOTES}the merged line\n`, 'docs/backlog/index.md': `${INDEX}- [ ] \`other\` - Feature: other\n` });
     const remoteBefore = w.remoteSha();
     const resolveCode = vi.fn(async (): Promise<never> => { throw new Error('no agent for docs'); });
     const verify = vi.fn(async () => true);
@@ -154,6 +154,26 @@ describe('resolveConflicts: documentation-only conflicts', () => {
     // Recovery: the shas before the rebase are kept.
     expect(g(w.run, 'rev-parse', `refs/sdlc-backup/${BRANCH}/remote`)).toBe(remoteBefore);
     expect(JSON.parse(read(w.root, 'record.json'))).toMatchObject({ branch: BRANCH, remoteSha: remoteBefore, upstream: mainSha });
+  });
+
+  test('where both sides changed the same lines go to the resolver, which keeps the document\'s structure; the rest of the commit is still kept both', async () => {
+    const w = world({ 'docs/notes.md': '# Notes\n\nthe task line\n', 'docs/backlog/index.md': `${INDEX}- [ ] \`task\` - Feature: task\n` });
+    w.mergeIntoMain({ 'docs/notes.md': '# Notes\n\nthe merged line\n', 'docs/backlog/index.md': `${INDEX}- [ ] \`other\` - Feature: other\n` });
+    const resolveCode = vi.fn(async (c: CodeConflict) => {
+      expect(c.files).toEqual(['docs/notes.md']);
+      expect(c.docs).toEqual(['docs/backlog/index.md']);
+      write(w.run, 'docs/notes.md', '# Notes\n\n- the merged line\n- the task line\n');
+      return { safe: true, files: [{ file: 'docs/notes.md', why: 'merged the two lines as a list' }] };
+    });
+    const r = await resolveConflicts(w.opts({ resolveCode, verify: async () => true }));
+    expect(r.kind).toBe('pushed');
+    if (r.kind !== 'pushed') return;
+    expect(resolveCode).toHaveBeenCalledTimes(1);
+    expect(read(w.run, 'docs/notes.md')).toBe('# Notes\n\n- the merged line\n- the task line\n');
+    expect(r.resolved.map(f => [f.file, f.kind, f.why]).sort()).toEqual([
+      ['docs/backlog/index.md', 'docs', "documentation: kept both sides' content"],
+      ['docs/notes.md', 'docs', 'merged the two lines as a list'],
+    ]);
   });
 
   test('main moved but nothing conflicts (the user resolved it, or the work is apart): success with nothing changed, no check, no push', async () => {

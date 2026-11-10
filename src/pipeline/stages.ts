@@ -8,7 +8,7 @@ import {
 import { runSuites } from '../runners/run.js';
 import { exists } from '../util.js';
 import { answerQuestions, parseQuestions } from '../runs/view.js';
-import { at, stamp, stop, stopIfAborted, tick, type Ctx } from './context.js';
+import { at, setAside, stamp, stop, stopIfAborted, tick, type Ctx } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agent.js';
 import { newTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass } from './gates.js';
 import { renderPrompt } from './prompts.js';
@@ -244,8 +244,8 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
   stage(ctx, `4/6 Implement (green gate, max ${maxAttempts} attempts)`);
   await tick();
   const issues = at(ctx, `${ctx.docs}/test-issues.md`);
-  if (exists(issues)) ctx.out('WARNING: test-issues.md exists and will be deleted; use FROM=test-repair to resume at Test repair');
-  fs.rmSync(issues, { force: true });
+  if (exists(issues)) ctx.out('WARNING: test-issues.md exists and is moved to the logs/previous folder; use FROM=test-repair to resume at Test repair');
+  setAside(ctx, [`${ctx.docs}/test-issues.md`]);
   installDeps(ctx);
   await tick();
   // A resumed run never trusts a previous run's test log: the first attempt reads one from this run.
@@ -269,7 +269,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
     }
     await tick();
     if (await successCheck(ctx)) {
-      fs.rmSync(at(ctx, `${ctx.docs}/ci-failure.md`), { force: true }); // fixed: the next CI run decides
+      setAside(ctx, [`${ctx.docs}/ci-failure.md`]); // fixed: the next CI run decides
       ctx.out(' tests and integration green');
       return true;
     }
@@ -301,7 +301,7 @@ function retryUnclaimed(ctx: Ctx): void {
   let keys: string[];
   try { keys = unclaimed(ctx.keys, now, issues); } catch (e) { ctx.err(`ERROR: ${(e as Error).message}`); stop(ctx, null); }
   if (!keys.length) return;
-  for (const f of fs.readdirSync(at(ctx, ctx.log)).filter(f => /^retry-.*\.json$/.test(f))) fs.rmSync(at(ctx, `${ctx.log}/${f}`));
+  setAside(ctx, fs.readdirSync(at(ctx, ctx.log)).filter(f => /^retry-.*\.json$/.test(f)).map(f => `${ctx.log}/${f}`));
   const outs: string[] = [];
   retryArgs(ctx.keys, keys).forEach(([file, ...names], i) => {
     const out = `${ctx.log}/retry-${i + 1}.json`;

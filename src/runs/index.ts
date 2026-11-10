@@ -296,6 +296,7 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
       slug, worktree: wt, pid: 0, started: now(), state: 'running', exit_code: '', interrupted: false, finished: '', message: '',
       branch, base, root: ctx.root, ...(opts.from ? { from: opts.from } : {}),
     };
+    if (!created) takeCheckpoint(ctx, slug, wt, opts.from, rec);
     let pid: number;
     try {
       pid = startSupervisor({
@@ -334,6 +335,69 @@ async function stopRun(ctx: RunContext, slug: string, rec: Partial<RunRecord>): 
     writeRecord(ctx.reg, { ...(after as RunRecord), state: 'exited', interrupted: true, finished: now() });
   }
   return true;
+}
+
+/** What a run started from: the branch tip, the whole worktree (untracked files too, as a commit under refs/sdlc-checkpoints) and the record. */
+export interface Checkpoint { head: string; snapshot: string; from: string; at: string; record: Partial<RunRecord> | null }
+
+/** Commits the whole worktree (tracked and untracked, not ignored) without touching its index, HEAD or files; '' when git refuses. */
+function snapshotWorktree(wt: string, message: string, env: NodeJS.ProcessEnv): string {
+  const index = git(wt, ['rev-parse', '--git-path', 'sdlc-snapshot-index'], env).stdout.trim();
+  if (!index) return '';
+  const indexFile = path.isAbsolute(index) ? index : path.join(wt, index);
+  const e = { ...env, GIT_INDEX_FILE: indexFile };
+  try {
+    if (!gitOk(wt, ['read-tree', 'HEAD'], e) || !gitOk(wt, ['add', '-A'], e)) return '';
+    const tree = git(wt, ['write-tree'], e).stdout.trim();
+    const head = git(wt, ['rev-parse', 'HEAD'], env).stdout.trim();
+    const c = git(wt, ['-c', 'user.name=sdlc', '-c', 'user.email=sdlc@localhost', 'commit-tree', tree, '-p', head, '-m', message], env);
+    return c.status === 0 ? c.stdout.trim() : '';
+  } finally { fs.rmSync(indexFile, { force: true }); }
+}
+
+/** Saved at every start of an existing run, so the one action just taken can be undone. Best effort: a failure never blocks the start. */
+function takeCheckpoint(ctx: RunContext, slug: string, wt: string, from: string | undefined, rec: Partial<RunRecord> | null): void {
+  try {
+    const head = git(wt, ['rev-parse', 'HEAD'], ctx.env).stdout.trim();
+    const snapshot = head && snapshotWorktree(wt, `sdlc checkpoint of ${slug}`, ctx.env);
+    if (!snapshot) return;
+    git(wt, ['update-ref', `refs/sdlc-checkpoints/${slug}`, snapshot], ctx.env);
+    const cp: Checkpoint = { head, snapshot, from: from || 'where it stopped', at: now(), record: rec };
+    fs.writeFileSync(regFile(ctx, slug, 'checkpoint'), `${JSON.stringify(cp)}\n`);
+  } catch { /* no checkpoint: nothing to undo */ }
+}
+
+export function readCheckpoint(ctx: RunContext, slug: string): Checkpoint | null {
+  try { return JSON.parse(fs.readFileSync(regFile(ctx, slug, 'checkpoint'), 'utf8')) as Checkpoint; } catch { return null; }
+}
+
+/**
+ * Undoes the last start of <slug>: stops the run if it is running, then puts the branch and the worktree back as they were just
+ * before that start (files made since are removed, files it changed or deleted come back) and the run record with them.
+ * What is thrown away is first saved as refs/sdlc-checkpoints/<slug>-undone. Only the local worktree is rewound: a push already
+ * made stays on origin.
+ */
+export async function undoLast(ctx: RunContext, slug: string, opts: { stop?: boolean } = {}): Promise<Outcome> {
+  const cp = readCheckpoint(ctx, slug);
+  if (!cp) return fail(1, `Nothing to undo for ${slug}: no run was started on top of earlier work`);
+  const rec = readRecord(ctx.reg, slug);
+  const wt = rec?.worktree || path.join(ctx.wtBase, slug);
+  if (!isDir(wt)) return fail(1, `No worktree for ${slug}`);
+  if (isRunning(rec)) {
+    if (!opts.stop) return fail(4, `${slug} is running: stop it first, or pass --stop`);
+    if (!await stopRun(ctx, slug, rec!)) return fail(1, `could not stop ${slug} (pid ${rec!.pid})`);
+  }
+  if (!gitOk(wt, ['cat-file', '-e', `${cp.snapshot}^{commit}`], ctx.env)) return fail(1, `The saved state ${cp.snapshot.slice(0, 7)} is gone from git`);
+  const undone = snapshotWorktree(wt, `sdlc state of ${slug} before undo`, ctx.env);
+  if (undone) git(wt, ['update-ref', `refs/sdlc-checkpoints/${slug}-undone`, undone], ctx.env);
+  else return fail(1, 'Could not save the current state first, so nothing was changed');
+  for (const args of [['reset', '--hard', '-q', cp.head], ['clean', '-fdq'], ['checkout', '-q', cp.snapshot, '--', '.'], ['reset', '-q']]) {
+    const r = git(wt, args, ctx.env);
+    if (r.status !== 0) return fail(1, `git ${args[0]} failed: ${(r.stderr || '').trim().split('\n').pop()}. The state before the undo is ${undone}`);
+  }
+  if (cp.record) writeRecord(ctx.reg, cp.record as RunRecord);
+  fs.rmSync(regFile(ctx, slug, 'checkpoint'), { force: true });
+  return ok(`Undid the last start (${cp.from}) of ${slug}; back at ${cp.head.slice(0, 7)} as of ${cp.at}. What was thrown away: git show ${undone}`);
 }
 
 /** Stops the run of <slug>: 0 stopped or not running, 1 no run recorded or it would not stop. */

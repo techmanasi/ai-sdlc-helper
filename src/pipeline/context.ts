@@ -1,4 +1,5 @@
 // What every part of a pipeline run shares: the stages, how a run stops, and the run's context.
+import fs from 'node:fs';
 import path from 'node:path';
 import type { Config, Layout } from '../config/settings.js';
 import type { Keys } from '../testcheck/keys.js';
@@ -88,6 +89,18 @@ export interface Ctx {
 
 /** <rel> (from the root) as an absolute path. */
 export const at = (ctx: Pick<Ctx, 'root'>, rel: string): string => path.join(ctx.root, rel);
+
+/**
+ * Moves <files> (paths relative to the root) into <log>/previous/<time>/ instead of deleting them: a run never throws away its logs
+ * or its test documents, so a start by mistake loses nothing. Missing files are skipped.
+ */
+export function setAside(ctx: Pick<Ctx, 'root' | 'log'>, files: string[]): void {
+  const present = files.filter(f => fs.existsSync(path.join(ctx.root, f)));
+  if (!present.length) return;
+  const dir = path.join(ctx.root, ctx.log, 'previous', stamp().replace(/[^0-9A-Za-z-]/g, '-'));
+  fs.mkdirSync(dir, { recursive: true });
+  for (const f of present) fs.renameSync(path.join(ctx.root, f), path.join(dir, path.basename(f)));
+}
 
 /** Prints <line> (stdout) and ends the run with <code>. */
 export function stop(ctx: Pick<Ctx, 'out'>, line: string | null, code = 1): never {

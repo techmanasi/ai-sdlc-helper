@@ -30,6 +30,9 @@ describe('resuming', () => {
     const seen = read(f.fake, 'seen-tests-0.log');
     expect(seen).not.toContain('STALE');
     expect(seen).toContain('ERROR src/sum.test.mjs: failed to run');
+    // The earlier run's log was moved aside, not deleted.
+    const aside = fs.readdirSync(path.join(f.dir, LOG, 'previous')).map(d => path.join(f.dir, LOG, 'previous', d, 'tests.log')).filter(x => fs.existsSync(x));
+    expect(aside.map(x => fs.readFileSync(x, 'utf8'))).toContain('STALE: everything passed\n');
   });
 
   test('FROM=implement without a red-tests commit fails, and FROM=plan without a spec fails', async () => {

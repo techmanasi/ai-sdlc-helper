@@ -109,3 +109,11 @@ textarea.inp { resize: vertical; }
 .toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 20; max-width: min(420px, calc(100vw - 32px)); }
 .toast { background: var(--pn); border: 1px solid var(--ln); border-radius: 8px; padding: 10px 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, .25); }
 .md h1, .md h2, .md h3 { margin: 10px 0 4px; font-size: 15px; } .md h1 { font-size: 19px; } .md p, .md ul { margin: 4px 0; }
+
+/* the resolve-conflicts lane under the stage rail */
+.lane { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 14px 18px; border-top: 1px solid var(--ln); }
+.lane-warn { background: var(--waitbg); border-top-color: var(--wait); }
+.lane-run { background: var(--sel); }
+.lane-fail { border-top-color: var(--fail); }
+.lane-ok { border-top-color: var(--ln); }
+.banner-ok { border-color: var(--ok, var(--pri)); background: var(--sel); }
