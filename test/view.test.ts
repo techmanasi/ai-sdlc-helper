@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, test } from 'vitest';
-import { answerQuestions, boardView, clearGitFacts, parseQuestions, resumeStage, runView } from '../src/runs/view.js';
+import { answerQuestions, boardView, clearGitFacts, parseQuestions, resumeStage, runView, syncRunPr } from '../src/runs/view.js';
+import { clearPrCache } from '../src/pipeline/finalise.js';
 import { runContext } from '../src/runs/index.js';
 import { addBacklogItem, backlogItems } from '../src/backlog/index.js';
 import { tmp, write } from './helpers.js';
@@ -147,6 +148,30 @@ test('boardView lists the backlog and a card per recorded run', () => {
   expect(b.runs).toEqual([expect.objectContaining({ slug: 'add-tokens', state: 'paused', stage: 'Spec', attempt: '2/5', questions: 2, permissions: 0 })]);
   expect(b.maxParallel).toBe(2);
   expect(b.running).toBe(0);
+});
+
+test('boardView gives a finished run its pull request, read in the background and not asked for again within the hour', async () => {
+  const { root } = repoWithRun('add-tokens', { state: 'exited', exit_code: '0' }, { 'logs/status.json': { state: 'done', stage: 'Finalise' } });
+  const bin = path.join(root, '..', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\necho + >> "${bin}/calls"\necho '{"url":"https://github.com/o/r/pull/85","state":"OPEN","number":85}'\n`, { mode: 0o755 });
+  const ctx = runContext(root, { ...GIT_ENV, PATH: `${bin}:${process.env.PATH}` });
+  clearPrCache();
+  const card = () => boardView(ctx, { changes: false }).runs[0];
+  expect(card().pullRequest).toMatchObject({ state: null, checkedAt: null });
+  for (let i = 0; i < 100 && !card().pullRequest?.state; i++) await new Promise(r => setTimeout(r, 30));
+  expect(card().pullRequest).toMatchObject({ state: 'OPEN', number: 85, url: 'https://github.com/o/r/pull/85', failed: false });
+  expect(card().pullRequest!.checkedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+  for (let i = 0; i < 5; i++) card();
+  expect(fs.readFileSync(path.join(bin, 'calls'), 'utf8').split('\n').filter(Boolean)).toHaveLength(1);
+  const synced = await syncRunPr(ctx, 'add-tokens');
+  expect(synced).toMatchObject({ state: 'OPEN', number: 85 });
+  expect(fs.readFileSync(path.join(bin, 'calls'), 'utf8').split('\n').filter(Boolean)).toHaveLength(2);
+});
+
+test('boardView leaves the pull request of a run that is not done empty', () => {
+  const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '2' }, { 'logs/status.json': { state: 'paused', stage: 'Spec' } });
+  expect(boardView(ctx, { changes: false }).runs[0].pullRequest).toBeNull();
 });
 
 describe('addBacklogItem', () => {

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
+  AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncRunPr, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, syncPrComments, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
@@ -288,6 +288,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const file = itemFile(contextFor(p), slug, url.searchParams.get('path') || '');
         return send(200, { path: url.searchParams.get('path'), text: fs.readFileSync(file, 'utf8') });
       }
+      if (action === 'pr-sync' && method === 'POST') return send(200, { pr: await syncRunPr(contextFor(p), slug) });
       if (action === 'pr' && method === 'GET') {
         const ctx = contextFor(p);
         const v = runView(ctx, slug, { changes: false, tailLines: 0 });

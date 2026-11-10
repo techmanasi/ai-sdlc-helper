@@ -2,6 +2,7 @@
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, type RunView, type SettingsView } from './api';
+import { resolveShown } from './stages';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
 import { defaultPick, resumeCommand, resumeOptions } from './resume';
 import { usePoll } from './usePoll';
@@ -481,6 +482,7 @@ export function Run({ slug }: { slug: string }) {
         <div class="rail-scroll">
           <div class="rail">
             {STAGES.map((s, i) => {
+              if (s.key === 'resolve-conflicts' && !resolveShown(v)) return null;
               const st = states[i];
               const inUse = s.key && v.models[s.key];
               const locked = running && st !== 'pending';
@@ -528,6 +530,29 @@ export function Run({ slug }: { slug: string }) {
                         )
                       )}
                     </div>
+                  )}
+                  {s.key === 'finalise' && !resolveShown(v) && (
+                    (v.state === 'done' || st === 'done') && !running ? (
+                      <button
+                        class="btn btn-xs"
+                        type="button"
+                        disabled={!!busy}
+                        title="Fetch the base, rebase this run's branch onto it, resolve conflicts and push with --force-with-lease"
+                        onClick={() => act('Resolve conflicts', () => api.start(project, slug, 'resolve-conflicts', envObj))}
+                      >
+                        {busy === 'Resolve conflicts' ? <><Spinner /> Starting…</> : 'Resolve conflicts'}
+                      </button>
+                    ) : (
+                      <label class="row small" style={{ gap: '6px', alignItems: 'center', cursor: running ? 'not-allowed' : 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={envObj.SDLC_RESOLVE_CONFLICTS !== '0'}
+                          disabled={running}
+                          onChange={e => setEnvVar('SDLC_RESOLVE_CONFLICTS', (e.target as HTMLInputElement).checked ? '' : '0')}
+                        />
+                        <span>Resolve conflicts after Finalise</span>
+                      </label>
+                    )
                   )}
                   {s.key === 'resolve-conflicts' && (
                     <div class="col" style={{ gap: '4px' }}>

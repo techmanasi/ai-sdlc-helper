@@ -47,7 +47,7 @@ textarea.inp { resize: vertical; }
 .grow { flex: 1 1 auto; }
 .code { background: var(--code); padding: 12px; font-size: 12px; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
 .s-running { color: var(--run); } .s-paused { color: var(--wait); } .s-failed, .s-refused, .s-stopped { color: var(--fail); }
-.s-done { color: var(--done); } .s-interrupted { color: var(--wait); } .s-not-started { color: var(--mu); }
+.s-done { color: var(--done); } .s-pr { color: var(--wait); } .pr-icon { vertical-align: -0.125em; } .s-interrupted { color: var(--wait); } .s-not-started { color: var(--mu); }
 
 @keyframes spin {
   from { transform: rotate(0deg); }
