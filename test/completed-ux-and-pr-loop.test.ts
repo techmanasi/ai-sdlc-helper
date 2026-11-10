@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { runContext } from '../src/runs/index.js';
 import { listCompletedTasks, syncPrComments } from '../src/runs/completed.js';
 import { prCommentsInput } from '../src/pipeline/prompts.js';
+import { prCommentsEmpty } from '../src/pipeline/finalise.js';
 
 const git = (cwd: string, ...args: string[]) => {
   const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
@@ -22,7 +23,15 @@ describe('Completed tasks UX and PR feedback loop', () => {
     const rendered = prCommentsInput(tmp);
     expect(rendered).toContain('## Pull Request Review Comments');
     expect(rendered).toContain('Fix boundary check');
+    fs.writeFileSync(path.join(tmp, 'pr-comments.md'), '# Pull Request Review Comments\n\nTotal comments: 0\n\nNo review comments found on this pull request.');
+    expect(prCommentsInput(tmp)).toBe('');
     fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('a synced file with no comments is not shown as PR comments to fix', () => {
+    expect(prCommentsEmpty('# Pull Request Review Comments\n\nPR: u\nState: OPEN\nTotal comments: 0\n\nNo review comments found on this pull request.')).toBe(true);
+    expect(prCommentsEmpty('# Pull Request Review Comments\n\nTotal comments: 2\n')).toBe(false);
+    expect(prCommentsEmpty('## Inline Review Comments\nFix boundary check')).toBe(false);
   });
 
   it('syncPrComments writes formatted markdown to task docs', () => {

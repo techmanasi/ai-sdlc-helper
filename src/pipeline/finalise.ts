@@ -310,6 +310,11 @@ export interface PrComment {
   diffHunk?: string;
 }
 
+/** True for a pr-comments.md that says it holds no comments ("Total comments: 0"): the sync writes one even when the PR has none. */
+export function prCommentsEmpty(markdown: string): boolean {
+  return /^Total comments: 0\s*$/m.test(markdown);
+}
+
 /** Fetches discussion comments, reviews, and inline diff comments from GitHub. */
 export function fetchPrComments(
   cwd: string,
