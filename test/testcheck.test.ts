@@ -523,7 +523,18 @@ describe('testcheck resumecheck', () => {
     const sha = git(dir, 'log', '-1', '--format=%h');
     const r = await resume(dir, red, claimFile, SLUG);
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain(`REJECT: test repair was already accepted in commit ${sha}: use FROM=review`);
+    expect(r.stderr).toContain(`REJECT: test repair was already accepted in commit ${sha} for these claims: use FROM=review`);
+  });
+
+  test('allows a second repair when Implement wrote new claims after the accepted repair', async () => {
+    const { dir, red, claimFile } = makeRepo();
+    write(dir, 'server/__tests__/a.test.js', "test('a works', () => { expect(1).toBe(1); });\n");
+    commit(dir, `test(${SLUG}): repair invalid tests (mechanically checked and audited)`);
+    expect((await resume(dir, red, claimFile, SLUG)).status).toBe(1);
+    fs.appendFileSync(claimFile, 'server/__tests__/a.test.js :: a works :: contradicts specs-1.md §6\n');
+    write(dir, 'server/src/feature2.js', 'module.exports = 2;\n');
+    const r = await resume(dir, red, claimFile, SLUG, git(dir, 'rev-parse', 'HEAD'));
+    expect([r.status, r.stderr]).toEqual([0, '']);
   });
 });
 
