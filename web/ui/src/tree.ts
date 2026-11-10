@@ -68,3 +68,23 @@ export function buildDocTree(paths: string[]): DocTreeNode[] {
 
   return toList(root);
 }
+
+/** Recorded directory open/closed toggles: stage name, then directory path. */
+export type StageDirState = Record<string, Record<string, boolean>>;
+
+/** A directory starts open when it has at most one direct child, so single-child chains unfold on their own. */
+export function defaultDirOpen(node: DocTreeNode): boolean {
+  return node.children.length <= 1;
+}
+
+/** Whether a directory is open in a stage: the recorded value if there is one, otherwise the default. */
+export function isStageDirOpen(state: StageDirState, stage: string, node: DocTreeNode): boolean {
+  const recorded = state[stage]?.[node.path];
+  return typeof recorded === 'boolean' ? recorded : defaultDirOpen(node);
+}
+
+/** Records a directory's state for a stage without mutating the input. Returns the same object if nothing changes. */
+export function recordStageDir(state: StageDirState, stage: string, path: string, open: boolean): StageDirState {
+  if (state[stage]?.[path] === open) return state;
+  return { ...state, [stage]: { ...state[stage], [path]: open } };
+}

@@ -10,7 +10,7 @@ import { usePoll } from './usePoll';
 import { useStream } from './useStream';
 import { applyRunEvent } from './stream';
 import { staleLabel } from './stale';
-import { buildDocTree, type DocTreeNode } from './tree';
+import { buildDocTree, defaultDirOpen, isStageDirOpen, recordStageDir, type DocTreeNode, type StageDirState } from './tree';
 
 const STAGES = [
   { name: 'Spec', key: 'spec' }, { name: 'Plan', key: 'plan' }, { name: 'Red tests', key: 'red-tests' },
@@ -49,13 +49,13 @@ const STAGE_CLASS: Record<StageState, string> = { done: 's-done', active: 's-run
 function DocTreeNodeView({
   node,
   openFile,
-  openDirs,
+  isDirOpen,
   onToggleDir,
 }: {
   node: DocTreeNode;
-  openFile: (path: string) => void;
-  openDirs: Record<string, boolean>;
-  onToggleDir: (path: string, isOpen: boolean) => void;
+  openFile?: (path: string) => void;
+  isDirOpen: (node: DocTreeNode) => boolean;
+  onToggleDir: (node: DocTreeNode, isOpen: boolean) => void;
 }) {
   if (!node.isDir) {
     return (
@@ -86,21 +86,22 @@ function DocTreeNodeView({
           <span class="muted" aria-hidden="true" style={{ flexShrink: 0 }}>📄</span>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.name}</span>
         </span>
-        <button
-          class="btn btn-s"
-          type="button"
-          style={{ flexShrink: 0 }}
-          onClick={() => openFile(node.path)}
-        >
-          Open
-        </button>
+        {openFile && (
+          <button
+            class="btn btn-s"
+            type="button"
+            style={{ flexShrink: 0 }}
+            onClick={() => openFile(node.path)}
+          >
+            Open
+          </button>
+        )}
       </div>
     );
   }
 
   // Directory node: folders containing multiple files/nodes default to closed
-  const defaultOpen = node.children.length <= 1;
-  const isOpen = openDirs[node.path] !== undefined ? openDirs[node.path] : defaultOpen;
+  const isOpen = isDirOpen(node);
 
   return (
     <details
@@ -108,7 +109,7 @@ function DocTreeNodeView({
       onToggle={(e) => {
         e.stopPropagation();
         const target = e.currentTarget as HTMLDetailsElement;
-        onToggleDir(node.path, target.open);
+        onToggleDir(node, target.open);
       }}
       style={{ width: '100%' }}
     >
@@ -141,7 +142,7 @@ function DocTreeNodeView({
             key={child.path}
             node={child}
             openFile={openFile}
-            openDirs={openDirs}
+            isDirOpen={isDirOpen}
             onToggleDir={onToggleDir}
           />
         ))}
@@ -238,6 +239,7 @@ export function Run({ slug }: { slug: string }) {
   const [pick, setPick] = useState('');
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
+  const [stageDirs, setStageDirs] = useState<StageDirState>({});
   const [issuesDraft, setIssuesDraft] = useState<string | null>(null);
 
   const testIssuesRejects = useMemo(() => {
@@ -277,6 +279,7 @@ export function Run({ slug }: { slug: string }) {
   useEffect(() => {
     setAnswers({});
     setOpenDirs({});
+    setStageDirs({});
     load();
     api.brief(project, slug).then(b => setBrief(b.brief)).catch(() => setBrief(null));
   }, [project, slug]);
@@ -939,12 +942,25 @@ export function Run({ slug }: { slug: string }) {
           {Object.keys(v.stageFiles).length > 0 && (
             <Panel title="Files changed per stage">
               <div class="pb col" style={{ gap: '8px' }}>
-                {Object.entries(v.stageFiles).map(([name, files]) => (
-                  <details>
-                    <summary>{name} <span class="muted">({files.length})</span></summary>
-                    <ul class="mono small" style={{ margin: '4px 0', paddingLeft: '18px' }}>{files.map(f => <li>{f}</li>)}</ul>
-                  </details>
-                ))}
+                {Object.entries(v.stageFiles).map(([name, files]) => {
+                  const tree = buildDocTree(files);
+                  return (
+                    <details key={name}>
+                      <summary>{name} <span class="muted">({files.length})</span></summary>
+                      <div style={{ paddingTop: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {tree.map(node => (
+                          <DocTreeNodeView
+                            key={node.path}
+                            node={node}
+                            isDirOpen={dir => isStageDirOpen(stageDirs, name, dir)}
+                            onToggleDir={(dir, open) => setStageDirs(prev => (open === isStageDirOpen(prev, name, dir) ? prev : recordStageDir(prev, name, dir.path, open)))}
+                          />
+                        ))}
+                        {!tree.length && <span class="muted small">No files changed.</span>}
+                      </div>
+                    </details>
+                  );
+                })}
               </div>
             </Panel>
           )}
@@ -956,8 +972,8 @@ export function Run({ slug }: { slug: string }) {
                   key={node.path}
                   node={node}
                   openFile={openFile}
-                  openDirs={openDirs}
-                  onToggleDir={(path, open) => setOpenDirs(prev => (prev[path] === open ? prev : { ...prev, [path]: open }))}
+                  isDirOpen={dir => openDirs[dir.path] ?? defaultDirOpen(dir)}
+                  onToggleDir={(dir, open) => setOpenDirs(prev => (prev[dir.path] === open ? prev : { ...prev, [dir.path]: open }))}
                 />
               ))}
               {!v.docs.length && <span class="muted small">No files yet.</span>}
