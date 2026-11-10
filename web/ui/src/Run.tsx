@@ -925,6 +925,28 @@ export function Run({ slug }: { slug: string }) {
             </div>
           </Panel>
 
+          {(v.attempts?.length || 0) > 0 && (
+            <Panel title="Agent rounds" extra={<span class="mono small muted">logs/attempts.jsonl</span>}>
+              <div class="pb col" style={{ gap: '8px' }}>
+                {v.attempts!.map(r => {
+                  const warnings = [...r.warnings, ...(r.gate?.warnings || [])];
+                  return (
+                    <details open={warnings.length > 0}>
+                      <summary>
+                        <span class="mono">{r.agent}</span> <span class="muted">{r.stage}</span>
+                        {r.running && <span class="small"> <Spinner /> running since {r.at.slice(11)}</span>}
+                        {!r.running && <>{' '}<span class="small muted">{r.durationSec === null ? '?' : Math.round(r.durationSec)}s · {r.turns ?? '?'} turns · {r.filesChanged.length} files{r.gate ? ` · ${r.gate.failing.length} failing` : ''}</span></>}
+                        {warnings.length > 0 && <span class="small" style={{ color: 'var(--bad, #d33)' }}> · {warnings.length} warning{warnings.length > 1 ? 's' : ''}</span>}
+                      </summary>
+                      {warnings.length > 0 && <ul class="small" style={{ margin: '4px 0', paddingLeft: '18px' }}>{warnings.map(w => <li>{w}</li>)}</ul>}
+                      {r.filesChanged.length > 0 && <div class="mono small muted">changed: {r.filesChanged.join(', ')}</div>}
+                    </details>
+                  );
+                })}
+              </div>
+            </Panel>
+          )}
+
           {Object.keys(v.stageFiles).length > 0 && (
             <Panel title="Files changed per stage">
               <div class="pb col" style={{ gap: '8px' }}>

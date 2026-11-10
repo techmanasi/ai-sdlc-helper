@@ -58,6 +58,17 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean;
   testIssues?: string | null;
   recovery?: StageRecovery | null;
+  /** What each agent round did, with its warnings (logs/attempts.jsonl). */
+  attempts?: AttemptRound[];
+}
+export interface AttemptRound {
+  at: string; stage: string; agent: string; durationSec: number | null; exitCode: number; responseChars: number;
+  turns: number | null; tokens: number | null;
+  denied: Array<{ tool: string; detail: string }>;
+  filesChanged: string[]; warnings: string[];
+  /** The round has started and not finished. */
+  running?: boolean;
+  gate?: { failing: string[]; warnings: string[] };
 }
 export interface CompletedTask {
   slug: string;
