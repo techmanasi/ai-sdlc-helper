@@ -58,7 +58,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   stageFiles: Record<string, string[]>;
   changes: { changed: number; uncommitted: number; files: string[] } | null;
   tail: string[]; docs: string[]; discarded: string; resumeFrom: string; redCommit: string; gitAgeMs: number | null;
-  createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean;
+  createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean; undo?: { from: string; at: string } | null;
   prCi?: CiState | null; prFailing?: string[]; prConflicts?: 'none' | 'conflicting' | 'unknown' | null; ciSummary?: string[];
   testIssues?: string | null;
   recovery?: StageRecovery | null;
@@ -206,6 +206,7 @@ export const api = {
   start: (project: string, slug: string, from?: string, env?: Record<string, string>) => call<Outcome>('POST', `${r(project, slug)}/start`, { from, env }),
   stop: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/stop`, {}),
   discard: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/discard`, { stop: true }),
+  undo: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/undo`, {}),
   discardStage: (project: string, slug: string, stage?: string, resume = false) => call<Outcome & { resumed?: Outcome }>('POST', `${r(project, slug)}/discard-stage`, { stage, stop: true, resume }),
   restart: (project: string, slug: string, from?: string, env?: Record<string, string>) => call<Outcome>('POST', `${r(project, slug)}/restart`, { from, env }),
   answers: (project: string, slug: string, answers: Record<number, string>, env?: Record<string, string>) =>

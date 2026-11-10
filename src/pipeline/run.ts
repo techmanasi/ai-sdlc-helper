@@ -10,7 +10,7 @@ import { HARNESS_IDS, allowedTools, layout, resolve, type HarnessName } from '..
 import { snapshot } from '../changes/index.js';
 import { repoRulesFile } from '../permissions/index.js';
 import { Keys, testLayout } from '../testcheck/keys.js';
-import { AGENT_STAGES, Exit, FROM_STAGES, SetupError, at, stamp, stop, tick, type Ctx, type From } from './context.js';
+import { AGENT_STAGES, Exit, FROM_STAGES, SetupError, at, setAside, stamp, stop, tick, type Ctx, type From } from './context.js';
 import { spawnAgentProcess, type AgentSpawn } from './agent.js';
 import { projectRoot } from '../runs/records.js';
 import { Git } from './git.js';
@@ -208,8 +208,9 @@ async function stages(ctx: Ctx): Promise<void> {
   await tick();
   ctx.out(`SDLC: ${ctx.slug} on branch ${ctx.branch}`);
   appendRound(at(ctx, ctx.log), { kind: 'run', at: stamp(), from: ctx.from });
-  // A previous run's test logs describe another state of the code: this run writes its own before anyone reads them.
-  for (const f of ['tests.log', 'tests.json', 'integration.log']) fs.rmSync(path.join(ctx.root, ctx.log, f), { force: true });
+  // A previous run's test logs describe another state of the code: this run writes its own before anyone reads them. They are moved
+  // aside, not deleted: a run never throws its logs away.
+  setAside(ctx, ['tests.log', 'tests.json', 'integration.log'].map(f => `${ctx.log}/${f}`));
 
   // Baseline of already-dirty files, so Finalise commits only what this cycle changed (never the developer's own work).
   const baseline = path.join(ctx.root, ctx.log, 'baseline.json');

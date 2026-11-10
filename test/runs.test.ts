@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { main } from '../src/cli/main.js';
 import { alive, killTree, projectRoot } from '../src/runs/records.js';
 import { repoRulesFile } from '../src/permissions/index.js';
-import { pipelineArgv, pipelineEnv } from '../src/runs/index.js';
+import { pipelineArgv, pipelineEnv, readCheckpoint, runContext, undoLast } from '../src/runs/index.js';
 import { tmp as mkTmp } from './helpers.js';
 
 const GIT_ENV = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
@@ -752,3 +752,43 @@ describe('runs of other checkouts of the repository', () => {
   });
 });
 
+describe('undo last start', () => {
+  test('puts the branch, the files and the record back as they were before the last start, and saves what it threw away', async () => {
+    expect((await cli(['start', 'alpha'])).status).toBe(0);
+    await finished('alpha');
+    const wt = path.join(wts, 'alpha');
+    // Work that exists before the start that gets undone: a commit, an uncommitted edit and an untracked file.
+    fs.writeFileSync(path.join(wt, 'kept.txt'), 'one\n');
+    git(wt, 'add', 'kept.txt'); git(wt, 'commit', '-q', '-m', 'earlier work');
+    const head = git(wt, 'rev-parse', 'HEAD');
+    fs.writeFileSync(path.join(wt, 'kept.txt'), 'one edited\n');
+    fs.writeFileSync(path.join(wt, 'notes.txt'), 'untracked\n');
+    const before = record('alpha');
+    expect((await cli(['start', 'alpha', '--from', 'implement'])).status).toBe(0);
+    await finished('alpha');
+    // What that start did: a commit, an edit, a deleted file and a new file.
+    fs.writeFileSync(path.join(wt, 'kept.txt'), 'overwritten\n');
+    git(wt, 'commit', '-qam', 'the wrong stage');
+    fs.rmSync(path.join(wt, 'notes.txt'));
+    fs.writeFileSync(path.join(wt, 'new.txt'), 'made by the wrong stage\n');
+    const ctx = runContext(repo, baseEnv());
+    expect(readCheckpoint(ctx, 'alpha')?.head).toBe(head);
+
+    const r = await undoLast(ctx, 'alpha', { stop: true });
+    expect(r.code).toBe(0);
+    expect(git(wt, 'rev-parse', 'HEAD')).toBe(head);
+    expect(fs.readFileSync(path.join(wt, 'kept.txt'), 'utf8')).toBe('one edited\n');
+    expect(fs.readFileSync(path.join(wt, 'notes.txt'), 'utf8')).toBe('untracked\n');
+    expect(fs.existsSync(path.join(wt, 'new.txt'))).toBe(false);
+    expect(record('alpha').started).toBe(before.started);
+    // The undone state is kept, and a second undo has nothing to undo.
+    expect(git(wt, 'show', 'refs/sdlc-checkpoints/alpha-undone:new.txt')).toBe('made by the wrong stage');
+    expect((await undoLast(ctx, 'alpha')).code).toBe(1);
+  });
+
+  test('a first start has nothing to undo', async () => {
+    expect((await cli(['start', 'alpha'])).status).toBe(0);
+    await finished('alpha');
+    expect((await undoLast(runContext(repo, baseEnv()), 'alpha')).code).toBe(1);
+  });
+});

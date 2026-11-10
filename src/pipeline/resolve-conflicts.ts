@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { addBacklogItem, parseIndex } from '../backlog/index.js';
 import { parseQuestions } from '../runs/view.js';
 import { projectRoot } from '../runs/records.js';
@@ -41,9 +42,9 @@ export interface CodeConflict {
   round: number;
   /** The branch commit being replayed onto the base. */
   commit: { sha: string; subject: string };
-  /** Conflicted code and test files, still with their markers. */
+  /** Conflicted code and test files, and the documentation both sides changed the same lines of, still with their markers. */
   files: string[];
-  /** Documentation files of the same commit, already resolved by keeping both sides. */
+  /** Documentation files of the same commit, already resolved by keeping both sides (each side only added lines). */
   docs: string[];
   /** The base the branch is rebased onto, and where the branch had started from it. */
   upstream: string;
@@ -82,7 +83,7 @@ export interface ResolveOptions {
   mergedReason?: () => string | null;
   /** Called once the stage has something to do (the branch is on the remote and the base was fetched). */
   onStart?: () => void;
-  /** Resolves a stop on code or test files; without one, such a stop ends the stage. */
+  /** Resolves a stop on code or test files, and on documentation both sides edited the same lines of; without one, a code stop ends the stage. */
   resolveCode?: (c: CodeConflict) => Promise<CodeResolution>;
   /** The full check of the rebased branch; false stops the stage without pushing. */
   verify?: (o: { codeResolved: boolean }) => Promise<boolean>;
@@ -137,6 +138,26 @@ export function keepBoth(git: Git, file: string): void {
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, text);
   git.run('add', '--', file);
+}
+
+/**
+ * Whether a conflicted documentation file needs an agent: both sides changed the same lines of the base (or both made the file),
+ * so keeping both would repeat content or break the document's structure. Two sides that each only added lines are safe to keep.
+ */
+export function needsJudgment(git: Git, file: string): boolean {
+  const base = stageBlob(git, 1, file);
+  const ours = stageBlob(git, 2, file);
+  const theirs = stageBlob(git, 3, file);
+  if (ours === null || theirs === null) return false;
+  if (base === null) return ours !== theirs;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-diff3-'));
+  try {
+    const f = (name: string, t: string) => { const p = path.join(tmp, name); fs.writeFileSync(p, t); return p; };
+    // merge-file exits with the number of conflicts, so its output is read whatever the status.
+    const text = spawnSync('git', ['merge-file', '-p', '--diff3', f('ours', ours), f('base', base), f('theirs', theirs)], { cwd: git.root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).stdout || '';
+    for (const m of text.matchAll(/^\|{7}[^\n]*\n([\s\S]*?)^={7}$/gm)) if (m[1].trim()) return true;
+    return false;
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 
 /** The pushes this stage makes: only --force-with-lease=<branch>:<sha>, never a bare --force. */
@@ -246,8 +267,12 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
         if (!advance()) return stopped(`the rebase stopped at ${commit.sha.slice(0, 7)} without a conflict and could not continue`, false);
         continue;
       }
-      const docs = files.filter(f => isDocFile(f, docDirs));
-      const code = files.filter(f => !isDocFile(f, docDirs));
+      // Documentation: two sides that only added lines keep both; the same lines changed on both sides go to the resolver, which
+      // keeps each document's meaning, structure and formatting (without a resolver, both sides are kept as before).
+      const docFiles = files.filter(f => isDocFile(f, docDirs));
+      const judged = o.resolveCode ? docFiles.filter(f => needsJudgment(git, f)) : [];
+      const docs = docFiles.filter(f => !judged.includes(f));
+      const code = [...files.filter(f => !isDocFile(f, docDirs)), ...judged];
       for (const f of docs) {
         keepBoth(git, f);
         resolved.push({ file: f, commit: commit.sha, kind: 'docs', why: 'documentation: kept both sides\' content' });
@@ -273,7 +298,7 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
           if (fs.existsSync(path.join(git.root, f))) git.run('add', '--', f);
           else git.run('rm', '-q', '--cached', '--ignore-unmatch', '--', f);
           const why = r.files.find(x => x.file === f)?.why || 'resolved by the agent (no reason given)';
-          resolved.push({ file: f, commit: commit.sha, kind: 'code', why });
+          resolved.push({ file: f, commit: commit.sha, kind: isDocFile(f, docDirs) ? 'docs' : 'code', why });
           out(`   resolved ${f}: ${why}`);
         }
         codeResolved = true;

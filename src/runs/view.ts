@@ -7,7 +7,7 @@ import { exists } from '../util.js';
 import { backlogItems, type BacklogItem } from '../backlog/index.js';
 import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.js';
 import { alive, readRecord, runState, type RunRecord } from './records.js';
-import { projectSlugs, runChanges, runWorktree, type RunContext } from './index.js';
+import { projectSlugs, readCheckpoint, runChanges, runWorktree, type RunContext } from './index.js';
 import { ciSummaryOf, getPrFromBrief, getPrStatusCached, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
 import { readRounds, type Round } from '../pipeline/observe.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
@@ -74,6 +74,8 @@ export interface RunView {
   prConflicts?: 'none' | 'conflicting' | 'unknown' | null;
   ciSummary?: string[];
   hasPrComments?: boolean;
+  /** The last start can be undone: what it started from and when. */
+  undo?: { from: string; at: string } | null;
   testIssues?: string | null;
   recovery?: StageRecovery | null;
   /** What each agent round did (logs/attempts.jsonl), with its warnings; empty before the first round. */
@@ -361,9 +363,10 @@ export function runView(ctx: RunContext, slug: string, opts: {
       };
     })(),
     hasPrComments: fs.existsSync(path.join(docsDir, 'pr-comments.md')),
+    undo: (() => { const c = readCheckpoint(ctx, slug); return c ? { from: c.from, at: c.at } : null; })(),
+    ciSummary: ciSummaryOf(readText(path.join(docsDir, 'ci-failure.md')) || ''),
     // A round still marked running when the run is not running it (or runs another agent) was cut short.
     attempts: readRounds(logs).map(r => (r.running && !(state === 'running' && (s.agent || '') === r.agent) ? { ...r, running: false, warnings: [...r.warnings, 'the round did not finish: the run stopped'] } : r)),
-    ciSummary: ciSummaryOf(readText(path.join(docsDir, 'ci-failure.md')) || ''),
     recovery: ['paused', 'failed', 'refused', 'stopped', 'interrupted'].includes(state)
       ? stageRecoveryHint({
           slug,

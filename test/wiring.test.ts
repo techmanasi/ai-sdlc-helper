@@ -85,6 +85,17 @@ describe('the monitor-run skill', () => {
   });
 });
 
+describe('the undo-run-action skill', () => {
+  test('is shipped, and renders with the project backlog folder and branch prefix filled in', () => {
+    expect(skillNames()).toContain('undo-run-action');
+    const dir = project({ 'sdlc.config.json': { ...BESIDE, backlogDir: 'work/items', git: { branchPrefix: 'feature/' } }, 'src/x.ts': '' });
+    const text = renderSkill('undo-run-action', dir, { env: { PATH: '/usr/bin:/bin' } })!;
+    expect(text).toContain('feature/<slug>');
+    expect(text).toContain('work/items/<slug>/logs/');
+    expect(text).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+});
+
 describe('command lines a shell did not split', () => {
   const CONFIG_CLI = { commands: ['detect', 'code-search', 'init-tests'], valued: ['--runner', '--test-dir'], flags: ['--json', '--list'] };
 
