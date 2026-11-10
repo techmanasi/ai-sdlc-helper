@@ -2,7 +2,8 @@
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, type RunView, type SettingsView } from './api';
-import { resolveShown } from './stages';
+import { resolveShown, showTestIssues } from './stages';
+import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
 import { defaultPick, resumeCommand, resumeOptions } from './resume';
 import { usePoll } from './usePoll';
@@ -712,7 +713,7 @@ export function Run({ slug }: { slug: string }) {
             <div class="banner">Paused at {v.stage || 'the start'} with nothing left to answer or decide: press {startLabel} to continue.</div>
           )}
 
-          {(v.testIssues !== undefined && v.testIssues !== null || v.stage === 'Test repair' || v.resumeFrom === 'test-repair') && (
+          {showTestIssues(v) && (
             <Panel
               title={
                 <span class={v.state === 'failed' ? 's-failed' : 's-running'}>
@@ -810,13 +811,14 @@ export function Run({ slug }: { slug: string }) {
                       class="btn btn-s"
                       type="button"
                       disabled={!!busy}
-                      onClick={() => act('Sync PR Comments', async () => {
-                        const r = await api.syncRunPrComments(project, slug);
-                        toast(r.ok ? `Synced ${r.count} PR comment(s)` : `Sync failed: ${(r.err || []).join(' ')}`);
+                      title="Ask GitHub now for the PR's state, its CI status and its review comments"
+                      onClick={() => act('Sync PR', async () => {
+                        const r = await api.syncPr(project, slug);
+                        toast(r.ok ? `PR ${r.pr.state ? r.pr.state.toLowerCase() : 'status unknown'}${r.pr.ci && r.pr.ci !== 'none' ? `, CI ${r.pr.ci}` : ''}${r.pr.conflicts === 'conflicting' ? ', conflicts with the base' : ''}; ${r.count} comment(s)${r.err?.length ? `; ${r.err.join(' ')}` : ''}` : `Sync failed: ${(r.err || []).join(' ')}`);
                         return {};
                       })}
                     >
-                      {busy === 'Sync PR Comments' ? <><Spinner /> Syncing…</> : 'Sync PR Comments'}
+                      {busy === 'Sync PR' ? <><Spinner /> Syncing…</> : 'Sync PR'}
                     </button>
                     <a href={v.pr} target="_blank" rel="noreferrer" class="btn btn-s" style={{ textDecoration: 'none' }}>
                       Open on GitHub ↗
@@ -835,6 +837,20 @@ export function Run({ slug }: { slug: string }) {
                       </a>
                     </div>
                     {v.prState === 'OPEN' && (
+                      <PrCi
+                        ci={v.prCi}
+                        failing={v.prFailing || []}
+                        summary={v.ciSummary || []}
+                        conflicts={v.prConflicts}
+                        busy={busy === 'Restart Implement with the CI failure'}
+                        onFix={() => act('Restart Implement with the CI failure', async () => {
+                          const f = await api.ciFix(project, slug, envObj);
+                          toast(f.resumed.ok ? 'Implement restarted with the CI failure' : (f.resumed.err.join(' ') || 'Could not start Implement'));
+                          return {};
+                        })}
+                      />
+                    )}
+                    {v.prState === 'OPEN' && (
                       <div class="banner">
                         Pull Request is open. Task will automatically move to <strong>Completed</strong> once this PR is merged on GitHub.
                       </div>
@@ -844,23 +860,36 @@ export function Run({ slug }: { slug: string }) {
                         ✔ Pull Request is merged into base!
                       </div>
                     )}
-                    {v.hasPrComments && (
-                      <div class="row" style={{ gap: '8px', alignItems: 'center', marginTop: '4px' }}>
-                        <button
-                          class="btn btn-s"
-                          type="button"
-                          onClick={() => openFile('pr-comments.md')}
-                        >
-                          View PR Comments (pr-comments.md)
-                        </button>
+                    {(v.hasPrComments || v.prConflicts === 'conflicting') && (
+                      <div class="row" style={{ gap: '8px', alignItems: 'center', marginTop: '4px', flexWrap: 'wrap' }}>
+                        {v.hasPrComments && (
+                          <button
+                            class="btn btn-s"
+                            type="button"
+                            onClick={() => openFile('pr-comments.md')}
+                          >
+                            View PR Comments (pr-comments.md)
+                          </button>
+                        )}
                         <button
                           class="btn btn-s btn-p"
                           type="button"
                           disabled={running || !!busy}
                           onClick={() => act('Resume to fix PR comments', () => api.start(project, slug, 'implement', envObj))}
                         >
-                          {busy === 'Resume to fix PR comments' ? <><Spinner /> Resuming…</> : 'Resume at Implement to fix PR comments'}
+                          {busy === 'Resume to fix PR comments' ? <><Spinner /> Resuming…</> : v.hasPrComments ? 'Resume at Implement to fix PR comments' : 'Resume at Implement'}
                         </button>
+                        {v.prConflicts === 'conflicting' && (
+                          <button
+                            class="btn btn-s btn-p"
+                            type="button"
+                            disabled={running || !!busy}
+                            title="Fetch the base, rebase this run's branch onto it, resolve the conflicts and push with --force-with-lease"
+                            onClick={() => act('Resolve conflicts', () => api.start(project, slug, 'resolve-conflicts', envObj))}
+                          >
+                            {busy === 'Resolve conflicts' ? <><Spinner /> Starting…</> : 'Resolve conflicts'}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

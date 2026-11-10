@@ -8,9 +8,9 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncRunPr, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
+  AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
-  restart, discardStage, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, syncPrComments, type Outcome, type RunContext,
+  restart, discardStage, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -288,7 +288,6 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const file = itemFile(contextFor(p), slug, url.searchParams.get('path') || '');
         return send(200, { path: url.searchParams.get('path'), text: fs.readFileSync(file, 'utf8') });
       }
-      if (action === 'pr-sync' && method === 'POST') return send(200, { pr: await syncRunPr(contextFor(p), slug) });
       if (action === 'pr' && method === 'GET') {
         const ctx = contextFor(p);
         const v = runView(ctx, slug, { changes: false, tailLines: 0 });
@@ -377,8 +376,14 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         return send(r.ok ? 200 : 400, r);
       }
       if (action === 'pr-sync') {
-        const r = syncPrComments(ctx, slug);
+        const r = await syncPr(ctx, slug);
         return send(r.ok ? 200 : 400, r);
+      }
+      if (action === 'ci-fix') {
+        // Start Implement again with the CI failure: ci-failure.md is written from GitHub's logs now, and read by the Implement agent.
+        const f = writeCiFailure(ctx, slug);
+        if (!f.ok || f.ci !== 'failed') return send(400, { ok: false, err: f.err || [f.ci === 'failed' ? 'the failure could not be read' : `the CI is not failing (${f.ci})`] });
+        return send(200, { ok: true, summary: f.summary, resumed: outcome(start(ctx, slug, { from: 'implement' })) });
       }
     }
     if (what === 'completed') {
@@ -396,7 +401,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
           return send(r.ok ? 200 : 400, r);
         }
         if (method === 'POST' && parts[4] === 'sync') {
-          const r = syncPrComments(ctx, slug);
+          const r = await syncPr(ctx, slug);
           return send(r.ok ? 200 : 400, r);
         }
       }

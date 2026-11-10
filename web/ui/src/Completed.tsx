@@ -103,7 +103,7 @@ export function Completed() {
     try {
       const res = await api.syncCompletedPrComments(project, slug);
       if (res.ok) {
-        toast(`Synced ${res.count} PR comment(s)`);
+        toast(`PR ${res.pr.state ? res.pr.state.toLowerCase() : 'status unknown'}; ${res.count} comment(s)`);
         await loadDetail(slug);
       } else {
         toast(`Sync failed: ${(res.err || []).join(' ')}`);
@@ -315,7 +315,7 @@ export function Completed() {
                           disabled={busyAction === `sync-${detail.slug}`}
                           onClick={() => handleSyncComments(detail.slug)}
                         >
-                          {busyAction === `sync-${detail.slug}` ? <><Spinner /> Syncing…</> : 'Sync PR Comments'}
+                          {busyAction === `sync-${detail.slug}` ? <><Spinner /> Syncing…</> : 'Sync PR'}
                         </button>
                       </div>
                     ) : (

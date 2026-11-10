@@ -6,7 +6,7 @@ import { toolNotes } from '../config/toolNotes.js';
 import { agentFor, harnessFor, testDir, testFramework } from '../config/settings.js';
 import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from './context.js';
 import { modelEnvOf, modelFlags, providerEnv, stageModel } from './models.js';
-import { manualInput, prCommentsInput, renderPrompt } from './prompts.js';
+import { ciFailureInput, manualInput, prCommentsInput, renderPrompt } from './prompts.js';
 import { resumeHint } from './hints.js';
 import { agentFacts, appendRound, changedBetween, debugLeftovers, roundWarnings, snapshot } from './observe.js';
 import { DefaultHarnessRegistry } from './harness/registry.js';
@@ -273,6 +273,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   if (stage !== 'test-repair' && stage !== 'test-audit') {
     prompt += manualInput(at(ctx, ctx.docs), stage, testDir(ctx.config.suites[0]));
     prompt += prCommentsInput(at(ctx, ctx.docs));
+    if (stage === 'implement') prompt += ciFailureInput(at(ctx, ctx.docs));
   }
   ctx.out(`   -> agent: ${name}`);
   appendRound(at(ctx, ctx.log), { kind: 'start', at: stamp(), stage, agent: name });
