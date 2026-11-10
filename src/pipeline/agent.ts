@@ -8,6 +8,7 @@ import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from 
 import { modelEnvOf, modelFlags, providerEnv, stageModel } from './models.js';
 import { manualInput, prCommentsInput, renderPrompt } from './prompts.js';
 import { resumeHint } from './hints.js';
+import { agentFacts, appendRound, changedBetween, debugLeftovers, roundWarnings, snapshot } from './observe.js';
 import { DefaultHarnessRegistry } from './harness/registry.js';
 export { spawnAgentProcess, spawnClaude } from './agent-process.js';
 export type { AgentRequest, AgentSpawn } from './agent-process.js';
@@ -264,6 +265,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     prompt += prCommentsInput(at(ctx, ctx.docs));
   }
   ctx.out(`   -> agent: ${name}`);
+  appendRound(at(ctx, ctx.log), { kind: 'start', at: stamp(), stage, agent: name });
   const flags = stageFlags(ctx, stage);
   ctx.status.agent = name;
   ctx.status.agentStarted = stamp();
@@ -293,6 +295,8 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   // A usage limit is not the agent's failure. By default the stage stops at once; with SDLC_LIMIT_RETRY set, wait for the
   // reset and run the same agent again.
   const { retry, maxWait } = limitWait(ctx.env);
+  const roundStart = Date.now();
+  const before = snapshot(ctx.git);
   let waited = 0;
   let rc: number;
   for (;;) {
@@ -302,6 +306,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
       cwd: ctx.root, env: { ...ctx.env, ...flags.env, ...invocation.env }, stdout: `${base}.json`, stderr: `${base}.err`, signal: ctx.signal,
     });
     await tick();
+    try { harness.normalizeOutput?.(`${base}.json`); } catch { /* the raw output stays as it is */ }
     const limit = usageLimit(`${base}.json`, `${base}.err`);
     if (!limit) break;
     if (retry <= 0) {
@@ -330,6 +335,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   try {
     pending = extract({ jsonFile: `${base}.json`, logFile: `${base}.log`, stateFile: at(ctx, `${ctx.log}/permissions.json`), stage, cwd: ctx.root, errFile: `${base}.err`, allowed });
   } catch { pending = 0; }
+  observeRound(ctx, name, stage, base, rc, before, roundStart);
   if (pending > 0) {
     stop(ctx, `   !! agent '${name}' was refused ${pending} action(s): allow or deny them in the pane (or: ai-sdlc-helper permit ${ctx.slug} allow|always|deny all), then resume at ${stage}`, 2);
   }
@@ -351,6 +357,26 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     }
     stop(ctx, `agent '${name}' failed: ${failure.summary}`, 1);
   }
+}
+
+/** Records what the round did (<log>/attempts.jsonl) and names in the run output whatever shows it did no work. */
+function observeRound(ctx: Ctx, name: string, stage: AgentStage, base: string, rc: number, before: Map<string, string>, started: number): void {
+  try {
+    const facts = agentFacts(`${base}.json`);
+    const filesChanged = changedBetween(before, snapshot(ctx.git));
+    const editsCode = stage === 'implement' || stage === 'test-repair';
+    const warnings = roundWarnings(
+      { exitCode: rc, responseChars: facts.responseChars, denied: facts.denied, filesChanged },
+      { editsCode, debug: editsCode ? debugLeftovers(ctx.git, filesChanged) : [] },
+    );
+    appendRound(at(ctx, ctx.log), {
+      kind: 'agent', at: stamp(), stage, agent: name,
+      durationSec: facts.durationSec ?? Math.round((Date.now() - started) / 100) / 10,
+      exitCode: rc, responseChars: facts.responseChars, turns: facts.turns, tokens: facts.tokens,
+      denied: facts.denied, filesChanged, warnings,
+    });
+    for (const w of warnings) ctx.out(`   !! observed in '${name}': ${w}`);
+  } catch { /* observability never stops a run */ }
 }
 
 /** The independent test auditor: read-only tools, raw output in <log>/test-audit.json, parsed markdown in <log>/test-audit.log. Resolves its exit code. */
