@@ -6,7 +6,7 @@ import { toolNotes } from '../config/toolNotes.js';
 import { agentFor, harnessFor, testDir, testFramework } from '../config/settings.js';
 import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from './context.js';
 import { modelEnvOf, modelFlags, providerEnv, stageModel } from './models.js';
-import { ciFailureInput, manualInput, prCommentsInput, renderPrompt } from './prompts.js';
+import { ciFailureInput, manualInput, mergeFailureInput, prCommentsInput, renderPrompt } from './prompts.js';
 import { resumeHint } from './hints.js';
 import { agentFacts, appendRound, changedBetween, debugLeftovers, roundWarnings, snapshot } from './observe.js';
 import { DefaultHarnessRegistry } from './harness/registry.js';
@@ -233,6 +233,14 @@ export function stageFlags(ctx: Ctx, stage: AgentStage): { args: string[]; env: 
   return { args: modelFlags(sm), env: providerEnv(sm.provider), model: sm.provider.model, effort: sm.effort, hasEffort: sm.provider.effortFlag };
 }
 
+/** "<agent>:<model>" a stage runs with (the agent's own default when no model is chosen). Two reviewers with the same one are not independent. */
+export function stageModelKey(ctx: Ctx, stage: AgentStage): string {
+  const harness = defaultRegistry.get(harnessFor(ctx.config, stage)) || defaultRegistry.get('claude')!;
+  const sm = stageModel(stage, modelEnvOf(ctx));
+  const sel = harnessSelection(ctx, stage, { model: sm.provider.model, effort: sm.effort, hasEffort: sm.provider.effortFlag }, harness);
+  return `${harness.id}:${sel.model || '(default)'}`;
+}
+
 /** The tool notes for <stage>: `when:` sections look at the last gate run's tests.log and at test-issues.md. */
 export function stageNotes(ctx: Ctx, stage: AgentStage): string {
   const read = (file: string) => { try { return fs.readFileSync(at(ctx, file), 'utf8'); } catch { return ''; } };
@@ -273,7 +281,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   if (stage !== 'test-repair' && stage !== 'test-audit') {
     prompt += manualInput(at(ctx, ctx.docs), stage, testDir(ctx.config.suites[0]));
     prompt += prCommentsInput(at(ctx, ctx.docs));
-    if (stage === 'implement') prompt += ciFailureInput(at(ctx, ctx.docs));
+    if (stage === 'implement') prompt += ciFailureInput(at(ctx, ctx.docs)) + mergeFailureInput(at(ctx, ctx.docs), promptValues(ctx), ctx.promptsDir);
   }
   ctx.out(`   -> agent: ${name}`);
   appendRound(at(ctx, ctx.log), { kind: 'start', at: stamp(), stage, agent: name });
@@ -390,14 +398,22 @@ function observeRound(ctx: Ctx, name: string, stage: AgentStage, base: string, r
   } catch { /* observability never stops a run */ }
 }
 
-/** The independent test auditor: read-only tools, raw output in <log>/test-audit.json, parsed markdown in <log>/test-audit.log. Resolves its exit code. */
-export async function runAudit(ctx: Ctx, prompt: string, flags: { args: string[]; env: Record<string, string>; model?: string; effort?: string }): Promise<number> {
-  const rawFile = at(ctx, `${ctx.log}/test-audit.json`);
-  const errFile = at(ctx, `${ctx.log}/test-audit.err`);
-  const logFile = at(ctx, `${ctx.log}/test-audit.log`);
-  const harnessId = harnessFor(ctx.config, 'test-audit');
+/**
+ * A read-only agent (the independent test auditor, the conflict reviewers): raw output in <log>/<name>.json, parsed markdown in
+ * <log>/<name>.log. <stage> picks its agent and model (default test-audit), <name> its files (default test-audit). Resolves its exit code.
+ */
+export async function runAudit(
+  ctx: Ctx, prompt: string, flags: { args: string[]; env: Record<string, string>; model?: string; effort?: string },
+  who: { stage?: AgentStage; name?: string } = {},
+): Promise<number> {
+  const stage: AgentStage = who.stage || 'test-audit';
+  const name = who.name || 'test-audit';
+  const rawFile = at(ctx, `${ctx.log}/${name}.json`);
+  const errFile = at(ctx, `${ctx.log}/${name}.err`);
+  const logFile = at(ctx, `${ctx.log}/${name}.log`);
+  const harnessId = harnessFor(ctx.config, stage);
   const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
-  const selection = harnessSelection(ctx, 'test-audit', { model: flags.model || '', effort: flags.effort || '', hasEffort: Boolean(flags.effort) }, harness);
+  const selection = harnessSelection(ctx, stage, { model: flags.model || '', effort: flags.effort || '', hasEffort: Boolean(flags.effort) }, harness);
   const inv = harness.compileAuditArgs({
     prompt,
     model: selection.model,
@@ -415,7 +431,7 @@ export async function runAudit(ctx: Ctx, prompt: string, flags: { args: string[]
   });
 
   if (rc !== 0) {
-    const failure = extractAgentFailure(at(ctx, `${ctx.log}/test-audit`), rc);
+    const failure = extractAgentFailure(at(ctx, `${ctx.log}/${name}`), rc);
     if (/model.*(?:not supported|unknown|invalid|not found)/i.test(failure.summary)) {
       harness.catalog?.invalidateCache();
     }

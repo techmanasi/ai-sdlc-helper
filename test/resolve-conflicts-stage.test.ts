@@ -2,10 +2,13 @@
 // pauses the run with the follow-up offer, and only a yes adds <slug>-resolve-conflict-N to the backlog.
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { answerQuestions } from '../src/runs/view.js';
 import { DOCS, LOG, SLUG, fixture, git, pipeline, read, statusOf, type Fixture } from './pipeline-fixture.js';
 import { tmp, write } from './helpers.js';
+
+// Each run is a chain of synchronous git and test runs: many seconds, and far more on a loaded machine (the full suite).
+vi.setConfig({ testTimeout: 300_000 });
 
 const BRANCH = `feature/${SLUG}`;
 const ONE = 'export const one = () => 1;\n';
@@ -42,7 +45,7 @@ describe('Resolve conflicts stage', () => {
     // Another follow-up already exists in the backlog: the next one is -2.
     fs.mkdirSync(path.join(f.dir, 'work/items', `${SLUG}-resolve-conflict-1`), { recursive: true });
 
-    const r = await pipeline(f, {}, { from: 'resolve-conflicts' });
+    const r = await pipeline(f, { SDLC_RESOLVE_REVIEW: '0' }, { from: 'resolve-conflicts' });
     expect(r.status).toBe(2);
     expect(r.calls).toEqual(['other']);
     expect(statusOf(f.dir)).toMatchObject({ state: 'paused', stage: 'Resolve conflicts' });
@@ -65,6 +68,100 @@ describe('Resolve conflicts stage', () => {
     expect(brief).toContain('feat(other): other work (#9)');
     expect(fs.existsSync(path.join(f.dir, DOCS, 'questions.md'))).toBe(false);
     expect(git(remote, 'rev-parse', BRANCH)).toBe(before);
+  });
+
+  test('answering no says again what the last attempt found, that nothing changed, and how to retry; the run is paused, not failed', async () => {
+    const f = fixture({ other: `printf 'VERDICT: DOUBT\\nDOUBT: one() is commented two ways\\n' > "$FAKE_LOG/resolve-conflicts-report.md"` });
+    const { remote } = conflicted(f);
+    const before = git(remote, 'rev-parse', BRANCH);
+    const first = await pipeline(f, { SDLC_RESOLVE_REVIEW: '0' }, { from: 'resolve-conflicts' });
+    expect(first.stdout).toContain('What happened: the agent was not sure how to combine the changes in src/existing.mjs: one() is commented two ways. Nothing was pushed.');
+
+    answerQuestions(path.join(f.dir, DOCS, 'questions.md'), { 1: 'no' });
+    const r = await pipeline(f, {}, { from: 'resolve-conflicts' });
+    expect(r.status).toBe(2);
+    expect(r.calls).toEqual([]);
+    expect(statusOf(f.dir)).toMatchObject({ state: 'paused', stage: 'Resolve conflicts' });
+    expect(r.stdout).toContain('What happened: the agent was not sure how to combine');
+    expect(r.stdout).toContain('You answered no, so no follow-up task was added. Your pull request and branch are unchanged. Press Resolve conflicts to try again');
+    expect(r.stdout).toContain('What happened: the agent was not sure');
+    expect(git(remote, 'rev-parse', BRANCH)).toBe(before);
+  });
+
+  describe('a doubt goes to independent reviewers (three by default)', () => {
+    const RESOLVE = `printf 'export const one = () => 1; // merged work, and the task\\n' > src/existing.mjs
+printf 'FILE: src/existing.mjs :: kept both comments\\nVERDICT: DOUBT\\nDOUBT: one() is commented two ways\\n' > "$FAKE_LOG/resolve-conflicts-report.md"`;
+
+    test('all three safe: the doubt is overridden, the check runs and the branch is pushed; the judge is not needed', async () => {
+      const f = fixture({ other: RESOLVE });
+      const { remote } = conflicted(f);
+      write(f.fake, 'resolve-review.out', 'The comments do not conflict.\nVERDICT: SAFE\n');
+      const r = await pipeline(f, {}, { from: 'resolve-conflicts' });
+      expect(r.status).toBe(0);
+      expect(r.calls).toEqual(['other', 'resolve-review', 'resolve-review', 'resolve-review']);
+      expect(r.stdout).toContain('all 3 reviewers found it safe: the doubt is overridden');
+      expect(git(remote, 'rev-parse', BRANCH)).toBe(git(f.dir, 'rev-parse', 'HEAD'));
+      expect(git(remote, 'show', `${BRANCH}:src/existing.mjs`)).toContain('merged work, and the task');
+      expect(read(f.dir, `${LOG}/resolve-conflicts.md`)).toContain('all 3 independent reviewers found it safe');
+      expect(read(f.dir, `${LOG}/resolve-review.md`)).toContain('3 of 3 reviewers found it safe');
+    });
+
+    test('a reviewer that does not say SAFE keeps the doubt: the judge writes the conclusion, nothing is pushed, and the follow-up question carries the opinions', async () => {
+      const f = fixture({ other: RESOLVE });
+      const { remote } = conflicted(f);
+      const before = git(remote, 'rev-parse', BRANCH);
+      write(f.fake, 'resolve-review.out', 'The two comments contradict.\nVERDICT: UNSAFE\n');
+      write(f.fake, 'resolve-judge.out', 'The reviewers agree the comments contradict.\n');
+      const r = await pipeline(f, {}, { from: 'resolve-conflicts' });
+      expect(r.status).toBe(2);
+      expect(r.calls).toEqual(['other', 'resolve-review', 'resolve-review', 'resolve-review', 'resolve-judge']);
+      expect(r.stdout).toContain('0 of 3 reviewers found it safe: the doubt stays');
+      expect(git(remote, 'rev-parse', BRANCH)).toBe(before);
+      const review = read(f.dir, `${LOG}/resolve-review.md`);
+      expect(review).toContain('The reviewers agree the comments contradict.');
+      expect(review).toContain('The two comments contradict.');
+      expect(read(f.dir, `${LOG}/resolve-conflict-followup.md`)).toContain('Independent review: 0 of 3 reviewers found it safe. The reviewers agree the comments contradict.');
+    });
+
+    test('the number of reviewers is the user\'s: 2 reviewers, both safe, override the doubt; 0 asks the developer', async () => {
+      const f = fixture({ other: RESOLVE });
+      conflicted(f);
+      write(f.fake, 'resolve-review.out', 'VERDICT: SAFE\n');
+      const two = await pipeline(f, { SDLC_RESOLVE_REVIEWERS: '2' }, { from: 'resolve-conflicts' });
+      expect(two.status).toBe(0);
+      expect(two.calls).toEqual(['other', 'resolve-review', 'resolve-review']);
+      expect(two.stdout).toContain('2 independent reviewers judge the resolution');
+      expect(read(f.dir, `${LOG}/resolve-review.md`)).toContain('2 of 2 reviewers found it safe');
+
+      const g = fixture({ other: RESOLVE });
+      conflicted(g);
+      const none = await pipeline(g, { SDLC_RESOLVE_REVIEWERS: '0' }, { from: 'resolve-conflicts' });
+      expect(none.status).toBe(2);
+      expect(none.calls).toEqual(['other']);
+    });
+
+    test('reviewers that share a model are not asked: the doubt stays and the report says which ones', async () => {
+      const f = fixture({ other: RESOLVE });
+      const { remote } = conflicted(f);
+      const before = git(remote, 'rev-parse', BRANCH);
+      write(f.fake, 'resolve-review.out', 'VERDICT: SAFE\n');
+      // reviewers 1 and 2 on the same model
+      const r = await pipeline(f, { SDLC_RESOLVE_REVIEWERS: '2', MODEL_RESOLVE_REVIEW_2: 'opus' }, { from: 'resolve-conflicts' });
+      expect(r.status).toBe(2);
+      expect(r.calls).toEqual(['other']);
+      expect(r.stdout).toContain('WARNING: reviewers 1 and 2 use the same model (claude:opus)');
+      expect(r.stdout).toContain('Independent review was not run: reviewers 1 and 2 use the same model (claude:opus)');
+      expect(git(remote, 'rev-parse', BRANCH)).toBe(before);
+      expect(read(f.dir, `${LOG}/resolve-review.md`)).toContain('reviewers 1 and 2 use the same model');
+    });
+
+    test('SDLC_RESOLVE_REVIEW=0 leaves the doubt to the developer without asking the reviewers', async () => {
+      const f = fixture({ other: RESOLVE });
+      conflicted(f);
+      const r = await pipeline(f, { SDLC_RESOLVE_REVIEW: '0' }, { from: 'resolve-conflicts' });
+      expect(r.status).toBe(2);
+      expect(r.calls).toEqual(['other']);
+    });
   });
 
   test('a safe resolution passes the full check and is pushed with the lease; the tests commit is found again after the rebase', async () => {

@@ -20,7 +20,7 @@ import { Status, finalState, previousStage } from './status.js';
 import { formatRecoveryCli, stageRecoveryHint } from './hints.js';
 import { appendRound } from './observe.js';
 import { redCommitTestFiles, resultsAt } from './gates.js';
-import { resolveConflictsStage } from './resolve-conflicts.js';
+import { adoptKeptAttempt, resolveConflictsStage } from './resolve-conflicts.js';
 import {
   implementStage, markStage, planStage, redTestsStage, refuseRedone, resumeAtTests, reviewStage, finaliseStage, specStage,
   testRepairStage,
@@ -205,6 +205,8 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
 async function stages(ctx: Ctx): Promise<void> {
   const { git, fromN } = ctx;
   git.checkoutBranch(ctx.branch);
+  // "Fix with Implement": the kept merged result becomes the branch before anything else touches the logs it ended with.
+  if (ctx.env.SDLC_ON_ATTEMPT === '1') adoptKeptAttempt(ctx);
   await tick();
   ctx.out(`SDLC: ${ctx.slug} on branch ${ctx.branch}`);
   appendRound(at(ctx, ctx.log), { kind: 'run', at: stamp(), from: ctx.from });

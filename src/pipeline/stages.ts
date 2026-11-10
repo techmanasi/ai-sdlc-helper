@@ -269,7 +269,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
     }
     await tick();
     if (await successCheck(ctx)) {
-      setAside(ctx, [`${ctx.docs}/ci-failure.md`]); // fixed: the next CI run decides
+      setAside(ctx, [`${ctx.docs}/ci-failure.md`, `${ctx.docs}/merge-failure.md`]); // fixed: the next CI run decides, and the merged result is checked before it is pushed
       ctx.out(' tests and integration green');
       return true;
     }

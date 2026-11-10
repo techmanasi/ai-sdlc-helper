@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
-  restart, discardStage, undoLast, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, type Outcome, type RunContext,
+  restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -382,6 +382,9 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       }
       if (action === 'ci-fix') {
         // Start Implement again with the CI failure: ci-failure.md is written from GitHub's logs now, and read by the Implement agent.
+        // A run in progress (Resolve conflicts included) owns the task's files: leave ci-failure.md alone and refuse.
+        const going = readRecord(ctx.reg, slug);
+        if (going?.state === 'running' && alive(going.pid)) return send(409, { ok: false, err: [`${slug} is running: wait for it to finish, then restart Implement`] });
         const f = writeCiFailure(ctx, slug);
         if (!f.ok || f.ci !== 'failed') return send(400, { ok: false, err: f.err || [f.ci === 'failed' ? 'the failure could not be read' : `the CI is not failing (${f.ci})`] });
         return send(200, { ok: true, summary: f.summary, resumed: outcome(start(ctx, slug, { from: 'implement' })) });

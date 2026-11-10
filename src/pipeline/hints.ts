@@ -356,11 +356,13 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
 
   if (normStage === 'resolve-conflicts') {
     const offered = isPaused && /did not push/.test(tailText);
+    // The stage's own plain summary ("What happened: …"), when the tail has one.
+    const lastWhat = [...tailText.matchAll(/^\s*What happened: (.+)$/gm)].pop()?.[1];
     return {
       stage: 'Resolve conflicts',
       diagnosis: offered
         ? 'Resolve conflicts did not push: the resolution could break this task or the work merged meanwhile. A follow-up backlog item is offered.'
-        : 'Resolve conflicts stopped before pushing; the branch is back where it was.',
+        : (lastWhat ? `${lastWhat} The branch is back where it was.` : 'Resolve conflicts stopped before pushing; the branch is back where it was.'),
       autoAction: {
         label: offered ? 'Resume Resolve conflicts once the follow-up question is answered' : 'Retry Resolve conflicts',
         command: resumeCommand(ctx.slug, 'resolve-conflicts'),

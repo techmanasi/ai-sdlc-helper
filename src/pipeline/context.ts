@@ -12,7 +12,7 @@ export const FROM_STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repa
 export type From = typeof FROM_STAGES[number];
 
 /** The stages that run an agent, each with its own prompt, model and effort. */
-export const AGENT_STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'test-audit', 'review', 'resolve-conflicts'] as const;
+export const AGENT_STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'test-audit', 'review', 'resolve-conflicts', 'resolve-review-1', 'resolve-review-2', 'resolve-review-3', 'resolve-review-4', 'resolve-review-5', 'resolve-judge'] as const;
 export type AgentStage = typeof AGENT_STAGES[number];
 
 /** Ends the run with an exit code: 0 done, 1 failed, 2 paused for the developer. What to say was printed already. */

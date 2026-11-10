@@ -72,6 +72,9 @@ describe('a full run', () => {
       implement: { model: 'sonnet', effort: 'medium' }, 'test-repair': { model: 'sonnet', effort: 'medium' },
       'test-audit': { model: 'opus', effort: 'medium' }, review: { model: 'opus', effort: 'medium' },
       'resolve-conflicts': { model: 'opus', effort: 'medium' },
+      'resolve-review-1': { model: 'opus', effort: 'medium' }, 'resolve-review-2': { model: 'sonnet', effort: 'medium' },
+      'resolve-review-3': { model: 'haiku', effort: 'medium' }, 'resolve-review-4': { model: 'sonnet', effort: 'medium' },
+      'resolve-review-5': { model: 'opus', effort: 'medium' }, 'resolve-judge': { model: 'opus', effort: 'medium' },
     });
     for (const k of ['agent_started', 'run_started', 'updated']) expect(st[k]).toMatch(STAMP);
     const stageFiles = JSON.parse(read(f.dir, `${LOG}/stage-files.json`)).stages;

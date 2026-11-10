@@ -77,3 +77,17 @@ export function ciFailureInput(docsDir: string): string {
   if (!content) return '';
   return `\n\n## CI failure of the pull request\nThe pull request's CI failed after your last push. Fix the code so these checks pass: reproduce each failure locally with the project's own commands first (the lint, typecheck and test commands CI runs), then change the source. Never edit a test to make it pass, and never disable a lint rule. The pipeline's gate runs again after your turn.\n\n${content}\n`;
 }
+
+/**
+ * The failure of a merged branch, from <docsDir>/merge-failure.md ("Fix with Implement" after Resolve conflicts): the instructions
+ * (parts/merge-failure.md) and what failed. Empty when there is none.
+ */
+export function mergeFailureInput(docsDir: string, values: Record<string, string>, promptsDir = PROMPTS_DIR): string {
+  const file = path.join(docsDir, 'merge-failure.md');
+  const part = path.join(promptsDir, 'parts', 'merge-failure.md');
+  if (!exists(file) || !exists(part)) return '';
+  const content = text(file).trim();
+  if (!content) return '';
+  const rules = text(part).trim().replace(/\{\{([A-Z_]+)\}\}/g, (all, name: string) => (name in values ? values[name] : all));
+  return `\n\n${rules}\n\n${content}\n`;
+}
