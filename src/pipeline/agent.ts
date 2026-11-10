@@ -206,11 +206,21 @@ const sleep = (seconds: number, signal?: AbortSignal) => new Promise<void>(resol
 export const PLAN_TOOLS = ['WebFetch', 'WebSearch', 'mcp__context7'];
 
 /** One agent process: command, arguments, and the files its output goes to (one file when both are the same). */
+/** The sentence of the Implement prompt about the linter: empty for a project without one. */
+export const lintNote = (ctx: Ctx): string => ctx.config.lint
+  ? `The pipeline's green gate also runs the linter ('${ctx.config.lint}') after the tests; its output is in ${ctx.log}/lint.log. Before you finish, run it and fix every error it reports in the source: never silence an error by disabling a rule, adding an ignore comment or editing the lint configuration. Lint errors left in the source fail the gate.`
+  : '';
+
+/** The sentence of the Red tests prompt about the linter: the tests are linted too. Empty for a project without one. */
+export const lintTestsNote = (ctx: Ctx): string => ctx.config.lint
+  ? `The pipeline's green gate also lints the project ('${ctx.config.lint}'), your test files included. Before you finish, run it and fix every error it reports in the test files you wrote (unused imports, import paths the project's lint rules restrict, and the like); never silence an error by disabling a rule, adding an ignore comment or editing the lint configuration.`
+  : '';
+
 /** The {{PLACEHOLDER}} values of the run's prompts. */
 export function promptValues(ctx: Ctx): Record<string, string> {
   return {
     DOCS: ctx.docs, LOG: ctx.log, TEST_DIR: testDir(ctx.config.suites[0]), TEST_CMD: ctx.layout.testCmd, TEST_FILE_CMD: ctx.testFileCmd, FETCH_CMD: ctx.fetchCmd,
-    RED_SHA: ctx.redSha, SLUG: ctx.slug, TEST_FRAMEWORK: testFramework(ctx.config), TEST_FILES: ctx.layout.testFiles || `${testDir(ctx.config.suites[0])}/`,
+    LINT_NOTE: lintNote(ctx), LINT_TESTS_NOTE: lintTestsNote(ctx), RED_SHA: ctx.redSha, SLUG: ctx.slug, TEST_FRAMEWORK: testFramework(ctx.config), TEST_FILES: ctx.layout.testFiles || `${testDir(ctx.config.suites[0])}/`,
   };
 }
 

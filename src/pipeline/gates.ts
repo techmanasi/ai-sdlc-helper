@@ -171,13 +171,20 @@ export async function integrationPass(ctx: Ctx): Promise<boolean> {
   return (await shToFile(ctx, integration.cmd, logFile)) === 0;
 }
 
-/** The unit tests, then the integration suite; ctx.failLog names the log of the check that failed. */
+/** The project's lint command (the `lint` setting, else its package.json lint script): none means nothing to check. Output in <log>/lint.log. */
+export async function lintPass(ctx: Ctx): Promise<boolean> {
+  if (!ctx.config.lint) return true;
+  return (await shToFile(ctx, ctx.config.lint, at(ctx, `${ctx.log}/lint.log`))) === 0;
+}
+
+/** The unit tests, then the linter, then the integration suite; ctx.failLog names the log of the check that failed. */
 export async function successCheck(ctx: Ctx, opts: { targetFiles?: string[] } = {}): Promise<boolean> {
   await tick();
   const targets = opts.targetFiles ?? targetTestFiles(ctx);
   const unit = testsPass(ctx, { targetFiles: targets });
   await tick();
   if (!unit) { ctx.failLog = `${ctx.log}/tests.log`; return false; }
+  if (!(await lintPass(ctx))) { ctx.failLog = `${ctx.log}/lint.log`; return false; }
   if (!(await integrationPass(ctx))) { ctx.failLog = `${ctx.log}/integration.log`; return false; }
   return true;
 }

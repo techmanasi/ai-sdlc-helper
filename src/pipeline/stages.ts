@@ -41,6 +41,25 @@ export function stage(ctx: Ctx, title: string): void {
 
 const countLines = (file: string, re: RegExp) => (exists(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(l => re.test(l)).length : 0);
 
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+
+/** One line per error of a linter's output (ESLint's stylish format: a file line, then `line:col  error  message  rule` lines). */
+export function lintFailures(log: string): string[] {
+  const out: string[] = [];
+  let file = '';
+  for (const raw of log.split('\n')) {
+    const line = raw.replace(ANSI, '');
+    const hit = /^\s+(\d+):(\d+)\s+error\s+(.+?)(?:\s{2,}(\S+))?\s*$/.exec(line);
+    if (hit) out.push(`LINT: ${file || '(file)'}:${hit[1]}:${hit[2]} ${hit[3]}${hit[4] ? ` (${hit[4]})` : ''}`);
+    else if (/^\S/.test(line) && !/^(✖|>|npm |\d+ problems?)/.test(line) && /[\\/]/.test(line) && !/\s/.test(line.trim())) file = line.trim();
+  }
+  if (!out.length) {
+    const sample = log.split('\n').filter(l => /\berror\b/i.test(l)).slice(0, 5).map(l => `LINT: ${l.trim()}`);
+    out.push(...sample);
+  }
+  return out;
+}
+
 export function formatCheckFailures(ctx: Ctx): string[] {
   const testsJson = at(ctx, `${ctx.log}/tests.json`);
   const lines: string[] = [];
@@ -61,6 +80,10 @@ export function formatCheckFailures(ctx: Ctx): string[] {
         }
       }
     } catch { /* best effort */ }
+  }
+  if (!lines.length && ctx.failLog && ctx.failLog.endsWith('/lint.log')) {
+    const failFile = at(ctx, ctx.failLog);
+    if (exists(failFile)) lines.push(...lintFailures(fs.readFileSync(failFile, 'utf8')));
   }
   if (!lines.length && ctx.failLog) {
     const failFile = at(ctx, ctx.failLog);
