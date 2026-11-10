@@ -7,7 +7,8 @@
 export type BuiltinHarnessId = 'claude' | 'agy' | 'codex';
 export type HarnessId = BuiltinHarnessId | (string & {});
 
-export type StageName = 'spec' | 'plan' | 'red-tests' | 'implement' | 'test-repair' | 'test-audit' | 'review' | 'resolve-conflicts';
+export type StageName = 'spec' | 'plan' | 'red-tests' | 'implement' | 'test-repair' | 'test-audit' | 'review' | 'resolve-conflicts'
+  | 'resolve-review-1' | 'resolve-review-2' | 'resolve-review-3' | 'resolve-review-4' | 'resolve-review-5' | 'resolve-judge';
 
 export interface HarnessModel {
   /** Unique model identifier within the harness, e.g. "gemini-3.8-flash-high", "o3-mini", or "opus" */

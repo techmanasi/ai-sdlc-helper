@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { describe, expect, test, vi } from 'vitest';
 import { Git } from '../src/pipeline/git.js';
 import {
-  isDocFile, nextFollowUpSlug, parseResolverReport, resolveConflicts, type CodeConflict, type ResolveOptions,
+  adoptAttempt, failingTestFiles, isDocFile, mergeFailureText, nextFollowUpSlug, outcomeLines, parseResolverReport, parseTestsLog, plainStop, resolveConflicts, reviewSkipped, reviewVerdict, reviewerCount, sharedReviewers, sharedReviewersText, unanimouslySafe, type CodeConflict, type ResolveOptions,
 } from '../src/pipeline/resolve-conflicts.js';
 import { tmp, write } from './helpers.js';
 
@@ -296,7 +296,8 @@ describe('resolveConflicts: code conflicts', () => {
       resolveCode: async c => { fs.writeFileSync(path.join(w.run, c.files[0]), APP); return { safe: true, files: [] }; },
       verify: async () => false,
     }));
-    expect(r).toMatchObject({ kind: 'stopped', offer: true, attempt: `refs/sdlc-attempt/${BRANCH}` });
+    // A failed check is not a conflict the user can answer for: no follow-up item is offered, a retry is the next step.
+    expect(r).toMatchObject({ kind: 'stopped', offer: false, checkFailed: true, attempt: `refs/sdlc-attempt/${BRANCH}` });
     expect(g(w.run, 'rev-parse', 'HEAD')).toBe(before);
     expect(w.remoteSha()).toBe(remoteBefore);
     expect(leasePushes(w.git)).toEqual([]);
@@ -386,5 +387,175 @@ describe('helpers', () => {
     expect(parseResolverReport('VERDICT: DOUBT\nDOUBT: which b wins?\n')).toMatchObject({ safe: false, doubt: 'which b wins?' });
     expect(parseResolverReport('VERDICT: SAFE\nDOUBT: hmm\n').safe).toBe(false);
     expect(parseResolverReport('')).toMatchObject({ safe: false, doubt: 'the resolver wrote no verdict' });
+  });
+});
+
+describe('a stop in plain words', () => {
+  const resolved = [{ file: 'src/a.ts', commit: 'abc1234', kind: 'code' as const, why: 'kept both' }, { file: 'src/b.ts', commit: 'abc1234', kind: 'code' as const, why: 'kept both' }];
+  const stop = (o: Record<string, unknown>) => ({ kind: 'stopped' as const, reason: 'the check failed on the rebased branch', offer: false, resolved, ...o });
+
+  test('a failed check says what failed, that nothing changed, and to try again', () => {
+    const check = parseTestsLog('ai-sdlc-helper (vitest): 912 passed, 1 failed, 0 skipped\n  FAIL  test/x.test.ts :: it does a thing\n      Error: boom\n', 'logs/tests.log');
+    expect(check).toEqual({ log: 'logs/tests.log', passed: 912, failed: 1, names: ['test/x.test.ts :: it does a thing'] });
+    const lines = plainStop(stop({ checkFailed: true }), check);
+    expect(lines[0]).toBe('What happened: Fixed the conflicts in 2 files, then the test check failed: 1 test failed, 912 passed (test/x.test.ts :: it does a thing). Nothing was pushed.');
+    expect(lines[1]).toContain('exactly as they were');
+    expect(lines.join('\n')).toContain('press Resolve conflicts to try again, open logs/tests.log');
+    expect(lines.join('\n')).not.toMatch(/follow-up|rebas|lease|refs\//);
+  });
+
+  test('a test run that produced no report is said to have not finished, not to have failed a test', () => {
+    const check = parseTestsLog('ai-sdlc-helper (vitest): 0 passed, 0 failed, 0 skipped, 1 file errors\n  command: npx vitest\n  ERROR (unknown file): failed to run\n      no report\n', 'logs/tests.log');
+    expect(check).toMatchObject({ passed: 0, failed: 0, names: [], didNotRun: true });
+    const lines = plainStop(stop({ checkFailed: true }), check);
+    expect(lines[0]).toBe('What happened: Fixed the conflicts in 2 files, but the test run itself did not finish (it produced no report). Nothing was pushed.');
+    expect(lines[2]).toContain('nothing says the merge is wrong');
+    expect(parseTestsLog('ai-sdlc-helper (vitest): 912 passed, 1 failed, 0 skipped, 0 file errors\n', 'l').didNotRun).toBeUndefined();
+  });
+
+  test('a doubt names the files and the question; the report leads with the plain words and keeps the git details below', () => {
+    const r = stop({ reason: 'the conflict in src/a.ts could break this task', offer: true, conflict: { commit: { sha: 'abc1234def', subject: 'feat: x' }, files: ['src/a.ts'], doubt: 'one() is commented two ways', sides: [] }, attempt: 'refs/sdlc-attempt/b' });
+    const lines = outcomeLines(r);
+    expect(lines[0]).toBe('What happened: the agent was not sure how to combine the changes in src/a.ts: one() is commented two ways. Nothing was pushed.');
+    expect(lines.indexOf('Details:')).toBeGreaterThan(3);
+    expect(lines.slice(lines.indexOf('Details:'))).toContain('The rebased attempt is kept at refs/sdlc-attempt/b; the branch is back where it was.');
+  });
+
+  test('a stop that cannot go on says why and what to fix; a log without counts still lists nothing wrong', () => {
+    expect(plainStop(stop({ reason: 'b has uncommitted changes: commit or discard them first', resolved: [] }))[0])
+      .toBe('What happened: B has uncommitted changes: commit or discard them first. Nothing was pushed.');
+    expect(parseTestsLog('no counts here', 'logs/integration.log')).toEqual({ log: 'logs/integration.log', names: [] });
+  });
+});
+
+describe('the independent review of a doubt', () => {
+  test('the last verdict line counts; no verdict means UNSAFE; UNSAFE is not read as SAFE', () => {
+    expect(reviewVerdict('reasons\nVERDICT: SAFE\n')).toBe('SAFE');
+    expect(reviewVerdict('VERDICT: SAFE\nbut then I found a problem\nVERDICT: UNSAFE')).toBe('UNSAFE');
+    expect(reviewVerdict('verdict: unsafe')).toBe('UNSAFE');
+    expect(reviewVerdict('looks fine to me')).toBe('UNSAFE');
+    expect(reviewVerdict('')).toBe('UNSAFE');
+  });
+
+  test('only all of the reviewers SAFE overrides the doubt', () => {
+    expect(unanimouslySafe(['SAFE', 'SAFE', 'SAFE'], 3)).toBe(true);
+    expect(unanimouslySafe(['SAFE', 'SAFE', 'UNSAFE'], 3)).toBe(false);
+    expect(unanimouslySafe(['SAFE', 'SAFE'], 3)).toBe(false);
+    expect(unanimouslySafe(['SAFE'], 1)).toBe(true);
+    expect(unanimouslySafe([], 0)).toBe(false);
+  });
+
+  test('the number of reviewers is 3 unless set, 0 to 5, and 0 leaves the doubt to the developer', () => {
+    expect(reviewerCount({})).toBe(3);
+    expect(reviewerCount({ SDLC_RESOLVE_REVIEWERS: '' })).toBe(3);
+    expect(reviewerCount({ SDLC_RESOLVE_REVIEWERS: 'many' })).toBe(3);
+    expect(reviewerCount({ SDLC_RESOLVE_REVIEWERS: '1' })).toBe(1);
+    expect(reviewerCount({ SDLC_RESOLVE_REVIEWERS: '5' })).toBe(5);
+    expect(reviewerCount({ SDLC_RESOLVE_REVIEWERS: '9' })).toBe(5);
+    expect(reviewSkipped({ SDLC_RESOLVE_REVIEWERS: '0' })).toBe(true);
+    expect(reviewSkipped({ SDLC_RESOLVE_REVIEWERS: '2' })).toBe(false);
+  });
+
+  test('SDLC_RESOLVE_REVIEW turns it off', () => {
+    expect(reviewSkipped({})).toBe(false);
+    expect(reviewSkipped({ SDLC_RESOLVE_REVIEW: '0' })).toBe(true);
+    expect(reviewSkipped({ SDLC_RESOLVE_REVIEW: 'off' })).toBe(true);
+    expect(reviewSkipped({ SDLC_RESOLVE_REVIEW: '1' })).toBe(false);
+  });
+});
+
+describe('reviewers must not share a model', () => {
+  test('reviewers on the same agent and model are named; different ones are fine', () => {
+    expect(sharedReviewers(['claude:opus', 'claude:sonnet', 'claude:haiku'])).toEqual([]);
+    expect(sharedReviewers(['claude:opus', 'claude:sonnet', 'claude:opus'])).toEqual([{ model: 'claude:opus', reviewers: [1, 3] }]);
+    expect(sharedReviewers(['codex:gpt-6.1-sol', 'claude:opus', 'codex:gpt-6.1-sol', 'claude:opus'])).toHaveLength(2);
+    expect(sharedReviewersText(['claude:opus', 'claude:sonnet', 'claude:opus'])).toBe('reviewers 1 and 3 use the same model (claude:opus)');
+    expect(sharedReviewersText(['claude:opus', 'agy:gemini-3.8-flash-medium'])).toBe('');
+  });
+});
+
+describe('fixing the merged result', () => {
+  /** A conflict the resolver settles whose check then fails: the attempt is kept and the branch is back where it was. */
+  async function failedCheck() {
+    const w = world({ 'src/app.ts': APP.replace('b = 2', 'b = 20 // the task') });
+    w.mergeIntoMain({ 'src/app.ts': APP.replace('b = 2', 'b = 200 // merged work') });
+    const before = g(w.run, 'rev-parse', 'HEAD');
+    const r = await resolveConflicts(w.opts({
+      resolveCode: async c => { fs.writeFileSync(path.join(w.run, c.files[0]), APP); return { safe: true, files: [] }; },
+      verify: async () => false,
+    }));
+    expect(r).toMatchObject({ kind: 'stopped', checkFailed: true });
+    return { w, record: path.join(w.root, 'record.json'), before, attempt: g(w.run, 'rev-parse', `refs/sdlc-attempt/${BRANCH}`) };
+  }
+
+  test('the kept attempt becomes the branch; the stage then checks it and pushes it with the lease, without rebasing again', async () => {
+    const { w, record, before, attempt } = await failedCheck();
+    const remoteBefore = w.remoteSha();
+    expect(g(w.run, 'rev-parse', 'HEAD')).toBe(before);
+
+    const a = adoptAttempt(w.git, BRANCH, record);
+    expect(a).toMatchObject({ ok: true, attempt, before, remoteSha: remoteBefore });
+    expect(g(w.run, 'rev-parse', 'HEAD')).toBe(attempt);
+    expect(w.remoteSha()).toBe(remoteBefore);
+
+    // what Implement adds on top of the merged result
+    commit(w.run, { 'src/fix.ts': 'export const fixed = true;\n' }, 'fix(task): repair the merged result');
+    w.git.calls.length = 0;
+    const verify = vi.fn(async () => true);
+    const r = await resolveConflicts(w.opts({ adopted: { remoteSha: remoteBefore }, verify }));
+    expect(r).toMatchObject({ kind: 'pushed', pushes: 1 });
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(r).toMatchObject({ resolved: [] });
+    expect(spawnSync('git', ['merge-base', '--is-ancestor', attempt, 'HEAD'], { cwd: w.run, env: ENV }).status).toBe(0);
+    expect(w.remoteSha()).toBe(g(w.run, 'rev-parse', 'HEAD'));
+    expect(g(w.remote, 'show', `${BRANCH}:src/fix.ts`)).toContain('fixed');
+    expect(leasePushes(w.git)[0]).toContain(`--force-with-lease=${BRANCH}:${remoteBefore}`);
+    noBareForce(w.git);
+  });
+
+  test('a remote that moved since, or no adoption mark, still stops: a branch that diverged is never rewritten', async () => {
+    const { w, record } = await failedCheck();
+    const remoteBefore = w.remoteSha();
+    adoptAttempt(w.git, BRANCH, record);
+    const plain = await resolveConflicts(w.opts({ verify: async () => true }));
+    expect(plain).toMatchObject({ kind: 'stopped', offer: false });
+    const stale = await resolveConflicts(w.opts({ adopted: { remoteSha: 'deadbeef' }, verify: async () => true }));
+    expect(stale).toMatchObject({ kind: 'stopped' });
+    expect(leasePushes(w.git)).toEqual([]);
+    expect(w.remoteSha()).toBe(remoteBefore);
+  });
+
+  test('the adoption is refused when the branch moved, there is no attempt or the record is missing; nothing changes', async () => {
+    const { w, record } = await failedCheck();
+    expect(adoptAttempt(w.git, BRANCH, path.join(w.root, 'nothing.json'))).toMatchObject({ ok: false, reason: expect.stringContaining('record') });
+    commit(w.run, { 'src/more.ts': 'x\n' }, 'feat(task): more');
+    const head = g(w.run, 'rev-parse', 'HEAD');
+    expect(adoptAttempt(w.git, BRANCH, record)).toMatchObject({ ok: false, reason: expect.stringContaining('has moved since the attempt') });
+    expect(g(w.run, 'rev-parse', 'HEAD')).toBe(head);
+    const clean = world();
+    expect(adoptAttempt(clean.git, BRANCH, path.join(clean.root, 'record.json'))).toMatchObject({ ok: false, reason: expect.stringContaining('no kept attempt') });
+  });
+
+  test('the failure Implement is given names the tests, the end of the log and what was merged; the files of failing tests are found', () => {
+    const check = { log: 'logs/tests.log', passed: 10, failed: 1, names: ['test/a.test.ts :: it counts stages'], baseline: 'passes' as const };
+    const text = mergeFailureText({ slug: 'task', base: 'main', check, logTail: 'AssertionError: expected 8 to be 12', merged: [{ sha: 'abc1234def', subject: 'feat(other): other work (#7)' }] });
+    expect(text).toContain('(10 passed, 1 failed)');
+    expect(text).toContain('the merge caused the failure');
+    expect(text).toContain('- test/a.test.ts :: it counts stages');
+    expect(text).toContain('AssertionError: expected 8 to be 12');
+    expect(text).toContain('- abc1234 feat(other): other work (#7)');
+    expect(failingTestFiles(['test/a.test.ts :: x', 'test/a.test.ts :: y', 'gone.test.ts :: z'], f => f === 'test/a.test.ts')).toEqual(['test/a.test.ts']);
+  });
+
+  test('the report offers Fix with Implement only when the attempt is kept, and says when the base fails the same tests', () => {
+    const stopped = { kind: 'stopped' as const, reason: 'the check failed on the rebased branch', offer: false, resolved: [], checkFailed: true, attempt: 'refs/sdlc-attempt/b' };
+    const names = ['t :: x'];
+    const fixable = plainStop(stopped, { log: 'logs/tests.log', passed: 5, failed: 1, names, baseline: 'passes' }).join('\n');
+    expect(fixable).toContain('pass on the base branch alone');
+    expect(fixable).toContain('Fix with Implement');
+    const onBase = plainStop(stopped, { log: 'logs/tests.log', passed: 5, failed: 1, names, baseline: 'fails' }).join('\n');
+    expect(onBase).toContain('also fail on the base branch');
+    expect(onBase).not.toContain('Fix with Implement');
+    expect(plainStop({ ...stopped, attempt: undefined }, { log: 'l', names: [] }).join('\n')).not.toContain('Fix with Implement');
   });
 });

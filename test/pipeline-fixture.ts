@@ -28,6 +28,7 @@ case "$prompt" in
   "You are a QA Engineer"*) stage=red-tests ;; "You are a Senior TDD Developer"*) stage=implement ;;
   "You are a Test Repair Agent"*) stage=test-repair ;; "You are an independent, skeptical Test Auditor"*) stage=test-audit ;;
   "You are a code reviewer"*) stage=review ;;
+  "You are an independent, skeptical Conflict Reviewer"*) stage=resolve-review ;; "You are the Conflict Review Judge"*) stage=resolve-judge ;;
 esac
 printf '== %s\\n%s\\n' "$stage" "$prompt" >> "$FAKE_DIR/prompts.txt"
 printf '%s\\n' "\${args[@]}" > "$FAKE_DIR/args-$stage.txt"

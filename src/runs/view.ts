@@ -3,6 +3,7 @@
 // writes, except answerQuestions.
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { exists } from '../util.js';
 import { backlogItems, type BacklogItem } from '../backlog/index.js';
 import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.js';
@@ -76,6 +77,8 @@ export interface RunView {
   hasPrComments?: boolean;
   /** The last start can be undone: what it started from and when. */
   undo?: { from: string; at: string } | null;
+  /** The last Resolve conflicts stopped on a failed check and its merged result is kept: "Fix with Implement" can repair it. */
+  mergeFix?: boolean;
   testIssues?: string | null;
   recovery?: StageRecovery | null;
   /** What each agent round did (logs/attempts.jsonl), with its warnings; empty before the first round. */
@@ -233,6 +236,16 @@ export function clearGitFacts(worktree?: string, slug?: string): void {
   if (worktree && slug) gitCache.delete(`${worktree}::${slug}`); else gitCache.clear();
 }
 
+/** The kept merged result (refs/sdlc-attempt/<branch>) of the last Resolve conflicts, with the branch still where that attempt started. */
+function mergeFixKept(worktree: string | null, branch: string, logs: string): boolean {
+  if (!worktree || !fs.existsSync(worktree)) return false;
+  try {
+    const rec = JSON.parse(fs.readFileSync(path.join(logs, 'resolve-conflicts.json'), 'utf8')) as { before?: string };
+    const git = (...a: string[]) => spawnSync('git', ['-C', worktree, ...a], { encoding: 'utf8' });
+    return git('rev-parse', '--verify', '-q', `refs/sdlc-attempt/${branch}`).status === 0 && !!rec.before && git('rev-parse', 'HEAD').stdout.trim() === rec.before;
+  } catch { return false; }
+}
+
 /**
  * The git facts of a run from the cache, read again when the run's stage, attempt or state changed (the key), when a
  * running run's facts are older than 30 s, or when <refresh> is set. Returns the facts and their age (null: just read).
@@ -364,6 +377,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
     })(),
     hasPrComments: fs.existsSync(path.join(docsDir, 'pr-comments.md')),
     undo: (() => { const c = readCheckpoint(ctx, slug); return c ? { from: c.from, at: c.at } : null; })(),
+    mergeFix: stage === 'Resolve conflicts' && ['failed', 'paused'].includes(state) ? mergeFixKept(worktree, rec?.branch || `${ctx.branchPrefix}${slug}`, logs) : false,
     ciSummary: ciSummaryOf(readText(path.join(docsDir, 'ci-failure.md')) || ''),
     // A round still marked running when the run is not running it (or runs another agent) was cut short.
     attempts: readRounds(logs).map(r => (r.running && !(state === 'running' && (s.agent || '') === r.agent) ? { ...r, running: false, warnings: [...r.warnings, 'the round did not finish: the run stopped'] } : r)),

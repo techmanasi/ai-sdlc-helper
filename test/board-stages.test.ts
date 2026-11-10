@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { awaitsMerge, resolveShown, showTestIssues, testRepairStarted } from '../web/ui/src/stages.js';
+import { awaitsMerge, linkPaths, resolveShown, showTestIssues, testRepairStarted } from '../web/ui/src/stages.js';
 
 const pr = (state: 'OPEN' | 'MERGED' | 'CLOSED' | null) => ({ url: 'https://github.com/o/r/pull/85', state, number: 85, checkedAt: null, failed: false });
 
@@ -49,5 +49,18 @@ describe('the test defect claims panel', () => {
     expect(showTestIssues(view({ docs: ['test-issues.md', 'test-repair-1.md'] }))).toBe(false);
     expect(showTestIssues(view({ testIssues: null }))).toBe(false);
     expect(testRepairStarted(view())).toBe(false);
+  });
+});
+
+describe('paths in a question', () => {
+  const docs = ['brief.md', 'logs/resolve-conflicts.md', 'logs/resolve-conflict-followup.md'];
+  test('a path written from the repository root or from the task folder becomes a link; unknown files stay text', () => {
+    const text = 'stopped (see docs/backlog/ci-full-suite-gate/logs/resolve-conflicts.md). The draft is logs/resolve-conflict-followup.md; add it to docs/backlog/index.md.';
+    expect(linkPaths(text, docs, 'ci-full-suite-gate')).toEqual([
+      'stopped (see ', { path: 'logs/resolve-conflicts.md' }, '). The draft is ', { path: 'logs/resolve-conflict-followup.md' }, '; add it to docs/backlog/index.md.',
+    ]);
+  });
+  test('text without a known file is returned whole', () => {
+    expect(linkPaths('nothing here', docs, 'x')).toEqual(['nothing here']);
   });
 });

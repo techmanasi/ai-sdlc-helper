@@ -24,3 +24,24 @@ export function testRepairStarted(v: { stage: string; state: string; stageFiles:
 export function showTestIssues(v: { testIssues?: string | null; stage: string; state: string; stageFiles: Record<string, string[]>; docs: string[] }): boolean {
   return v.testIssues !== undefined && v.testIssues !== null && !testRepairStarted(v);
 }
+
+/**
+ * Splits a question's text into plain text and the paths of this task's files (as the viewer knows them: relative to the task folder),
+ * so a path written as docs/backlog/<slug>/logs/x.md or logs/x.md can open in the viewer. Only files in `docs` become links.
+ */
+export function linkPaths(text: string, docs: string[], slug: string): Array<string | { path: string }> {
+  const known = new Set(docs);
+  const parts: Array<string | { path: string }> = [];
+  let last = 0;
+  for (const m of text.matchAll(/(?:[\w.-]+\/)*[\w.-]+\.(?:md|json|log|out|txt|diff)/g)) {
+    const raw = m[0];
+    const at = raw.indexOf(`/${slug}/`);
+    const path = [raw, at >= 0 ? raw.slice(at + slug.length + 2) : ''].find(c => c && known.has(c));
+    if (!path) continue;
+    if (m.index! > last) parts.push(text.slice(last, m.index));
+    parts.push({ path });
+    last = m.index! + raw.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}

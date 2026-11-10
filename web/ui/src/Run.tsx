@@ -2,7 +2,7 @@
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, type RunView, type SettingsView } from './api';
-import { resolveShown, showTestIssues } from './stages';
+import { linkPaths, showTestIssues } from './stages';
 import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
 import { defaultPick, resumeCommand, resumeOptions } from './resume';
@@ -320,6 +320,46 @@ export function Run({ slug }: { slug: string }) {
   // The recovery card's Auto action already resumes at this stage: one button for it, not two.
   const autoStage = v.recovery?.autoAction?.command.match(/--from (\S+)/)?.[1];
   const primaryDuplicated = !!v.recovery && ['paused', 'failed'].includes(v.state) && autoStage === resumeKey;
+  // The reviewers of a resolution the agent doubts: how many (0 to 5, 3 by default), and each one's agent, model and effort.
+  const reviewerConfig = () => {
+    const count = /^\d+$/.test(envObj.SDLC_RESOLVE_REVIEWERS || '') ? Math.min(5, Number(envObj.SDLC_RESOLVE_REVIEWERS)) : 3;
+    // Each reviewer needs its own agent and model: what every reviewer runs with, as "<agent>:<model>".
+    const keyOf = (stage: string) => {
+      const st = catalog?.config?.agent?.stages?.[stage];
+      const agent = envObj[AGENT_ENV(stage)] || st?.harness || catalog?.config?.agent?.harness || 'claude';
+      const model = envObj[envKey('MODEL', stage)] || st?.model || (agent === (catalog?.config?.agent?.harness || 'claude') ? catalog?.stageDefaults?.[stage]?.model : '') || '(default)';
+      return `${agent}:${model}`;
+    };
+    const keys = Array.from({ length: count }, (_, i) => keyOf(`resolve-review-${i + 1}`));
+    const clash = keys.map((k, i) => (keys.indexOf(k) !== i || keys.lastIndexOf(k) !== i ? i + 1 : 0)).filter(Boolean);
+    return (
+      <div class="col" style={{ gap: '6px' }}>
+        <label class="row small" style={{ gap: '6px', alignItems: 'center' }}>
+          <span>Independent reviewers when the agent is unsure</span>
+          <select class="sel" aria-label="number of reviewers" disabled={running} value={String(count)} onChange={e => setEnvVar('SDLC_RESOLVE_REVIEWERS', (e.target as HTMLSelectElement).value === '3' ? '' : (e.target as HTMLSelectElement).value)}>
+            {[0, 1, 2, 3, 4, 5].map(n => <option value={String(n)}>{n === 0 ? 'none: ask me' : n === 3 ? '3 (default)' : String(n)}</option>)}
+          </select>
+        </label>
+        <span class="small muted">The doubt is overridden only when all of them find the resolution safe; otherwise a judge agent sums up their opinions for you.</span>
+        {Array.from({ length: count }, (_, i) => (
+          <div class="row small" style={{ gap: '6px', alignItems: 'center' }}>
+            <span class="muted" style={{ minWidth: '70px' }}>Reviewer {i + 1}</span>
+            {running ? <span class="mono muted">{v.models[`resolve-review-${i + 1}`] ? `${v.models[`resolve-review-${i + 1}`].model} · ${v.models[`resolve-review-${i + 1}`].effort}` : 'default'}</span> : stagePickers({ key: `resolve-review-${i + 1}`, name: `Reviewer ${i + 1}`, taken: keys.filter((_, j) => j !== i) })}
+          </div>
+        ))}
+        {clash.length > 0 && <span class="small s-failed">Reviewers {clash.join(', ')} share an agent and model, so none of them would be asked. Give each its own: pick another model or agent.</span>}
+        {count > 0 && (
+          <div class="row small" style={{ gap: '6px', alignItems: 'center' }}>
+            <span class="muted" style={{ minWidth: '70px' }}>Judge</span>
+            {running ? <span class="mono muted">{v.models['resolve-judge'] ? `${v.models['resolve-judge'].model} · ${v.models['resolve-judge'].effort}` : 'default'}</span> : stagePickers({ key: 'resolve-judge', name: 'Judge' })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const rcState = states[STAGES.length - 1];
+  const showResolve = !!v.pr && v.prState !== 'MERGED' && (v.prConflicts === 'conflicting' || rcState === 'active' || rcState === 'failed' || rcState === 'paused');
   const runOptionSummary = [
     envObj.SDLC_AUTO_ACCEPT === '1' && 'auto-accept',
     envObj.SDLC_FORCE_AGENT && `agent ${envObj.SDLC_FORCE_AGENT}`,
@@ -330,6 +370,29 @@ export function Run({ slug }: { slug: string }) {
   const editorLink = v.worktree ? `vscode://file${v.worktree.startsWith('/') ? '' : '/'}${v.worktree}` : '';
   const openFile = async (p: string) => { try { setFile({ path: p, text: (await api.file(project, slug, p)).text }); } catch (e) { toast((e as Error).message); } };
   const docTree = useMemo(() => (v ? buildDocTree(v.docs) : []), [v?.docs.join('|')]);
+
+  const stagePickers = ({ key, name, taken }: { key: string; name: string; /** "<agent>:<model>" choices other stages already hold: not offered again. */ taken?: string[] }) => {
+    const inUse = v.models[key];
+    return (
+      <div class="row" style={{ gap: '4px' }}>
+        {catalog && (
+          <select class="sel" aria-label={`${name} agent`} value={envObj[AGENT_ENV(key)] || ''} onChange={e => {
+            setEnvVar(AGENT_ENV(key), (e.target as HTMLSelectElement).value);
+            setEnvVar(envKey('MODEL', key), '');
+          }}>
+            <option value="">{(() => { const h = catalog.config?.agent?.stages?.[key]?.harness || catalog.config?.agent?.harness; return h ? `default (${h})` : 'agent'; })()}</option>
+            {unique(catalog.harnesses).map(h => <option value={h}>{h}</option>)}
+          </select>
+        )}
+        <select class="sel" aria-label={`${name} model`} value={envObj[envKey('MODEL', key)] || ''} onChange={e => setEnvVar(envKey('MODEL', key), (e.target as HTMLSelectElement).value)}>
+          {unique(['', ...(catalog ? (catalog.models[envObj[AGENT_ENV(key)] || catalog.config?.agent?.stages?.[key]?.harness || catalog.config?.agent?.harness || 'claude'] || []).map(m => m.id) : MODELS.slice(1))]).map(m => <option value={m} disabled={!!m && m !== (envObj[envKey('MODEL', key)] || '') && !!taken?.includes(`${envObj[AGENT_ENV(key)] || catalog?.config?.agent?.stages?.[key]?.harness || catalog?.config?.agent?.harness || 'claude'}:${m}`)}>{m || (inUse && inUse.model ? `default (${inUse.model})` : 'default')}</option>)}
+        </select>
+        <select class="sel" aria-label={`${name} effort`} value={envObj[envKey('EFFORT', key)] || ''} onChange={e => setEnvVar(envKey('EFFORT', key), (e.target as HTMLSelectElement).value)}>
+          {unique(EFFORTS).map(m => <option value={m}>{m || (inUse && inUse.effort ? `default (${inUse.effort})` : 'default')}</option>)}
+        </select>
+      </div>
+    );
+  };
 
   return (
     <div class="col">
@@ -445,6 +508,7 @@ export function Run({ slug }: { slug: string }) {
               />
               <span>Auto-accept suggested answers (Spec, Plan, Triage)</span>
             </label>
+            {catalog && <details class="small"><summary style={{ cursor: 'pointer' }}>Resolve conflicts: reviewers when the agent is unsure</summary><div style={{ marginTop: '6px' }}>{reviewerConfig()}</div></details>}
             {catalog && !running && (
               <div class="row" style={{ alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                 <span class="small muted">This run, every stage:</span>
@@ -485,19 +549,12 @@ export function Run({ slug }: { slug: string }) {
       {envArgs.length > 0 && <p class="mono small muted" style={{ margin: 0 }}>with {envArgs.join(' ')}</p>}
       {v.discarded && <p class="small muted" style={{ margin: 0 }}>Discarded before. To get that branch back: <span class="mono">{v.discarded}</span></p>}
 
-      <Panel title="Stages" extra={<div class="row" style={{ gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <span class="small muted">A stage's model and effort apply when the run starts or resumes (MODEL_&lt;STAGE&gt;, EFFORT_&lt;STAGE&gt;). Changing them while it runs: <Future id="E-2" /></span>
-        <label class="row small" style={{ gap: '6px', alignItems: 'center', cursor: running ? 'not-allowed' : 'pointer' }}>
-          <input type="checkbox" checked={envObj.SDLC_RESOLVE_CONFLICTS !== '0'} disabled={running}
-            onChange={e => setEnvVar('SDLC_RESOLVE_CONFLICTS', (e.target as HTMLInputElement).checked ? '' : '0')} />
-          <span>Resolve conflicts automatically after Finalise</span>
-        </label>
-      </div>}>
+      <Panel title="Stages" extra={<span class="small muted">A stage's agent, model and effort apply when the run starts or resumes (MODEL_&lt;STAGE&gt;, EFFORT_&lt;STAGE&gt;). Changing them while it runs: <Future id="E-2" /></span>}>
         <div class="rail-scroll">
           <div class="rail">
             {STAGES.map((s, i) => {
-              if (s.key === 'resolve-conflicts') return null;
               const st = states[i];
+              if (s.key === 'resolve-conflicts') return null;
               const inUse = s.key && v.models[s.key];
               const locked = running && st !== 'pending';
               return (
@@ -516,6 +573,11 @@ export function Run({ slug }: { slug: string }) {
                   {s.key === 'finalise' && (
                     <div class="col" style={{ gap: '4px' }}>
                       <span class="small muted">no agent · commits files</span>
+                      <label class="row small" style={{ gap: '6px', alignItems: 'center', cursor: running ? 'not-allowed' : 'pointer' }} title="After Finalise pushes, bring the branch up to date with the base; the agent only runs if they conflict. Conflicts found later wait for you in the Pull Request panel.">
+                        <input type="checkbox" checked={envObj.SDLC_RESOLVE_CONFLICTS !== '0'} disabled={running}
+                          onChange={e => setEnvVar('SDLC_RESOLVE_CONFLICTS', (e.target as HTMLInputElement).checked ? '' : '0')} />
+                        <span>Resolve PR Conflicts</span>
+                      </label>
                       {v.pr ? (
                         <div class="row" style={{ gap: '4px', alignItems: 'center' }}>
                           <a href={v.pr} target="_blank" rel="noreferrer" class="small s-done mono" style={{ textDecoration: 'underline' }}>View PR ↗</a>
@@ -548,23 +610,7 @@ export function Run({ slug }: { slug: string }) {
                   {s.key && s.key !== 'finalise' && (locked || running
                     ? <span class="mono small muted">{inUse ? `${inUse.model} · ${inUse.effort}` : 'default'}{st === 'active' ? ' · in use' : ''}</span>
                     : (
-                      <div class="row" style={{ gap: '4px' }}>
-                        {catalog && (
-                          <select class="sel" aria-label={`${s.name} agent`} value={envObj[AGENT_ENV(s.key)] || ''} onChange={e => {
-                            setEnvVar(AGENT_ENV(s.key), (e.target as HTMLSelectElement).value);
-                            setEnvVar(envKey('MODEL', s.key), '');
-                          }}>
-                            <option value="">{(() => { const h = catalog.config?.agent?.stages?.[s.key]?.harness || catalog.config?.agent?.harness; return h ? `default (${h})` : 'agent'; })()}</option>
-                            {unique(catalog.harnesses).map(h => <option value={h}>{h}</option>)}
-                          </select>
-                        )}
-                        <select class="sel" aria-label={`${s.name} model`} value={envObj[envKey('MODEL', s.key)] || ''} onChange={e => setEnvVar(envKey('MODEL', s.key), (e.target as HTMLSelectElement).value)}>
-                          {unique(['', ...(catalog ? (catalog.models[envObj[AGENT_ENV(s.key)] || catalog.config?.agent?.stages?.[s.key]?.harness || catalog.config?.agent?.harness || 'claude'] || []).map(m => m.id) : MODELS.slice(1))]).map(m => <option value={m}>{m || (inUse && inUse.model ? `default (${inUse.model})` : 'default')}</option>)}
-                        </select>
-                        <select class="sel" aria-label={`${s.name} effort`} value={envObj[envKey('EFFORT', s.key)] || ''} onChange={e => setEnvVar(envKey('EFFORT', s.key), (e.target as HTMLSelectElement).value)}>
-                          {unique(EFFORTS).map(m => <option value={m}>{m || (inUse && inUse.effort ? `default (${inUse.effort})` : 'default')}</option>)}
-                        </select>
-                      </div>
+                      stagePickers(s)
                     ))}
                   {s.key === 'test-repair' && v.models['test-audit'] && <span class="mono small muted">audit: {v.models['test-audit'].model} · {v.models['test-audit'].effort}</span>}
                   {v.stageFiles[s.name] && <span class="small muted">{v.stageFiles[s.name].length} files</span>}
@@ -590,7 +636,7 @@ export function Run({ slug }: { slug: string }) {
                 {v.questions.map(q => (
                   <div class="col" style={{ gap: '6px' }}>
                     <strong>Q{q.n} · {q.title}</strong>
-                    {q.body && <span class="small muted">{q.body}</span>}
+                    {q.body && <span class="small muted">{linkPaths(q.body, v.docs, slug).map(x => typeof x === 'string' ? x : <a href={`#${x.path}`} class="mono" onClick={e => { e.preventDefault(); openFile(x.path); }}>{x.path}</a>)}</span>}
                     {q.suggested && <span class="small">Suggested: <span class="s-done">{q.suggested}</span></span>}
                     <div class="row" style={{ alignItems: 'flex-start' }}>
                       <button class="btn btn-s" type="button" onClick={() => setAnswers(a => ({ ...a, [q.n]: 'accept' }))}>Use suggested</button>
@@ -793,6 +839,7 @@ export function Run({ slug }: { slug: string }) {
             >
               <div class="pb col" style={{ gap: '10px' }}>
                 {v.pr ? (
+                  <div class={showResolve ? 'pr-split' : ''}>
                   <div class="col" style={{ gap: '6px' }}>
                     <div class="row" style={{ gap: '8px', alignItems: 'center' }}>
                       <span class="muted small">Link:</span>
@@ -807,6 +854,7 @@ export function Run({ slug }: { slug: string }) {
                         summary={v.ciSummary || []}
                         conflicts={v.prConflicts}
                         busy={busy === 'Restart Implement with the CI failure'}
+                        disabled={running}
                         onFix={() => act('Restart Implement with the CI failure', async () => {
                           const f = await api.ciFix(project, slug, envObj);
                           toast(f.resumed.ok ? 'Implement restarted with the CI failure' : (f.resumed.err.join(' ') || 'Could not start Implement'));
@@ -824,7 +872,7 @@ export function Run({ slug }: { slug: string }) {
                         ✔ Pull Request is merged into base!
                       </div>
                     )}
-                    {v.prState !== 'MERGED' && (v.hasPrComments || v.prConflicts === 'conflicting' || (resolveShown(v) && states[STAGES.length - 1] === 'active')) && (
+                    {v.prState !== 'MERGED' && v.hasPrComments && (
                       <div class="row" style={{ gap: '8px', alignItems: 'center', marginTop: '4px', flexWrap: 'wrap' }}>
                         {v.hasPrComments && (
                           <>
@@ -841,20 +889,46 @@ export function Run({ slug }: { slug: string }) {
                             </button>
                           </>
                         )}
-                        {v.prConflicts === 'conflicting' && (
+                      </div>
+                    )}
+                  </div>
+                  {showResolve && (
+                    <section class="col resolve-block" aria-label="Resolve conflicts" style={{ gap: '8px' }}>
+                      <strong class={STAGE_CLASS[rcState]}>{rcState === 'active' ? <Spinner /> : STAGE_GLYPH[rcState]} Resolve conflicts</strong>
+                      <span class="small muted">
+                        {v.prConflicts === 'conflicting' ? 'This PR conflicts with the base.' : 'Brings the branch up to date with the base.'} The agent rebases the branch, resolves the conflicts, runs the checks and pushes with --force-with-lease.
+                      </span>
+                      <div class="col" style={{ gap: '4px' }}>
+                        <span class="small muted">Agent · model · effort</span>
+                        {running ? <span class="mono small muted">{v.models['resolve-conflicts'] ? `${v.models['resolve-conflicts'].model} · ${v.models['resolve-conflicts'].effort}` : 'default'}{rcState === 'active' ? ' · in use' : ''}</span> : stagePickers({ key: 'resolve-conflicts', name: 'Resolve conflicts' })}
+                      </div>
+                      <details class="small"><summary style={{ cursor: 'pointer' }}>Reviewers when the agent is unsure</summary><div style={{ marginTop: '6px' }}>{reviewerConfig()}</div></details>
+                      <div class="row" style={{ gap: '8px', alignItems: 'center' }}>
+                        <button
+                          class="btn btn-s btn-p"
+                          type="button"
+                          disabled={running || !!busy}
+                          title="Fetch the base, rebase this run's branch onto it, resolve the conflicts and push with --force-with-lease"
+                          onClick={() => act('Resolve conflicts', () => api.start(project, slug, 'resolve-conflicts', envObj))}
+                        >
+                          {busy === 'Resolve conflicts' ? <><Spinner /> Starting…</> : rcState === 'failed' || rcState === 'paused' ? 'Resolve conflicts again' : 'Resolve conflicts'}
+                        </button>
+                        {rcState === 'active' && <span class="small s-running"><Spinner /> Resolving…</span>}
+                        {v.mergeFix && !running && (
                           <button
                             class="btn btn-s btn-p"
                             type="button"
-                            disabled={running || !!busy}
-                            title="Fetch the base, rebase this run's branch onto it, resolve the conflicts and push with --force-with-lease"
-                            onClick={() => act('Resolve conflicts', () => api.start(project, slug, 'resolve-conflicts', envObj))}
+                            disabled={!!busy}
+                            title="The merge was fixed but its tests fail. The agent repairs the merged result with the failing tests as context; Test repair and Review still apply, and the result is checked and pushed with the lease at the end."
+                            onClick={() => act('Fix merged result', () => api.start(project, slug, 'implement', { ...envObj, SDLC_ON_ATTEMPT: '1' }))}
                           >
-                            {busy === 'Resolve conflicts' ? <><Spinner /> Starting…</> : states[STAGES.length - 1] === 'failed' || states[STAGES.length - 1] === 'paused' ? 'Resolve conflicts again' : 'Resolve conflicts'}
+                            {busy === 'Fix merged result' ? <><Spinner /> Starting…</> : 'Fix with Implement'}
                           </button>
                         )}
-                        {resolveShown(v) && states[STAGES.length - 1] === 'active' && <span class="small s-running"><Spinner /> Resolving conflicts…</span>}
+                        {v.docs.includes('logs/resolve-conflicts.md') && <button class="btn btn-s" type="button" onClick={() => openFile('logs/resolve-conflicts.md')} title="What the last attempt did, in plain words">Open last report</button>}
                       </div>
-                    )}
+                    </section>
+                  )}
                   </div>
                 ) : (
                   <div class="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>

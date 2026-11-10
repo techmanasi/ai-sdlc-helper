@@ -20,6 +20,13 @@ export const STAGE_DEFAULTS: Record<AgentStage, { model: string; effort: string 
   review: { model: 'opus', effort: 'medium' },
   // only runs on a code or test conflict, where judging both sides' intent matters
   'resolve-conflicts': { model: 'opus', effort: 'medium' },
+  // the independent reviewers of a resolution the agent doubts (3 by default, up to 5): each reviewer needs its own agent and model (the Claude agent has three: opus, sonnet, haiku), so more reviewers need other agents
+  'resolve-review-1': { model: 'opus', effort: 'medium' },
+  'resolve-review-2': { model: 'sonnet', effort: 'medium' },
+  'resolve-review-3': { model: 'haiku', effort: 'medium' },
+  'resolve-review-4': { model: 'sonnet', effort: 'medium' },
+  'resolve-review-5': { model: 'opus', effort: 'medium' },
+  'resolve-judge': { model: 'opus', effort: 'medium' },
 };
 export const EFFORTS: string[] = [...EFFORT_LEVELS];
 
