@@ -82,3 +82,12 @@ Entry format: **Symptom** (what the user sees), **How to tell** (where to look),
 - **How to tell:** `.git/sdlc-runs/<slug>.json` has `pid`, `started` and `from`, not the trigger.
 - **Gap:** record the trigger (button, CLI, or other process).
 - **Status:** open.
+
+## 9. Test repair refuses to run a second time
+
+- **Symptom:** resuming at Test repair stops at once with `REJECT: test repair was already accepted in commit <sha>: use FROM=review`.
+- **How to tell:** `git log --grep="repair invalid tests"` in the task worktree shows a `test(<slug>): repair invalid tests` commit above the red-tests commit. The resume check (`resumecheck` in `src/testcheck/checks.ts`) rejects when it finds one.
+- **Cause:** the check treats any earlier repair commit as "Test repair is done". It does not look at whether the tests are still defective (here: `LINT:` errors in locked test files that appeared after the first repair, for example an unused `vi` import and `no-restricted-imports` in `web/test/`).
+- **What to do:** `FROM=review` does not help, because the test lint defects still fail the gate. Until this is fixed, the test files must be corrected by a person or by a new Test repair run that is allowed past the check.
+- **Gap:** a task can need Test repair twice (after a rebase, or after a lint rule changes). Entry 1 tells the user to resume at Test repair; this check can then refuse it.
+- **Status:** open (seen on `ci-full-suite-gate`, 2026-11-11). Proposed: allow the resume when the lint or test check still reports defects in locked test files, and say so in the message.
