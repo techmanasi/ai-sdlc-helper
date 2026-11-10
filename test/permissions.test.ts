@@ -48,6 +48,13 @@ describe('extract', () => {
     expect(loadState(files.state).pending[0]).toMatchObject({ stage: 'plan', tool: 'Bash', detail: '' });
   });
 
+  test('records an Antigravity read_file denial under its own tool, not as an already allowed Bash command', () => {
+    fs.writeFileSync(files.state, JSON.stringify({ pending: [], allow: ['Bash'], bypass: [], denied: [] }));
+    const agy = JSON.stringify({ status: 'SUCCESS', response: '', denied_actions: [{ action: 'read_file', display_name: 'ReadFile' }] });
+    expect(run(agy, 'implement')).toBe(1);
+    expect(loadState(files.state).pending[0]).toMatchObject({ stage: 'implement', tool: 'read_file', detail: '' });
+  });
+
   test('writes the agent text to the log and records each refused action as pending, once, unless it was already decided', () => {
     const two = () => agentJson([denial('Bash', { command: 'git push origin main' }), denial('Edit', { file_path: `${CWD}/server/app.js` })]);
 

@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { argsProblem } from '../src/cli/args.js';
 import { expandGlob } from '../src/config/globs.js';
 import { testFiles as testFilesOf, testSpec as testSpecOf } from '../src/config/settings.js';
-import { renderSkill } from '../src/config/skills.js';
+import { renderSkill, skillNames } from '../src/config/skills.js';
 import { project, run, tmp } from './helpers.js';
 
 // Suites here carry only the fields under test.
@@ -71,6 +71,17 @@ describe('test files from the settings', () => {
     // settings that cannot be resolved: wording that sends the agent to find out
     expect(renderSkill('demo', project({ 'sdlc.config.json': { backlogDir: 'items' } }), opts))
       .toBe("the project's test files|<the test files>|the project's test command|tests in the style the project already uses|items|sdlc/|GREP");
+  });
+});
+
+describe('the monitor-run skill', () => {
+  test('is shipped, and renders with the project backlog folder and branch prefix filled in', () => {
+    expect(skillNames()).toContain('monitor-run');
+    const dir = project({ 'sdlc.config.json': { ...BESIDE, backlogDir: 'work/items', git: { branchPrefix: 'feature/' } }, 'src/x.ts': '' });
+    const text = renderSkill('monitor-run', dir, { env: { PATH: '/usr/bin:/bin' } })!;
+    expect(text).toContain('feature/<slug>');
+    expect(text).toContain('work/items/<slug>/logs/');
+    expect(text).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 });
 

@@ -261,10 +261,11 @@ export function extract({ jsonFile, logFile, stateFile, stage, cwd, errFile, all
       // Antigravity reports a refused RunCommand as { action, display_name }
       // without the command text. Keep it actionable instead of treating a
       // broad persisted Bash rule as proof that the request was allowed.
-      const agyCommandDenial = a.action === 'command' && !a.tool && !a.command && !a.detail;
-      const tool = String(a.tool || a.tool_name || 'Bash');
+      // Other refused tools (read_file, write_file, …) arrive the same way: the tool is in `action`, never a Bash command.
+      const agyDenial = typeof a.action === 'string' && !a.tool && !a.tool_name && !a.command;
+      const tool = String(a.tool || a.tool_name || (typeof a.action === 'string' && a.action !== 'command' ? a.action : 'Bash'));
       const detail = String(a.detail || a.command || '');
-      rawDenials.push({ tool, detail, input: { command: detail }, unresolved: agyCommandDenial && !detail });
+      rawDenials.push({ tool, detail, input: { command: detail }, unresolved: agyDenial });
     }
   }
 

@@ -10,7 +10,7 @@ import { HARNESS_IDS, allowedTools, layout, resolve, type HarnessName } from '..
 import { snapshot } from '../changes/index.js';
 import { repoRulesFile } from '../permissions/index.js';
 import { Keys, testLayout } from '../testcheck/keys.js';
-import { AGENT_STAGES, Exit, FROM_STAGES, SetupError, stop, tick, type Ctx, type From } from './context.js';
+import { AGENT_STAGES, Exit, FROM_STAGES, SetupError, at, stamp, stop, tick, type Ctx, type From } from './context.js';
 import { spawnAgentProcess, type AgentSpawn } from './agent.js';
 import { projectRoot } from '../runs/records.js';
 import { Git } from './git.js';
@@ -18,6 +18,7 @@ import { envModels, modelEnvOf, registryFile, stageModels } from './models.js';
 import { PROMPTS_DIR } from './prompts.js';
 import { Status, finalState, previousStage } from './status.js';
 import { formatRecoveryCli, stageRecoveryHint } from './hints.js';
+import { appendRound } from './observe.js';
 import { redCommitTestFiles, resultsAt } from './gates.js';
 import { resolveConflictsStage } from './resolve-conflicts.js';
 import {
@@ -206,6 +207,7 @@ async function stages(ctx: Ctx): Promise<void> {
   git.checkoutBranch(ctx.branch);
   await tick();
   ctx.out(`SDLC: ${ctx.slug} on branch ${ctx.branch}`);
+  appendRound(at(ctx, ctx.log), { kind: 'run', at: stamp(), from: ctx.from });
   // A previous run's test logs describe another state of the code: this run writes its own before anyone reads them.
   for (const f of ['tests.log', 'tests.json', 'integration.log']) fs.rmSync(path.join(ctx.root, ctx.log, f), { force: true });
 

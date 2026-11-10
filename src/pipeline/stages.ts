@@ -15,6 +15,7 @@ import { renderPrompt } from './prompts.js';
 import { resumeCommand, resumeHint } from './hints.js';
 import { finalise } from './finalise.js';
 import { installDeps } from './deps.js';
+import { appendRound, repeatedFailures } from './observe.js';
 import { withAnswerLines } from './questions.js';
 
 const short = (sha: string) => sha.slice(0, 7);
@@ -254,6 +255,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
     testsPass(ctx, { targetFiles: targets, onlyTargets: isScoped && targets.length > 0 });
     await tick();
   }
+  let previousFails: string[] | null = null;
   for (let i = 1; i <= maxAttempts; i++) {
     ctx.out(` attempt ${i}`);
     ctx.status.attempt = `${i}/${maxAttempts}`;
@@ -269,6 +271,11 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
     if (await successCheck(ctx)) { ctx.out(' tests and integration green'); return true; }
     await tick();
     const fails = formatCheckFailures(ctx);
+    const same = repeatedFailures(previousFails, fails);
+    const gateWarnings = same ? [`the same ${fails.length} failing check${fails.length > 1 ? 's' : ''} as attempt ${i - 1}: this round changed nothing about the result`] : [];
+    appendRound(at(ctx, ctx.log), { kind: 'gate', at: stamp(), agent: `impl-${i}`, failing: fails, warnings: gateWarnings });
+    for (const w of gateWarnings) ctx.out(`   !! observed after attempt ${i}: ${w}`);
+    previousFails = fails;
     if (fails.length) {
       ctx.out(`   !! attempt ${i} failed: ${fails.length} failing check${fails.length > 1 ? 's' : ''}`);
       for (const f of fails.slice(0, 8)) ctx.out(`      ${f}`);
