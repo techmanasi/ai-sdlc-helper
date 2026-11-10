@@ -5,6 +5,7 @@ import path from 'node:path';
 import { ASSETS_DIR, exists } from '../util.js';
 import { renderTemplate } from '../config/skills.js';
 import { SetupError } from './context.js';
+import { prCommentsEmpty } from './finalise.js';
 
 export const PROMPTS_DIR = path.join(ASSETS_DIR, 'prompts');
 
@@ -62,7 +63,7 @@ export function prCommentsInput(docsDir: string): string {
   const file = path.join(docsDir, 'pr-comments.md');
   if (!exists(file)) return '';
   const content = text(file).trim();
-  if (!content) return '';
+  if (!content || prCommentsEmpty(content)) return '';
   return `\n\n## Pull Request Review Comments\nPlease address the following reviewer comments from the pull request:\n\n${content}\n`;
 }
 

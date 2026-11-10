@@ -9,7 +9,7 @@ import { backlogItems, type BacklogItem } from '../backlog/index.js';
 import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.js';
 import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { projectSlugs, readCheckpoint, runChanges, runWorktree, type RunContext } from './index.js';
-import { ciSummaryOf, getPrFromBrief, getPrStatusCached, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
+import { ciSummaryOf, getPrFromBrief, getPrStatusCached, prCommentsEmpty, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
 import { readRounds, type Round } from '../pipeline/observe.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
@@ -375,7 +375,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
         prConflicts: st?.conflicts ?? null,
       };
     })(),
-    hasPrComments: fs.existsSync(path.join(docsDir, 'pr-comments.md')),
+    hasPrComments: (() => { try { return !prCommentsEmpty(fs.readFileSync(path.join(docsDir, 'pr-comments.md'), 'utf8')); } catch { return false; } })(),
     undo: (() => { const c = readCheckpoint(ctx, slug); return c ? { from: c.from, at: c.at } : null; })(),
     mergeFix: stage === 'Resolve conflicts' && ['failed', 'paused'].includes(state) ? mergeFixKept(worktree, rec?.branch || `${ctx.branchPrefix}${slug}`, logs) : false,
     ciSummary: ciSummaryOf(readText(path.join(docsDir, 'ci-failure.md')) || ''),
