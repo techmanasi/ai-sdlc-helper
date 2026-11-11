@@ -58,7 +58,7 @@ export function stepBanner(v: { state: string; stage: string; step?: { i: number
   return {
     label: s.label,
     position: `step ${s.i} of ${s.n}`,
-    stage: v.stage.replace(/^\d+\/\d+\s+/, ''),
+    stage: v.stage,
     percent: Math.round(((s.i - 1) / s.n) * 100),
     started: s.started,
   };

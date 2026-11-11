@@ -566,7 +566,6 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   const verdict = audit.split('\n').filter(l => /^VERDICT: (VALID|INVALID)$/.test(l)).pop();
   if (verdict !== 'VERDICT: VALID') reject('independent auditor did not return VERDICT: VALID');
   await tick();
-  ctx.status.beginStep('checks');
   if (!(await successCheck(ctx))) reject(`checks still fail after an audited repair; see ${ctx.failLog}`);
   ctx.status.beginStep('commit');
   ctx.git.run('add', '-A', '--', ctx.docs);
@@ -589,7 +588,6 @@ export async function reviewStage(ctx: Ctx): Promise<void> {
   ctx.status.beginStep('guard');
   if (ctx.git.testsChangedSince(ctx.lockSha, ctx.layout.testPathspecs).length) stop(ctx, 'GUARD FAILED: review modified tests');
   await tick();
-  ctx.status.beginStep('checks');
   if (!(await successCheck(ctx))) stop(ctx, `Checks broke after review. See ${ctx.failLog}`);
 }
 

@@ -270,6 +270,20 @@ describe('resolveConflicts: code conflicts', () => {
     expect(leasePushes(w.git)).toEqual([]);
   });
 
+  test('the stage names each step it reaches, in order', async () => {
+    const w = conflicting();
+    const steps: string[] = [];
+    await resolveConflicts(w.opts({
+      onStep: k => steps.push(k),
+      resolveCode: async c => {
+        fs.writeFileSync(path.join(w.run, c.files[0]), APP.replace('b = 2', 'b = 200 // merged work\nexport const bTask = 20;'));
+        return { safe: true, files: [{ file: 'src/app.ts', why: 'kept both' }] };
+      },
+      verify: async () => true,
+    }));
+    expect(steps).toEqual(['prepare', 'rebase', 'resolve', 'push']);
+  });
+
   test('a safe resolution is verified, pushed with the lease, and explained per file', async () => {
     const w = conflicting();
     const remoteBefore = w.remoteSha();

@@ -56,6 +56,7 @@ export class Status {
   note = '';
   ci?: CiStatus;
   step: StepLine | null = null;
+  private stepId = '';
   readonly runStarted = stamp();
 
   constructor(readonly file: string, readonly slug: string, readonly pid = process.pid) {}
@@ -76,14 +77,16 @@ export class Status {
    * out the elapsed time from `started`. Does nothing for an unknown key or the step already shown, and never throws:
    * a banner must not be able to fail a run.
    */
-  beginStep(key: string): void {
+  beginStep(key: string, detail = ''): void {
     try {
       const list = STEPS[this.stage];
       const at = list ? list.findIndex(s => s.key === key) : -1;
       if (!list || at < 0) return;
-      const label = list[at].label;
-      if (this.step && this.step.label === label) return;
-      this.step = { i: at + 1, n: list.length, label, started: stamp() };
+      const id = `${this.stage}/${key}/${detail}`;
+      if (this.step && this.stepId === id) return;
+      this.stepId = id;
+      const label = detail ? `${list[at].label}: ${detail}` : list[at].label;
+      this.step = { i: at + 1, n: list.length, label, started: new Date().toISOString() };
       this.write();
     } catch { /* best effort */ }
   }

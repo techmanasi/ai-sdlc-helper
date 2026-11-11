@@ -121,6 +121,21 @@ describe('the CI of a pull request', () => {
   });
 });
 
+describe('Sync PR progress', () => {
+  test('names each thing it asks for, and reads the failing CI details only when CI failed', async () => {
+    ghShim([run('check (18)', 'FAILURE')]);
+    const ctx = runContext(root, env);
+    const failed: string[] = [];
+    await syncPr(ctx, 'add-tokens', l => failed.push(l));
+    expect(failed).toEqual(['Asking GitHub for the PR state and CI', 'Saving the review comments', 'Reading the failing CI details']);
+    ghShim([run('check (18)', 'SUCCESS')]);
+    clearPrCache();
+    const passed: string[] = [];
+    await syncPr(ctx, 'add-tokens', l => passed.push(l));
+    expect(passed).toEqual(['Asking GitHub for the PR state and CI', 'Saving the review comments']);
+  });
+});
+
 describe('the conflict state of a pull request', () => {
   test('conflictsOf reads GitHub\'s mergeable', () => {
     expect(conflictsOf('CONFLICTING')).toBe('conflicting');

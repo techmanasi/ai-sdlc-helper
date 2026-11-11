@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
+import { Status } from '../src/pipeline/status.js';
 import { answerQuestions } from '../src/runs/view.js';
 import { DOCS, LOG, SLUG, fixture, git, pipeline, read, statusOf, type Fixture } from './pipeline-fixture.js';
 import { tmp, write } from './helpers.js';
@@ -104,6 +105,25 @@ printf 'FILE: src/existing.mjs :: kept both comments\\nVERDICT: DOUBT\\nDOUBT: o
       expect(git(remote, 'show', `${BRANCH}:src/existing.mjs`)).toContain('merged work, and the task');
       expect(read(f.dir, `${LOG}/resolve-conflicts.md`)).toContain('all 3 independent reviewers found it safe');
       expect(read(f.dir, `${LOG}/resolve-review.md`)).toContain('3 of 3 reviewers found it safe');
+    });
+
+    test('the review step tells how far the panel is, and names the judge only when the reviewers disagree', async () => {
+      const seen: string[] = [];
+      const orig = Status.prototype.beginStep;
+      vi.spyOn(Status.prototype, 'beginStep').mockImplementation(function (this: Status, key: string, detail = '') { if (key === 'review') seen.push(detail); orig.call(this, key, detail); });
+      const f = fixture({ other: RESOLVE });
+      conflicted(f);
+      write(f.fake, 'resolve-review.out', 'The comments do not conflict.\nVERDICT: SAFE\n');
+      await pipeline(f, {}, { from: 'resolve-conflicts' });
+      expect(seen).toEqual(['Panel check in progress', '3/3 reviewers started', '1/3 reviewers finished', '2/3 reviewers finished', '3/3 reviewers finished']);
+      seen.length = 0;
+      const g = fixture({ other: RESOLVE });
+      conflicted(g);
+      write(g.fake, 'resolve-review.out', 'No.\nVERDICT: UNSAFE\n');
+      write(g.fake, 'resolve-judge.out', 'Contradiction.\n');
+      await pipeline(g, {}, { from: 'resolve-conflicts' });
+      expect(seen.slice(-2)).toEqual(['Started verdict reviewer', 'Verdict finished']);
+      vi.restoreAllMocks();
     });
 
     test('a reviewer that does not say SAFE keeps the doubt: the judge writes the conclusion, nothing is pushed, and the follow-up question carries the opinions', async () => {

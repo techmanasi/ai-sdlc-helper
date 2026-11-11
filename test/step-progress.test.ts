@@ -24,7 +24,8 @@ describe('the table of steps', () => {
       expect(new Set(list.map(d => d.key)).size, stage).toBe(list.length);
       for (const d of list) expect(d.label, `${stage}/${d.key}`).not.toMatch(/precheck|namecheck|redcheck|diffcheck|resultsNow|\.json|\.sh\b/);
     }
-    expect(STEPS['Test repair']).toHaveLength(12);
+    expect(STEPS['Test repair']).toHaveLength(14);
+    expect(STEPS['Resolve conflicts']).toHaveLength(7);
   });
 });
 
@@ -38,18 +39,32 @@ describe('Status.beginStep', () => {
     s.beginStep('precheck');
     expect(write).toHaveBeenCalledTimes(1);
     const j = JSON.parse(fs.readFileSync(file, 'utf8'));
-    expect(j.step).toMatchObject({ i: 3, n: 12, label: 'Checking each claimed test really fails' });
+    expect(j.step).toMatchObject({ i: 3, n: 14, label: 'Checking each claimed test really fails' });
     expect(typeof j.step.started).toBe('string');
   });
 
   test('a stage with no table writes nothing, and a failing write never throws', () => {
-    const { s } = tmpStatus('Resolve conflicts');
+    const { s } = tmpStatus('No such stage');
     const write = vi.spyOn(s, 'write');
     s.beginStep('agent');
     expect(write).not.toHaveBeenCalled();
     s.stage = 'Spec';
     write.mockImplementation(() => { throw new Error('disk full'); });
     expect(() => s.beginStep('agent')).not.toThrow();
+  });
+
+  test('a detail is part of the label, a new detail writes again, the same one does not, and started is UTC', () => {
+    const { s, file } = tmpStatus('Resolve conflicts');
+    const write = vi.spyOn(s, 'write');
+    s.beginStep('review', '1/3 reviewers finished');
+    s.beginStep('review', '1/3 reviewers finished');
+    expect(write).toHaveBeenCalledTimes(1);
+    s.beginStep('review', '2/3 reviewers finished');
+    expect(write).toHaveBeenCalledTimes(2);
+    const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect(j.step).toMatchObject({ i: 4, n: 7, label: 'Independent review of a doubted resolution: 2/3 reviewers finished' });
+    expect(j.step.started).toMatch(/Z$/);
+    expect(Number.isFinite(Date.parse(j.step.started))).toBe(true);
   });
 
   test('a status line without a step has no step key', () => {
@@ -85,7 +100,6 @@ describe('what the run view and banner do with a step', () => {
     expect(stepBanner({ state: 'running', stage: 'Test repair', step })).toEqual({
       label: step.label, position: 'step 3 of 12', stage: 'Test repair', percent: 17, started: step.started,
     });
-    expect(stepBanner({ state: 'running', stage: '5/7 Test repair', step })?.stage).toBe('Test repair');
   });
 
   test('no step, or a run that is not running (paused, failed, done, stopped), shows no banner', () => {
@@ -109,7 +123,7 @@ describe('through a real pipeline run', () => {
   test('every step a stage names is in the table, in order, every table step is used, and writes stay bounded', async () => {
     const seen: Array<[string, string]> = [];
     const orig = Status.prototype.beginStep;
-    vi.spyOn(Status.prototype, 'beginStep').mockImplementation(function (this: Status, key: string) { seen.push([this.stage, key]); orig.call(this, key); });
+    vi.spyOn(Status.prototype, 'beginStep').mockImplementation(function (this: Status, key: string, detail = '') { seen.push([this.stage, key]); orig.call(this, key, detail); });
     let writes = 0;
     const origWrite = Status.prototype.write;
     vi.spyOn(Status.prototype, 'write').mockImplementation(function (this: Status) { writes++; origWrite.call(this); });
@@ -121,11 +135,15 @@ describe('through a real pipeline run', () => {
 
     for (const [stage, key] of seen) expect(STEPS[stage]?.some(d => d.key === key), `${stage}/${key}`).toBe(true);
     for (const [stage, list] of Object.entries(STEPS)) {
+      if (stage === 'Resolve conflicts') continue; // not part of the main pipeline run
       const used = seen.filter(([s]) => s === stage).map(([, k]) => k);
       expect(used.filter(k => !list.some(d => d.key === k)), stage).toEqual([]);
       const order = used.map(k => list.findIndex(d => d.key === k));
       expect([...order].sort((a, b) => a - b), `${stage} out of order`).toEqual(order);
-      const only = ({ Plan: ['answers'], Implement: ['baseline'] } as Record<string, string[]>)[stage] ?? []; // only when a run starts from that stage
+      // only when a run starts from that stage, or the project configures a lint command / integration tests (this fixture has neither)
+      const optional = ['lint', 'integration'];
+      const only = ({ Plan: ['answers'], Implement: ['baseline'] } as Record<string, string[]>)[stage] ?? [];
+      only.push(...optional);
       expect(list.map(d => d.key).filter(k => !used.includes(k) && !only.includes(k)), `${stage} steps never reported`).toEqual([]);
     }
     // one write per step, plus a few per stage for the stage itself: far from a per-second rate

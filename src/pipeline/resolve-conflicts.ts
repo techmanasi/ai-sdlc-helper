@@ -86,6 +86,8 @@ export interface ResolveOptions {
   mergedReason?: () => string | null;
   /** Called once the stage has something to do (the branch is on the remote and the base was fetched). */
   onStart?: () => void;
+  /** Names the step the stage has reached (a key of STEPS['Resolve conflicts']), with an optional detail. Called only after onStart. */
+  onStep?: (key: string, detail?: string) => void;
   /** Resolves a stop on code or test files, and on documentation both sides edited the same lines of; without one, a code stop ends the stage. */
   resolveCode?: (c: CodeConflict) => Promise<CodeResolution>;
   /** The full check of the rebased branch; false stops the stage without pushing. */
@@ -235,6 +237,7 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
   if (adopted) out(`   the branch already holds the merged result: checking it and pushing it with the lease`);
 
   // Recovery point: both shas, as refs and in the record, before anything is rewritten.
+  o.onStep?.('prepare');
   const oldBase = git.run('merge-base', before, upstream).trim();
   git.run('update-ref', `refs/sdlc-backup/${branch}/local`, before);
   git.run('update-ref', `refs/sdlc-backup/${branch}/remote`, remoteSha);
@@ -257,6 +260,7 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
   let codeResolved = false;
   try {
     // A rebase that stops on a conflict "fails"; the loop below works through each stop.
+    o.onStep?.('rebase');
     git.tryRun('-c', 'core.editor=true', 'rebase', upstream);
     let round = 0;
     while (inRebase(git)) {
@@ -297,6 +301,7 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
         }));
         const report = (doubt: string): ConflictReport => ({ commit, files: code, doubt, sides });
         if (!o.resolveCode) return stopped(`code conflict in ${code.join(', ')}`, true, report('no resolver for code conflicts'));
+        o.onStep?.('resolve');
         const r = await o.resolveCode({ round, commit, files: code, docs, upstream, oldBase });
         if (!inRebase(git) || sha(git, 'REBASE_HEAD') !== commit.sha) {
           return stopped('the resolver changed the rebase itself (it must only edit the conflicted files)', true, report('the rebase was moved by the resolver'));
@@ -324,6 +329,7 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
     const arrived: string[] = [];
     const maxPushes = o.maxPushes ?? 3;
     for (let pushes = 1; ; pushes++) {
+      o.onStep?.('push');
       const p = leasePush(git, remote, branch, remoteSha);
       if (p.ok) return { kind: 'pushed', resolved, head: git.head(), before, remoteBefore: record.remoteSha, pushes, arrived };
       if (!p.stale) return stopped(`git push failed: ${p.message}`, false);
@@ -613,9 +619,11 @@ async function fullCheck(ctx: Ctx): Promise<boolean> {
   const ciOnly = (ctx.config.tests as { fullSuite?: string } | undefined)?.fullSuite === 'ci';
   const targets = ciOnly ? targetTestFiles(ctx) : [];
   if (ciOnly) ctx.out('   tests.fullSuite is "ci": the task\'s tests run here, the full suite in CI on the pushed branch');
+  ctx.status.beginStep('tests');
   const unit = testsPass(ctx, ciOnly && targets.length ? { targetFiles: targets, onlyTargets: true } : {});
   await tick();
   if (!unit) { ctx.failLog = `${ctx.log}/tests.log`; return false; }
+  if (ctx.config.integration?.cmd) ctx.status.beginStep('integration');
   if (!(await integrationPass(ctx))) { ctx.failLog = `${ctx.log}/integration.log`; return false; }
   return true;
 }
@@ -714,6 +722,7 @@ export const unanimouslySafe = (verdicts: string[], count: number): boolean => c
 async function reviewDoubt(ctx: Ctx, c: CodeConflict, r: CodeResolution): Promise<CodeResolution> {
   const count = reviewerCount(ctx.env);
   const panel = REVIEWERS.slice(0, count);
+  ctx.status.beginStep('review', 'Panel check in progress');
   const shared = sharedReviewersText(panel.map(st => stageModelKey(ctx, st)));
   if (shared) {
     // Reviewers on the same model make the same mistakes: their agreement would prove little, so none is asked.
@@ -723,6 +732,7 @@ async function reviewDoubt(ctx: Ctx, c: CodeConflict, r: CodeResolution): Promis
     return { ...r, safe: false, doubt: `${r.doubt || 'the resolver was not sure'} ${msg}` };
   }
   ctx.out(`   the agent is not sure: ${plural(count, 'independent reviewer')} judge${count === 1 ? 's' : ''} the resolution`);
+  ctx.status.beginStep('review', `${count}/${count} reviewers started`);
   ctx.status.agent = 'resolve-review';
   ctx.status.agentStarted = stamp();
   ctx.status.write();
@@ -732,8 +742,10 @@ async function reviewDoubt(ctx: Ctx, c: CodeConflict, r: CodeResolution): Promis
     const file = at(ctx, `${ctx.log}/${name}.log`);
     return { rc, text: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '' };
   };
+  let finished = 0;
   const opinions = await Promise.all(panel.map(async (stage, i) => {
     const o = await run(stage, `${stage}-${c.round}`, 'resolve-review');
+    ctx.status.beginStep('review', `${++finished}/${count} reviewers finished`);
     const verdict = o.rc === 0 ? reviewVerdict(o.text) : 'UNSAFE';
     ctx.out(`   reviewer ${i + 1} (${stage}): ${o.rc === 0 ? verdict : `UNSAFE (the agent failed, exit ${o.rc})`}`);
     return { stage, verdict, text: o.rc === 0 ? o.text.trim() : `(the reviewer failed with exit ${o.rc})` };
@@ -749,8 +761,10 @@ async function reviewDoubt(ctx: Ctx, c: CodeConflict, r: CodeResolution): Promis
       `The agent's doubt: ${r.doubt || '(none given)'}`, '',
       ...opinions.flatMap((o, i) => [`## Reviewer ${i + 1} (${o.stage}): ${o.verdict}`, '', o.text, '']),
     ].join('\n'));
+    ctx.status.beginStep('review', 'Started verdict reviewer');
     const j = await run('resolve-judge', `resolve-judge-${c.round}`, 'resolve-judge');
     conclusion = j.rc === 0 ? j.text.trim().slice(0, 1500) : '';
+    ctx.status.beginStep('review', 'Verdict finished');
   }
   fs.writeFileSync(at(ctx, `${ctx.log}/resolve-review.md`), [
     `# Independent review of the resolution of ${c.files.join(', ')} (${stamp()})`, '',
@@ -903,6 +917,7 @@ export async function resolveConflictsStage(ctx: Ctx): Promise<void> {
     git: ctx.git, branch: ctx.branch, base, docDirs: [ctx.config.backlogDir], recordFile, out: l => ctx.out(l),
     mergedReason: () => mergedReason(ctx, base),
     onStart: () => { stage(ctx, RESOLVE_STAGE); ctx.status.attempt = '1/1'; ctx.status.write(); },
+    onStep: (k, d) => ctx.status.beginStep(k, d),
     resolveCode: async c => {
       writeContext(ctx, c);
       const report = at(ctx, `${ctx.log}/resolve-conflicts-report.md`);
