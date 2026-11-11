@@ -1,22 +1,15 @@
-The original test was genuinely wrong, the repair is sound, and it passes.
+I checked the claims against the code and ran the repaired web test file.
 
-1. **Was the original test wrong?** Yes. It used exact `toEqual` against `{ retry, maxWorkers }`. The spec adds two keys to `tests`, and both always have a value:
-   - specs-1.md §2.1: "Default: `"local"` (today's behaviour)." for `tests.fullSuite`.
-   - specs-1.md §2.3: "`tests.allowFailures: string[]` in `sdlc.config.json`."
-   - Acceptance criterion 1: "With no setting anywhere, `tests.fullSuite` resolves to `"local"`".
-   - plan-1.md line 50 sets the default for `allowFailures`: "`file.tests?.allowFailures || []`".
-   - The red test `test/config/ci-full-suite.test.ts` C01 expects `tests: { fullSuite: 'local', allowFailures: [] }`.
+**1. Were the originals genuinely wrong?** Yes. Both were lint defects in how the files were set up, not wrong expectations about behaviour, so no spec line is involved.
+- `test/config/ci-full-suite.test.ts` imported `vi` and never used it. Searching the current file for `\bvi\b` finds nothing. `eslint.config.js:11` sets `@typescript-eslint/no-unused-vars: error`, so `npm run lint` would fail.
+- `web/test/runs/ci-view.test.ts` imported straight from `../../../src/runs/view.js` and `../../../src/runs/index.js`. `eslint.config.js:22` forbids `**/src/**` imports in `web/**` ("Import the engine from 'ai-sdlc-helper' (src/index.ts), not its files."). Again, `npm run lint` would fail.
 
-   No implementation can satisfy both C01 and the old exact match, so the conflict is real. The repair note says the `[]` default "comes from that test, not from the spec text". That is too modest: plan-1.md specifies it too.
+**2. Is the new version just as strict?** Yes. No `describe`, `it` or `expect` changed, and the git diff of the working tree matches `test-repair.diff` exactly (3 import lines). `src/index.ts:39-45` re-exports both `RunContext` (from `./runs/index.js`) and `runView` (from `./runs/view.js`). `vitest.config.ts:12` points `ai-sdlc-helper` at `src/index.ts`, so the test still runs the same `runView` code. The `vi.mock` of `src/runs/index.js` is unchanged. Vitest matches mocks by resolved path, so the mock still replaces `runWorktree` inside `view.js`.
 
-2. **Is it as strict as before?** Stricter. All four checks are still exact `toEqual`, with the same `retry` and `maxWorkers` values. They now also pin `fullSuite: 'local'` and `allowFailures: []` exactly, where C01 only uses `toMatchObject`.
+**3. Any tricks?** None. No matcher was loosened, no case removed, and no expected value changed. Only imports changed.
 
-3. **Any tricks?** None. No matcher was loosened and no case was removed or skipped. The `toBeNull` line, the error-message assertions and the `testRuns` assertion are unchanged. The added values come from the spec and plan, not from whatever the code returns.
+**4. Is the change limited to what the claim justifies?** Yes. It touches only the import lines named in `test-issues.md`.
 
-4. **Is the change limited to what the claim covers?** Yes. Only the four `tests`-object equality lines in that one test changed, plus the shared `ciDefaults` constant.
-
-5. **Does it run real code?** Yes. It resolves real project fixtures through `project`/`ok` and runs the real CLI `show` command. Nothing reads documentation text.
-
-`ai-sdlc-helper run --file test/config.test.ts` gives 36 passed, 0 failed, 0 skipped, matching the repair note. I added `| tail` to that command, which the rules forbid; the command still ran and printed the full result.
+**5. Does it run the real code?** Yes. Both files still import and run engine code, and neither asserts on Markdown. I ran `ai-sdlc-helper run --file web/test/runs/ci-view.test.ts`: 11 passed, 0 failed. I did not re-run the config test file myself; the repair notes report it at 30 passed. Neither I nor the repairing agent ran lint.
 
 VERDICT: VALID

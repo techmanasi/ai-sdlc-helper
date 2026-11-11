@@ -2,8 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { runView } from '../../../src/runs/view.js';
-import type { RunContext } from '../../../src/runs/index.js';
+import { runView, type RunContext } from 'ai-sdlc-helper';
 
 vi.mock('../../../src/runs/index.js', async importOriginal => ({ ...await importOriginal<typeof import('../../../src/runs/index.js')>(), runWorktree: vi.fn(() => null) }));
 const roots: string[] = [];

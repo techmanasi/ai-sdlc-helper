@@ -1,8 +1,13 @@
 # Test repair 1
 
-## test/config.test.ts :: "tests: retry and maxWorkers, unset by default; validated with the setting at fault; show prints what they come to"
+## test/config/ci-full-suite.test.ts (all cases, e.g. C01)
+- Wrong: `vi` was imported from vitest and never used, so `@typescript-eslint/no-unused-vars` fails lint. Verified: the only match for `vi` in the file is the import.
+- Proof: isolation defect (lint). No spec line is involved.
+- Changed: removed `vi` from the vitest import. No test or assertion touched.
 
-- **What was wrong:** the test used `toEqual` on the whole `tests` object (`{ retry, maxWorkers }`). That was true before this feature. The spec now gives `tests` two more keys that are always present, so those exact-equality checks can never pass.
-- **Proof:** specs-1.md 2.1 ("Default: `"local"`") and 2.3 (`tests.allowFailures: string[]`). Acceptance criterion 1 says `tests.fullSuite` resolves to `"local"` with no setting anywhere. test/config/ci-full-suite.test.ts C01 expects `tests: { fullSuite: 'local', allowFailures: [] }` by default. The empty-array default for `allowFailures` comes from that test, not from the spec text. Both tests can only pass if the resolved `tests` object has these two keys.
-- **Change:** added `const ciDefaults = { fullSuite: 'local', allowFailures: [] }`. It is spread into the four `toEqual` checks on `tests` (the three default and override checks, and the `show` output check). They stay exact `toEqual` checks with the same `retry` and `maxWorkers` values. No assertion was removed, skipped or weakened.
-- **Verified:** `ai-sdlc-helper run --file test/config.test.ts` gives 36 passed, 0 failed, 0 skipped.
+## web/test/runs/ci-view.test.ts (all cases, e.g. V01)
+- Wrong: it imported `runView` and `RunContext` from `src/runs/...` directly. `eslint.config.js:22` forbids `**/src/**` imports in `web/**` ("Import the engine from 'ai-sdlc-helper'"). Both names are exported from `src/index.ts`.
+- Proof: isolation defect (lint rule). Spec 10.2 behaviour is unchanged.
+- Changed: `import { runView, type RunContext } from 'ai-sdlc-helper';`. The `vi.mock` of `src/runs/index.js` is unchanged. The vitest alias maps `ai-sdlc-helper` to `src/index.ts`, so the mock still applies.
+
+Both files pass with `ai-sdlc-helper run --file` (30 and 11 passed). I did not run lint.
