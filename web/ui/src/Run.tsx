@@ -1,8 +1,8 @@
 // One run: its stages, the questions and refused actions it waits on, its environment, files and live output, and every
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { api, type ModelInfo, type RunView, type SettingsView } from './api';
-import { filterModels } from './modelFilter';
+import { api, type RunView, type SettingsView } from './api';
+import { ModelSelect } from './ModelSelect';
 import { linkPaths, showTestIssues } from './stages';
 import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
@@ -33,40 +33,7 @@ function saveEnv(project: string, slug: string, rows: [string, string][]): void 
   try { localStorage.setItem(ENV_STORE(project, slug), JSON.stringify(rows)); } catch { /* private window */ }
 }
 
-function ModelPicker({ name, models, value, defaultLabel, harness, taken, onChange }: {
-  name: string;
-  models: Array<Pick<ModelInfo, 'id' | 'name'>>;
-  value: string;
-  defaultLabel: string;
-  harness: string;
-  taken?: string[];
-  onChange: (value: string) => void;
-}) {
-  const [filter, setFilter] = useState('');
-  const [query, setQuery] = useState('');
-  useEffect(() => {
-    const timer = setTimeout(() => setQuery(filter.trim()), 120);
-    return () => clearTimeout(timer);
-  }, [filter]);
-  const filtered = filterModels(models, query);
-  const ids = unique(filtered.map(model => model.id));
-  const noMatch = query.length > 0 && filtered.length === 0;
-  return (
-    <span class="col" style={{ gap: '4px' }}>
-      <span class="row" style={{ gap: '4px' }}>
-        <input class="sel" aria-label={`${name} model filter`} placeholder="Filter models" value={filter}
-          onInput={e => setFilter((e.target as HTMLInputElement).value)} />
-        {filter && <button type="button" class="btn btn-s" aria-label={`${name} clear model filter`} onClick={() => { setFilter(''); setQuery(''); }}>×</button>}
-      </span>
-      <select class="sel" aria-label={`${name} model`} value={noMatch ? '__no_models_match__' : value}
-        onChange={e => onChange((e.target as HTMLSelectElement).value)}>
-        <option value="">{defaultLabel}</option>
-        {ids.map(model => <option value={model} disabled={model !== value && !!taken?.includes(`${harness}:${model}`)}>{model}</option>)}
-        {noMatch && <option value="__no_models_match__" disabled>no models match "{query}"</option>}
-      </select>
-    </span>
-  );
-}
+
 
 type StageState = 'done' | 'active' | 'paused' | 'failed' | 'pending';
 function stageStates(v: RunView): StageState[] {
@@ -437,7 +404,7 @@ export function Run({ slug }: { slug: string }) {
             {unique(catalog.harnesses).map(h => <option value={h}>{h}</option>)}
           </select>
         )}
-        <ModelPicker name={name} models={models} value={selectedModel} harness={activeHarness} taken={taken}
+        <ModelSelect name={name} models={models} value={selectedModel} harness={activeHarness} taken={taken}
           defaultLabel={inUse && inUse.model ? `default (${inUse.model})` : 'default'}
           onChange={model => setEnvVar(envKey('MODEL', key), model)} />
         <select class="sel" aria-label={`${name} effort`} value={envObj[envKey('EFFORT', key)] || ''} onChange={e => setEnvVar(envKey('EFFORT', key), (e.target as HTMLSelectElement).value)}>
@@ -587,10 +554,13 @@ export function Run({ slug }: { slug: string }) {
                   <option value="">agent: project's</option>
                   {unique(catalog.harnesses).map(h => <option value={h}>{h}</option>)}
                 </select>
-                <select class="sel" aria-label="run model" value={envObj.SDLC_FORCE_MODEL || ''} onChange={e => setEnvVar('SDLC_FORCE_MODEL', (e.target as HTMLSelectElement).value)}>
-                  <option value="">model: per stage</option>
-                  {unique((catalog.models[envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'] || []).map(m => m.id)).map(id => <option value={id}>{id}</option>)}
-                </select>
+                <span style={{ display: 'inline-block', width: '220px', maxWidth: '100%' }}>
+                  <ModelSelect name="run"
+                    models={catalog.models[envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'] || []}
+                    value={envObj.SDLC_FORCE_MODEL || ''}
+                    harness={envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'}
+                    defaultLabel="model: per stage" onChange={model => setEnvVar('SDLC_FORCE_MODEL', model)} />
+                </span>
                 <select class="sel" aria-label="run effort" value={envObj.SDLC_FORCE_EFFORT || ''} onChange={e => setEnvVar('SDLC_FORCE_EFFORT', (e.target as HTMLSelectElement).value)}>
                   <option value="">effort: per stage</option>
                   {unique(catalog.efforts).map(x => <option value={x}>{x}</option>)}
