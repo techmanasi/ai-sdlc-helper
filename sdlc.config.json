@@ -11,5 +11,50 @@
         "web/test/**/*.test.ts"
       ]
     }
-  ]
+  ],
+  "agent": {
+    "harness": "claude",
+    "stages": {
+      "spec": {
+        "harness": "agy",
+        "model": "gemini-3.8-flash-medium",
+        "effort": "medium"
+      },
+      "plan": {
+        "harness": "claude",
+        "model": "sonnet",
+        "effort": "medium"
+      },
+      "red-tests": {
+        "harness": "codex",
+        "model": "gpt-6.1-terra",
+        "effort": "medium"
+      },
+      "implement": {
+        "harness": "agy",
+        "model": "gemini-3.8-flash-medium",
+        "effort": "medium"
+      },
+      "test-repair": {
+        "harness": "claude",
+        "model": "sonnet",
+        "effort": "medium"
+      },
+      "test-audit": {
+        "harness": "codex",
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      },
+      "review": {
+        "harness": "claude",
+        "model": "opus",
+        "effort": "medium"
+      },
+      "resolve-conflicts": {
+        "harness": "claude",
+        "model": "sonnet",
+        "effort": "medium"
+      }
+    }
+  }
 }
