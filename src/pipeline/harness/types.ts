@@ -102,6 +102,18 @@ export interface AgentHarness {
   readonly name: string;
   readonly defaultBinary: string;
 
+  /**
+   * Whether this CLI takes model identifiers as they are (its own ids) rather than having them resolved through a
+   * custom provider. Defaults to true: the claude harness resolves "<provider>/<model>" itself and sets it to false.
+   */
+  readonly ownsModelIds?: boolean;
+
+  /**
+   * Whether <model> is an identifier this harness's CLI understands, so a model left on another stage's harness can be
+   * named as a mismatch instead of looked up as a provider. Defaults to "<id>/...": the ids a harness lists are its own.
+   */
+  ownsModel?(model: string): boolean;
+
   /** Optional pluggable model catalog adapter */
   readonly catalog?: ModelCatalogAdapter;
 
@@ -192,6 +204,8 @@ export interface HarnessRegistry {
   unregister(id: HarnessId): boolean;
   get(id: HarnessId): (AgentHarness | AgentHarnessPlugin) | undefined;
   list(): Array<AgentHarness | AgentHarnessPlugin>;
+  /** The harness whose CLI understands <model> ("opencode/gemini-4-carbon" is OpenCode's), when one claims it. */
+  ownerOf(model: string): HarnessId | undefined;
   detectAll(env?: NodeJS.ProcessEnv): Promise<Array<{ harness: AgentHarness; detection: HarnessDetection }>>;
   listAllModels(env?: NodeJS.ProcessEnv): Promise<HarnessModel[]>;
   loadPluginsFromDir(dir: string, env?: NodeJS.ProcessEnv): Promise<void>;

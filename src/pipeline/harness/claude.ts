@@ -5,6 +5,10 @@ export class ClaudeHarness implements AgentHarness {
   readonly id = 'claude' as const;
   readonly name = 'Anthropic Claude Code';
   readonly defaultBinary = 'claude';
+  /** The one harness that resolves "<provider>/<model>" through a custom provider before it reaches its CLI. */
+  readonly ownsModelIds = false;
+  /** Its models are bare names (opus, sonnet, haiku): a "<provider>/<model>" on a claude stage is a provider, not an id. */
+  ownsModel(): boolean { return false; }
 
   selectStageModel(opts: { defaultModel: string; defaultEffort: string; hasEffort: boolean; configuredModel?: string; configuredEffort?: string }): { model: string; effort?: string } {
     return {

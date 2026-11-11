@@ -11,6 +11,7 @@ import {
   DeclarativeHarness,
   DefaultHarnessRegistry,
   STATIC_CODEX_MODELS,
+  ownsModelIds,
   type DeclarativeHarnessManifest,
 } from '../src/pipeline/harness/index.js';
 import { pathWith } from './helpers.js';
@@ -448,6 +449,36 @@ describe('Pluggable Agent Harness Subsystem', () => {
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('model id ownership', () => {
+    const registry = new DefaultHarnessRegistry();
+
+    it('every harness declares whether it takes model ids as they are; only claude resolves providers', () => {
+      expect(registry.list().map(h => [h.id, ownsModelIds(h)])).toEqual([
+        ['claude', false], ['agy', true], ['codex', true], ['opencode', true],
+      ]);
+    });
+
+    it('a harness claims its own ids, including the OpenCode providers it discovers', () => {
+      expect(['opencode/gemini-4-carbon', 'opencode/claude-fable-5-2', 'opencode-go/kimi-k3.1-pro'].map(m => registry.ownerOf(m))).toEqual(['opencode', 'opencode', 'opencode']);
+      expect(['agy/gemini-3.8-flash-medium', 'codex/gpt-6.1-sol'].map(m => registry.ownerOf(m))).toEqual(['agy', 'codex']);
+      expect(['sonnet', 'opus', 'gemini-3.8-flash-medium', 'reg/org/m2', 'openrouter/openai/gpt-5'].map(m => registry.ownerOf(m))).toEqual([undefined, undefined, undefined, undefined, undefined]);
+    });
+
+    it('a plugin owns the ids it says it owns, so a new harness needs no change in the model resolver', () => {
+      class Devin extends DeclarativeHarness {
+        ownsModel(model: string): boolean { return model.startsWith('devin-'); }
+      }
+      const manifest: DeclarativeHarnessManifest = {
+        schemaVersion: '1', id: 'devin', name: 'Devin CLI', binary: 'devin',
+        models: [{ id: 'devin-v1', name: 'Devin Model' }], flags: { prompt: '--prompt' }, outputMapping: {}, detection: {},
+      };
+      const plugins = new DefaultHarnessRegistry(false);
+      plugins.register(new Devin(manifest));
+      expect(plugins.ownerOf('devin-v1')).toBe('devin');
+      expect(plugins.ownerOf('opencode/gemini-4-carbon')).toBeUndefined();
     });
   });
 });

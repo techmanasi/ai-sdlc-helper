@@ -10,6 +10,16 @@ export class OpencodeHarness implements AgentHarness {
   readonly name = 'OpenCode';
   readonly defaultBinary = 'opencode';
   readonly catalog: OpencodeModelCatalogAdapter;
+  /** OpenCode ids go to the CLI as they are: no provider indirection. */
+  readonly ownsModelIds = true;
+
+  /**
+   * OpenCode ids are "<provider>/<model>", and its providers include ids of their own ("opencode-go"), so its ids are
+   * claimed by prefix as well as once the catalog has discovered them.
+   */
+  ownsModel(model: string): boolean {
+    return model.startsWith(`${this.id}/`) || model.startsWith(`${this.id}-`) || this.catalog?.getCachedModel(model) !== undefined;
+  }
 
   constructor(catalog: OpencodeModelCatalogAdapter = defaultOpencodeCatalog) {
     this.catalog = catalog;

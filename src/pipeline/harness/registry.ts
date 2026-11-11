@@ -18,7 +18,6 @@ import type {
 
 export class DefaultHarnessRegistry implements HarnessRegistry {
   private readonly harnesses = new Map<string, AgentHarness | AgentHarnessPlugin>();
-
   constructor(registerDefaults = true) {
     if (registerDefaults) {
       this.register(new ClaudeHarness());
@@ -42,6 +41,11 @@ export class DefaultHarnessRegistry implements HarnessRegistry {
 
   list(): Array<AgentHarness | AgentHarnessPlugin> {
     return Array.from(this.harnesses.values());
+  }
+
+  ownerOf(model: string): HarnessId | undefined {
+    for (const harness of this.harnesses.values()) if (harnessOwnsModel(harness, model)) return harness.id;
+    return undefined;
   }
 
   async detectAll(env: NodeJS.ProcessEnv = process.env): Promise<Array<{ harness: AgentHarness; detection: HarnessDetection }>> {
@@ -110,6 +114,16 @@ export class DefaultHarnessRegistry implements HarnessRegistry {
       }
     }
   }
+}
+
+/** Whether <harness> takes model identifiers as they are, rather than having them resolved through a custom provider. */
+export const ownsModelIds = (harness: AgentHarness | AgentHarnessPlugin): boolean => harness.ownsModelIds !== false;
+
+/** Whether <model> is an identifier <harness> understands: its own rule, or its id as a prefix. */
+export function harnessOwnsModel(harness: AgentHarness | AgentHarnessPlugin, model: string): boolean {
+  if (harness.ownsModel) return harness.ownsModel(model);
+  const i = model.indexOf('/');
+  return i > 0 && model.slice(0, i) === harness.id;
 }
 
 /** Global default registry instance singleton */

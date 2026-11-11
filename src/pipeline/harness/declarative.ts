@@ -15,6 +15,8 @@ export class DeclarativeHarness implements AgentHarnessPlugin {
   readonly name: string;
   readonly defaultBinary: string;
   readonly meta: HarnessPluginMeta;
+  /** A declarative CLI takes the model ids its manifest lists as they are: no provider indirection. */
+  readonly ownsModelIds = true;
   private readonly manifest: DeclarativeHarnessManifest;
 
   constructor(manifest: DeclarativeHarnessManifest) {
