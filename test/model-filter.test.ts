@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterModels } from '../web/ui/src/modelFilter.js';
+import { filterModels, nextIndex } from '../web/ui/src/modelFilter.js';
 
 const models = [
   { id: 'opencode/claude-fable-5-2', name: 'Claude Fable 5.2' },
@@ -22,5 +22,18 @@ describe('filterModels', () => {
 
   it('returns an empty list when no model matches', () => {
     expect(filterModels(models, 'not-a-model')).toEqual([]);
+  });
+});
+
+describe('nextIndex', () => {
+  it('moves by one and wraps at both ends', () => {
+    expect(nextIndex(0, 1, 3)).toBe(1);
+    expect(nextIndex(2, 1, 3)).toBe(0);
+    expect(nextIndex(0, -1, 3)).toBe(2);
+  });
+
+  it('stays at zero for an empty list', () => {
+    expect(nextIndex(0, 1, 0)).toBe(0);
+    expect(nextIndex(4, -1, 0)).toBe(0);
   });
 });

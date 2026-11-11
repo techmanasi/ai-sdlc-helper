@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, type Check, type Project, type SettingsView, type Source } from './api';
 import { dialogKey, firstFocusable, focusable, type FocusCandidate } from './dialog';
+import { ModelSelect } from './ModelSelect';
 import { Cli, ErrorBox, useApp } from './ui';
 
 function Doctor({ name }: { name: string }) {
@@ -70,11 +71,9 @@ function Pickers({ id, pick, set, data, harness, inherit }: {
         <option value="">{inherit.agent ? `default (${inherit.agent})` : 'choose'}</option>
         {unique(data.harnesses).map(h => <option value={h}>{h}</option>)}
       </select>
-      <select id={`${id}-m`} class="inp mono" aria-label="model" value={pick.model} onChange={e => change({ model: (e.target as HTMLSelectElement).value })}>
-        <option value="">{inherit.model ? `default (${inherit.model})` : 'default'}</option>
-        {unique(models.map(m => m.id)).map(id => <option value={id}>{id}</option>)}
-        {pick.model && !models.some(m => m.id === pick.model) && <option value={pick.model}>{pick.model}</option>}
-      </select>
+      <ModelSelect name={id} models={models} value={pick.model} harness={harness}
+        defaultLabel={inherit.model ? `default (${inherit.model})` : 'default'}
+        onChange={model => change({ model })} />
       {takesEffort
         ? (
           <select id={`${id}-e`} class="inp mono" aria-label="effort" value={pick.effort} onChange={e => change({ effort: (e.target as HTMLSelectElement).value })}>
@@ -207,10 +206,9 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
         }}>
           {unique(data.harnesses).map(h => <option value={h}>{h}</option>)}
         </select>
-        <select id="def-m" class="inp mono" aria-label="model" value={def.model} onChange={e => setDef({ ...def, model: (e.target as HTMLSelectElement).value })}>
-          <option value="">{scope === 'personal' && defFile.model && def.harness === (defFile.harness || 'claude') ? `project file (${defFile.model})` : 'per-stage default'}</option>
-          {unique((data.models[def.harness] || []).map(m => m.id)).map(id => <option value={id}>{id}</option>)}
-        </select>
+        <ModelSelect name="project default" models={data.models[def.harness] || []} value={def.model} harness={def.harness}
+          defaultLabel={scope === 'personal' && defFile.model && def.harness === (defFile.harness || 'claude') ? `project file (${defFile.model})` : 'per-stage default'}
+          onChange={model => setDef({ ...def, model })} />
         {(data.models[def.harness] || []).find(m => m.id === def.model)?.supportsEffort === false
           ? <span class="small muted">no effort</span>
           : (

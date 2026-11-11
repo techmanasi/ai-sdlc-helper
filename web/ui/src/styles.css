@@ -94,6 +94,21 @@ textarea.inp { resize: vertical; }
 .stage:last-child { border-right: 0; }
 .stage-active { background: var(--sel); } .stage-paused { background: var(--waitbg); }
 .sel { font: inherit; font-size: 12px; background: var(--bg); border: 1px solid var(--ln); color: var(--tx); border-radius: 4px; min-height: 30px; padding: 0 6px; }
+
+/* the searchable model dropdown: a compact trigger plus a panel with a filter box */
+.picker { position: relative; display: block; width: 100%; min-width: 0; }
+.pick-btn { display: flex; align-items: center; gap: 6px; width: 100%; max-width: 100%; text-align: left; cursor: pointer; }
+.pick-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-caret { flex: 0 0 auto; color: var(--mu); font-size: 10px; }
+.pick-panel { position: fixed; z-index: 20; display: flex; flex-direction: column; gap: 6px; padding: 6px; background: var(--pn); border: 1px solid var(--ln); border-radius: 6px; box-shadow: 0 10px 28px rgba(0, 0, 0, .35); }
+.pick-list { display: flex; flex-direction: column; gap: 1px; overflow-y: auto; }
+.pick-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 4px 6px; border: 0; border-radius: 4px; background: none; color: var(--tx); font: inherit; text-align: left; cursor: pointer; }
+.pick-item:hover:not(:disabled), .pick-active { background: var(--sel); }
+.pick-item:disabled { color: var(--mu); cursor: not-allowed; }
+.pick-id { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-selected .pick-id { color: var(--pri); }
+.pick-detail { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-empty { padding: 6px; }
 .split { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
 .split > .wide { flex: 2 1 560px; min-width: 0; }
 .split > .side { flex: 1 1 320px; min-width: 0; }
