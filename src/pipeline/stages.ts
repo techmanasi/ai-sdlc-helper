@@ -339,7 +339,6 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
       stop(ctx, null);
     }
     await tick();
-    ctx.status.beginStep('checks');
     if (viaCi) ctx.out(`  Red tests: running locally (${new Set([...targetTestFiles(ctx), ...(ctx.ciSideEffectFiles || [])]).size} files)`);
     const green = await successCheck(ctx);
     if (viaCi) {
