@@ -1,7 +1,8 @@
 // One run: its stages, the questions and refused actions it waits on, its environment, files and live output, and every
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { api, type RunView, type SettingsView } from './api';
+import { api, type ModelInfo, type RunView, type SettingsView } from './api';
+import { filterModels } from './modelFilter';
 import { linkPaths, showTestIssues } from './stages';
 import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
@@ -30,6 +31,41 @@ function loadEnv(project: string, slug: string): [string, string][] {
 }
 function saveEnv(project: string, slug: string, rows: [string, string][]): void {
   try { localStorage.setItem(ENV_STORE(project, slug), JSON.stringify(rows)); } catch { /* private window */ }
+}
+
+function ModelPicker({ name, models, value, defaultLabel, harness, taken, onChange }: {
+  name: string;
+  models: Array<Pick<ModelInfo, 'id' | 'name'>>;
+  value: string;
+  defaultLabel: string;
+  harness: string;
+  taken?: string[];
+  onChange: (value: string) => void;
+}) {
+  const [filter, setFilter] = useState('');
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(filter.trim()), 120);
+    return () => clearTimeout(timer);
+  }, [filter]);
+  const filtered = filterModels(models, query);
+  const ids = unique(filtered.map(model => model.id));
+  const noMatch = query.length > 0 && filtered.length === 0;
+  return (
+    <span class="col" style={{ gap: '4px' }}>
+      <span class="row" style={{ gap: '4px' }}>
+        <input class="sel" aria-label={`${name} model filter`} placeholder="Filter models" value={filter}
+          onInput={e => setFilter((e.target as HTMLInputElement).value)} />
+        {filter && <button type="button" class="btn btn-s" aria-label={`${name} clear model filter`} onClick={() => { setFilter(''); setQuery(''); }}>×</button>}
+      </span>
+      <select class="sel" aria-label={`${name} model`} value={noMatch ? '__no_models_match__' : value}
+        onChange={e => onChange((e.target as HTMLSelectElement).value)}>
+        <option value="">{defaultLabel}</option>
+        {ids.map(model => <option value={model} disabled={model !== value && !!taken?.includes(`${harness}:${model}`)}>{model}</option>)}
+        {noMatch && <option value="__no_models_match__" disabled>no models match "{query}"</option>}
+      </select>
+    </span>
+  );
 }
 
 type StageState = 'done' | 'active' | 'paused' | 'failed' | 'pending';
@@ -387,6 +423,9 @@ export function Run({ slug }: { slug: string }) {
 
   const stagePickers = ({ key, name, taken }: { key: string; name: string; /** "<agent>:<model>" choices other stages already hold: not offered again. */ taken?: string[] }) => {
     const inUse = v.models[key];
+    const activeHarness = envObj[AGENT_ENV(key)] || catalog?.config?.agent?.stages?.[key]?.harness || catalog?.config?.agent?.harness || 'claude';
+    const selectedModel = envObj[envKey('MODEL', key)] || '';
+    const models = catalog ? (catalog.models[activeHarness] || []) : MODELS.slice(1).map(id => ({ id, name: id }));
     return (
       <div class="row" style={{ gap: '4px' }}>
         {catalog && (
@@ -398,9 +437,9 @@ export function Run({ slug }: { slug: string }) {
             {unique(catalog.harnesses).map(h => <option value={h}>{h}</option>)}
           </select>
         )}
-        <select class="sel" aria-label={`${name} model`} value={envObj[envKey('MODEL', key)] || ''} onChange={e => setEnvVar(envKey('MODEL', key), (e.target as HTMLSelectElement).value)}>
-          {unique(['', ...(catalog ? (catalog.models[envObj[AGENT_ENV(key)] || catalog.config?.agent?.stages?.[key]?.harness || catalog.config?.agent?.harness || 'claude'] || []).map(m => m.id) : MODELS.slice(1))]).map(m => <option value={m} disabled={!!m && m !== (envObj[envKey('MODEL', key)] || '') && !!taken?.includes(`${envObj[AGENT_ENV(key)] || catalog?.config?.agent?.stages?.[key]?.harness || catalog?.config?.agent?.harness || 'claude'}:${m}`)}>{m || (inUse && inUse.model ? `default (${inUse.model})` : 'default')}</option>)}
-        </select>
+        <ModelPicker name={name} models={models} value={selectedModel} harness={activeHarness} taken={taken}
+          defaultLabel={inUse && inUse.model ? `default (${inUse.model})` : 'default'}
+          onChange={model => setEnvVar(envKey('MODEL', key), model)} />
         <select class="sel" aria-label={`${name} effort`} value={envObj[envKey('EFFORT', key)] || ''} onChange={e => setEnvVar(envKey('EFFORT', key), (e.target as HTMLSelectElement).value)}>
           {unique(EFFORTS).map(m => <option value={m}>{m || (inUse && inUse.effort ? `default (${inUse.effort})` : 'default')}</option>)}
         </select>

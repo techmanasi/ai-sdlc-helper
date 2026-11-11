@@ -5,6 +5,7 @@ import { codeSearchErrors, codeSearchFor } from '../config/codeSearch.js';
 import { nodeRun } from '../config/node.js';
 import { agentFor, resolve, type Config } from '../config/settings.js';
 import { AGENT_STAGES } from '../pipeline/context.js';
+import { opencodeModelsFromPayload } from '../pipeline/harness/opencode/catalog.js';
 import { shellArgv, which } from '../shell.js';
 
 /** Runs a program and waits for it; status is null when it could not be started. */
@@ -74,15 +75,34 @@ export function doctor(dir: string, opts: DoctorOptions = {}): Check[] {
     const found = whichFn(bin, env);
     add({ name: `${label} CLI`, ok: found !== null, required: true, detail: found !== null ? found : `the ${bin} command is not on PATH`, fix });
   };
+  const opencodeCli = (found: string | null) => {
+    add({ name: 'opencode CLI', ok: found !== null, required: true,
+      detail: found !== null ? found : 'the opencode command is not on PATH',
+      fix: 'install OpenCode and make sure opencode is on PATH' });
+    if (found === null) return;
+    const result = spawn(found, ['api', 'get', '/api/model'], { env });
+    let count: number | null = null;
+    if (result.status === 0) {
+      try { count = opencodeModelsFromPayload(JSON.parse(result.stdout)).length; } catch { count = null; }
+    }
+    add({ name: 'opencode models', ok: count !== null && count > 0, required: false,
+      detail: count !== null
+        ? (count > 0 ? `${count} OpenCode model${count === 1 ? '' : 's'} reachable` : 'OpenCode is reachable, but no OpenCode Console models were returned')
+        : 'OpenCode models are not reachable; the CLI may not be authenticated',
+      fix: 'run opencode auth login, then retry model discovery' });
+  };
 
   if (used.size === 0 || (used.size === 1 && used.has('claude'))) {
     const claude = whichFn('claude', env);
     const codex = whichFn('codex', env);
     const agy = whichFn('agy', env);
+    const opencode = whichFn('opencode', env);
     if (used.size === 0 && !claude && codex) {
       add({ name: 'codex CLI', ok: true, required: true, detail: codex, fix: '' });
     } else if (used.size === 0 && !claude && agy) {
       add({ name: 'agy CLI', ok: true, required: true, detail: agy, fix: '' });
+    } else if (used.size === 0 && !claude && opencode) {
+      opencodeCli(opencode);
     } else {
       add({ name: 'claude CLI', ok: claude !== null, required: true,
         detail: claude !== null ? claude : 'the claude command is not on PATH',
@@ -93,6 +113,7 @@ export function doctor(dir: string, opts: DoctorOptions = {}): Check[] {
     if (used.has('claude')) cli('claude', 'claude', 'install Claude Code (npm install -g @anthropic-ai/claude-code) and make sure claude is on PATH');
     if (used.has('codex')) cli('codex', 'codex', 'install OpenAI Codex CLI and make sure codex is on PATH');
     if (used.has('agy')) cli('agy', 'agy', 'install Google Antigravity CLI and make sure agy is on PATH');
+    if (used.has('opencode')) opencodeCli(whichFn('opencode', env));
   }
 
   add({ name: 'settings', ok: !errors.length && config !== null, required: true,

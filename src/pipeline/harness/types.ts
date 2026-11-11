@@ -4,7 +4,7 @@
  * and provides an open plugin extension architecture for adding any third-party or internal coding agent.
  */
 
-export type BuiltinHarnessId = 'claude' | 'agy' | 'codex';
+export type BuiltinHarnessId = 'claude' | 'agy' | 'codex' | 'opencode';
 export type HarnessId = BuiltinHarnessId | (string & {});
 
 export type StageName = 'spec' | 'plan' | 'red-tests' | 'implement' | 'test-repair' | 'test-audit' | 'review' | 'resolve-conflicts'
@@ -30,6 +30,8 @@ export interface HarnessDetection {
   path?: string;
   version?: string;
   error?: string;
+  /** Optional dynamic model API reachability, when the harness can discover models. */
+  models?: { reachable: boolean; count?: number };
 }
 
 export interface PermissionRule {

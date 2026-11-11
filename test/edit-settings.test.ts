@@ -9,7 +9,7 @@ import { EFFORT_LEVELS, HARNESS_IDS, agentFor, harnessFor, resolve } from '../sr
 import { DefaultHarnessRegistry } from '../src/pipeline/harness/registry.js';
 import type { AgentRequest } from '../src/pipeline/agent.js';
 import { readRegistry, writeRegistry } from '../src/registry/projects.js';
-import { doctor } from '../src/registry/doctor.js';
+import { defaultSpawn, doctor } from '../src/registry/doctor.js';
 import { project, run, tmp } from './helpers.js';
 import { DOCS, fixture, pipeline } from './pipeline-fixture.js';
 
@@ -42,9 +42,9 @@ describe('editing sdlc.config.json', () => {
     const dir = project({ 'sdlc.config.json': config() });
     const before = read(dir);
     expect(editSettings(dir, { agent: { harness: 'gpt' } }).errors)
-      .toEqual(['sdlc.config.json: agent.harness: must be one of claude, agy, codex (got "gpt")']);
+      .toEqual(['sdlc.config.json: agent.harness: must be one of claude, agy, codex, opencode (got "gpt")']);
     expect(editSettings(dir, { agent: { stages: { review: { harness: 'gpt' } } } }).errors)
-      .toEqual(['sdlc.config.json: agent.stages.review.harness: must be one of claude, agy, codex (got "gpt")']);
+      .toEqual(['sdlc.config.json: agent.stages.review.harness: must be one of claude, agy, codex, opencode (got "gpt")']);
     expect(editSettings(dir, { agent: { effort: 'turbo' } }).errors)
       .toEqual(['sdlc.config.json: agent.effort: must be one of low, medium, high, xhigh, max (got "turbo")']);
     expect(editSettings(dir, { agent: { stages: { deploy: { model: 'opus' } } } }).errors)
@@ -201,6 +201,23 @@ describe('doctor with agents per stage', () => {
     const checks = doctor(dirWith({ harness: 'codex' }), { which: on('codex') });
     expect(checks.filter(c => /CLI$/.test(c.name)).map(c => [c.name, c.ok])).toEqual([['codex CLI', true]]);
   });
+
+  test('opencode model reachability is reported without making authentication a hard failure', () => {
+    const spawn: typeof defaultSpawn = (cmd, args, opts) => cmd === '/bin/opencode'
+      ? { status: 0, stdout: JSON.stringify({ data: [{ modelID: 'kimi', providerID: 'opencode-go', variants: [] }] }), stderr: '' }
+      : defaultSpawn(cmd, args, opts);
+    const reachable = doctor(dirWith({ harness: 'opencode' }), { which: on('opencode'), spawn });
+    expect(reachable.find(c => c.name === 'opencode CLI')).toMatchObject({ ok: true, required: true });
+    expect(reachable.find(c => c.name === 'opencode models')).toMatchObject({ ok: true, required: false, detail: '1 OpenCode model reachable' });
+
+    const unauthenticated = doctor(dirWith({ harness: 'opencode' }), {
+      which: on('opencode'),
+      spawn: (cmd, args, opts) => cmd === '/bin/opencode'
+        ? { status: 1, stdout: '', stderr: 'not authenticated' }
+        : defaultSpawn(cmd, args, opts),
+    });
+    expect(unauthenticated.find(c => c.name === 'opencode models')).toMatchObject({ ok: false, required: false });
+  });
 });
 
 describe('--agent, --model and --effort on the command line', () => {
@@ -209,7 +226,7 @@ describe('--agent, --model and --effort on the command line', () => {
   test('a wrong value is refused before anything runs, and --flag=value works like --flag value', async () => {
     expect((await pipe('--effort', 'turbo')).stderr).toContain('--effort must be one of low, medium, high, xhigh, max (got turbo)');
     expect((await pipe('--effort=turbo')).stderr).toContain('(got turbo)');
-    expect((await pipe('--agent=gpt')).stderr).toContain('--agent must be one of claude, agy, codex (got gpt)');
+    expect((await pipe('--agent=gpt')).stderr).toContain('--agent must be one of claude, agy, codex, opencode (got gpt)');
     expect((await pipe('--model')).stderr).toContain('--model needs a value');
     expect((await pipe('--agent=claude', '--model=opus', '--effort=high')).stderr).not.toMatch(/must be one of|needs a value|unknown option/);
   });
@@ -222,7 +239,7 @@ describe('the run-wide agent, model and effort in the environment and on start',
     expect((await run(['pipeline', 'x', '--cwd', dir], env({ SDLC_FORCE_EFFORT: 'turbo' }))).stderr)
       .toContain('SDLC_FORCE_EFFORT must be one of low, medium, high, xhigh, max (got turbo)');
     expect((await run(['pipeline', 'x', '--cwd', dir], env({ SDLC_FORCE_AGENT: 'gpt' }))).stderr)
-      .toContain('SDLC_FORCE_AGENT must be one of claude, agy, codex (got gpt)');
+      .toContain('SDLC_FORCE_AGENT must be one of claude, agy, codex, opencode (got gpt)');
     expect((await run(['pipeline', 'x', '--cwd', dir, '--effort', 'high'], env({ SDLC_FORCE_EFFORT: 'turbo' }))).stderr)
       .not.toContain('must be one of');
   });
@@ -243,12 +260,12 @@ describe('the run-wide agent, model and effort in the environment and on start',
     expect(seen).toEqual(['spec=claude', 'plan=codex']);
     const bad = await pipeline(fixture(), { AGENT_PLAN: 'gpt' }, { spawnAgent });
     expect(bad.status).toBe(1);
-    expect(bad.stdout).toContain('ERROR: AGENT_PLAN must be one of claude, agy, codex (got gpt)');
+    expect(bad.stdout).toContain('ERROR: AGENT_PLAN must be one of claude, agy, codex, opencode (got gpt)');
   });
 
   test('start and restart take --agent, --model and --effort; other run commands refuse them; a bad value exits 2', async () => {
     expect((await run(['start', 'a-b', '--effort', 'turbo'])).stderr).toContain('--effort must be one of low, medium, high, xhigh, max (got turbo)');
-    expect((await run(['start', 'a-b', '--agent=gpt'])).stderr).toContain('--agent must be one of claude, agy, codex (got gpt)');
+    expect((await run(['start', 'a-b', '--agent=gpt'])).stderr).toContain('--agent must be one of claude, agy, codex, opencode (got gpt)');
     const r = await run(['stop', 'a-b', '--model', 'opus']);
     expect([r.status, r.stderr]).toEqual([2, expect.stringContaining('go with start and restart')]);
   });
@@ -292,7 +309,7 @@ describe('personal agent settings', () => {
     const { dir, env } = setup();
     expect(resolve(dir, { env: { ...env, SDLC_PERSONAL_AGENT: JSON.stringify({ harness: 'agy' }) } }).config!.agent.harness).toBe('agy');
     const bad = resolve(dir, { env: { ...env, SDLC_PERSONAL_AGENT: JSON.stringify({ harness: 'gpt' }) } });
-    expect(bad.errors).toEqual(['personal settings: agent.harness: must be one of claude, agy, codex (got "gpt")']);
+    expect(bad.errors).toEqual(['personal settings: agent.harness: must be one of claude, agy, codex, opencode (got "gpt")']);
     expect(resolve(dir, { env: { ...env, SDLC_PERSONAL_AGENT: JSON.stringify({ allowCommands: ['rm'] }) } }).errors)
       .toEqual(['personal settings: agent.allowCommands: not a personal setting']);
   });
@@ -301,7 +318,7 @@ describe('personal agent settings', () => {
     const { env } = setup({ model: 'haiku' });
     expect(editOverrides('shop', { agent: { stages: { review: { harness: 'agy' } } } }, env).ok).toBe(true);
     expect(readRegistry(env)[0].overrides).toEqual({ agent: { model: 'haiku', stages: { review: { harness: 'agy' } } } });
-    expect(editOverrides('shop', { agent: { harness: 'gpt' } }, env).errors).toEqual(['agent.harness: must be one of claude, agy, codex (got "gpt")']);
+    expect(editOverrides('shop', { agent: { harness: 'gpt' } }, env).errors).toEqual(['agent.harness: must be one of claude, agy, codex, opencode (got "gpt")']);
     expect(editOverrides('shop', { agent: { allowCommands: ['x'] } }, env).errors).toEqual(['agent.allowCommands: not a personal setting']);
     expect(editOverrides('shop', { agent: { model: null, stages: { review: null } } }, env).ok).toBe(true);
     expect(readRegistry(env)[0].overrides).toBeUndefined();

@@ -1,0 +1,70 @@
+{
+  "location": { "directory": "/Users/example" },
+  "data": [
+    {
+      "id": "claude-fable-5-2",
+      "modelID": "claude-fable-5-2",
+      "providerID": "opencode",
+      "name": "Claude Fable 5.2",
+      "family": "claude-fable",
+      "capabilities": { "tools": true, "input": ["text"], "output": ["text"] },
+      "variants": [
+        { "id": "none", "settings": { "reasoning": { "enabled": false } } },
+        { "id": "minimal", "settings": { "reasoning": { "effort": "minimal" } } },
+        { "id": "high", "settings": { "reasoning": { "effort": "high" } } },
+        { "id": "max", "settings": { "reasoning": { "effort": "max" } } }
+      ]
+    },
+    {
+      "id": "kimi-k3.1-pro",
+      "modelID": "kimi-k3.1-pro",
+      "providerID": "opencode-go",
+      "name": "Kimi K3.1 Pro",
+      "family": "kimi-k3.1-pro",
+      "capabilities": { "tools": true },
+      "variants": [
+        { "id": "medium", "settings": { "reasoning": { "effort": "medium" } } },
+        { "id": "xhigh", "settings": { "reasoning": { "effort": "xhigh" } } }
+      ]
+    },
+    {
+      "id": "gemini-3.1-pro",
+      "modelID": "gemini-3.1-pro",
+      "providerID": "opencode-go",
+      "name": "Gemini 3.1 Pro Preview",
+      "family": "gemini-pro",
+      "capabilities": { "tools": true },
+      "variants": [
+        { "id": "none", "settings": { "reasoning": { "enabled": false } } },
+        { "id": "thinking", "settings": { "reasoning": { "enabled": true } } }
+      ]
+    },
+    {
+      "id": "opencode/legacy-model",
+      "modelID": "opencode/legacy-model",
+      "providerID": "opencode",
+      "name": "Legacy OpenCode Model",
+      "capabilities": { "tools": false },
+      "variants": []
+    },
+    {
+      "id": "nex-agi/nex-n2.6",
+      "modelID": "nex-agi/nex-n2.6",
+      "providerID": "openrouter",
+      "name": "Nex-N2.6",
+      "family": "agi",
+      "capabilities": { "tools": true },
+      "variants": [
+        { "id": "medium", "settings": { "reasoning": { "effort": "medium" } } },
+        { "id": "high", "settings": { "reasoning": { "effort": "high" } } }
+      ]
+    },
+    {
+      "id": "qwen3-coder",
+      "modelID": "qwen3-coder",
+      "providerID": "ollama",
+      "name": "Qwen3 Coder (local)",
+      "variants": []
+    }
+  ]
+}
