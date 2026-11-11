@@ -39,3 +39,61 @@ re-read whole files.
 After big code changes, refresh the graph with `graft build` (deterministic,
 no API key, $0).
 <!-- graft:end -->
+
+# ai-sdlc-helper
+
+Global npm package + Claude Code plugin running an AI SDLC pipeline (Spec, Plan,
+Red tests, Implement, Review, Ship) on any project. TypeScript ESM, Vitest,
+ESLint. Plan: `docs/PLAN.md`.
+
+## Layout
+- `src/` — CLI entry (`src/bin.ts`, `src/cli/`), pipeline engine
+  (`src/pipeline/`: stages, agent, gates, prompts, finalise, resolve-conflicts),
+  test runners (`src/runners/`), run records/status (`src/runs/`), project
+  registry, backlog, permissions, harness adapters.
+- `web/` — Preact UI (`web/ui/`) and its local server (`web/server/`).
+- `test/` — Vitest suites; `e2e/` end-to-end runs; `assets/` user-facing
+  prompts and skills; `docs/` plan, backlog, investigations.
+- `graft/` is the generated context graph (gitignored, rebuild with `graft build`).
+
+## Commands
+- `npm run check`: lint, typecheck, test. The **full suite runs in GitHub Actions
+  CI, not locally** (2026-11-12): run only the targeted tests for the files you
+  touched, then push a branch and let `gh run watch` report the full run.
+- Long commands (check, build, tests): send full output to a log, e.g.
+  `npm run check > /tmp/sdlc-$(basename $PWD).log 2>&1; echo exit=$?`.
+  Exit 0: skip the log unless the task needs something in it (e.g. timings,
+  warnings, coverage). Failure: grep/tail only the failing parts.
+- `npm run build`: compile `src/` to `dist/`.
+- `node dist/bin.js <command>`: run the built CLI.
+- `npm run e2e`, `npm run ui`, `npm run dev` for the pipeline e2e run and the
+  web UI.
+
+## Rules
+- Node 18+ only: no newer Node APIs (`@types/node` pinned to 18). Target
+  projects' commands run via `src/config/node.ts`.
+- Tests in `test/` exercise real code (import it or run via `test/helpers.ts`);
+  never assert on Markdown or comments.
+- User-facing prompts and skills live in `assets/`.
+- Name SDLC stages, never number them.
+- Worktrees: `../ai-sdlc-helper-sdlc/<slug>`.
+- Work goes via PRs into `main`; confirm each merge with the user, naming the PR
+  and its CI status.
+- Subagents must not wait on runs over 5 minutes (prompt cache expires). End
+  once code is written and let the parent run the long pipeline/e2e step, or
+  have a script write a short result file for a fresh subagent to read.
+- Use the `porter` subagent for phase or porting work. Briefs must make
+  exploration unnecessary: name the exact files, the `docs/PLAN.md` section,
+  and the definition of done.
+- Never push fix commits onto a `sdlc/<slug>` PR: diagnose and report CI
+  failures there; fix the tool on your own branches instead.
+- Never `pkill`/`killall` by name to stop tests. Stop only background tasks
+  this session started; the user's pipeline runs share the machine. Check
+  `.git/sdlc-runs/*.json` and `../ai-sdlc-helper-sdlc` before heavy test runs.
+
+## Agent memory
+Project memory imported from Claude Code lives in `.opencode/memory/`. Read
+`.opencode/memory/MEMORY.md` at the start of non-trivial work, then open only
+the linked files the task needs (lazy-load; do not preload everything). Update
+or add a memory file when the user gives durable feedback or a project state
+changes.
