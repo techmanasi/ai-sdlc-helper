@@ -52,6 +52,7 @@ export interface StageRecovery {
 export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'changes' | 'deniedPermissions'> {
   models: Record<string, { model: string; effort: string }>;
   agentStarted: string; runStarted: string;
+  step?: { i: number; n: number; label: string; started: string };
   record: Record<string, unknown> | null;
   dir: string | null; worktree: string | null; base: string;
   questions: Question[]; permissions: Ask[]; deniedPermissions?: Ask[];

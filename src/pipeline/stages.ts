@@ -39,6 +39,7 @@ export function stage(ctx: Ctx, title: string): void {
   ctx.status.stage = title.replace(/^[0-9a-z]+(\/[0-9]+)? /, '').replace(/ \(.*/, '');
   ctx.status.agent = '';
   ctx.status.attempt = '';
+  ctx.status.step = null; // the new stage names its own first step
   ctx.status.write();
 }
 
@@ -149,6 +150,7 @@ export async function specStage(ctx: Ctx): Promise<void> {
   stage(ctx, '1/6 Spec');
   await tick();
   const questions = at(ctx, `${ctx.docs}/questions.md`);
+  ctx.status.beginStep('answers');
   if (exists(questions) && isAutoAccept(ctx)) autoAcceptQuestions(questions);
   recordAnswers(ctx);
   const MAX_SPEC_ROUNDS = 5;
@@ -156,6 +158,7 @@ export async function specStage(ctx: Ctx): Promise<void> {
     const round = countLines(at(ctx, `${ctx.docs}/decisions.md`), /^## Round /) + 1;
     ctx.status.attempt = `${round}/${MAX_SPEC_ROUNDS}`;
     ctx.status.write();
+    ctx.status.beginStep('agent');
     await runAgent(ctx, `spec-${round}`, 'spec');
     if (exists(questions)) {
       if (isAutoAccept(ctx) && round < MAX_SPEC_ROUNDS) {
@@ -168,6 +171,7 @@ export async function specStage(ctx: Ctx): Promise<void> {
     }
     break;
   }
+  ctx.status.beginStep('check');
   if (!exists(at(ctx, `${ctx.docs}/specs-1.md`))) stop(ctx, 'Spec not produced');
 }
 
@@ -178,6 +182,7 @@ export async function planStage(ctx: Ctx): Promise<void> {
   if (!exists(at(ctx, `${ctx.docs}/specs-1.md`))) stop(ctx, `FROM=${ctx.from} but ${ctx.docs}/specs-1.md is missing: run Spec first`);
   const questions = at(ctx, `${ctx.docs}/questions.md`);
   if (ctx.from === 'plan') {
+    ctx.status.beginStep('answers');
     if (exists(questions) && isAutoAccept(ctx)) autoAcceptQuestions(questions);
     recordAnswers(ctx);
   }
@@ -185,6 +190,7 @@ export async function planStage(ctx: Ctx): Promise<void> {
   for (let attempt = 1; attempt <= MAX_PLAN_ROUNDS; attempt++) {
     ctx.status.attempt = `${attempt}/${MAX_PLAN_ROUNDS}`;
     ctx.status.write();
+    ctx.status.beginStep('agent');
     await runAgent(ctx, 'plan', 'plan');
     if (exists(questions)) {
       if (isAutoAccept(ctx) && attempt < MAX_PLAN_ROUNDS) {
@@ -197,6 +203,7 @@ export async function planStage(ctx: Ctx): Promise<void> {
     }
     break;
   }
+  ctx.status.beginStep('check');
   if (!exists(at(ctx, `${ctx.docs}/plan-1.md`))) stop(ctx, 'Plan not produced');
 }
 
@@ -207,14 +214,17 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   if (!exists(at(ctx, `${ctx.docs}/plan-1.md`))) stop(ctx, `FROM=${ctx.from} but ${ctx.docs}/plan-1.md is missing: run Plan first`);
   ctx.status.attempt = '1/1';
   ctx.status.write();
+  ctx.status.beginStep('agent');
   await runAgent(ctx, 'tests', 'red-tests');
   await tick();
+  ctx.status.beginStep('gate');
   // Only the tests this task added or changed are run: the rest of the suite is slow, and an unrelated failure there
   // must not make a new test that passes look red.
   const added = newTestFiles(ctx);
   if (added.length === 0) stop(ctx, `RED GATE FAILED: the Red tests agent added or changed no test file. See ${ctx.log}/tests.log`);
   if (testsPass(ctx, { targetFiles: added, onlyTargets: true, noAllowFailures: true })) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
   await tick();
+  ctx.status.beginStep('commit');
   ctx.git.run('add', '-A', '--', ctx.docs);
   ctx.git.addTests(ctx.layout.testPathspecs);
   ctx.git.run('commit', '-q', '-m', `test(${ctx.slug}): add failing tests and spec/plan docs`);
@@ -275,6 +285,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
   const issues = at(ctx, `${ctx.docs}/test-issues.md`);
   if (exists(issues)) ctx.out('WARNING: test-issues.md exists and is moved to the logs/previous folder; use FROM=test-repair to resume at Test repair');
   setAside(ctx, [`${ctx.docs}/test-issues.md`]);
+  ctx.status.beginStep('install');
   installDeps(ctx);
   await tick();
   // A resumed run (a new process) learns whether CI is reachable; an unchanged head that was already pushed is waited on first.
@@ -288,6 +299,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
   // A resumed run never trusts a previous run's test log: the first attempt reads one from this run.
   if (ctx.fromN === 4) {
     const isScoped = ctx.config.tests?.preliminary !== 'full';
+    ctx.status.beginStep('baseline');
     const targets = targetTestFiles(ctx);
     testsPass(ctx, { targetFiles: targets, onlyTargets: (isScoped || ciOn(ctx)) && targets.length > 0 });
     await tick();
@@ -316,8 +328,10 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
       ctx.out(`  agent ${agentFor(ctx.config, 'implement').harness} is running implement with model ${model?.model || 'default'} and effort ${model?.effort || 'default'}`);
     } else ctx.out(` attempt ${i}`);
     ctx.status.attempt = `${i}/${maxAttempts}`;
+    ctx.status.beginStep('agent');
     await runAgent(ctx, `impl-${i}`, 'implement');
     await tick();
+    ctx.status.beginStep('guard');
     const touched = ctx.git.testsChangedSince(ctx.lockSha, ctx.layout.testPathspecs);
     if (touched.length) {
       ctx.out('GUARD FAILED: tests were modified during implementation');
@@ -325,6 +339,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
       stop(ctx, null);
     }
     await tick();
+    ctx.status.beginStep('checks');
     if (viaCi) ctx.out(`  Red tests: running locally (${new Set([...targetTestFiles(ctx), ...(ctx.ciSideEffectFiles || [])]).size} files)`);
     const green = await successCheck(ctx);
     if (viaCi) {
@@ -486,6 +501,7 @@ function retryUnclaimed(ctx: Ctx): void {
 export async function testRepairStage(ctx: Ctx): Promise<void> {
   stage(ctx, '4b Test repair (only because the Implement agent claimed test defects)');
   await tick();
+  ctx.status.beginStep('trigger');
   const specs = ctx.layout.testPathspecs;
   const issues = `${ctx.docs}/test-issues.md`;
   const reject = (why: string, hint = false): never => {
@@ -502,11 +518,13 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
     return errs.length > 0;
   };
 
+  ctx.status.beginStep('snapshot');
   resultsNow(ctx, `${ctx.log}/now.json`);
   await tick();
   retryUnclaimed(ctx);
   await tick();
   const pre = () => { try { return precheck(ctx.keys, `${ctx.log}/now.json`, issues, ctx.limits.maxRepairTests); } catch (e) { return [(e as Error).message]; } };
+  ctx.status.beginStep('precheck');
   if (ctx.from === 'test-repair') {
     // FROM=test-repair: fail early, before any agent runs and before anything is restored.
     const errs = pre();
@@ -514,25 +532,32 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
     if (errs.length) { ctx.err('REJECT: claims would not pass the pre-check'); ctx.err(errs.map(e => `REJECT: ${e}`).join('\n')); stop(ctx, null); }
   }
   if (rejects(pre)) reject('claims fail pre-check (see above)', true);
+  ctx.status.beginStep('hash');
   const srcBefore = ctx.git.sourceHash(ctx.layout.sourceDirs, specs, ctx.config.backlogDir);
   ctx.status.attempt = '1/1';
   ctx.status.write();
+  ctx.status.beginStep('agent');
   await runAgent(ctx, 'test-repair', 'test-repair');
   await tick();
+  ctx.status.beginStep('guard');
   const report = at(ctx, `${ctx.docs}/test-repair-1.md`);
   if (exists(report) && /^NO REPAIR NEEDED/m.test(fs.readFileSync(report, 'utf8'))) reject('repair agent says the tests are right; the source is wrong');
   if (ctx.git.sourceHash(ctx.layout.sourceDirs, specs, ctx.config.backlogDir) !== srcBefore) reject('source files were modified during test repair');
+  ctx.status.beginStep('diff');
   if (rejects(() => diffcheck(ctx.keys, ctx.lockSha, issues))) reject('diff check failed (see above)');
   await tick();
   fs.writeFileSync(at(ctx, `${ctx.log}/test-repair.diff`), ctx.git.run('diff', ctx.lockSha, '--', ...specs));
+  ctx.status.beginStep('names');
   resultsNow(ctx, `${ctx.log}/after.json`);
   await tick();
   if (rejects(() => namecheck(ctx.keys, `${ctx.log}/red.json`, `${ctx.log}/after.json`))) reject('tests were removed or renamed');
+  ctx.status.beginStep('red');
   const changedTests = [...new Set([...ctx.git.testsChangedSince(ctx.lockSha, specs), ...ctx.git.lines('ls-files', '--others', '--exclude-standard', '--', ...specs)])].sort();
   resultsAt(ctx, ctx.origRedSha, `${ctx.log}/repaired-on-red.json`, changedTests);
   await tick();
   if (rejects(() => redcheck(ctx.keys, `${ctx.log}/red.json`, `${ctx.log}/repaired-on-red.json`, issues))) reject('a repaired test no longer fails on the unimplemented source');
 
+  ctx.status.beginStep('audit');
   const flags = stageFlags(ctx, 'test-audit');
   const auditPrompt = renderPrompt('test-audit', promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, 'test-audit'));
   if ((await runAudit(ctx, auditPrompt, flags)) !== 0) reject('auditor failed to run', true);
@@ -541,7 +566,9 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   const verdict = audit.split('\n').filter(l => /^VERDICT: (VALID|INVALID)$/.test(l)).pop();
   if (verdict !== 'VERDICT: VALID') reject('independent auditor did not return VERDICT: VALID');
   await tick();
+  ctx.status.beginStep('checks');
   if (!(await successCheck(ctx))) reject(`checks still fail after an audited repair; see ${ctx.failLog}`);
+  ctx.status.beginStep('commit');
   ctx.git.run('add', '-A', '--', ctx.docs);
   ctx.git.addTests(specs);
   ctx.git.run('commit', '-q', '-m', `test(${ctx.slug}): repair invalid tests (mechanically checked and audited)`);
@@ -556,10 +583,13 @@ export async function reviewStage(ctx: Ctx): Promise<void> {
   await tick();
   ctx.status.attempt = '1/1';
   ctx.status.write();
+  ctx.status.beginStep('agent');
   await runAgent(ctx, 'review', 'review');
   await tick();
+  ctx.status.beginStep('guard');
   if (ctx.git.testsChangedSince(ctx.lockSha, ctx.layout.testPathspecs).length) stop(ctx, 'GUARD FAILED: review modified tests');
   await tick();
+  ctx.status.beginStep('checks');
   if (!(await successCheck(ctx))) stop(ctx, `Checks broke after review. See ${ctx.failLog}`);
 }
 
@@ -569,6 +599,7 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
   await tick();
   ctx.status.attempt = '1/1';
   ctx.status.write();
+  ctx.status.beginStep('commit');
   let createPr = ctx.env.SDLC_CREATE_PR === '1' || ctx.env.CREATE_PR === '1';
   const optFile = path.join(ctx.root, ctx.log, 'finalise-options.json');
   if (fs.existsSync(optFile)) {

@@ -3,7 +3,29 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, type RunView, type SettingsView } from './api';
 import { ModelSelect } from './ModelSelect';
-import { linkPaths, showTestIssues } from './stages';
+import { elapsedText, linkPaths, showTestIssues, stepBanner } from './stages';
+
+/** What the stage is doing now, under the Stages pane. The elapsed time ticks in the browser only; nothing is written for it. */
+function StepBar({ v }: { v: RunView }) {
+  const b = stepBanner(v);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!b) return undefined;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [!!b]);
+  if (!b) return null;
+  return (
+    <div class="stepbar" role="status" aria-live="polite">
+      <div class="stepbar-row">
+        <Spinner />
+        <strong>{b.label}</strong>
+        <span class="small muted">{b.position}{b.stage ? ` · ${b.stage}` : ''}{elapsedText(b.started, now) ? ` · ${elapsedText(b.started, now)}` : ''}</span>
+      </div>
+      <div class="stepbar-track" aria-hidden="true"><div class="stepbar-fill" style={{ width: `${b.percent}%` }} /></div>
+    </div>
+  );
+}
 import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
 import { defaultPick, resumeCommand, resumeOptions } from './resume';
@@ -664,6 +686,7 @@ export function Run({ slug }: { slug: string }) {
           </div>
         </div>
       </Panel>
+      <StepBar v={v} />
 
       <div class="split">
         <div class="wide col">

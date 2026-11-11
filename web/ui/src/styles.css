@@ -65,6 +65,18 @@ textarea.inp { resize: vertical; }
   flex-shrink: 0;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; border-right-color: currentColor; opacity: 0.7; }
+}
+
+/* what the running stage is doing now, under the Stages pane */
+.stepbar { border: 1px solid var(--ln); background: var(--pn2); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; color: var(--run); }
+.stepbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.stepbar-row strong { color: var(--tx); font-weight: 500; }
+.stepbar-track { height: 3px; border-radius: 2px; background: var(--ln); overflow: hidden; }
+.stepbar-fill { height: 100%; background: var(--run); transition: width 0.3s ease; }
+@media (prefers-reduced-motion: reduce) { .stepbar-fill { transition: none; } }
+
 /* the frame: top bar, side menu, content */
 .top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--ln); background: var(--pn); }
 .brand { font-weight: 500; font-size: 14px; text-decoration: none; color: var(--tx); }
