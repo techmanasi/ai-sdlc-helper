@@ -144,6 +144,9 @@ export function ModelSelect({ name, models, value, defaultLabel, harness, taken,
             {query.trim() && matching.length === 0 && (
               <span role="presentation" class="pick-empty small muted">no models match “{query.trim()}”</span>
             )}
+            {!query.trim() && models.length === 0 && (
+              <span role="presentation" class="pick-empty small muted">this harness listed no models</span>
+            )}
           </div>
         </div>
       )}
