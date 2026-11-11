@@ -6,6 +6,7 @@ import { linkPaths, showTestIssues } from './stages';
 import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
 import { defaultPick, resumeCommand, resumeOptions } from './resume';
+import { isMarkdownPath } from './markdown';
 import { usePoll } from './usePoll';
 import { useStream } from './useStream';
 import { applyRunEvent } from './stream';
@@ -238,6 +239,7 @@ export function Run({ slug }: { slug: string }) {
   const [picking, setPicking] = useState(false);
   const [pick, setPick] = useState('');
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
+  const [fileView, setFileView] = useState<'rendered' | 'source'>('rendered');
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
   const [stageDirs, setStageDirs] = useState<StageDirState>({});
   const [issuesDraft, setIssuesDraft] = useState<string | null>(null);
@@ -368,7 +370,7 @@ export function Run({ slug }: { slug: string }) {
   ].filter(Boolean).join(', ');
   const startArgs = ['start', slug, ...(v.resumeFrom && v.state !== 'not started' ? ['--from', v.resumeFrom] : [])];
   const editorLink = v.worktree ? `vscode://file${v.worktree.startsWith('/') ? '' : '/'}${v.worktree}` : '';
-  const openFile = async (p: string) => { try { setFile({ path: p, text: (await api.file(project, slug, p)).text }); } catch (e) { toast((e as Error).message); } };
+  const openFile = async (p: string) => { try { const text = (await api.file(project, slug, p)).text; setFileView('rendered'); setFile({ path: p, text }); } catch (e) { toast((e as Error).message); } };
   const docTree = useMemo(() => (v ? buildDocTree(v.docs) : []), [v?.docs.join('|')]);
 
   const stagePickers = ({ key, name, taken }: { key: string; name: string; /** "<agent>:<model>" choices other stages already hold: not offered again. */ taken?: string[] }) => {
@@ -1065,8 +1067,21 @@ export function Run({ slug }: { slug: string }) {
       {file && (
         <div class="overlay" role="dialog" aria-modal="true" aria-label={file.path} onClick={e => { if (e.target === e.currentTarget) setFile(null); }}>
           <div class="pn dialog">
-            <div class="ph"><span class="mono">{file.path}</span><div class="row"><CopyButton text={file.text} /><button class="btn btn-s" type="button" onClick={() => setFile(null)}>Close</button></div></div>
-            <pre class="code mono">{file.text}</pre>
+            <div class="ph">
+              <span class="mono">{file.path}</span>
+              <div class="row">
+                {isMarkdownPath(file.path) && (
+                  <div class="segs" role="group" aria-label="File view">
+                    <button class={`seg${fileView === 'rendered' ? ' seg-on' : ''}`} type="button" aria-pressed={fileView === 'rendered'} onClick={() => setFileView('rendered')}>Rendered</button>
+                    <button class={`seg${fileView === 'source' ? ' seg-on' : ''}`} type="button" aria-pressed={fileView === 'source'} onClick={() => setFileView('source')}>Source</button>
+                  </div>
+                )}
+                <CopyButton text={file.text} /><button class="btn btn-s" type="button" onClick={() => setFile(null)}>Close</button>
+              </div>
+            </div>
+            {isMarkdownPath(file.path) && fileView === 'rendered'
+              ? <div class="file-md"><Markdown text={file.text} /></div>
+              : <pre class="code mono">{file.text}</pre>}
             <p class="small muted pb" style={{ margin: 0 }}>Read-only here; editing files in place comes with phase 2. Edit it in the worktree meanwhile.</p>
           </div>
         </div>
