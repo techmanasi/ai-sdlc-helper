@@ -81,6 +81,16 @@ describe('model and provider resolution', () => {
     expect(errorOf(() => stageModel('plan', menv({ EFFORT_PLAN: 'huge' })))).toBe("ERROR: invalid effort 'huge' for stage plan (use low, medium, high, xhigh or max)");
   });
 
+  test('a harness that owns its models keeps a provider/model id; the claude harness still resolves providers', () => {
+    const opencode = { ...menv({}), project: () => ({ harness: 'opencode', model: 'opencode/gemini-4-carbon', effort: 'high' }) };
+    const sm = stageModel('spec', opencode);
+    expect(`${sm.model} ${sm.effort}`).toBe('opencode/gemini-4-carbon high');
+    expect(brief(sm.provider)).toBe('0|opencode/gemini-4-carbon|||1');
+    expect(errorOf(() => stageModels(opencode))).toBe('');
+    const claude = { ...menv({}), project: () => ({ harness: 'claude', model: 'opencode/gemini-4-carbon' }) };
+    expect(errorOf(() => stageModel('spec', claude))).toBe("ERROR: model 'opencode/gemini-4-carbon' (stage spec): provider 'opencode' is not listed in SDLC_PROVIDERS (see .env.example)");
+  });
+
   test('envModels reads only SDLC_PROVIDER* keys from .env, strips quotes, and the shell wins', () => {
     const dir = tmp('sdlc-env-');
     expect(envModels(dir, {})).toEqual({});

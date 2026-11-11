@@ -10,7 +10,10 @@ The pipeline has two deliberately separate boundaries:
 
 Adding an agent should therefore require a new `AgentHarness` implementation,
 not a branch in the process runner. Models remain owned by their harness and
-are never translated to another harness.
+are never translated to another harness: only the claude harness resolves a
+`<provider>/<model>` name through a custom provider ([src/pipeline/models.ts:89](../../src/pipeline/models.ts)),
+and every other harness passes its model id to its own CLI untouched, so an
+OpenCode id such as `opencode-go/kimi-k3.1-pro` is never mistaken for a provider.
 
 `SDLC_AGENT_TIMEOUT_MS` controls the generic process timeout. A request may
 override it with `timeoutMs`; the default is 30 minutes. A timeout writes an

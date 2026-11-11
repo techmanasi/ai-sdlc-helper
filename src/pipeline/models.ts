@@ -75,7 +75,7 @@ export interface ModelEnv {
   fromFile?: Record<string, string>;
   registryFile: string;
   /** The project's model and effort for a stage (sdlc.config.json), below MODEL_<STAGE> and above SDLC_MODEL. */
-  project?: (stage: AgentStage) => { model?: string; effort?: string };
+  project?: (stage: AgentStage) => { harness?: string; model?: string; effort?: string };
   /** --model and --effort of the run: they win over everything, for every stage. */
   force?: { model?: string; effort?: string };
 }
@@ -122,6 +122,9 @@ export interface StageModel { model: string; effort: string; provider: Provider 
 /**
  * The model and effort of <stage>, and its provider. Highest first: the run's --model / --effort, MODEL_<STAGE> /
  * EFFORT_<STAGE>, the project's setting, SDLC_MODEL / SDLC_EFFORT, the stage default.
+ *
+ * Only the claude harness resolves "<provider>/<model>" through a provider: every other harness owns its model ids and
+ * passes them to its own CLI (OpenCode's ids are always "<provider>/<model>"), so they are never treated as providers.
  */
 export function stageModel(stage: AgentStage, menv: ModelEnv): StageModel {
   const up = stage.toUpperCase().replace(/-/g, '_');
@@ -130,7 +133,11 @@ export function stageModel(stage: AgentStage, menv: ModelEnv): StageModel {
   const model = menv.force?.model || menv.env[`MODEL_${up}`] || proj.model || menv.env.SDLC_MODEL || def.model;
   const effort = menv.force?.effort || menv.env[`EFFORT_${up}`] || proj.effort || menv.env.SDLC_EFFORT || def.effort;
   if (!EFFORTS.includes(effort)) throw new SetupError(`ERROR: invalid effort '${effort}' for stage ${stage} (use low, medium, high, xhigh or max)`);
-  return { model, effort, provider: resolveProvider(model, stage, menv) };
+  const ownsModels = (proj.harness || 'claude') !== 'claude';
+  const provider = ownsModels
+    ? { active: false, model, endpoint: '', key: '', effortFlag: true }
+    : resolveProvider(model, stage, menv);
+  return { model, effort, provider };
 }
 
 /** The model settings of a run: its environment, the project's settings and the run's --model / --effort. */
