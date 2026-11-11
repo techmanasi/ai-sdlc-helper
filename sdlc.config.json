@@ -12,6 +12,9 @@
       ]
     }
   ],
+  "tests": {
+    "fullSuite": "ci"
+  },
   "agent": {
     "harness": "claude",
     "stages": {

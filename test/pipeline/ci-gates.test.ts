@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { testsPass, successCheck } from '../../src/pipeline/gates.js';
+import { resultsNow, successCheck, testsPass } from '../../src/pipeline/gates.js';
 import { spawnShell } from '../../src/shell.js';
 import { runSuites } from '../../src/runners/run.js';
 import type { Ctx } from '../../src/pipeline/context.js';
@@ -85,5 +85,23 @@ describe('local gates with CI (spec 6, 8.4)', () => {
     });
     expect(await successCheck(ctx as unknown as Ctx, { targetFiles: ['test/red.test.ts'] })).toBe(exitCode === 0);
     expect(spawnShell).toHaveBeenCalledWith('fixture-integration', expect.objectContaining({ cwd: root }));
+  });
+  it('G09 a gate with nothing in scope runs nothing locally when the full suite is CI', () => {
+    const ctx = arrange(); respond();
+    expect(testsPass(ctx as unknown as Ctx)).toBe(true);
+    expect(runSuites).not.toHaveBeenCalled();
+    expect(ctx.out.mock.calls.flat().join('\n')).toMatch(/full suite runs in CI only/);
+  });
+  it('G10 a results snapshot with no files never runs every suite locally when the full suite is CI', async () => {
+    const ctx = arrange(); respond();
+    resultsNow(ctx as unknown as Ctx, 'logs/snapshot.json');
+    expect(runSuites).not.toHaveBeenCalled();
+    await expect(fs.stat(path.join(root, 'logs/snapshot.json'))).rejects.toThrow();
+    expect(ctx.out.mock.calls.flat().join('\n')).toMatch(/full suite runs in CI, not here/);
+  });
+  it('G11 a results snapshot with files still runs those files locally', () => {
+    const ctx = arrange(); respond();
+    resultsNow(ctx as unknown as Ctx, 'logs/snapshot.json', ['test/red.test.ts']);
+    expect(runSuites).toHaveBeenCalledWith(ctx.config, expect.objectContaining({ files: ['test/red.test.ts'] }));
   });
 });

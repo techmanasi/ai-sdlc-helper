@@ -11,7 +11,7 @@ import { answerQuestions, parseQuestions } from '../runs/view.js';
 import { agentFor } from '../config/settings.js';
 import { at, setAside, stamp, stop, stopIfAborted, tick, type Ctx } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agent.js';
-import { newTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass } from './gates.js';
+import { newTestFiles, repairTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass } from './gates.js';
 import { renderPrompt } from './prompts.js';
 import { resumeCommand, resumeHint } from './hints.js';
 import { finalise, getPrFromBrief, markPrReady } from './finalise.js';
@@ -503,6 +503,9 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   ctx.status?.beginStep?.('trigger');
   const specs = ctx.layout.testPathspecs;
   const issues = `${ctx.docs}/test-issues.md`;
+  // With the full suite in CI, the two snapshots below run only the files this stage is responsible for; otherwise every
+  // suite runs here.
+  const scope = (): string[] => repairTestFiles(ctx, ctx.lockSha, issues);
   const reject = (why: string, hint = false): never => {
     ctx.out(`TEST REPAIR REJECTED: ${why}`);
     ctx.git.restoreTests(ctx.lockSha, specs);
@@ -518,7 +521,7 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   };
 
   ctx.status?.beginStep?.('snapshot');
-  resultsNow(ctx, `${ctx.log}/now.json`);
+  resultsNow(ctx, `${ctx.log}/now.json`, scope());
   await tick();
   retryUnclaimed(ctx);
   await tick();
@@ -547,7 +550,7 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   await tick();
   fs.writeFileSync(at(ctx, `${ctx.log}/test-repair.diff`), ctx.git.run('diff', ctx.lockSha, '--', ...specs));
   ctx.status?.beginStep?.('names');
-  resultsNow(ctx, `${ctx.log}/after.json`);
+  resultsNow(ctx, `${ctx.log}/after.json`, scope());
   await tick();
   if (rejects(() => namecheck(ctx.keys, `${ctx.log}/red.json`, `${ctx.log}/after.json`))) reject('tests were removed or renamed');
   ctx.status?.beginStep?.('red');
