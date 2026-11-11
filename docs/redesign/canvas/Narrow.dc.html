@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stages rail, narrow</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif}
+a{color:#5eead4}a:hover{color:#99f6e4}
+</style>
+</helmet>
+<div style="width: 760px; height: 460px; box-sizing: border-box; padding: 24px; background: #0f1218; color: #e6e9ef; display: flex; flex-direction: column; gap: 14px">
+
+<section style="background: #151a23; border: 1px solid #262e3b; border-radius: 10px; display: flex; flex-direction: column">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #262e3b">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">Stages</h2>
+<span style="font-size: 13px; color: #aab3c2">5 of 7 · Test repair running</span>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 12px">
+<button type="button" aria-label="Scroll stages left" disabled style="flex: none; width: 44px; height: 44px; border-radius: 8px; border: 1px solid #262e3b; background: transparent; color: #4a5263; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5"></path></svg></button>
+
+<div style="flex: 1; min-width: 0; position: relative; overflow: hidden">
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; width: max-content">
+<li style="display: flex">
+<button type="button" aria-label="4 done stages: Spec, Plan, Red tests, Implement. Show them" style="width: 96px; min-height: 64px; text-align: left; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 8px; border: 1px solid #1f4a3a; background: #132519; color: #6ee7a0; font: inherit; cursor: pointer">
+<span style="display: block; width: 100%; height: 3px; border-radius: 2px; background: #6ee7a0"></span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#6ee7a0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg>4 done</span>
+</button>
+</li>
+<li style="display: flex">
+<button type="button" aria-pressed="true" style="width: 150px; min-height: 64px; text-align: left; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 8px; border: 1px solid #46536a; background: #1f2735; color: #e6e9ef; font: inherit; cursor: pointer">
+<span style="display: block; width: 100%; height: 3px; border-radius: 2px; background: #5eead4"></span>
+<span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: #5eead4"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5eead4" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><circle cx="8" cy="8" r="2.5" fill="#5eead4"></circle></svg>Test repair</span>
+<span style="display: flex; gap: 6px; align-items: center"><span style="font-size: 12px; color: #9aa3b2">1m 08s</span><span style="font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid #2c4b50; color: #9fd8cf">added</span></span>
+</button>
+</li>
+<li style="display: flex">
+<button type="button" aria-pressed="false" style="width: 150px; min-height: 64px; text-align: left; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #aab3c2; font: inherit; cursor: pointer">
+<span style="display: block; width: 100%; height: 3px; border-radius: 2px; background: #2c3544"></span>
+<span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5b6475" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle></svg>Review</span>
+<span style="font-size: 12px; color: #9aa3b2">Waiting</span>
+</button>
+</li>
+<li style="display: flex">
+<button type="button" aria-pressed="false" style="width: 150px; min-height: 64px; text-align: left; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #aab3c2; font: inherit; cursor: pointer">
+<span style="display: block; width: 100%; height: 3px; border-radius: 2px; background: #2c3544"></span>
+<span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5b6475" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle></svg>Finalise</span>
+<span style="font-size: 12px; color: #9aa3b2">Waiting</span>
+</button>
+</li>
+<li style="display: flex; padding-left: 14px; border-left: 1px dashed #343d4d">
+<button type="button" aria-pressed="false" style="width: 170px; min-height: 64px; text-align: left; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #aab3c2; font: inherit; cursor: pointer">
+<span style="display: block; width: 100%; height: 3px; border-radius: 2px; background: #2c3544"></span>
+<span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#5b6475" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M5.5 8h5"></path></svg>Resolve conflicts</span>
+<span style="font-size: 12px; color: #9aa3b2">After PR</span>
+</button>
+</li>
+</ol>
+<div aria-hidden="true" style="position: absolute; top: 0; right: 0; bottom: 0; width: 48px; background: linear-gradient(90deg, rgba(21,26,35,0), #151a23)"></div>
+</div>
+
+<button type="button" aria-label="Scroll stages right" style="flex: none; width: 44px; height: 44px; border-radius: 8px; border: 1px solid #2c3544; background: #1c2230; color: #e6e9ef; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg></button>
+</div>
+</section>
+
+<section style="flex: 1; min-height: 0; background: #151a23; border: 1px solid #262e3b; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+<div style="display: flex; align-items: center; gap: 10px">
+<h3 style="margin: 0; font-size: 18px; font-weight: 600">Test repair</h3>
+<span style="font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; color: #5eead4; background: #11262b">Running</span>
+</div>
+<span style="font-size: 13px; color: #9fd8cf">Following the running stage</span>
+</div>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #aab3c2">Added because Implement reported 2 test defects. The agent fixes only the tests the audit agrees with.</p>
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px">
+<li style="padding: 6px 12px; border-radius: 999px; border: 1px solid #1f4a3a; background: #132519; color: #6ee7a0">✓ Audit · gpt-6.1-sol</li>
+<li style="padding: 6px 12px; border-radius: 999px; background: #5eead4; color: #06231f; font-weight: 600">● Repairing 2 of 2 tests</li>
+<li style="padding: 6px 12px; border-radius: 999px; border: 1px solid #2c4b50; color: #9fb7bb">○ Lock tests</li>
+</ol>
+<div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: auto">
+<button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 8px; border: 0; background: #5eead4; color: #06231f; font: inherit; font-weight: 600; font-size: 14px">Open output</button>
+<span style="display: flex; align-items: center; font-size: 12px; color: #8e98a8">claude · sonnet · medium · locked while running</span>
+</div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":460}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
