@@ -125,7 +125,7 @@ export function testsPass(ctx: Ctx, opts: { targetFiles?: string[]; onlyTargets?
   const passes = (merged: RunResult): boolean => (opts.noAllowFailures ? merged.ok : passesWithAllowed(ctx, merged));
   // With the full suite in CI (and CI reachable) the local gate runs the red tests, and in Implement the files of earlier
   // CI side effects, and nothing else.
-  const scoped = ctx.config.tests.fullSuite === 'ci' && ctx.ciAvailable === true;
+  const scoped = fullSuiteInCi(ctx);
   const wanted = [...(opts.targetFiles || [])];
   if (scoped && ctx.status && ctx.status.stage === 'Implement') wanted.push(...(ctx.ciSideEffectFiles || []));
   const targets = [...new Set(wanted)].filter(f => ctx.config.suites.some(s => holds(s, f)));
@@ -143,6 +143,12 @@ export function testsPass(ctx: Ctx, opts: { targetFiles?: string[]; onlyTargets?
     }
   }
 
+  // With the full suite in CI, a gate that has no scoped files runs nothing locally: the suite is CI's job, and a red
+  // gate always has its new test files to run.
+  if (scoped && !opts.noAllowFailures) {
+    ctx.out('tests.fullSuite is "ci": no test files in scope here, so the full suite runs in CI only');
+    return true;
+  }
   const r = runSuites(ctx.config, { root: ctx.root, ...testRuns(ctx), env: ctx.env });
   if ('error' in r) { fs.writeFileSync(logFile, `ERROR: ${r.error}\n`); return false; }
   recordResults(ctx, r, logFile);
@@ -224,8 +230,16 @@ export async function successCheck(ctx: Ctx, opts: { targetFiles?: string[] } = 
   return true;
 }
 
+/** Whether the full suite is CI's job for this run: the setting is on and CI is known to be reachable. */
+const fullSuiteInCi = (ctx: Ctx): boolean => ctx.config.tests.fullSuite === 'ci' && ctx.ciAvailable === true;
+
 /** Writes the RunResult of the tests in <root> to <out>; nothing when no suite runs. */
 function writeResults(ctx: Ctx, root: string, out: string, files?: string[]): void {
+  // With the full suite in CI, a snapshot with no files to run is not a reason to run every suite locally.
+  if ((!files || files.length === 0) && fullSuiteInCi(ctx)) {
+    ctx.out('tests.fullSuite is "ci": the full suite runs in CI, not here');
+    return;
+  }
   try {
     const opts: any = { root, maxWorkers: testRuns(ctx).maxWorkers, env: ctx.env };
     if (files && files.length > 0) opts.files = files;
@@ -236,6 +250,27 @@ function writeResults(ctx: Ctx, root: string, out: string, files?: string[]): vo
 
 /** The test results of the working tree, in <outRel>. */
 export const resultsNow = (ctx: Ctx, outRel: string, files?: string[]): void => writeResults(ctx, ctx.root, at(ctx, outRel), files);
+
+/**
+ * The test files Test repair covers locally when the full suite runs in CI: the files of the task's red commit, the tests
+ * that failed there, the files test-issues.md claims, and any test file changed since the tests were locked. Empty when
+ * the full suite runs locally — or when the scope cannot be worked out — and the stage then runs every suite.
+ */
+export function repairTestFiles(ctx: Ctx, locked: string, claimsFile: string): string[] {
+  if (!fullSuiteInCi(ctx)) return [];
+  const files = new Set<string>([...targetTestFiles(ctx), ...redCommitTestFiles(ctx)]);
+  try {
+    for (const c of ctx.keys.claims(claimsFile)) files.add(ctx.keys.rootPath(c.file));
+  } catch { /* an unreadable claim file is the pre-check's problem, not the scope's */ }
+  const specs = ctx.layout?.testPathspecs || [];
+  if (locked && ctx.git) {
+    try {
+      for (const f of ctx.git.testsChangedSince(locked, specs)) files.add(f);
+      for (const f of ctx.git.lines('ls-files', '--others', '--exclude-standard', '--', ...specs)) files.add(f.trim());
+    } catch { /* best effort: an empty scope runs every suite */ }
+  }
+  return [...files].filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f))).sort();
+}
 
 /**
  * The test results on <sha>'s source, with <files> copied from the working tree, in <outRel>. The commit is checked out
