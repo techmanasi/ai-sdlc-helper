@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api, type Board as BoardData, type RunCard, type RunView } from './api';
 import { usePoll } from './usePoll';
+import { useSyncLabel } from './useSyncLabel';
 import { useStream } from './useStream';
 import { applyRunEvent } from './stream';
 import { awaitsMerge } from './stages';
@@ -23,6 +24,7 @@ export const needsYou = (r: RunCard) => r.state === 'paused' || r.questions > 0 
 function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): void }) {
   const { go, project, toast } = useApp();
   const [syncing, setSyncing] = useState(false);
+  const syncLabel = useSyncLabel(syncing, project, r.slug);
   const [fixing, setFixing] = useState(false);
   const [resolving, setResolving] = useState(false);
   const resolve = async () => {
@@ -64,7 +66,7 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
         <span class="mono muted small">
           {r.pullRequest?.url ? <a href={r.pullRequest.url} target="_blank" rel="noreferrer">{r.pullRequest.number ? `PR #${r.pullRequest.number}` : 'PR'}</a> : 'no PR'}
           {r.pullRequest?.state ? ` ${r.pullRequest.state.toLowerCase()}` : ''}{r.pullRequest?.checkedAt ? ` · checked ${clock(r.pullRequest.checkedAt)}` : ''}{r.pullRequest?.failed ? ' · last check failed' : ''}{' '}
-          <button type="button" class="btn btn-s" disabled={syncing} onClick={sync} title="Ask GitHub now for this PR's state, CI status and review comments (checked once an hour otherwise)">{syncing ? <><Spinner /> Syncing…</> : 'Sync PR'}</button>
+          <button type="button" class="btn btn-s" disabled={syncing} onClick={sync} title="Ask GitHub now for this PR's state, CI status and review comments (checked once an hour otherwise)">{syncing ? <><Spinner /> {syncLabel || 'Syncing'}…</> : 'Sync PR'}</button>
         </span>
       )}
       {r.state === 'done' && r.pullRequest?.state === 'OPEN' && <PrCi ci={r.pullRequest.ci} failing={r.pullRequest.failing} summary={summary} busy={fixing} onFix={fix} conflicts={r.pullRequest.conflicts} resolveBusy={resolving} onResolve={resolve} />}

@@ -1,6 +1,7 @@
 // The status file: ONE small JSON line, replaced (never appended), so the pane and `watch` read it cheaply.
 import fs from 'node:fs';
 import { stamp } from './context.js';
+import { STEPS } from './steps.js';
 
 export type RunState = 'running' | 'done' | 'paused' | 'failed';
 
@@ -21,6 +22,8 @@ export interface StatusLine {
   note: string;
   /** The full suite in CI (tests.fullSuite "ci"); absent when the setting is off. */
   ci?: CiStatus;
+  /** What the stage is doing now: step i of n, a plain-language label, when it began. Present only while a step runs. */
+  step?: StepLine;
 }
 
 /** Where the full suite stands when it runs in CI, for the run page and `watch`. */
@@ -38,6 +41,8 @@ export interface CiStatus {
   warnings?: string[];
 }
 
+export interface StepLine { i: number; n: number; label: string; started: string }
+
 /** <logDir>/status.json, written with the same fields, order and values as the shell pipeline wrote them. */
 export class Status {
   state: RunState = 'running';
@@ -50,17 +55,40 @@ export class Status {
   agentStarted = '';
   note = '';
   ci?: CiStatus;
+  step: StepLine | null = null;
+  private stepId = '';
   readonly runStarted = stamp();
 
   constructor(readonly file: string, readonly slug: string, readonly pid = process.pid) {}
 
   line(): StatusLine {
-    return {
+    const line: StatusLine = {
       slug: this.slug, state: this.state, stage: this.stage, agent: this.agent, model: this.model, effort: this.effort,
       models: this.models, attempt: this.attempt, agent_started: this.agentStarted, run_started: this.runStarted,
       updated: stamp(), pid: this.pid, note: this.note,
       ...(this.ci ? { ci: this.ci } : {}),
     };
+    if (this.step) line.step = this.step;
+    return line;
+  }
+
+  /**
+   * Name the step the stage has reached (a key from STEPS). One write at each boundary, no timer: the run screen works
+   * out the elapsed time from `started`. Does nothing for an unknown key or the step already shown, and never throws:
+   * a banner must not be able to fail a run.
+   */
+  beginStep(key: string, detail = ''): void {
+    try {
+      const list = STEPS[this.stage];
+      const at = list ? list.findIndex(s => s.key === key) : -1;
+      if (!list || at < 0) return;
+      const id = `${this.stage}/${key}/${detail}`;
+      if (this.step && this.stepId === id) return;
+      this.stepId = id;
+      const label = detail ? `${list[at].label}: ${detail}` : list[at].label;
+      this.step = { i: at + 1, n: list.length, label, started: new Date().toISOString() };
+      this.write();
+    } catch { /* best effort */ }
   }
 
   write(): void {

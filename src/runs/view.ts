@@ -37,6 +37,8 @@ export interface RunView {
   /** Why a running run waits, for example a usage limit; '' otherwise. */
   note: string;
   agentStarted: string;
+  /** What the stage is doing now (step i of n); absent when status.json carries none or it is malformed. */
+  step?: { i: number; n: number; label: string; started: string };
   runStarted: string;
   updated: string;
   record: Partial<RunRecord> | null;
@@ -190,6 +192,14 @@ const FROM_TO_STAGE: Record<string, string> = {
   finalise: 'Finalise',
   'resolve-conflicts': 'Resolve conflicts',
 };
+
+/** The step from status.json as `{ step }`, or `{}` when it is missing or malformed (an older status file has none). */
+export function stepOf(raw: any): { step?: NonNullable<RunView['step']> } {
+  if (!raw || typeof raw !== 'object') return {};
+  const { i, n, label, started } = raw;
+  if (!Number.isFinite(i) || !Number.isFinite(n) || typeof label !== 'string' || !label || typeof started !== 'string') return {};
+  return { step: { i, n, label, started } };
+}
 
 function viewState(rec: Partial<RunRecord> | null, status: any): ViewState {
   if (rec) {
@@ -352,6 +362,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
     attempt: s.attempt || '',
     note: s.note || '',
     agentStarted: s.agent_started || '',
+    ...stepOf(s.step),
     runStarted: s.run_started || '',
     updated: s.updated || rec?.finished || rec?.started || '',
     record: rec,

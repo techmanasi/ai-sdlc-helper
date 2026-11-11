@@ -68,6 +68,11 @@ const DEV_SIGNIN_TRACKER = `(() => {
   void check();
   setInterval(check, 1000);
 })();`;
+/** What a Sync PR in flight is doing now, by project and slug: read by the run screen while the slow GitHub call runs. */
+const syncProgress = new Map<string, string>();
+const syncing = async (key: string, run: (onStep: (label: string) => void) => ReturnType<typeof syncPr>) => {
+  try { return await run(label => { syncProgress.set(key, label); }); } finally { syncProgress.delete(key); }
+};
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const COMMAND_TIMEOUT_MS = 120000;
@@ -288,6 +293,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const file = itemFile(contextFor(p), slug, url.searchParams.get('path') || '');
         return send(200, { path: url.searchParams.get('path'), text: fs.readFileSync(file, 'utf8') });
       }
+      if (action === 'pr-sync-progress' && method === 'GET') return send(200, { label: syncProgress.get(`${p}/${slug}`) || '' });
       if (action === 'pr' && method === 'GET') {
         const ctx = contextFor(p);
         const v = runView(ctx, slug, { changes: false, tailLines: 0 });
@@ -377,7 +383,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         return send(r.ok ? 200 : 400, r);
       }
       if (action === 'pr-sync') {
-        const r = await syncPr(ctx, slug);
+        const r = await syncing(`${p}/${slug}`, onStep => syncPr(ctx, slug, onStep));
         return send(r.ok ? 200 : 400, r);
       }
       if (action === 'ci-fix') {
@@ -405,7 +411,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
           return send(r.ok ? 200 : 400, r);
         }
         if (method === 'POST' && parts[4] === 'sync') {
-          const r = await syncPr(ctx, slug);
+          const r = await syncing(`${p}/${slug}`, onStep => syncPr(ctx, slug, onStep));
           return send(r.ok ? 200 : 400, r);
         }
       }

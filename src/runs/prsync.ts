@@ -52,13 +52,16 @@ export function writeCiFailure(ctx: RunContext, slug: string): { ok: boolean; ci
 }
 
 /** Sync PR: the PR's state and CI from GitHub now, its review comments, and the CI failure details when the CI failed. */
-export async function syncPr(ctx: RunContext, slug: string): Promise<PrSync> {
+export async function syncPr(ctx: RunContext, slug: string, onStep?: (label: string) => void): Promise<PrSync> {
+  onStep?.('Asking GitHub for the PR state and CI');
   const pr = await syncRunPr(ctx, slug);
   const err: string[] = [];
+  onStep?.('Saving the review comments');
   const comments = syncPrComments(ctx, slug);
   if (!comments.ok && pr.url) err.push(...(comments.err || ['the review comments could not be read']));
   let summary: string[] = [];
   if (pr.ci === 'failed') {
+    onStep?.('Reading the failing CI details');
     const f = writeCiFailure(ctx, slug);
     summary = f.summary;
     if (!f.ok) err.push(...(f.err || []));

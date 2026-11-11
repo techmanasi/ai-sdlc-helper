@@ -45,3 +45,29 @@ export function linkPaths(text: string, docs: string[], slug: string): Array<str
   if (last < text.length) parts.push(text.slice(last));
   return parts;
 }
+
+export interface StepBanner { label: string; position: string; stage: string; percent: number; started: string }
+
+/**
+ * The banner under the Stages pane: what the stage is doing now. Only a running run with a step shows one, so a paused,
+ * failed, stopped (dead pid) or finished run, and a status.json written before steps existed, show none and nothing spins.
+ */
+export function stepBanner(v: { state: string; stage: string; step?: { i: number; n: number; label: string; started: string } }): StepBanner | null {
+  const s = v.step;
+  if (v.state !== 'running' || !s || !(s.n > 0) || !(s.i >= 1) || s.i > s.n) return null;
+  return {
+    label: s.label,
+    position: `step ${s.i} of ${s.n}`,
+    stage: v.stage,
+    percent: Math.round(((s.i - 1) / s.n) * 100),
+    started: s.started,
+  };
+}
+
+/** "1m 05s" / "12s" since `started` (an ISO time); '' when it cannot be read. */
+export function elapsedText(started: string, now: number): string {
+  const t = Date.parse(started);
+  if (!Number.isFinite(t)) return '';
+  const sec = Math.max(0, Math.floor((now - t) / 1000));
+  return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, '0')}s`;
+}

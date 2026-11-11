@@ -52,6 +52,7 @@ export interface StageRecovery {
 export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'changes' | 'deniedPermissions'> {
   models: Record<string, { model: string; effort: string }>;
   agentStarted: string; runStarted: string;
+  step?: { i: number; n: number; label: string; started: string };
   record: Record<string, unknown> | null;
   dir: string | null; worktree: string | null; base: string;
   questions: Question[]; permissions: Ask[]; deniedPermissions?: Ask[];
@@ -203,6 +204,7 @@ export const api = {
   },
   file: (project: string, slug: string, path: string) => call<{ text: string }>('GET', `${r(project, slug)}/file?path=${encodeURIComponent(path)}`),
   syncPr: (project: string, slug: string) => call<PrSync>('POST', `${r(project, slug)}/pr-sync`, {}),
+  syncPrProgress: (project: string, slug: string) => call<{ label: string }>('GET', `${r(project, slug)}/pr-sync-progress`),
   ciFix: (project: string, slug: string, env?: Record<string, string>) => call<{ ok: boolean; summary: string[]; resumed: Outcome }>('POST', `${r(project, slug)}/ci-fix`, { env }),
   start: (project: string, slug: string, from?: string, env?: Record<string, string>) => call<Outcome>('POST', `${r(project, slug)}/start`, { from, env }),
   stop: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/stop`, {}),

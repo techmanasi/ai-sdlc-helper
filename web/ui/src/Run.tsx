@@ -3,16 +3,39 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, type RunView, type SettingsView } from './api';
 import { ModelSelect } from './ModelSelect';
-import { linkPaths, showTestIssues } from './stages';
+import { elapsedText, linkPaths, showTestIssues, stepBanner } from './stages';
 import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
 import { defaultPick, resumeCommand, resumeOptions } from './resume';
 import { isMarkdownPath } from './markdown';
 import { usePoll } from './usePoll';
+import { useSyncLabel } from './useSyncLabel';
 import { useStream } from './useStream';
 import { applyRunEvent } from './stream';
 import { staleLabel } from './stale';
 import { buildDocTree, defaultDirOpen, isStageDirOpen, recordStageDir, type DocTreeNode, type StageDirState } from './tree';
+
+/** What the stage is doing now, under the Stages pane. The elapsed time ticks in the browser only; nothing is written for it. */
+function StepBar({ v }: { v: RunView }) {
+  const b = stepBanner(v);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!b) return undefined;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [!!b]);
+  if (!b) return null;
+  return (
+    <div class="stepbar" role="status" aria-live="polite">
+      <div class="stepbar-row">
+        <Spinner />
+        <strong>{b.label}</strong>
+        <span class="small muted">{b.position}{b.stage ? ` · ${b.stage}` : ''}{elapsedText(b.started, now) ? ` · ${elapsedText(b.started, now)}` : ''}</span>
+      </div>
+      <div class="stepbar-track" aria-hidden="true"><div class="stepbar-fill" style={{ width: `${b.percent}%` }} /></div>
+    </div>
+  );
+}
 
 const STAGES = [
   { name: 'Spec', key: 'spec' }, { name: 'Plan', key: 'plan' }, { name: 'Red tests', key: 'red-tests' },
@@ -245,6 +268,7 @@ export function Run({ slug }: { slug: string }) {
   const [brief, setBrief] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
+  const syncLabel = useSyncLabel(busy === 'Sync PR', project, slug);
   const [confirm, setConfirm] = useState('');
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [env, setEnv] = useState<[string, string][]>(() => loadEnv(project, slug));
@@ -664,6 +688,7 @@ export function Run({ slug }: { slug: string }) {
           </div>
         </div>
       </Panel>
+      <StepBar v={v} />
 
       <div class="split">
         <div class="wide col">
@@ -865,7 +890,7 @@ export function Run({ slug }: { slug: string }) {
                         return {};
                       })}
                     >
-                      {busy === 'Sync PR' ? <><Spinner /> Syncing…</> : 'Sync PR'}
+                      {busy === 'Sync PR' ? <><Spinner /> {syncLabel || 'Syncing'}…</> : 'Sync PR'}
                     </button>
                     <a href={v.pr} target="_blank" rel="noreferrer" class="btn btn-s" style={{ textDecoration: 'none' }}>
                       Open on GitHub ↗
