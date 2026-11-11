@@ -60,6 +60,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   tail: string[]; docs: string[]; discarded: string; resumeFrom: string; redCommit: string; gitAgeMs: number | null;
   createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean; undo?: { from: string; at: string } | null; mergeFix?: boolean;
   prCi?: CiState | null; prFailing?: string[]; prConflicts?: 'none' | 'conflicting' | 'unknown' | null; ciSummary?: string[];
+  ci?: { enabled: boolean; state: string; pr: string | null; prDraft: boolean; reason?: string; failingChecks: string[]; warnings: string[] } | null;
   testIssues?: string | null;
   recovery?: StageRecovery | null;
   /** What each agent round did, with its warnings (logs/attempts.jsonl). */

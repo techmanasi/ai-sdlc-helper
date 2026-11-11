@@ -7,6 +7,10 @@ import { configDir } from '../configDir.js';
 export interface ProjectOverrides {
   worktreeBase?: string;
   maxParallel?: number;
+  /** Where the full test suite runs: here ('local') or in GitHub Actions ('ci'). */
+  fullSuite?: 'local' | 'ci';
+  /** Minutes to wait for the CI run of a pushed commit. */
+  ciWaitMinutes?: number;
   /** Personal agent, model and effort for the project (and per stage), above its sdlc.config.json. */
   agent?: Record<string, unknown>;
 }

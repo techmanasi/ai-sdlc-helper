@@ -224,6 +224,18 @@ function RecoveryCard({
   );
 }
 
+/** The Implement round blocks of the run log ("Round <n>: implement" and its indented lines, WARNINGs after it), each its own block. */
+function ciRounds(tail: string[]): string[][] {
+  const blocks: string[][] = [];
+  let cur: string[] | null = null;
+  for (const line of tail) {
+    if (/^Round \d+: implement/.test(line)) { cur = [line]; blocks.push(cur); }
+    else if (cur && (/^\s/.test(line) || line.startsWith('WARNING:')) && line.trim()) cur.push(line);
+    else cur = null;
+  }
+  return blocks;
+}
+
 export function Run({ slug }: { slug: string }) {
   const { project, go, toast } = useApp();
   const [v, setV] = useState<RunView | null>(null);
@@ -416,6 +428,20 @@ export function Run({ slug }: { slug: string }) {
             <a href={v.pr} target="_blank" rel="noreferrer" class="tag s-done mono" style={{ textDecoration: 'underline' }}>PR ↗</a>
             {v.prState && <span class={`tag mono ${v.prState === 'MERGED' ? 's-done' : 's-running'}`}>{v.prState.toLowerCase()}</span>}
           </div>
+        )}
+        {v.ci && (
+          <div class="row" style={{ gap: '6px', alignItems: 'center' }}>
+            <span class="tag mono">CI</span>
+            {v.ci.pr && <a href={v.ci.pr} target="_blank" rel="noreferrer" class="tag mono" style={{ textDecoration: 'underline' }}>PR ↗</a>}
+            {v.ci.pr && <span class="tag mono">{v.ci.prDraft ? 'draft' : 'ready'}</span>}
+            <span class={`tag mono ${v.ci.state.startsWith('green') ? 's-done' : v.ci.state.startsWith('red') ? 's-failed' : v.ci.state.startsWith('running') || v.ci.state === 'waiting' ? 's-running' : 's-paused'}`}>
+              {v.ci.state}{v.ci.reason ? ` (${v.ci.reason})` : ''}
+            </span>
+            {v.ci.state.startsWith('red') && v.ci.failingChecks.length > 0 && <span class="small mono s-failed">checks: {v.ci.failingChecks.join(', ')}</span>}
+          </div>
+        )}
+        {v.ci && v.ci.warnings.length > 0 && (
+          <ul class="small mono s-paused" style={{ margin: '2px 0', paddingLeft: '18px' }}>{v.ci.warnings.map(w => <li>{w}</li>)}</ul>
         )}
         {v.note && <span class="tag s-paused">{v.note}</span>}
       </div>
@@ -949,8 +975,18 @@ export function Run({ slug }: { slug: string }) {
             </Panel>
           )}
 
+          {v.ci && ciRounds(v.tail).length > 0 && (
+            <Panel title="Implement rounds (full suite in CI)">
+              <div class="pb col" style={{ gap: '8px' }}>
+                {ciRounds(v.tail).map(block => (
+                  <pre class="code mono" style={{ borderRadius: '6px', margin: 0 }}>{block.join('\n')}</pre>
+                ))}
+              </div>
+            </Panel>
+          )}
+
           {v.state !== 'not started' && (
-            <Panel title="Output" extra={<div class="row"><span class="mono small muted">logs/run.out</span><CopyButton text={v.tail.join('\n')} /><button class="btn btn-s" type="button" onClick={() => openFile('logs/run.out')}>Whole file</button></div>}>
+            <Panel title="Output"extra={<div class="row"><span class="mono small muted">logs/run.out</span><CopyButton text={v.tail.join('\n')} /><button class="btn btn-s" type="button" onClick={() => openFile('logs/run.out')}>Whole file</button></div>}>
               <pre class="code mono" style={{ borderRadius: '0 0 8px 8px', maxHeight: '420px', overflowY: 'auto' }}>{v.tail.join('\n') || 'No output yet.'}</pre>
             </Panel>
           )}

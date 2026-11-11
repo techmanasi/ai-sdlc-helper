@@ -244,6 +244,15 @@ Spec questions, allows a refused command, sees it ship, and discards another run
 - **Pull requests:** open a pull request for a shipped run through `gh` when it is installed, and show its CI.
 - Remote access behind an explicit `--host` with the token required, for a dev box reached over SSH or a tunnel.
 
+## The full suite in CI on the run page
+
+With `tests.fullSuite` set to `"ci"` the run page shows a **CI line**: the PR link, labelled draft or ready, and the
+state (`waiting`, `running`, `green`, `red: side effect` with the failing checks, `green with warnings` with the
+non-blocking failures listed under it, `timed out (paused)`, or `unavailable: running locally` with the reason). It comes
+from the run's `status.json` and refreshes with the PR status. Under it, an **Implement rounds** panel shows each round
+of the run log as its own block: the agent, the local red tests, `Full suite in CI: running (PR #n, commit sha)`, the
+start and end times, and the round's status line. With the setting off neither is shown.
+
 ## Triage in the dashboard
 
 **New item → Draft with the triage agent** opens a drawer above the form. Paste a report and start; tick **Quick** to

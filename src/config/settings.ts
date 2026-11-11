@@ -13,6 +13,7 @@ import { AGENT_STAGES } from '../pipeline/context.js';
 import { projectNoteProblems } from './toolNotes.js';
 import { traceSettings, type TraceSettings } from '../trace.js';
 import { PERSONAL_KEYS, mergeAgent, personalAgentOf } from './personal.js';
+import { findContaining, readRegistry, type ProjectOverrides } from '../registry/projects.js';
 
 /** The coding agent harnesses a project can name (the built-in ones; the harness registry registers the same ids). */
 export const HARNESS_IDS = ['claude', 'agy', 'codex'] as const;
@@ -70,6 +71,7 @@ export interface Config {
   suites: Suite[];
   integration: { cmd: string | null; ci: 'run' | 'skip' } | null;
   tests: TestRuns;
+  ci: { waitMinutes: number };
   lint: string | null;
   worktree: { base: string; link: string[] };
   git: { branchPrefix: string; base: string | null; conflictSuffixStart: number };
@@ -100,6 +102,10 @@ export interface TestRuns {
    * 'full' runs the entire suite.
    */
   preliminary?: 'scoped' | 'full';
+  /** Where the full suite runs: 'local' (default) or 'ci' (GitHub Actions, waited for after each Implement attempt). */
+  fullSuite: 'local' | 'ci';
+  /** Failing tests that do not block (files or globs, optionally "<file> > <test name>"); red tests are never allowed. */
+  allowFailures: string[];
 }
 
 /** The worker count for a maxWorkers setting: undefined for no limit, "auto" as half the CPUs (at least 1). */
@@ -109,7 +115,7 @@ export function workerLimit(setting: TestRuns['maxWorkers'] | undefined, cpus: n
 }
 
 /** What tests.retry and tests.maxWorkers come to: for the pipeline gates and for `ai-sdlc-helper run` without flags. */
-export function testRunDefaults(tests: TestRuns | undefined, cpus?: number): Record<'pipeline' | 'run', { retry: boolean; maxWorkers: number | null }> {
+export function testRunDefaults(tests: Pick<TestRuns, 'retry' | 'maxWorkers'> | undefined, cpus?: number): Record<'pipeline' | 'run', { retry: boolean; maxWorkers: number | null }> {
   const maxWorkers = workerLimit(tests?.maxWorkers, cpus) ?? null;
   return {
     pipeline: { retry: tests?.retry ?? true, maxWorkers },
@@ -141,7 +147,8 @@ export const SCHEMA: Json = {
   suites: [SUITE_SCHEMA],
   tools: 'string[]',
   integration: { cmd: 'string', ci: ['run', 'skip'] },
-  tests: { retry: 'boolean', maxWorkers: 'workers', preliminary: ['scoped', 'full'] },
+  tests: { retry: 'boolean', maxWorkers: 'workers', preliminary: ['scoped', 'full'], fullSuite: ['local', 'ci'], allowFailures: 'string[]' },
+  ci: { waitMinutes: 'minutes' },
   lint: 'string',
   worktree: { base: 'string', link: 'string[]' },
   git: { branchPrefix: 'string', base: 'string', conflictSuffixStart: 'integer' },
@@ -180,11 +187,13 @@ export function validate(value: unknown, schema: any, where: string, errors: str
   } else if (Array.isArray(schema)) {
     if (!schema.includes(value)) errors.push(`${at}: must be one of ${schema.join(', ')} (got ${JSON.stringify(value)})`);
   } else if (schema === 'string[]') {
-    if (!Array.isArray(value) || value.some(v => typeof v !== 'string' || !v)) errors.push(`${at}: must be a list of non-empty strings`);
+    if (!Array.isArray(value) || value.some(v => typeof v !== 'string' || !v)) errors.push(`${at}: must be a list of non-empty strings (got ${JSON.stringify(value)})`);
   } else if (schema === 'workers') {
     if (value !== null && value !== 'auto' && !(Number.isInteger(value) && (value as number) > 0)) {
       errors.push(`${at}: must be a whole number above 0, "auto" or null (got ${JSON.stringify(value)})`);
     }
+  } else if (schema === 'minutes') {
+    if (!Number.isInteger(value) || (value as number) < 1) errors.push(`${at}: must be a whole number of minutes, 1 or more (got ${JSON.stringify(value)})`);
   } else if (schema === 'integer') {
     if (!Number.isInteger(value) || (value as number) < 0) errors.push(`${at}: must be a whole number`);
   } else if (schema === 'number') {
@@ -284,6 +293,25 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
     file = { ...file, agent: mergeAgent(file.agent, personal) };
   }
 
+  // Where the full suite runs and how long CI is waited for: the environment, then personal overrides, then the file.
+  let mine: ProjectOverrides = {};
+  try { mine = findContaining(readRegistry(env), root)?.overrides || {}; } catch { /* a corrupt registry is reported by the commands that read it */ }
+  const modes = ['local', 'ci'];
+  const envMode = env.SDLC_FULL_SUITE || '';
+  const envWait = env.SDLC_CI_WAIT_MINUTES || '';
+  const settingErrors: string[] = [];
+  if (envMode && !modes.includes(envMode)) settingErrors.push(`SDLC_FULL_SUITE: must be one of ${modes.join(', ')} (got ${JSON.stringify(envMode)})`);
+  if (envWait && !(/^\d+$/.test(envWait) && Number(envWait) >= 1)) settingErrors.push(`SDLC_CI_WAIT_MINUTES: must be a whole number of minutes, 1 or more (got ${JSON.stringify(envWait)})`);
+  const personalSettingErrors: string[] = [];
+  if (mine.fullSuite !== undefined && !modes.includes(mine.fullSuite)) personalSettingErrors.push(`fullSuite: must be one of ${modes.join(', ')} (got ${JSON.stringify(mine.fullSuite)})`);
+  if (mine.ciWaitMinutes !== undefined && !(Number.isInteger(mine.ciWaitMinutes) && mine.ciWaitMinutes >= 1)) {
+    personalSettingErrors.push(`ciWaitMinutes: must be a whole number of minutes, 1 or more (got ${JSON.stringify(mine.ciWaitMinutes)})`);
+  }
+  if (personalSettingErrors.length) return { config: null, errors: personalSettingErrors.map(e => `personal settings: ${e}`), warnings, file: fileName };
+  if (settingErrors.length) return { config: null, errors: settingErrors, warnings, file: fileName };
+  const fullSuite = (envMode || mine.fullSuite || (file.tests && file.tests.fullSuite) || 'local') as 'local' | 'ci';
+  const waitMinutes = envWait ? Number(envWait) : (mine.ciWaitMinutes ?? (file.ci && file.ci.waitMinutes) ?? 60);
+
   let suites: (Omit<Suite, 'runCmd'> | null)[];
   if (file.suites && file.suites.length) {
     suites = file.suites.map((s: Json, i: number) => completeSuite(s, i, root, errors, file.tools));
@@ -329,7 +357,10 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
       retry: file.tests && typeof file.tests.retry === 'boolean' ? file.tests.retry : null,
       maxWorkers: file.tests && file.tests.maxWorkers !== undefined ? file.tests.maxWorkers : null,
       ...(file.tests && file.tests.preliminary ? { preliminary: file.tests.preliminary } : {}),
+      fullSuite,
+      allowFailures: (file.tests && file.tests.allowFailures) || [],
     },
+    ci: { waitMinutes },
     lint: file.lint ? run(file.lint) : detectedLint(root) ? run(detectedLint(root)!) : null,
     worktree: {
       base: (file.worktree && file.worktree.base) || '../{repo}-sdlc',

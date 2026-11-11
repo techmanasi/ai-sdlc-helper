@@ -94,6 +94,24 @@ requests naming another host or sent from another site are refused. Stopping it 
 - `tests.retry`: run failed test files once more before a failure counts; tests that pass the second time are reported as flaky. Not set: the pipeline retries and `ai-sdlc-helper run` does not. `run --retry` and `--no-retry` override it.
 - `tests.maxWorkers`: the Jest and Vitest worker limit: a number, `"auto"` (half the CPUs, at least 1) or `null` (the runner's own default; the default). It applies to every test run of the pipeline; `run --max-workers` overrides it. Mocha and node:test have no worker limit.
 
+### The full suite in CI
+- `tests.fullSuite`: where the full test suite runs, `"local"` (the default: nothing changes) or `"ci"` (GitHub Actions through `gh`). Override it with the personal `fullSuite` (next to `worktreeBase` and `maxParallel`) or `SDLC_FULL_SUITE=local|ci`. Precedence: environment, then personal, then project; an empty `SDLC_FULL_SUITE` counts as unset.
+- `ci.waitMinutes`: how long Implement waits for CI on a pushed commit, a whole number of 1 or more (default 60). Overrides: personal `ciWaitMinutes`, then `SDLC_CI_WAIT_MINUTES`, with the same precedence.
+- `tests.allowFailures`: failing tests that never block, in CI and in every local gate (project config only). Each entry is a test file or glob from the project root (`test/e2e/*.test.ts`: every test in it) or `<file> > <full test name>` (one test). An allowed failure gets a WARNING. An entry that matches one of the task's red tests is ignored for it, with a WARNING.
+
+With `"ci"`, once Red tests passes its gate the branch is pushed to `origin` and a **draft PR** is opened against the base (always, whatever `createPr` says; an open PR for the branch is reused as it is). Local gates then run only the task's red test files (plus, in Implement, the test files of earlier CI side-effect failures) and `integration.cmd`. Each Implement attempt whose local gate passes is committed as `feat(<slug>): implement (attempt N)`, pushed, and **Implement waits until every check on that exact commit has finished** as success, skipped or neutral. Failed checks are classified: infrastructure (cancelled, timed out, startup failure, no test output), pre-existing (also failing at the merge-base with the base branch), allowed, flaky (passes when the failed jobs are re-run once) and side effects (the rest). Only side effects go back to the next attempt; the others are WARNINGs and lines in `<docs>/logs/ci-failures.md`. A wait longer than `ci.waitMinutes` pauses the run (exit 2): resume with `FROM=implement`, which waits on the same pushed head before any agent runs. Finalise pushes, marks the PR ready (`gh pr ready`) and opens no second PR.
+
+If there is no `origin`, `gh` is missing or signed out, the push or PR fails, the PR is closed or merged, or no check shows up within 3 minutes of the first push, the run prints `CI unavailable (<reason>): running the full suite locally` and runs as with `"local"` from then on.
+
+For test-level classification, have the workflow upload the runner's JSON report as an artifact named `sdlc-test-report` (without it, failures are classified per check):
+
+```yaml
+- run: npx vitest run --reporter=json --outputFile=sdlc-test-report.json
+- if: always()
+  uses: actions/upload-artifact@v4
+  with: { name: sdlc-test-report, path: sdlc-test-report.json }
+```
+
 ### New dependencies
 No stage before Implement installs anything, and a brief should never ask the developer to install a package first. The Plan stage confirms a new package's API from its published README and type definitions (WebFetch, WebSearch, context7 when installed, or `ai-sdlc-helper fetch <https-url>`, a GET-only read from the npm registry, unpkg, jsDelivr and GitHub; `AI_SDLC_HELPER_FETCH_HOSTS` replaces the host list) and lists exact versions in `plan-1.md`:
 
