@@ -115,7 +115,7 @@ export function workerLimit(setting: TestRuns['maxWorkers'] | undefined, cpus: n
 }
 
 /** What tests.retry and tests.maxWorkers come to: for the pipeline gates and for `ai-sdlc-helper run` without flags. */
-export function testRunDefaults(tests: TestRuns | undefined, cpus?: number): Record<'pipeline' | 'run', { retry: boolean; maxWorkers: number | null }> {
+export function testRunDefaults(tests: Pick<TestRuns, 'retry' | 'maxWorkers'> | undefined, cpus?: number): Record<'pipeline' | 'run', { retry: boolean; maxWorkers: number | null }> {
   const maxWorkers = workerLimit(tests?.maxWorkers, cpus) ?? null;
   return {
     pipeline: { retry: tests?.retry ?? true, maxWorkers },

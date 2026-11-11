@@ -283,7 +283,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
   // stage, is not waited on again.
   const pushedUnchanged = resumed && fs.existsSync(attemptsFile(ctx)) && headIsPushed(ctx);
   if (ctx.config.tests.fullSuite === 'ci' && ctx.ciAvailable === undefined) await openCi(ctx);
-  let used = resumed ? takeAttempts(ctx) : (takeAttempts(ctx), 0);
+  const used = resumed ? takeAttempts(ctx) : (takeAttempts(ctx), 0);
   let last: { sha: string; result: CiStepResult } | null = null;
   // A resumed run never trusts a previous run's test log: the first attempt reads one from this run.
   if (ctx.fromN === 4) {

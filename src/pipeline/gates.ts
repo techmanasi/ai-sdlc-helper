@@ -9,7 +9,7 @@ import { testRunDefaults } from '../config/settings.js';
 import { spawnShell } from '../shell.js';
 import type { RunResult } from '../runners/types.js';
 import { at, tick, type Ctx } from './context.js';
-import { checkAllowedFailures, isRedTest } from './allow-failures.js';
+import { checkAllowedFailures, isRedTest, type FailedTest } from './allow-failures.js';
 
 const firstLines = (s: string | null, n = 20) => String(s || '').trim().split('\n').slice(0, n).map(l => `      ${l}`).join('\n');
 
@@ -157,7 +157,13 @@ function passesWithAllowed(ctx: Ctx, merged: RunResult): boolean {
   if (merged.ok) return true;
   const allow = ctx.config.tests.allowFailures || [];
   if (!allow.length || merged.suiteErrors.length) return false;
-  const failed = merged.tests.filter(t => t.status === 'failed').map(t => ({ file: t.file, name: t.name }));
+  const failed: FailedTest[] = [];
+  for (const t of merged.tests) {
+    if (t.status !== 'failed') continue;
+    // An unidentified failure cannot match a file-based allow entry.
+    if (!t.file) return false;
+    failed.push({ file: t.file, name: t.name });
+  }
   if (!failed.length) return false;
   const { allowed, blocked } = checkAllowedFailures(failed, allow, (f, n) => isRedTest(ctx, f, n), msg => ctx.out(msg));
   for (const a of allowed) ctx.out(`WARNING: allowed failure (tests.allowFailures): ${a.file} :: ${a.name}`);
