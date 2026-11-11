@@ -212,14 +212,14 @@ export async function lintPass(ctx: Ctx): Promise<boolean> {
 /** The unit tests, then the linter, then the integration suite; ctx.failLog names the log of the check that failed. */
 export async function successCheck(ctx: Ctx, opts: { targetFiles?: string[] } = {}): Promise<boolean> {
   await tick();
-  ctx.status.beginStep?.('tests');
+  ctx.status?.beginStep?.('tests');
   const targets = opts.targetFiles ?? targetTestFiles(ctx);
   const unit = testsPass(ctx, { targetFiles: targets });
   await tick();
   if (!unit) { ctx.failLog = `${ctx.log}/tests.log`; return false; }
-  if (ctx.config.lint) ctx.status.beginStep?.('lint');
+  if (ctx.config.lint) ctx.status?.beginStep?.('lint');
   if (!(await lintPass(ctx))) { ctx.failLog = `${ctx.log}/lint.log`; return false; }
-  if (ctx.config.integration?.cmd) ctx.status.beginStep?.('integration');
+  if (ctx.config.integration?.cmd) ctx.status?.beginStep?.('integration');
   if (!(await integrationPass(ctx))) { ctx.failLog = `${ctx.log}/integration.log`; return false; }
   return true;
 }

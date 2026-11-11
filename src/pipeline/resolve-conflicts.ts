@@ -619,11 +619,11 @@ async function fullCheck(ctx: Ctx): Promise<boolean> {
   const ciOnly = (ctx.config.tests as { fullSuite?: string } | undefined)?.fullSuite === 'ci';
   const targets = ciOnly ? targetTestFiles(ctx) : [];
   if (ciOnly) ctx.out('   tests.fullSuite is "ci": the task\'s tests run here, the full suite in CI on the pushed branch');
-  ctx.status.beginStep('tests');
+  ctx.status?.beginStep?.('tests');
   const unit = testsPass(ctx, ciOnly && targets.length ? { targetFiles: targets, onlyTargets: true } : {});
   await tick();
   if (!unit) { ctx.failLog = `${ctx.log}/tests.log`; return false; }
-  if (ctx.config.integration?.cmd) ctx.status.beginStep('integration');
+  if (ctx.config.integration?.cmd) ctx.status?.beginStep?.('integration');
   if (!(await integrationPass(ctx))) { ctx.failLog = `${ctx.log}/integration.log`; return false; }
   return true;
 }
@@ -722,7 +722,7 @@ export const unanimouslySafe = (verdicts: string[], count: number): boolean => c
 async function reviewDoubt(ctx: Ctx, c: CodeConflict, r: CodeResolution): Promise<CodeResolution> {
   const count = reviewerCount(ctx.env);
   const panel = REVIEWERS.slice(0, count);
-  ctx.status.beginStep('review', 'Panel check in progress');
+  ctx.status?.beginStep?.('review', 'Panel check in progress');
   const shared = sharedReviewersText(panel.map(st => stageModelKey(ctx, st)));
   if (shared) {
     // Reviewers on the same model make the same mistakes: their agreement would prove little, so none is asked.
@@ -732,7 +732,7 @@ async function reviewDoubt(ctx: Ctx, c: CodeConflict, r: CodeResolution): Promis
     return { ...r, safe: false, doubt: `${r.doubt || 'the resolver was not sure'} ${msg}` };
   }
   ctx.out(`   the agent is not sure: ${plural(count, 'independent reviewer')} judge${count === 1 ? 's' : ''} the resolution`);
-  ctx.status.beginStep('review', `${count}/${count} reviewers started`);
+  ctx.status?.beginStep?.('review', `${count}/${count} reviewers started`);
   ctx.status.agent = 'resolve-review';
   ctx.status.agentStarted = stamp();
   ctx.status.write();
@@ -745,7 +745,7 @@ async function reviewDoubt(ctx: Ctx, c: CodeConflict, r: CodeResolution): Promis
   let finished = 0;
   const opinions = await Promise.all(panel.map(async (stage, i) => {
     const o = await run(stage, `${stage}-${c.round}`, 'resolve-review');
-    ctx.status.beginStep('review', `${++finished}/${count} reviewers finished`);
+    ctx.status?.beginStep?.('review', `${++finished}/${count} reviewers finished`);
     const verdict = o.rc === 0 ? reviewVerdict(o.text) : 'UNSAFE';
     ctx.out(`   reviewer ${i + 1} (${stage}): ${o.rc === 0 ? verdict : `UNSAFE (the agent failed, exit ${o.rc})`}`);
     return { stage, verdict, text: o.rc === 0 ? o.text.trim() : `(the reviewer failed with exit ${o.rc})` };
@@ -761,10 +761,10 @@ async function reviewDoubt(ctx: Ctx, c: CodeConflict, r: CodeResolution): Promis
       `The agent's doubt: ${r.doubt || '(none given)'}`, '',
       ...opinions.flatMap((o, i) => [`## Reviewer ${i + 1} (${o.stage}): ${o.verdict}`, '', o.text, '']),
     ].join('\n'));
-    ctx.status.beginStep('review', 'Started verdict reviewer');
+    ctx.status?.beginStep?.('review', 'Started verdict reviewer');
     const j = await run('resolve-judge', `resolve-judge-${c.round}`, 'resolve-judge');
     conclusion = j.rc === 0 ? j.text.trim().slice(0, 1500) : '';
-    ctx.status.beginStep('review', 'Verdict finished');
+    ctx.status?.beginStep?.('review', 'Verdict finished');
   }
   fs.writeFileSync(at(ctx, `${ctx.log}/resolve-review.md`), [
     `# Independent review of the resolution of ${c.files.join(', ')} (${stamp()})`, '',
@@ -917,7 +917,7 @@ export async function resolveConflictsStage(ctx: Ctx): Promise<void> {
     git: ctx.git, branch: ctx.branch, base, docDirs: [ctx.config.backlogDir], recordFile, out: l => ctx.out(l),
     mergedReason: () => mergedReason(ctx, base),
     onStart: () => { stage(ctx, RESOLVE_STAGE); ctx.status.attempt = '1/1'; ctx.status.write(); },
-    onStep: (k, d) => ctx.status.beginStep(k, d),
+    onStep: (k, d) => ctx.status?.beginStep?.(k, d),
     resolveCode: async c => {
       writeContext(ctx, c);
       const report = at(ctx, `${ctx.log}/resolve-conflicts-report.md`);
