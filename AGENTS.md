@@ -65,6 +65,8 @@ ESLint. Plan: `docs/PLAN.md`.
   Exit 0: skip the log unless the task needs something in it (e.g. timings,
   warnings, coverage). Failure: grep/tail only the failing parts.
 - `npm run build`: compile `src/` to `dist/`.
+- Markdown-only changes: run `npm run lint` only. CI skips the test matrix and
+  e2e for Markdown-only PRs; `lint.yml` still runs so docs PRs get a check.
 - `node dist/bin.js <command>`: run the built CLI.
 - `npm run e2e`, `npm run ui`, `npm run dev` for the pipeline e2e run and the
   web UI.
