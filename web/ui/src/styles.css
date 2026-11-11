@@ -108,7 +108,18 @@ textarea.inp { resize: vertical; }
 .dialog .ph { position: sticky; top: 0; background: var(--pn); z-index: 2; border-top-left-radius: 8px; border-top-right-radius: 8px; }
 .toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 20; max-width: min(420px, calc(100vw - 32px)); }
 .toast { background: var(--pn); border: 1px solid var(--ln); border-radius: 8px; padding: 10px 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, .25); }
-.md h1, .md h2, .md h3 { margin: 10px 0 4px; font-size: 15px; } .md h1 { font-size: 19px; } .md p, .md ul { margin: 4px 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 10px 0 4px; font-size: 15px; } .md h1 { font-size: 19px; } .md h2 { font-size: 17px; } .md p, .md ul, .md ol { margin: 4px 0; }
+.md ul, .md ol { padding-left: 22px; }
+.md code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.md pre.code { border-radius: 6px; margin: 8px 0; }
+.md blockquote { margin: 6px 0; padding: 2px 12px; border-left: 3px solid var(--ln); color: var(--mu); }
+.md hr { border: 0; border-top: 1px solid var(--ln); margin: 12px 0; }
+.md a { color: var(--link); }
+.md-table { overflow-x: auto; margin: 8px 0; }
+.md-table table { border-collapse: collapse; font-size: 13px; }
+.md-table th, .md-table td { border: 1px solid var(--ln); padding: 4px 10px; text-align: left; vertical-align: top; }
+.md-table th { background: var(--code); }
+.file-md { padding: 4px 16px 12px; }
 
 .pr-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .resolve-block { border: 1px solid var(--wait); background: var(--waitbg); border-radius: 8px; padding: 12px 14px; }

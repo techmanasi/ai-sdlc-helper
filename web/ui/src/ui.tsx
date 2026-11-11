@@ -3,6 +3,7 @@ import { createContext } from 'preact';
 import { useContext, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { cliLine, type ViewState } from './api';
+import { parseMarkdown, type Inline } from './markdown';
 
 export interface AppContext {
   project: string;
@@ -66,20 +67,34 @@ export function Panel({ title, extra, children }: { title: ComponentChildren; ex
 
 export const ErrorBox = ({ error }: { error: string }) => (error ? <div class="error" role="alert">{error}</div> : null);
 
-/** A plain Markdown preview: headings, list items and paragraphs, as text (nothing from the file runs as HTML). */
+const renderInline = (items: Inline[]): ComponentChildren =>
+  items.map(n => {
+    switch (n.t) {
+      case 'text': return n.text;
+      case 'code': return <code>{n.text}</code>;
+      case 'strong': return <strong>{renderInline(n.children)}</strong>;
+      case 'em': return <em>{renderInline(n.children)}</em>;
+      case 'link': return <a href={n.href} target="_blank" rel="noreferrer noopener">{renderInline(n.children)}</a>;
+    }
+  });
+
+/** A Markdown preview built as elements from parsed data (nothing from the text runs as HTML). */
 export function Markdown({ text }: { text: string }) {
-  const blocks: ComponentChildren[] = [];
-  let list: string[] = [];
-  let para: string[] = [];
-  const flush = () => {
-    if (para.length) { blocks.push(<p>{para.join(' ')}</p>); para = []; }
-    if (list.length) { blocks.push(<ul>{list.map(l => <li>{l}</li>)}</ul>); list = []; }
-  };
-  for (const line of text.split('\n')) {
-    const h = line.match(/^(#{1,3})\s+(.*)$/);
-    const li = line.match(/^\s*[-*]\s+(.*)$/);
-    if (h) { flush(); const H = (`h${h[1].length}`) as 'h1'; blocks.push(<H>{h[2]}</H>); } else if (li) { if (para.length) flush(); list.push(li[1]); } else if (!line.trim()) flush(); else { if (list.length) flush(); para.push(line.trim()); }
-  }
-  flush();
+  const blocks = parseMarkdown(text).map((b): ComponentChildren => {
+    switch (b.t) {
+      case 'heading': { const H = `h${Math.min(b.level, 6)}` as 'h1'; return <H>{renderInline(b.inline)}</H>; }
+      case 'para': return <p>{renderInline(b.inline)}</p>;
+      case 'code': return <pre class="code mono">{b.text}</pre>;
+      case 'list': { const L = b.ordered ? 'ol' : 'ul'; return <L>{b.items.map(i => <li>{renderInline(i)}</li>)}</L>; }
+      case 'quote': return <blockquote>{renderInline(b.inline)}</blockquote>;
+      case 'table': return (
+        <div class="md-table"><table>
+          <thead><tr>{b.head.map(c => <th>{renderInline(c)}</th>)}</tr></thead>
+          <tbody>{b.rows.map(r => <tr>{r.map(c => <td>{renderInline(c)}</td>)}</tr>)}</tbody>
+        </table></div>
+      );
+      case 'hr': return <hr />;
+    }
+  });
   return <div class="md">{blocks}</div>;
 }
