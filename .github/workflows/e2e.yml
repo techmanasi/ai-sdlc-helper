@@ -1,10 +1,13 @@
 name: E2E
 
 # The whole pipeline on the sample projects in e2e/projects, with the recorded stand-in for claude (no API key).
+# Markdown-only changes skip this workflow: lint owns docs PRs (see lint.yml).
 on:
   push:
     branches: [main]
+    paths-ignore: ['**/*.md']
   pull_request:
+    paths-ignore: ['**/*.md']
 
 jobs:
   e2e:

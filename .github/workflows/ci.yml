@@ -1,9 +1,12 @@
 name: CI
 
+# Markdown-only changes skip the test matrix: lint owns docs PRs (see lint.yml).
 on:
   push:
     branches: [main]
+    paths-ignore: ['**/*.md']
   pull_request:
+    paths-ignore: ['**/*.md']
 
 jobs:
   check:
@@ -19,7 +22,6 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
-      - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
