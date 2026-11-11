@@ -261,15 +261,17 @@ describe('editing a project\'s setup', () => {
   test('the settings reply carries what the form needs: hash, harnesses, stages, overrides and the active runs', async () => {
     await post('/api/projects', { path: repo });
     const s = (await get(settingsUrl)).json;
-    expect(s).toMatchObject({ harnesses: ['claude', 'agy', 'codex'], overrides: {}, registered: true, activeRuns: [] });
+    expect(s).toMatchObject({ harnesses: ['claude', 'agy', 'codex', 'opencode'], overrides: {}, registered: true, activeRuns: [] });
     expect(s.stages).toEqual(['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'test-audit', 'review', 'resolve-conflicts',
       'resolve-review-1', 'resolve-review-2', 'resolve-review-3', 'resolve-review-4', 'resolve-review-5', 'resolve-judge']);
     expect(s.hash).toMatch(/^[0-9a-f]{64}$/);
     expect(s.efforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
     expect(s.stageDefaults.review).toEqual({ model: 'opus', effort: 'medium' });
-    expect(Object.keys(s.models)).toEqual(['claude', 'agy', 'codex']);
+    expect(Object.keys(s.models)).toEqual(['claude', 'agy', 'codex', 'opencode']);
     expect(s.models.claude.map((m: any) => m.id)).toEqual(['opus', 'sonnet', 'haiku']);
     expect(s.models.claude.find((m: any) => m.id === 'haiku').supportsEffort).toBe(false);
+    expect(s.models.agy.map((m: any) => m.id)).toEqual(['gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'gemini-3.8-pro', 'gpt-oss-120b-medium']);
+    expect(Array.isArray(s.models.opencode)).toBe(true);
     expect(s.models.codex.length).toBeGreaterThan(0);
     expect(s.models.codex.some((m: any) => m.supportsEffort)).toBe(true);
   });
@@ -292,7 +294,7 @@ describe('editing a project\'s setup', () => {
     const before = fs.readFileSync(file, 'utf8');
     const bad = await post(settingsUrl, { patch: { agent: { harness: 'gpt' } } });
     expect(bad.status).toBe(400);
-    expect(bad.json.errors).toEqual(['sdlc.config.json: agent.harness: must be one of claude, agy, codex (got "gpt")']);
+    expect(bad.json.errors).toEqual(['sdlc.config.json: agent.harness: must be one of claude, agy, codex, opencode (got "gpt")']);
     const stale = await post(settingsUrl, { patch: { agent: { harness: 'agy' } }, hash: 'f'.repeat(64) });
     expect(stale.status).toBe(400);
     expect(stale.json.errors[0]).toContain('changed since you opened it');
@@ -325,7 +327,7 @@ describe('editing a project\'s setup', () => {
     expect(JSON.parse(fs.readFileSync(path.join(repo, 'sdlc.config.json'), 'utf8')).agent.model).toBe('sonnet');
     const bad = await post('/api/projects/shop/overrides', { patch: { agent: { harness: 'gpt' } } });
     expect(bad.status).toBe(400);
-    expect(bad.json.errors).toEqual(['agent.harness: must be one of claude, agy, codex (got "gpt")']);
+    expect(bad.json.errors).toEqual(['agent.harness: must be one of claude, agy, codex, opencode (got "gpt")']);
   });
 
   test('a run that is paused is named as keeping the old setup', async () => {

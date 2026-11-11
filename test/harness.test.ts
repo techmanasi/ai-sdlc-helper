@@ -6,10 +6,14 @@ import {
   AgyHarness,
   ClaudeHarness,
   CodexHarness,
+  OpencodeHarness,
+  OpencodeModelCatalogAdapter,
   DeclarativeHarness,
   DefaultHarnessRegistry,
+  STATIC_CODEX_MODELS,
   type DeclarativeHarnessManifest,
 } from '../src/pipeline/harness/index.js';
+import { pathWith } from './helpers.js';
 
 describe('Pluggable Agent Harness Subsystem', () => {
   describe('ClaudeHarness', () => {
@@ -234,6 +238,101 @@ describe('Pluggable Agent Harness Subsystem', () => {
     });
   });
 
+  describe('OpencodeHarness', () => {
+    const fixture = () => JSON.parse(fs.readFileSync(path.resolve('test/fixtures/opencode/model-list.json'), 'utf8'));
+    const harness = () => new OpencodeHarness(new OpencodeModelCatalogAdapter(async () => fixture()));
+
+    it('has expected metadata and discovers dynamic models', async () => {
+      const h = harness();
+      expect(h.id).toBe('opencode');
+      expect(h.name).toBe('OpenCode');
+      expect(h.defaultBinary).toBe('opencode');
+      expect(h.catalog).toBeDefined();
+      expect((await h.listModels()).map(model => model.id)).toContain('opencode/claude-fable-5-2');
+    });
+
+    it('lets the CLI choose its account default unless a model is configured', () => {
+      expect(harness().selectStageModel({ configuredEffort: 'high' })).toEqual({ model: '', effort: 'high' });
+      expect(harness().selectStageModel({ configuredModel: 'opencode/claude-fable-5-2', configuredEffort: 'max' }))
+        .toEqual({ model: 'opencode/claude-fable-5-2', effort: 'max' });
+    });
+
+    it('compiles run arguments with canonical model variants and --format json', async () => {
+      const h = harness();
+      await h.listModels();
+      const inv = h.compileStageArgs({
+        prompt: 'test prompt',
+        stage: 'implement',
+        model: 'opencode/claude-fable-5-2',
+        effort: 'high',
+        mode: 'acceptEdits',
+        allowedCommands: [],
+      });
+      expect(inv).toEqual({
+        command: 'opencode',
+        args: ['run', '--model', 'opencode/claude-fable-5-2#high', '--format', 'json', '--auto', 'test prompt'],
+        env: {},
+      });
+    });
+
+    it('omits unsupported variants and omits --model for the account default', async () => {
+      const h = harness();
+      await h.listModels();
+      const unsupported = h.compileStageArgs({
+        prompt: 'audit', stage: 'review', model: 'opencode-go/gemini-3.1-pro', effort: 'high', mode: 'acceptEdits', allowedCommands: [],
+      });
+      expect(unsupported.args).toContain('opencode-go/gemini-3.1-pro');
+      expect(unsupported.args.some(arg => arg.includes('#'))).toBe(false);
+
+      const accountDefault = h.compileStageArgs({ prompt: 'build', stage: 'implement', effort: 'high', mode: 'bypass', allowedCommands: [] });
+      expect(accountDefault.args).toEqual(['run', '--format', 'json', '--auto', 'build']);
+      expect(h.compileAuditArgs({ prompt: 'audit', model: 'opencode/claude-fable-5-2', effort: 'high' }).args)
+        .toEqual(['run', '--model', 'opencode/claude-fable-5-2#high', '--format', 'json', 'audit']);
+    });
+
+    it('reports installed state and model reachability', async () => {
+      const detection = await harness().detect(pathWith('opencode'));
+      expect(detection).toMatchObject({ installed: true, models: { reachable: true, count: 4 } });
+      const missing = await harness().detect({ PATH: '' });
+      expect(missing).toMatchObject({ installed: false });
+      expect(missing.models).toBeUndefined();
+    });
+  });
+
+  describe('existing harness golden regression', () => {
+    it('keeps claude, agy and codex models and stage invocations unchanged', async () => {
+      const previous = process.env.SDLC_AGY_OUTPUT;
+      process.env.SDLC_AGY_OUTPUT = 'json';
+      try {
+        const codexCatalog = {
+          harnessId: 'codex',
+          listModels: async () => STATIC_CODEX_MODELS,
+          getDefaultModel: async () => STATIC_CODEX_MODELS[0].id,
+          validateModel: async (id: string) => STATIC_CODEX_MODELS.some(model => model.id === id),
+          invalidateCache: () => {},
+        };
+        const cases = [
+          { harness: new ClaudeHarness(), model: 'opus', effort: 'high' },
+          { harness: new AgyHarness(), model: 'gemini-3.8-pro', effort: 'high' },
+          { harness: new CodexHarness(codexCatalog), model: 'o3-mini', effort: 'high' },
+        ];
+        const golden: Record<string, unknown> = {};
+        for (const { harness, model, effort } of cases) {
+          golden[harness.id] = {
+            models: await harness.listModels(),
+            invocation: harness.compileStageArgs({
+              prompt: 'golden prompt', stage: 'implement', model, effort, mode: 'acceptEdits', allowedCommands: ['Bash'], cwd: '/project', maxTurns: 20,
+            }),
+          };
+        }
+        expect(golden).toMatchSnapshot();
+      } finally {
+        if (previous === undefined) delete process.env.SDLC_AGY_OUTPUT;
+        else process.env.SDLC_AGY_OUTPUT = previous;
+      }
+    });
+  });
+
   describe('DeclarativeHarness (Third-Party Agent Plugins)', () => {
     const manifest: DeclarativeHarnessManifest = {
       schemaVersion: '1',
@@ -285,13 +384,14 @@ describe('Pluggable Agent Harness Subsystem', () => {
   });
 
   describe('DefaultHarnessRegistry', () => {
-    it('initializes with built-in harnesses: claude, agy, codex', () => {
+    it('initializes with built-in harnesses: claude, agy, codex, opencode', () => {
       const registry = new DefaultHarnessRegistry();
       const list = registry.list();
-      expect(list.map(h => h.id)).toEqual(['claude', 'agy', 'codex']);
+      expect(list.map(h => h.id)).toEqual(['claude', 'agy', 'codex', 'opencode']);
       expect(registry.get('claude')).toBeDefined();
       expect(registry.get('agy')).toBeDefined();
       expect(registry.get('codex')).toBeDefined();
+      expect(registry.get('opencode')).toBeDefined();
     });
 
     it('registers and unregisters custom plugins', () => {

@@ -16,7 +16,7 @@ import { PERSONAL_KEYS, mergeAgent, personalAgentOf } from './personal.js';
 import { findContaining, readRegistry, type ProjectOverrides } from '../registry/projects.js';
 
 /** The coding agent harnesses a project can name (the built-in ones; the harness registry registers the same ids). */
-export const HARNESS_IDS = ['claude', 'agy', 'codex'] as const;
+export const HARNESS_IDS = ['claude', 'agy', 'codex', 'opencode'] as const;
 export type HarnessName = typeof HARNESS_IDS[number];
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 

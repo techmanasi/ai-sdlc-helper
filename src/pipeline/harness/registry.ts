@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { AgyHarness } from './agy.js';
 import { ClaudeHarness } from './claude.js';
 import { CodexHarness } from './codex.js';
+import { OpencodeHarness } from './opencode.js';
 import { DeclarativeHarness } from './declarative.js';
 import type {
   AgentHarness,
@@ -23,6 +24,7 @@ export class DefaultHarnessRegistry implements HarnessRegistry {
       this.register(new ClaudeHarness());
       this.register(new AgyHarness());
       this.register(new CodexHarness());
+      this.register(new OpencodeHarness());
     }
   }
 
