@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from '../trace.js';
 import { alive, type ProcIdentity } from './proc.js';
+import { commonDirOf } from '../gitdir.js';
 
 export { alive };
 
@@ -131,11 +132,17 @@ export function runState(rec: Partial<RunRecord>): string {
 const realOr = (p: string): string => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
 
 /** The main working tree of the repository holding <dir> (the first in `git worktree list`), else <dir>. */
-export function mainTree(dir: string, env: NodeJS.ProcessEnv = process.env): string {
+export function mainTree(dir: string, env: NodeJS.ProcessEnv = process.env, opts: { /** Use the last answer for up to a minute (the board): the main working tree of a repository does not move. */ keep?: boolean } = {}): string {
+  const common = opts.keep ? commonDirOf(dir) : null;
+  const hit = common ? mainTrees.get(dir) : undefined;
+  if (hit && hit.common === common && Date.now() - hit.at < MAIN_TREE_MAX_AGE_MS) return hit.tree;
   const r = spawnSync('git', ['-C', dir, 'worktree', 'list', '--porcelain'], { encoding: 'utf8', env });
   const line = r.status === 0 ? r.stdout.split('\n').find(l => l.startsWith('worktree ')) : undefined;
+  if (common && line) mainTrees.set(dir, { common, at: Date.now(), tree: line.slice('worktree '.length) });
   return line ? line.slice('worktree '.length) : dir;
 }
+const MAIN_TREE_MAX_AGE_MS = 60_000;
+const mainTrees = new Map<string, { common: string; at: number; tree: string }>();
 
 /**
  * The project a command run in <dir> works on: the checkout holding <dir> (its git top level), so a project that is
