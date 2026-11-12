@@ -1,7 +1,7 @@
 // Lists the items in <backlogDir>/index.md with a derived status, adds new ones (addBacklogItem) and edits unstarted ones.
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from '../trace.js';
 import { readSettings } from '../util.js';
 import { readRecord } from '../runs/records.js';
 import { hashOf } from '../config/edit.js';

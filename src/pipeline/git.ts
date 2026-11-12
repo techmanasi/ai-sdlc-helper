@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from '../trace.js';
 
 /** A git command that failed: its arguments and what git said. */
 export class GitError extends Error {}

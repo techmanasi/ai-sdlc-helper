@@ -3,7 +3,7 @@
 // writes, except answerQuestions.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../trace.js';
 import { exists } from '../util.js';
 import { resolve as resolveConfig } from '../config/settings.js';
 import { backlogItems, type BacklogItem } from '../backlog/index.js';

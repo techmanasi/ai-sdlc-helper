@@ -7,6 +7,8 @@ import {
   TRACE_DEFAULTS, createTracer, microNow, rotateIfNeeded, dropOld, spawnSync, startTrace, stopTrace, traceFiles, traceSettings,
   type TraceLine,
 } from '../src/trace.js';
+import { Git, GitError } from '../src/pipeline/git.js';
+import { backlogItems } from '../src/backlog/index.js';
 import { tmp } from './helpers.js';
 
 const lines = (file: string): TraceLine[] =>
@@ -63,6 +65,41 @@ describe('the trace writer', () => {
     expect(text).not.toContain('secret-branch-name');
     expect(got[0].code).toBeTypeOf('number');
     expect(got[0].ms).toBeGreaterThan(0);
+  });
+
+  it('Git.run writes one line per call: git, the subcommand and the exit code, also when git fails', () => {
+    const dir = tmp();
+    const file = path.join(dir, 'ui-trace.jsonl');
+    nodeSpawnSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+    startTrace({ file, settings: TRACE_DEFAULTS });
+    const git = new Git(dir);
+    expect(git.run('rev-parse', '--is-inside-work-tree').trim()).toBe('true');
+    expect(() => git.run('rev-parse', '--verify', '-q', 'refs/heads/secret-branch-name')).toThrow(GitError);
+    stopTrace();
+    const got = lines(file);
+    expect(got.map(l => [l.action, l.why])).toEqual([['spawn:git', 'rev-parse'], ['spawn:git', 'rev-parse']]);
+    expect(got[0].code).toBe(0);
+    expect(got[1].code).not.toBe(0);
+    expect(fs.readFileSync(file, 'utf8')).not.toContain('secret-branch-name');
+  });
+
+  it('Git.run with no trace started writes no file and answers the same', () => {
+    const dir = tmp();
+    nodeSpawnSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+    expect(new Git(dir).run('rev-parse', '--is-inside-work-tree').trim()).toBe('true');
+    expect(fs.readdirSync(dir).filter(n => n.includes('trace'))).toEqual([]);
+  });
+
+  it('the backlog\'s read of the branches is one for-each-ref line', () => {
+    const dir = tmp();
+    const file = path.join(tmp(), 'ui-trace.jsonl');
+    nodeSpawnSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+    fs.mkdirSync(path.join(dir, 'Docs/backlog'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'Docs/backlog/index.md'), '# Backlog\n\n- [ ] `one` - Feature: One\n- [ ] `two` - Feature: Two\n');
+    startTrace({ file, settings: TRACE_DEFAULTS });
+    expect(backlogItems({ root: dir, backlogDir: 'Docs/backlog', branchPrefix: 'sdlc/' })!.items).toHaveLength(2);
+    stopTrace();
+    expect(lines(file).map(l => [l.action, l.why, l.code])).toEqual([['spawn:git', 'for-each-ref', 0]]);
   });
 
   it('the traced spawnSync returns what child_process returns', () => {
