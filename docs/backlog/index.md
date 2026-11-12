@@ -18,3 +18,4 @@ Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 - [x] `resolve-conflicts-after-finalise` - Feature: A stage after Finalise brings the PR up to date with main and resolves conflicts without breaking the task or the work merged meanwhile
 - [ ] `stop-implement-on-test-defect` - Improvement: Implement stops and offers Test repair when a round claims a test defect and the next round changes nothing
 - [x] `stage-model-harness-mismatch` - Bug: a stage whose model belongs to another harness dies at the start with "provider ... is not listed in SDLC_PROVIDERS" instead of naming the harness mismatch
+- [ ] `web-perf-measurement-order` - Improvement: settle the measurement-vs-independence order for the web-performance steps and prove each saving after they land

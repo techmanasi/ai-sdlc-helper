@@ -1,6 +1,10 @@
 # Run page and run view: plan to stop rebuilding it every 2 seconds
 
-Status: proposed, nothing implemented. Not a backlog item (the pipeline does not pick it up).
+Status: **superseded** by [web-performance.md](web-performance.md) (2026-11-12),
+which merges this plan with `dashboard-performance.md`. Keep this file for its
+evidence: the trace design, measurements, R-n risks and reviewer notes.
+
+Original status: proposed, nothing implemented. Not a backlog item (the pipeline does not pick it up).
 Each step below is its own small PR into `main`; stop after any step.
 It builds on `docs/plans/dashboard-performance.md`, which covers the **board**; this plan covers the **run page** and the
 endpoint it polls, `GET /api/projects/<project>/runs/<slug>`. Where a step there already helps, this plan points at it and does not repeat it.
