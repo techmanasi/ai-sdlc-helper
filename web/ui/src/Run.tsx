@@ -270,6 +270,8 @@ export function Run({ slug }: { slug: string }) {
   const [busy, setBusy] = useState('');
   const syncLabel = useSyncLabel(busy === 'Sync PR', project, slug);
   const [confirm, setConfirm] = useState('');
+  /** A run-level override picked but not confirmed yet: a popup explains what it overrides before it is applied. */
+  const [forceAsk, setForceAsk] = useState<{ key: string; value: string } | null>(null);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [env, setEnv] = useState<[string, string][]>(() => loadEnv(project, slug));
   const [createPr, setCreatePr] = useState(false);
@@ -338,6 +340,23 @@ export function Run({ slug }: { slug: string }) {
   const envArgs = Object.entries(envObj).map(([k, val]) => `${k}=${val}`);
   const setEnvVar = (k: string, val: string) => setEnv(rows => (val ? [...rows.filter(r => r[0] !== k), [k, val]] : rows.filter(r => r[0] !== k)));
 
+  /** Applies a confirmed run-level override; an agent change also drops a model the new agent does not offer. */
+  const applyForce = (key: string, value: string) => {
+    setEnvVar(key, value);
+    if (key === 'SDLC_FORCE_AGENT' && envObj.SDLC_FORCE_MODEL) {
+      const list = catalog?.models[value || catalog?.config?.agent?.harness || 'claude'] || [];
+      if (!list.some(m => m.id === envObj.SDLC_FORCE_MODEL)) setEnvVar('SDLC_FORCE_MODEL', '');
+    }
+    setForceAsk(null);
+  };
+  /** Clearing an override is safe; setting one overrides every stage, so it asks first. */
+  const askForce = (key: string, value: string) => {
+    if (!value) applyForce(key, '');
+    else setForceAsk({ key, value });
+  };
+  /** The run-level overrides as they would be after <pending> is applied, for the popup's text. */
+  const forceAfter = (pending: { key: string; value: string }): Record<string, string> => ({ ...envObj, [pending.key]: pending.value });
+
   async function act(label: string, work: () => Promise<{ ok?: boolean; out?: string[]; err?: string[] } | unknown>) {
     setBusy(label); setConfirm('');
     try {
@@ -385,14 +404,14 @@ export function Run({ slug }: { slug: string }) {
         {Array.from({ length: count }, (_, i) => (
           <div class="row small" style={{ gap: '6px', alignItems: 'center' }}>
             <span class="muted" style={{ minWidth: '70px' }}>Reviewer {i + 1}</span>
-            {running ? <span class="mono muted">{v.models[`resolve-review-${i + 1}`] ? `${v.models[`resolve-review-${i + 1}`].model} · ${v.models[`resolve-review-${i + 1}`].effort}` : 'default'}</span> : stagePickers({ key: `resolve-review-${i + 1}`, name: `Reviewer ${i + 1}`, taken: keys.filter((_, j) => j !== i) })}
+            {running ? <span class="row small" style={{ gap: '4px', alignItems: 'center' }}>{overrideBadge}<span class="mono muted">{v.models[`resolve-review-${i + 1}`] ? `${v.models[`resolve-review-${i + 1}`].model} · ${v.models[`resolve-review-${i + 1}`].effort}` : 'default'}</span></span> : stagePickers({ key: `resolve-review-${i + 1}`, name: `Reviewer ${i + 1}`, taken: keys.filter((_, j) => j !== i) })}
           </div>
         ))}
         {clash.length > 0 && <span class="small s-failed">Reviewers {clash.join(', ')} share an agent and model, so none of them would be asked. Give each its own: pick another model or agent.</span>}
         {count > 0 && (
           <div class="row small" style={{ gap: '6px', alignItems: 'center' }}>
             <span class="muted" style={{ minWidth: '70px' }}>Judge</span>
-            {running ? <span class="mono muted">{v.models['resolve-judge'] ? `${v.models['resolve-judge'].model} · ${v.models['resolve-judge'].effort}` : 'default'}</span> : stagePickers({ key: 'resolve-judge', name: 'Judge' })}
+            {running ? <span class="row small" style={{ gap: '4px', alignItems: 'center' }}>{overrideBadge}<span class="mono muted">{v.models['resolve-judge'] ? `${v.models['resolve-judge'].model} · ${v.models['resolve-judge'].effort}` : 'default'}</span></span> : stagePickers({ key: 'resolve-judge', name: 'Judge' })}
           </div>
         )}
       </div>
@@ -407,6 +426,26 @@ export function Run({ slug }: { slug: string }) {
     envObj.SDLC_FORCE_MODEL && `model ${envObj.SDLC_FORCE_MODEL}`,
     envObj.SDLC_FORCE_EFFORT && `effort ${envObj.SDLC_FORCE_EFFORT}`,
   ].filter(Boolean).join(', ');
+  const forceSummary = [
+    envObj.SDLC_FORCE_AGENT && `agent ${envObj.SDLC_FORCE_AGENT}`,
+    envObj.SDLC_FORCE_MODEL && `model ${envObj.SDLC_FORCE_MODEL}`,
+    envObj.SDLC_FORCE_EFFORT && `effort ${envObj.SDLC_FORCE_EFFORT}`,
+  ].filter(Boolean).join(', ');
+  const forceActive = !!(envObj.SDLC_FORCE_AGENT || envObj.SDLC_FORCE_MODEL || envObj.SDLC_FORCE_EFFORT);
+  /** The "[override]" marker next to a stage's model: the run-level force, not the stage's own setting, decided it. */
+  const overrideBadge = forceActive && (
+    <span class="mono small" style={{ color: 'var(--wait, #e3b341)', fontWeight: 600 }} title="Run-level override (“This run, every stage”) decided this, not the stage's own setting">
+      [override]
+    </span>
+  );
+  /** What a stage will actually run, with every override applied (run-level first, then the stage's own, then the project's). */
+  const effectiveOf = (key: string): string => {
+    const st = catalog?.config?.agent?.stages?.[key] || {};
+    const harness = envObj.SDLC_FORCE_AGENT || envObj[AGENT_ENV(key)] || st.harness || catalog?.config?.agent?.harness || 'claude';
+    const model = envObj.SDLC_FORCE_MODEL || envObj[envKey('MODEL', key)] || st.model || '';
+    const effort = envObj.SDLC_FORCE_EFFORT || envObj[envKey('EFFORT', key)] || st.effort || '';
+    return [harness, model || `default ${harness} model`, effort].filter(Boolean).join(' · ');
+  };
   const startArgs = ['start', slug, ...(v.resumeFrom && v.state !== 'not started' ? ['--from', v.resumeFrom] : [])];
   const editorLink = v.worktree ? `vscode://file${v.worktree.startsWith('/') ? '' : '/'}${v.worktree}` : '';
   const openFile = async (p: string) => { try { const text = (await api.file(project, slug, p)).text; setFileView('rendered'); setFile({ path: p, text }); } catch (e) { toast((e as Error).message); } };
@@ -555,7 +594,7 @@ export function Run({ slug }: { slug: string }) {
             </div>
           </fieldset>
         )}
-        <details class="small">
+        <details class="small" open={forceActive || undefined}>
           <summary style={{ cursor: 'pointer' }}>Run options: {runOptionSummary || 'project defaults, no auto-accept'}</summary>
           <div class="col" style={{ gap: '6px', marginTop: '8px' }}>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
@@ -568,13 +607,30 @@ export function Run({ slug }: { slug: string }) {
             </label>
             {catalog && <details class="small"><summary style={{ cursor: 'pointer' }}>Resolve conflicts: reviewers when the agent is unsure</summary><div style={{ marginTop: '6px' }}>{reviewerConfig()}</div></details>}
             {catalog && !running && (
-              <div class="row" style={{ alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <span class="small muted">This run, every stage:</span>
-                <select class="sel" aria-label="run agent" value={envObj.SDLC_FORCE_AGENT || ''} onChange={e => {
-                  const h = (e.target as HTMLSelectElement).value;
-                  setEnvVar('SDLC_FORCE_AGENT', h);
-                  if (envObj.SDLC_FORCE_MODEL && !(catalog.models[h || catalog.config?.agent?.harness || 'claude'] || []).some(m => m.id === envObj.SDLC_FORCE_MODEL)) setEnvVar('SDLC_FORCE_MODEL', '');
-                }}>
+              <div class="col" style={{ gap: '8px' }}>
+                {forceActive && (
+                  <div class="row small" style={{ alignItems: 'center', gap: '8px', flexWrap: 'wrap', border: '1px solid var(--wait, #e3b341)', background: 'color-mix(in srgb, var(--wait, #e3b341) 14%, transparent)', borderRadius: '8px', padding: '6px 10px', color: 'var(--wait, #e3b341)' }}>
+                    <strong class="mono">[override]</strong>
+                    <span>This run, every stage: {forceSummary} — replaces the project's per-stage setup (sdlc.config.json) for every stage, and stays for future starts of this run until cleared.</span>
+                  </div>
+                )}
+                <div class="row" style={{ alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <label class="row small" style={{ gap: '6px', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }} title="When checked, one agent, model and effort runs every stage of this run instead of the project's per-stage setup (sdlc.config.json). Unchecking it is the default way to remove the override.">
+                    <input
+                      type="checkbox"
+                      checked={forceActive}
+                      onChange={e => {
+                        if (!(e.target as HTMLInputElement).checked) {
+                          setEnvVar('SDLC_FORCE_AGENT', '');
+                          setEnvVar('SDLC_FORCE_MODEL', '');
+                          setEnvVar('SDLC_FORCE_EFFORT', '');
+                        }
+                      }}
+                    />
+                    <span>Override every stage</span>
+                  </label>
+                  <span class="small muted">This run, every stage:</span>
+                <select class="sel" aria-label="run agent" value={envObj.SDLC_FORCE_AGENT || ''} onChange={e => askForce('SDLC_FORCE_AGENT', (e.target as HTMLSelectElement).value)}>
                   <option value="">agent: project's</option>
                   {unique(catalog.harnesses).map(h => <option value={h}>{h}</option>)}
                 </select>
@@ -583,12 +639,13 @@ export function Run({ slug }: { slug: string }) {
                     models={catalog.models[envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'] || []}
                     value={envObj.SDLC_FORCE_MODEL || ''}
                     harness={envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'}
-                    defaultLabel="model: per stage" onChange={model => setEnvVar('SDLC_FORCE_MODEL', model)} />
+                    defaultLabel="model: per stage" onChange={model => askForce('SDLC_FORCE_MODEL', model)} />
                 </span>
-                <select class="sel" aria-label="run effort" value={envObj.SDLC_FORCE_EFFORT || ''} onChange={e => setEnvVar('SDLC_FORCE_EFFORT', (e.target as HTMLSelectElement).value)}>
+                <select class="sel" aria-label="run effort" value={envObj.SDLC_FORCE_EFFORT || ''} onChange={e => askForce('SDLC_FORCE_EFFORT', (e.target as HTMLSelectElement).value)}>
                   <option value="">effort: per stage</option>
                   {unique(catalog.efforts).map(x => <option value={x}>{x}</option>)}
                 </select>
+                </div>
               </div>
             )}
           </div>
@@ -669,11 +726,14 @@ export function Run({ slug }: { slug: string }) {
                     </div>
                   )}
                   {s.key && s.key !== 'finalise' && (locked || running
-                    ? <span class="mono small muted">{inUse ? `${inUse.model} · ${inUse.effort}` : 'default'}{st === 'active' ? ' · in use' : ''}</span>
+                    ? <span class="row small" style={{ gap: '4px', alignItems: 'center' }}>{overrideBadge}<span class="mono muted">{inUse ? `${inUse.model} · ${inUse.effort}` : 'default'}{st === 'active' ? ' · in use' : ''}</span></span>
                     : (
-                      stagePickers(s)
+                      <div class="col" style={{ gap: '2px' }}>
+                        {stagePickers(s)}
+                        {forceActive && <span class="mono small" style={{ color: 'var(--wait, #e3b341)' }}>[override] {effectiveOf(s.key)}</span>}
+                      </div>
                     ))}
-                  {s.key === 'test-repair' && v.models['test-audit'] && <span class="mono small muted">audit: {v.models['test-audit'].model} · {v.models['test-audit'].effort}</span>}
+                  {s.key === 'test-repair' && v.models['test-audit'] && <span class="row small" style={{ gap: '4px', alignItems: 'center' }}>{overrideBadge}<span class="mono small muted">audit: {v.models['test-audit'].model} · {v.models['test-audit'].effort}</span></span>}
                   {v.stageFiles[s.name] && <span class="small muted">{v.stageFiles[s.name].length} files</span>}
                   {s.key && s.key !== 'finalise' && s.name === v.stage && !running && v.state !== 'not started' && v.state !== 'done' && (v.stageFiles[s.name]?.length || st === 'paused' || st === 'failed') && (
                     confirm === `discard-stage:${s.key}`
@@ -962,7 +1022,7 @@ export function Run({ slug }: { slug: string }) {
                       </span>
                       <div class="col" style={{ gap: '4px' }}>
                         <span class="small muted">Agent · model · effort</span>
-                        {running ? <span class="mono small muted">{v.models['resolve-conflicts'] ? `${v.models['resolve-conflicts'].model} · ${v.models['resolve-conflicts'].effort}` : 'default'}{rcState === 'active' ? ' · in use' : ''}</span> : stagePickers({ key: 'resolve-conflicts', name: 'Resolve conflicts' })}
+                        {running ? <span class="row small" style={{ gap: '4px', alignItems: 'center' }}>{overrideBadge}<span class="mono small muted">{v.models['resolve-conflicts'] ? `${v.models['resolve-conflicts'].model} · ${v.models['resolve-conflicts'].effort}` : 'default'}{rcState === 'active' ? ' · in use' : ''}</span></span> : stagePickers({ key: 'resolve-conflicts', name: 'Resolve conflicts' })}
                       </div>
                       <details class="small"><summary style={{ cursor: 'pointer' }}>Reviewers when the agent is unsure</summary><div style={{ marginTop: '6px' }}>{reviewerConfig()}</div></details>
                       <div class="row" style={{ gap: '8px', alignItems: 'center' }}>
@@ -1156,6 +1216,39 @@ export function Run({ slug }: { slug: string }) {
           </div>
         </div>
       )}
+
+      {forceAsk && (() => {
+        const after = forceAfter(forceAsk);
+        const part = (label: string, value: string, fallback: string) => value ? `${label} ${value}` : `${label}: ${fallback}`;
+        const combo = [
+          part('agent', after.SDLC_FORCE_AGENT || '', "project's"),
+          part('model', after.SDLC_FORCE_MODEL || '', 'per stage'),
+          part('effort', after.SDLC_FORCE_EFFORT || '', 'per stage'),
+        ].join(', ');
+        const pendingLabel = forceAsk.key === 'SDLC_FORCE_AGENT' ? 'agent' : forceAsk.key === 'SDLC_FORCE_MODEL' ? 'model' : 'effort';
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setForceAsk(null)}>
+            <div role="dialog" aria-modal="true" aria-label="Confirm run-level override" class="col" onClick={e => e.stopPropagation()}
+              style={{ background: 'var(--bg, #17181c)', border: '1px solid var(--ln, #262d36)', borderRadius: '10px', padding: '18px', maxWidth: '480px', width: '92%', gap: '10px' }}>
+              <strong>Override every stage of this run?</strong>
+              <p class="small" style={{ margin: 0 }}>
+                You picked {pendingLabel} <span class="mono">{forceAsk.value}</span> for <strong>“This run, every stage”</strong>.
+                With it, the run becomes: <span class="mono">{combo}</span>.
+              </p>
+              <p class="small s-failed" style={{ margin: 0 }}>
+                This replaces the project's per-stage setup (sdlc.config.json) for every stage — Spec, Plan, Red tests,
+                Implement, Test repair, Review, Finalise, and the conflict reviewers and judge. A model your provider
+                account cannot serve (for example a paid model without credits) fails the run. The setting stays for
+                future starts of this run until you clear it.
+              </p>
+              <div class="row" style={{ gap: '8px', justifyContent: 'flex-end' }}>
+                <button class="btn" type="button" onClick={() => setForceAsk(null)}>Cancel</button>
+                <button class="btn btn-d" type="button" onClick={() => applyForce(forceAsk.key, forceAsk.value)}>Apply to every stage</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
