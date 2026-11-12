@@ -196,6 +196,9 @@ Lane 1 (can start as soon as A0 merges, all in parallel): **A1, A2, B1, D1, D2, 
 - **Depends:** A0. Run §4 V1 first and record what the board shows today in the PR description.
 
 #### A2: Process identity primitives
+**Status (2026-11-13): partly done** by step P2 of `docs/plans/web-performance.md` (#119).
+- **Done:** `src/runs/proc.ts` with `ProcIdentity`, `procStart`, `identity`, `sameProcess`; `alive(pid, start)` (moved there, still exported from `records.ts`) reads the start time from the `ps` call it already made; the run record carries `supervisor?: ProcIdentity`, written by `start()`; `status.json` carries `pid_start`.
+- **Pending:** `bootId()` (the field exists in the type and is not filled), `ownPgid()`, `groupMembers()`, and the `v` and `kind` record fields.
 <!-- model: opus --> Reason: PID-reuse semantics, locale and boot-id edge cases; a wrong `sameProcess` leads to signalling an unrelated process.
 - **Goal:** add a new module `src/runs/proc.ts` with:
   - `procStart(pid): string`: `spawnSync('ps', ['-o', 'lstart=', '-p', pid], { env: { ...process.env, LC_ALL: 'C' } })`, trimmed, `''` if the process is gone.

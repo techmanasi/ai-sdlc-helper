@@ -1,6 +1,8 @@
 # Web performance: the board, the run page and the run register
 
-Status: ready to implement, one PR per step, **direct** (no backlog briefs).
+Status (2026-11-13): **P0, P1, P2, P3 and P7 are merged. P5 is built and held. P4, P6, P8 and P9 are pending.**
+Section 12 has what was built, what was measured, and the decision still open. One PR per step, **direct**
+(no backlog briefs).
 Revised 2026-11-12 after a review against the code: P1 and P2 are redesigned,
 P3's cache key and every spawn target are corrected, and the step order is
 stated (section 5).
@@ -109,7 +111,7 @@ description.
 Suggested sequence: P0, then P1 and P2 (either order), P3, P5, P4, P6, P7, P9;
 P8 only if P9 says so.
 
-### P0 — Route the board's spawn sites through the trace
+### P0 — Route the board's spawn sites through the trace — **done (#117)**
 
 - **Files:** `src/pipeline/git.ts` (`Git.run`), `src/backlog/index.ts`
   (`for-each-ref`), `web/server/index.ts` (`gitTop`), `src/runs/view.ts`
@@ -131,7 +133,7 @@ P8 only if P9 says so.
   spawn the shims see during a board read.
 - **Risk:** low. Without this step P1's and P3's acceptance cannot be measured.
 
-### P1 — Slim the board card
+### P1 — Slim the board card — **done (#118)**
 
 - **Files:** `src/runs/view.ts` (`runView`, `viewState`'s two calls, `boardView`).
 - **Change:** three things, all in `runView`'s existing shape:
@@ -161,7 +163,7 @@ P8 only if P9 says so.
   run. That is the same rule the run page already follows, and decision 4
   accepts it.
 
-### P2 — Make the register honest
+### P2 — Make the register honest — **done (#119)**
 
 - **Files:** new `src/runs/proc.ts`, `src/runs/records.ts` (`writeRecord`,
   `isRunning`, `RunRecord`), `src/runs/supervisor.ts` (its own writer, line 57),
@@ -208,7 +210,7 @@ P8 only if P9 says so.
   `sameProcess` reports a live run as stopped, so the tests run on macOS and
   Linux in CI.
 
-### P3 — Counts on a slow tick, cached by mtime
+### P3 — Counts on a slow tick, cached by mtime — **done (#123), built differently: see section 12**
 
 - **Files:** `web/server/index.ts`, `src/backlog/index.ts`
   (`for-each-ref`), `src/runs/records.ts` (`mainTree`, `worktree list`),
@@ -236,7 +238,7 @@ P8 only if P9 says so.
   refresh); the 10 s ticks in between cost file stats only.
 - **Risk:** medium — a stale mark that is not shown turns "behind" into "wrong".
 
-### P4 — One watcher registry
+### P4 — One watcher registry — **pending**
 
 - **Files:** new `web/server/watchers.ts`; `web/server/watch.ts` uses it.
 - **Change:** refcounted `fs.watch` per folder, never recursive (Node 18 on
@@ -251,7 +253,7 @@ P8 only if P9 says so.
   distinct folders, not the number of subscribers.
 - **Risk:** medium — a refcount bug leaks handles or closes a folder still in use.
 
-### P5 — One board poller per project
+### P5 — One board poller per project — **built, held unmerged (#121)**
 
 - **Files:** `web/server/index.ts` (`events()`).
 - **Change:** one poller per project, shared by every SSE client, computing the
@@ -266,7 +268,7 @@ P8 only if P9 says so.
   number of `timer:board-rebuild` lines as one tab.
 - **Risk:** medium — the shared snapshot must never be mutated by a client.
 
-### P6 — Push the board on change
+### P6 — Push the board on change — **pending**
 
 - **Needs:** P4 (the registry) and P5 (the shared poller, its fallback).
 - **Files:** `web/server/index.ts`, new `web/server/board-stream.ts` (uses P4's
@@ -306,7 +308,7 @@ P8 only if P9 says so.
   visibility cases in `test/stream.test.ts`).
 - **Risk:** medium to high — missed or merged events.
 
-### P7 — Cache the project context
+### P7 — Cache the project context — **done (#120)**
 
 - **Files:** `web/server/index.ts` (`contextFor`), a small mtime helper where
   `runContext` reads settings and the registry.
@@ -326,7 +328,7 @@ P8 only if P9 says so.
   measured before and after.
 - **Risk:** medium — a stale context is the one failure that is worse than slow.
 
-### P8 — Conditional GET for the backup path (only if P6 leaves one)
+### P8 — Conditional GET for the backup path (only if P6 leaves one) — **pending**
 
 - **Files:** the run route in `web/server/index.ts`.
 - **Change:** fingerprint the run's record, `status.json`, `permissions.json`,
@@ -340,7 +342,7 @@ P8 only if P9 says so.
   its own measurement rather than borrowing that figure.
 - **Risk:** low. Drop this step if P6 leaves the backup path rare.
 
-### P9 — Measure, then tune or delete
+### P9 — Measure, then tune or delete — **pending (idle-board numbers taken: section 12)**
 
 - **No code, no files, no tests by design** — the one exception to the rule
   above. Run the trace report on four states (section 6), with the counting
@@ -542,6 +544,105 @@ and durations, and the history file, stay out as section 8 says),
 `plans/opencode-harness-support.md`, `plans/tool-notes.md`, and the test-gate
 parts of `plans/process-isolation-research.md` (test slots, result cache,
 repeated suite runs), which speed up pipeline runs, not the web pane.
+
+## 12. Status after the first round (2026-11-13)
+
+### What is done, and what is pending
+
+| Step | State | PR | Note |
+|---|---|---|---|
+| P0 trace the board's spawns | **done** | #117 | `gitTop` left out: it runs once, before the trace starts |
+| P1 slim the board card | **done** | #118 | the card uses the run page's git cache; a run that is not running is read again after 60 s |
+| P2 honest register | **done** | #119 | `src/runs/proc.ts`; no boot id, no `trigger` field (both still open) |
+| P7 context cache | **done** | #120 | done before P3 because the numbers showed it was the larger cost |
+| P3 kept branch names and main tree | **done** | #123 | no 10 s slow tick and no live stale age: see below |
+| P5 one board feed per project | **built, not merged** | #121 | held until the stream decision below is taken |
+| P4 watcher registry | **pending** | | |
+| P6 push the board on change | **pending** | | needs P4; see "Is P6 still worth it" below |
+| P8 conditional GET | **pending** | | only if P9 says so |
+| P9 measure all four states | **pending** | | only the idle board is measured so far |
+
+#122 is marked merged on GitHub but was merged into the P7 branch, not `main`; #123 is the same change on `main`.
+
+### Built differently from sections 5 and 6
+
+- **P3 has no 10 s slow tick.** After P1 the file counts come from the per-run git cache (60 s limit, 30 s for a
+  running run), so nothing was left for a slow tick to refresh. The branch names are kept until `packed-refs` or a
+  ref folder changes, 60 s at most; the main working tree for a minute.
+- **The stale mark is a tooltip, not a live age.** An age in the board data changes every tick and would defeat
+  "push only on change". The card's file count says how old it can be.
+- **The every-fifth-read rule for counts** is still in `events()` on `main`. P5 removes it.
+- **A new `traceFlushMs` server option** (in P5's branch) lets tests read the trace soon after an event.
+
+### Measured
+
+The real board of this repository (6 finished runs, none running) open in Chrome, idle, with logging stand-ins for
+`git`, `ps` and `gh` on the server's `PATH`. `ps` and `gh` were 0 in every window.
+
+One window, 120 s:
+
+| Build | `git` calls | per second |
+|---|---|---|
+| Before (P0 only) | 931 | 7.8 |
+| + P1 | 431 | 3.6 |
+| + P2, P7 | 160 | 1.3 |
+| + P3 | 52 | 0.4 |
+
+Three windows side by side (all visible), 60 s:
+
+| Build | `git` calls | board builds |
+|---|---|---|
+| P7 (before P5) | 197 | 111 |
+| + P5 | 84 | 39 |
+| + P5 and P3 | 26 | 39 |
+
+What the 52 calls left are: each run that is not running has its counts read again every 60 s (4 calls a run). That
+is 26 a minute for 6 runs, against section 6's target of 2 a minute. To reach the target, lengthen
+`BOARD_GIT_MAX_AGE_MS` for runs that are done, or read them again only when their worktree changes (P6's watcher).
+
+Not measured yet: a cold board, an idle run page, a running run page, and anything with a run in progress.
+
+### Is P6 still worth it
+
+On `main` today a board build of an unchanged board runs no git command at all. P6 would cut the builds from 30 a
+minute to 2 and make a change show at once instead of within 2 s, but it would no longer save any spawns. It is the
+riskiest step (medium to high) and needs P4 first. Recommendation: do P9 first (measure the build's milliseconds and
+the three states not measured), then decide whether P4 and P6 are still worth building.
+
+### Decisions taken (2026-11-12)
+
+- **Menu counts on every page:** one stream per tab that carries the board and the open run, built in P6; one
+  connection per browser as a later step.
+- **Hidden tabs:** close the stream while hidden.
+
+### Open decision: one connection per browser, or close when hidden — settle before P6
+
+Found while measuring: **the board already closes its stream in a hidden tab.** `web/ui/src/App.tsx` opens the board
+through `useStream`, whose machine holds no connection while the tab is hidden and reconnects when it is shown; the
+server sends the whole board on connect. So "close when hidden" is how `main` behaves today, and costs nothing to
+build. The two options overlap, and the user asked for them to be compared before the follow-up step is written.
+
+| | Close when hidden (today) | One connection per browser |
+|---|---|---|
+| New code | none | a leader tab chosen with the Web Locks API, updates passed to the other tabs over `BroadcastChannel`, a take-over when the leader closes; roughly 150 to 250 lines plus tests |
+| Connections used | one per visible tab | one per browser, whatever the number of tabs |
+| Cost of hiding and showing a tab | one reconnect and one board sent on return; with P5 that board is the kept text, without it one board build | none: the tab keeps listening to the channel |
+| Tab title count while hidden | stale until the tab is shown | correct, but only because the leader keeps its connection while hidden |
+| Notices missed while hidden | one notice per run for the state it ended in, not each step | every one, as it happens |
+| When the 6-connection limit bites | 5 or more board windows visible at once | never |
+| What can go wrong | nothing new | two leaders for a moment, a leader that dies without releasing, a browser without Web Locks falling back to today's behaviour |
+| Effect on P5 | P5 helps whenever two windows are visible | P5 only helps across browsers or profiles |
+
+Points to weigh:
+
+- The limit is hard to reach once hidden tabs hold nothing, so the only thing one connection per browser still buys
+  is a correct title and live notices in hidden tabs.
+- That benefit needs the leader to stay connected while hidden, which is the opposite of the hidden-tab choice above.
+  The two decisions cannot both stand as taken.
+- A cheaper way to keep the title right is a board fetch once a minute in hidden tabs (no held connection, no leader).
+
+Recommendation, to confirm: keep close-when-hidden, do not build one connection per browser, and merge P5 (#121) as
+it is small, tested and green. Revisit only if a stale title in hidden tabs turns out to matter in use.
 
 ## Appendix: mapping from the two superseded plans
 
