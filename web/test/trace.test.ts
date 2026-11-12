@@ -77,7 +77,9 @@ describe('the trace of the UI server', () => {
     const callsBefore = calls();
     const spawnsBefore = spawns();
     expect(await get(s, '/api/projects/shop/runs/one')).toBe(200);
-    await eventually(() => requests() >= 2);
+    // The project's context is cached, so a run with no worktree may cost no git call; the board always asks for the branches.
+    expect(await get(s, '/api/projects/shop/board')).toBe(200);
+    await eventually(() => requests() >= 3);
     const seen = calls() - callsBefore;
     const got = lines();
     expect(seen).toBeGreaterThan(0);
