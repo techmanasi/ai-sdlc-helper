@@ -3,6 +3,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from '../trace.js';
+import { alive, type ProcIdentity } from './proc.js';
+
+export { alive };
 
 export const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 export const STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'review', 'finalise', 'resolve-conflicts'] as const;
@@ -13,6 +16,8 @@ export interface RunRecord {
   worktree: string;
   /** The supervisor process (0 when none was started). */
   pid: number;
+  /** That process with its start time, so a later process that got the same pid is not taken for the run. */
+  supervisor?: ProcIdentity;
   started: string;
   state: 'running' | 'exited';
   /** The pipeline's exit code as text, "" while running: 0 done, 1 failed, 2 paused for answers. */
@@ -52,13 +57,24 @@ export function readRecord(reg: string, slug: string): Partial<RunRecord> | null
   try { const v = JSON.parse(text); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
 }
 
-/** Writes a record atomically (a temporary file, then a rename), so a reader never sees half of one. */
+let writes = 0;
+
+/**
+ * Writes a record atomically (a temporary file, then a rename), so a reader never sees half of one. The temporary
+ * file is this process's own, so two writers cannot write into each other's or rename it away. The last rename wins:
+ * two writers that change different fields at the same moment are not merged.
+ */
 export function writeRecord(reg: string, rec: RunRecord): void {
   fs.mkdirSync(reg, { recursive: true });
   const f = recordFile(reg, rec.slug);
-  fs.writeFileSync(`${f}.tmp`, `${JSON.stringify(rec)}\n`);
-  fs.renameSync(`${f}.tmp`, f);
+  const tmp = `${f}.${process.pid}.${writes++}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(rec)}\n`);
+  fs.renameSync(tmp, f);
 }
+
+/** The start time recorded with a record's pid ('' when none, or when it names another pid). */
+const startOf = (rec: Partial<RunRecord>): string | undefined =>
+  (rec.supervisor && rec.supervisor.pid === rec.pid && typeof rec.supervisor.start === 'string' && rec.supervisor.start) || undefined;
 
 /** The slugs that have a record, sorted. */
 export function recordedSlugs(reg: string): string[] {
@@ -67,22 +83,8 @@ export function recordedSlugs(reg: string): string[] {
   return names.filter(n => n.endsWith('.json')).map(n => n.slice(0, -5)).filter(s => SLUG.test(s)).sort();
 }
 
-/**
- * Whether process <pid> is running. kill(pid, 0) also succeeds on a zombie (exited, not yet collected by its parent),
- * which is not alive; `ps` tells them apart (on Windows there is no ps, and kill(pid, 0) is all there is).
- */
-export function alive(pid: unknown): boolean {
-  const n = Number(pid);
-  if (!Number.isInteger(n) || n <= 0) return false;
-  try { process.kill(n, 0); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EPERM') return false; }
-  if (process.platform === 'win32') return true;
-  const r = spawnSync('ps', ['-o', 'stat=', '-p', String(n)], { encoding: 'utf8' });
-  if (r.status !== 0 && !r.stdout.trim()) return false;
-  return !r.stdout.trim().startsWith('Z');
-}
-
 /** A record's run is going on: state running and its supervisor alive. */
-export const isRunning = (rec: Partial<RunRecord> | null): boolean => Boolean(rec && rec.state === 'running' && alive(rec.pid));
+export const isRunning = (rec: Partial<RunRecord> | null): boolean => Boolean(rec && rec.state === 'running' && alive(rec.pid, startOf(rec)));
 
 /** <pid> and every process below it, children after their parent (from one `ps` listing; none on Windows). */
 export function processTree(pid: number): number[] {
@@ -122,7 +124,7 @@ export function killTree(pid: number, signal: NodeJS.Signals = 'SIGTERM', host: 
 /** What a record says about its run, in one word: running, stopped (gone without finishing), interrupted, exited. */
 export function runState(rec: Partial<RunRecord>): string {
   if (rec.interrupted === true) return 'interrupted';
-  if (rec.state === 'running') return alive(rec.pid) ? 'running' : 'stopped';
+  if (rec.state === 'running') return alive(rec.pid, startOf(rec)) ? 'running' : 'stopped';
   return rec.state || 'unknown';
 }
 
