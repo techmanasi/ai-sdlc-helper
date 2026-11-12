@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
-  restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, type Outcome, type RunContext,
+  restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -30,6 +30,8 @@ export interface ServerOptions {
   cli?: string[];
   /** How often the live board is read, in ms (default 2000). */
   pollMs?: number;
+  /** How often the trace is written to its file (default 1 s); tests set it low to read the trace soon after an event. */
+  traceFlushMs?: number;
   /** Timings of the per-run stream (tests): debounce, safety tick, ping and tail throttle, in ms. */
   stream?: Partial<StreamTimings>;
   /** The claude command triage runs spawn (tests); default 'claude'. */
@@ -102,7 +104,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   // The trace of repeating actions (src/trace.ts): always on, rotating; settings from the opening folder's sdlc.config.json.
   let traceBlock: unknown;
   try { if (current) traceBlock = JSON.parse(fs.readFileSync(path.join(current, 'sdlc.config.json'), 'utf8')).trace; } catch { /* no file or not JSON: defaults */ }
-  const tracer = startTrace({ file: path.join(configDir(env), TRACE_FILE), settings: traceSettings(traceBlock, env).settings, rotate: true });
+  const tracer = startTrace({ file: path.join(configDir(env), TRACE_FILE), settings: traceSettings(traceBlock, env).settings, rotate: true, ...(opts.traceFlushMs ? { flushMs: opts.traceFlushMs } : {}) });
 
   async function projects(): Promise<Project[]> {
     const list: Project[] = readRegistry(env).map(e => ({ name: e.name, path: e.path, registered: true }));
@@ -450,41 +452,57 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     throw new HttpError(404, 'no such API');
   }
 
+  // One board feed per project, shared by every page that shows it: the board is built once a tick however many tabs
+  // are open, a page that joins later gets the last board at once, and the feed stops with its last page.
+  interface BoardFeed { clients: Set<http.ServerResponse>; last: string; ticks: number; busy: boolean; timer: NodeJS.Timeout; ping: NodeJS.Timeout }
+  const feeds = new Map<string, BoardFeed>();
+  const boardEvent = (text: string): string => `event: board\ndata: ${text}\n\n`;
+
+  function boardFeed(p: Project): BoardFeed {
+    const had = feeds.get(p.name);
+    if (had) return had;
+    const all = (text: string): void => { for (const c of feed.clients) c.write(text); };
+    const tick = (): void => {
+      if (feed.busy) return;
+      feed.busy = true;
+      try {
+        // A card's file counts come from the per-run git cache (boardView), so every read may ask for them.
+        const t0 = performance.now();
+        const text = JSON.stringify(boardView(contextFor(p)));
+        const changed = text !== feed.last;
+        trace({ action: 'timer:board-rebuild', why: 'pollMs', run: p.name, ms: Math.round((performance.now() - t0) * 1000) / 1000, changed, n: ++feed.ticks });
+        if (changed) { feed.last = text; all(boardEvent(text)); trace({ action: 'sse:board', run: p.name, changed: true, n: feed.clients.size }); }
+      } catch (e) {
+        all(`event: problem\ndata: ${JSON.stringify({ message: (e as Error).message })}\n\n`);
+        trace({ action: 'sse:problem', run: p.name });
+      } finally { feed.busy = false; }
+    };
+    const feed: BoardFeed = {
+      clients: new Set(), last: '', ticks: 0, busy: false,
+      timer: setInterval(tick, pollMs),
+      ping: setInterval(() => { all('event: ping\ndata: {}\n\n'); trace({ action: 'sse:ping', run: p.name }); }, 15000),
+    };
+    feeds.set(p.name, feed);
+    // The first page waits for nothing: the board is built as it joins (events() adds it before this runs).
+    queueMicrotask(tick);
+    return feed;
+  }
+
   /** Live updates: the board of a project whenever it changes, as SSE "board" events. */
   async function events(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
     const p = await project(url.searchParams.get('project') || '');
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
-    let last = '';
-    let ticks = 0;
-    const counts = new Map<string, RunCard['changes']>();
-    let busy = false;
-    const push = () => {
-      if (busy) return;
-      busy = true;
-      try {
-        // File counts need git, so they are refreshed every fifth read; the rest of the board every read.
-        const t0 = performance.now();
-        const fresh = ticks++ % 5 === 0;
-        const board = boardView(contextFor(p), { changes: fresh });
-        // The counts come from the last read between the refreshes, so a card does not lose them on 4 of 5 ticks.
-        const seen = new Map<string, RunCard['changes']>();
-        for (const r of board.runs) {
-          if (fresh) seen.set(r.slug, r.changes); else r.changes = counts.get(r.slug) ?? null;
-        }
-        if (fresh) { counts.clear(); for (const [k, v] of seen) counts.set(k, v); }
-        const text = JSON.stringify(board);
-        const changed = text !== last;
-        trace({ action: 'timer:board-rebuild', why: 'pollMs', run: p.name, ms: Math.round((performance.now() - t0) * 1000) / 1000, changed, n: ticks });
-        if (changed) { last = text; res.write(`event: board\ndata: ${text}\n\n`); trace({ action: 'sse:board', run: p.name, changed: true }); }
-      } catch (e) {
-        res.write(`event: problem\ndata: ${JSON.stringify({ message: (e as Error).message })}\n\n`);
-        trace({ action: 'sse:problem', run: p.name });
-      } finally { busy = false; }
-    };
-    push();
-    const timer = setInterval(push, pollMs);
-    const ping = setInterval(() => { res.write('event: ping\ndata: {}\n\n'); trace({ action: 'sse:ping', run: p.name }); }, 15000);
-    req.on('close', () => { clearInterval(timer); clearInterval(ping); });
+    const feed = boardFeed(p);
+    // The text is what every page gets; no page holds the board object, so none can change it for the others.
+    if (feed.last) res.write(boardEvent(feed.last));
+    feed.clients.add(res);
+    req.on('close', () => {
+      feed.clients.delete(res);
+      if (feed.clients.size || feeds.get(p.name) !== feed) return;
+      clearInterval(feed.timer);
+      clearInterval(feed.ping);
+      feeds.delete(p.name);
+    });
   }
 
   const runStreams = createRunStreams(opts.stream);
@@ -593,6 +611,6 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     url, port, token,
     openUrl: `${url}/?t=${token}`,
     streamStats: () => runStreams.stats(),
-    close: () => new Promise(res => { runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
+    close: () => new Promise(res => { for (const f of feeds.values()) { clearInterval(f.timer); clearInterval(f.ping); } feeds.clear(); runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
   };
 }
