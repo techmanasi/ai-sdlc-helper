@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Run failed: recovery</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif}
+a{color:#5eead4}a:hover{color:#99f6e4}
+</style>
+</helmet>
+<div style="width: 1320px; height: 1260px; box-sizing: border-box; background: #0f1218; color: #e6e9ef; display: flex; position: relative">
+
+<div style="flex: none; width: 56px; position: relative; z-index: 20">
+<nav aria-label="Main" style="position: absolute; top: 0; left: 0; bottom: 0; width: {{navWidth}}; box-sizing: border-box; background: #12161d; border-right: 1px solid #222a36; box-shadow: {{navShadow}}; padding: 10px 8px; display: flex; flex-direction: column; gap: 4px; overflow: hidden">
+<div style="display: flex; align-items: center; gap: 8px; min-height: 40px">
+<button type="button" onClick="{{toggleNav}}" aria-label="{{navToggleLabel}}" aria-expanded="{{navExpanded}}" style="flex: none; width: 40px; height: 40px; border-radius: 6px; border: 0; background: transparent; color: #c9d1dc; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"></path></svg></button>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 13px; font-weight: 600; white-space: nowrap">ai-sdlc-helper <span style="color: #8e98a8; font-weight: 400">0.1.1</span></span></sc-if>
+</div>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><div style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8; padding: 10px 12px 4px">WORKSPACE</div></sc-if>
+<sc-if value="{{navClosed}}" hint-placeholder-val="{{true}}"><div style="height: 1px; background: #222a36; margin: 8px 6px"></div></sc-if>
+<a href="Board.dc.html" title="Board" aria-current="page" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: #1f2735; color: #e6e9ef; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" style="flex: none"><rect x="2.5" y="2.5" width="4.5" height="11" rx="1"></rect><rect x="9" y="2.5" width="4.5" height="7" rx="1"></rect></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Board</span><span style="font-size: 11px; color: #8e98a8">6</span></sc-if></a>
+<a href="Completed.dc.html" title="Completed" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: transparent; color: #c9d1dc; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="8" cy="8" r="6"></circle><path d="M5.5 8.2l1.8 1.8 3.2-3.6"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Completed</span><span style="font-size: 11px; color: #8e98a8">7</span></sc-if></a>
+<a href="NewItem.dc.html" title="New item" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: transparent; color: #c9d1dc; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" style="flex: none"><path d="M8 3v10M3 8h10"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">New item</span></sc-if></a>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><div style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8; padding: 14px 12px 4px">CONFIGURE</div></sc-if>
+<sc-if value="{{navClosed}}" hint-placeholder-val="{{true}}"><div style="height: 1px; background: #222a36; margin: 8px 6px"></div></sc-if>
+<a href="Settings.dc.html" title="Settings" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: transparent; color: #c9d1dc; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true" style="flex: none"><path d="M2.5 5h11M2.5 11h11"></path><circle cx="6" cy="5" r="1.7" fill="#12161d"></circle><circle cx="10" cy="11" r="1.7" fill="#12161d"></circle></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Settings</span></sc-if></a>
+<a href="Projects.dc.html" title="Projects" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: transparent; color: #c9d1dc; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M2.5 4.5h4l1.5 1.5h5.5v6.5h-11z"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Projects</span><span style="font-size: 11px; color: #8e98a8">4</span></sc-if></a>
+</nav>
+</div>
+
+<main style="flex: 1; min-width: 0; box-sizing: border-box; padding: 20px 28px 28px; display: flex; flex-direction: column; gap: 16px">
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<a href="Board.dc.html" style="font-size: 13px; text-decoration: none">← Board</a>
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+<h1 style="margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 24px; font-weight: 600">ui-code-indexer-setup</h1>
+<button type="button" style="min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid #2c3544; background: transparent; color: #e6e9ef; font: inherit; font-size: 13px; cursor: pointer">Edit</button>
+<span style="font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; color: #f87171; background: #2a1414">Failed at Spec</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #aab3c2">branch sdlc/ui-code-indexer-setup</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #8e98a8">base docs/web-performance-and-incident</span>
+</div>
+</div>
+
+<section aria-label="Stages" style="background: #151a23; border: 1px solid #262e3b; border-radius: 10px; padding: 10px 12px">
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; gap: 4px">
+<sc-for list="{{rail}}" as="s" hint-placeholder-count="8">
+<li style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; border-radius: 8px; border: 1px {{s.bStyle}} {{s.border}}; background: {{s.bg}}">
+<span style="display: block; height: 3px; border-radius: 2px; background: {{s.bar}}"></span>
+<span style="display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; color: {{s.nameColor}}">
+<sc-if value="{{s.failed}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#f87171" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: none"><circle cx="8" cy="8" r="6"></circle><path d="M6 6l4 4M10 6l-4 4"></path></svg></sc-if>
+<sc-if value="{{s.pending}}" hint-placeholder-val="{{true}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#5b6475" stroke-width="1.6" stroke-dasharray="{{s.dash}}" aria-hidden="true" style="flex: none"><circle cx="8" cy="8" r="6"></circle></svg></sc-if>
+<span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.name}}</span>
+</span>
+<span style="font-size: 11px; color: #c9d1dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.agent}}</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: {{s.modelColor}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.model}}</span>
+<span style="font-size: 11px; color: {{s.subColor}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.sub}}</span>
+</li>
+</sc-for>
+</ol>
+</section>
+
+<section aria-labelledby="rec-title" style="background: #1a1214; border: 1px solid #5a2a2a; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap">
+<div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+<h2 id="rec-title" style="margin: 0; font-size: 17px; font-weight: 600">Spec failed: your provider is out of credits</h2>
+<span style="font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid #5a4713; color: #fbbf24">Billing · not a code problem</span>
+</div>
+<p style="margin: 0; font-size: 13px; line-height: 1.5; color: #e0b4b4">Agent spec-1 (opencode · opencode/gemini-4-carbon) stopped: insufficient balance. Nothing in the branch changed.</p>
+</div>
+<span style="font-size: 12px; color: #8e98a8">Each option keeps the run moving.</span>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<div style="background: #151a23; border: 1px solid #1f4a52; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #5eead4">RECOMMENDED</span>
+<span style="font-size: 14px; font-weight: 600">Top up, then retry Spec</span>
+<span style="font-size: 12px; line-height: 1.5; color: #aab3c2">Same agent and model. Retry once the balance is back.</span>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto">
+<a href="#" style="min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid #2c3544; color: #e6e9ef; font-size: 13px; text-decoration: none; display: flex; align-items: center; gap: 6px">Open billing<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 3h7v7M13 3L6 10M11 9v4H3V5h4"></path></svg></a>
+<button type="button" style="min-height: 36px; padding: 0 14px; border-radius: 6px; border: 0; background: #5eead4; color: #06231f; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer">Retry Spec</button>
+</div>
+</div>
+<div style="background: #151a23; border: 1px solid #262e3b; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">SWITCH MODEL</span>
+<span style="font-size: 14px; font-weight: 600">Retry Spec with another model</span>
+<span style="font-size: 12px; line-height: 1.5; color: #aab3c2">Pick one your account can serve. Only Spec changes, unless the run override is on.</span>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto">
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid #2c3544; background: #0f1218; color: #e6e9ef; font-family: ui-monospace, Menlo, monospace; font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer">claude · sonnet<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#8e98a8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"></path></svg></button>
+<button type="button" style="min-height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid #2c3544; background: transparent; color: #e6e9ef; font: inherit; font-size: 13px; cursor: pointer">Retry with it</button>
+</div>
+</div>
+<div style="background: #151a23; border: 1px solid #262e3b; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; position: relative">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">SKIP AHEAD</span>
+<span style="font-size: 14px; font-weight: 600">Resume at a later stage</span>
+<span style="font-size: 12px; line-height: 1.5; color: #aab3c2">For when Spec's output is already in the branch. Skipped stages don't run.</span>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto">
+<button type="button" onClick="{{open.bailout}}" aria-expanded="{{exp.bailout}}" aria-haspopup="dialog" style="min-height: 36px; padding: 0 14px; border-radius: 6px; border: 1px solid {{trig.bailout}}; background: transparent; color: #e6e9ef; font: inherit; font-size: 13px; cursor: pointer">Resume at Review…</button>
+</div>
+<sc-if value="{{is.bailout}}" hint-placeholder-val="{{false}}">
+<div role="dialog" aria-label="{{cf.bailout.title}}" style="position: absolute; top: calc(100% + 8px); right: 0; width: 360px; z-index: 15; background: #1a202b; border: 1px solid #3a4558; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 14px 36px rgba(0,0,0,0.5)">
+<span style="font-size: 15px; font-weight: 600">{{cf.bailout.title}}</span>
+<ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.45; color: #c9d1dc">
+<sc-for list="{{cf.bailout.lines}}" as="l" hint-placeholder-count="2"><li>{{l}}</li></sc-for>
+</ul>
+<div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px">
+<button type="button" onClick="{{close}}" style="min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #3a4558; background: #151a23; color: #e6e9ef; font: inherit; font-size: 14px; cursor: pointer">{{cf.bailout.keep}}</button>
+<button type="button" onClick="{{close}}" style="min-height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{cf.bailout.bg}}; color: {{cf.bailout.fg}}; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">{{cf.bailout.go}}</button>
+</div>
+</div>
+</sc-if>
+</div>
+</div>
+
+<details style="font-size: 12px; color: #aab3c2">
+<summary style="cursor: pointer; min-height: 28px; display: flex; align-items: center">Error details · logs/spec-1.err</summary>
+<pre style="margin: 8px 0 0; padding: 10px 12px; border-radius: 6px; background: #0b0e13; color: #e0b4b4; font-family: ui-monospace, Menlo, monospace; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere">Agent 'spec-1' crashed or failed: Insufficient balance. Top up at https://opencode.ai/console/org_[…]/billing?credits=1</pre>
+</details>
+</section>
+
+<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+<button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #2c3544; background: #151a23; color: #e6e9ef; font: inherit; font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer">Resume at…<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#8e98a8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"></path></svg></button>
+<button type="button" disabled style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #222a36; background: transparent; color: #5b6475; font: inherit; font-size: 13px">Stop</button>
+<button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #2c3544; background: #151a23; color: #e6e9ef; font: inherit; font-size: 13px; cursor: pointer">Open in editor</button>
+<button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #2c3544; background: #151a23; color: #e6e9ef; font: inherit; font-size: 13px; cursor: pointer">Copy path</button>
+</div>
+
+<section aria-label="Run options" style="background: #151a23; border: 1px solid #262e3b; border-radius: 10px; display: flex; flex-direction: column">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid #262e3b">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Run options</h2>
+<span style="font-size: 12px; color: #8e98a8">Apply on the next start, retry or resume</span>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0">
+
+<div style="padding: 16px 18px; border-right: 1px solid #262e3b; display: flex; flex-direction: column; gap: 14px">
+<label style="display: flex; gap: 10px; align-items: center; font-size: 13px; color: #c9d1dc"><input type="checkbox" checked> Auto-accept suggested answers <span style="color: #8e98a8">(Spec, Plan, Triage)</span></label>
+
+<div style="display: flex; flex-direction: column; gap: 10px; position: relative">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px">
+<span style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 14px; font-weight: 600">One agent and model for every stage</span>
+<span style="font-size: 12px; color: #8e98a8">Off: each stage uses its own setup from sdlc.config.json</span>
+</span>
+<button type="button" role="switch" aria-checked="{{ovChecked}}" aria-label="Override every stage" onClick="{{toggleOverride}}" style="flex: none; width: 44px; height: 26px; border-radius: 999px; border: 0; padding: 3px; background: {{ovTrack}}; display: flex; justify-content: {{ovJustify}}; cursor: pointer"><span style="width: 20px; height: 20px; border-radius: 50%; background: #e6e9ef; display: block"></span></button>
+</div>
+<div style="display: grid; grid-template-columns: 1fr 1.8fr 0.9fr; gap: 8px; opacity: {{ovOpacity}}">
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #8e98a8">Agent<select style="min-height: 36px; padding: 0 8px; border-radius: 6px; border: 1px solid #2c3544; background: #0f1218; color: #e6e9ef; font: inherit; font-size: 13px"><option>opencode</option></select></label>
+<div style="display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #8e98a8">Model<button type="button" style="min-height: 36px; padding: 0 8px; border-radius: 6px; border: 1px solid #2c3544; background: #0f1218; color: #e6e9ef; font-family: ui-monospace, Menlo, monospace; font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 6px; cursor: pointer">opencode/gemini-4-carbon<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#8e98a8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"></path></svg></button></div>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #8e98a8">Effort<select style="min-height: 36px; padding: 0 8px; border-radius: 6px; border: 1px solid #2c3544; background: #0f1218; color: #e6e9ef; font: inherit; font-size: 13px"><option>high</option></select></label>
+</div>
+<sc-if value="{{ovOn}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; background: #2a2210; border: 1px solid #5a4713">
+<span style="font-size: 12px; line-height: 1.45; color: #f1e3b0">Override on for this run: every stage, reviewer and judge uses it until you clear it.</span>
+<button type="button" onClick="{{toggleOverride}}" style="flex: none; min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid #5a4713; background: transparent; color: #f1e3b0; font: inherit; font-size: 12px; cursor: pointer">Clear</button>
+</div>
+</sc-if>
+<sc-if value="{{is.override}}" hint-placeholder-val="{{false}}">
+<div role="dialog" aria-label="{{cf.override.title}}" style="position: absolute; top: 34px; right: 0; width: 400px; z-index: 15; background: #1a202b; border: 1px solid #3a4558; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 14px 36px rgba(0,0,0,0.5)">
+<span style="font-size: 15px; font-weight: 600">{{cf.override.title}}</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; padding: 6px 8px; border-radius: 6px; background: #0f1218; color: #e6e9ef">opencode · opencode/gemini-4-carbon · high</span>
+<ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.45; color: #c9d1dc">
+<sc-for list="{{cf.override.lines}}" as="l" hint-placeholder-count="3"><li>{{l}}</li></sc-for>
+</ul>
+<div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px">
+<button type="button" onClick="{{close}}" style="min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #3a4558; background: #151a23; color: #e6e9ef; font: inherit; font-size: 14px; cursor: pointer">{{cf.override.keep}}</button>
+<button type="button" onClick="{{applyOverride}}" style="min-height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{cf.override.bg}}; color: {{cf.override.fg}}; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">{{cf.override.go}}</button>
+</div>
+</div>
+</sc-if>
+</div>
+</div>
+
+<div style="padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px">
+<span style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 14px; font-weight: 600">Reviewers when an agent is unsure</span>
+<span style="font-size: 12px; line-height: 1.45; color: #8e98a8">Run in parallel. The doubt is overridden only if all find the resolution safe; otherwise the judge sums up their views for you.</span>
+</span>
+<label style="flex: none; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8e98a8">Reviewers<select style="min-height: 34px; padding: 0 8px; border-radius: 6px; border: 1px solid #2c3544; background: #0f1218; color: #e6e9ef; font: inherit; font-size: 13px"><option>3</option></select></label>
+</div>
+<div role="table" aria-label="Reviewers and judge" style="display: flex; flex-direction: column; border: 1px solid #262e3b; border-radius: 8px; overflow: hidden">
+<div role="row" style="display: grid; grid-template-columns: 0.9fr 2.6fr 0.8fr; gap: 10px; padding: 8px 12px; background: #12161d; font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">
+<span role="columnheader">WHO</span><span role="columnheader">AGENT · MODEL</span><span role="columnheader">EFFORT</span>
+</div>
+<sc-for list="{{reviewers}}" as="r" hint-placeholder-count="4">
+<div role="row" style="display: grid; grid-template-columns: 0.9fr 2.6fr 0.8fr; gap: 10px; align-items: center; padding: 6px 12px; border-top: 1px solid #1f2632">
+<span role="cell" style="font-size: 13px; font-weight: {{r.weight}}">{{r.who}}</span>
+<span role="cell" style="display: flex; align-items: center; gap: 8px; min-width: 0">
+<button type="button" style="flex: 1; min-width: 0; min-height: 34px; padding: 0 8px; border-radius: 6px; border: 1px solid #2c3544; background: #0f1218; color: {{r.color}}; font-family: ui-monospace, Menlo, monospace; font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 6px; cursor: pointer"><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.pick}}</span><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#8e98a8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 6l4 4 4-4"></path></svg></button>
+<sc-if value="{{r.hasSrc}}" hint-placeholder-val="{{true}}"><span style="flex: none; font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid {{r.srcBorder}}; color: {{r.srcColor}}">{{r.src}}</span></sc-if>
+</span>
+<span role="cell"><select aria-label="{{r.who}} effort" style="width: 100%; min-height: 34px; padding: 0 6px; border-radius: 6px; border: 1px solid #2c3544; background: #0f1218; color: #e6e9ef; font: inherit; font-size: 12px"><option>{{r.effort}}</option></select></span>
+</div>
+</sc-for>
+</div>
+<span style="font-size: 12px; color: #8e98a8">Agent and model are picked together, so a reviewer can't pair claude with an opencode model.</span>
+</div>
+
+</div>
+</section>
+
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 18px; border: 1px solid #3a2020; border-radius: 10px">
+<span style="font-size: 13px; font-weight: 600; color: #f3b4b4; margin-right: 6px">Whole run</span>
+<div style="position: relative">
+<button type="button" onClick="{{open.restart}}" aria-expanded="{{exp.restart}}" aria-haspopup="dialog" style="min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid {{trig.restart}}; background: transparent; color: #f3b4b4; font: inherit; font-size: 13px; cursor: pointer">Restart from Spec…</button>
+<sc-if value="{{is.restart}}" hint-placeholder-val="{{false}}">
+<div role="dialog" aria-label="{{cf.restart.title}}" style="position: absolute; bottom: calc(100% + 8px); left: 0; width: 360px; z-index: 15; background: #1a202b; border: 1px solid #3a4558; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 14px 36px rgba(0,0,0,0.5)">
+<span style="font-size: 15px; font-weight: 600">{{cf.restart.title}}</span>
+<ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.45; color: #c9d1dc">
+<sc-for list="{{cf.restart.lines}}" as="l" hint-placeholder-count="2"><li>{{l}}</li></sc-for>
+</ul>
+<div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px">
+<button type="button" onClick="{{close}}" style="min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #3a4558; background: #151a23; color: #e6e9ef; font: inherit; font-size: 14px; cursor: pointer">{{cf.restart.keep}}</button>
+<button type="button" onClick="{{close}}" style="min-height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{cf.restart.bg}}; color: {{cf.restart.fg}}; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">{{cf.restart.go}}</button>
+</div>
+</div>
+</sc-if>
+</div>
+<div style="position: relative">
+<button type="button" onClick="{{open.discard}}" aria-expanded="{{exp.discard}}" aria-haspopup="dialog" style="min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid {{trig.discard}}; background: transparent; color: #f3b4b4; font: inherit; font-size: 13px; cursor: pointer">Discard run…</button>
+<sc-if value="{{is.discard}}" hint-placeholder-val="{{false}}">
+<div role="dialog" aria-label="{{cf.discard.title}}" style="position: absolute; bottom: calc(100% + 8px); left: 0; width: 360px; z-index: 15; background: #1a202b; border: 1px solid #5a2a2a; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 14px 36px rgba(0,0,0,0.5)">
+<span style="font-size: 15px; font-weight: 600">{{cf.discard.title}}</span>
+<ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.45; color: #c9d1dc">
+<sc-for list="{{cf.discard.lines}}" as="l" hint-placeholder-count="3"><li>{{l}}</li></sc-for>
+</ul>
+<div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px">
+<button type="button" onClick="{{close}}" style="min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #3a4558; background: #151a23; color: #e6e9ef; font: inherit; font-size: 14px; cursor: pointer">{{cf.discard.keep}}</button>
+<button type="button" onClick="{{close}}" style="min-height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{cf.discard.bg}}; color: {{cf.discard.fg}}; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">{{cf.discard.go}}</button>
+</div>
+</div>
+</sc-if>
+</div>
+<span style="font-size: 12px; color: #8e98a8">Each asks first. Keep it is the default.</span>
+</div>
+
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border: 1px dashed #2c3544; border-radius: 8px">
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: #aab3c2">$ ai-sdlc-helper start ui-code-indexer-setup</span>
+<button type="button" style="min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid #2c3544; background: transparent; color: #e6e9ef; font: inherit; font-size: 12px; cursor: pointer">Copy</button>
+</div>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"confirm":{"editor":"enum","options":["none","bailout","override","restart","discard"],"default":"discard"},"override":{"editor":"boolean","default":true},"$preview":{"width":1320,"height":1260}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { nav: false, confirm: undefined, ov: undefined };
+  }
+  renderVals() {
+    const confirm = this.state.confirm !== undefined ? this.state.confirm : (this.props.confirm ?? 'discard');
+    const ov = this.state.ov !== undefined ? this.state.ov : (this.props.override ?? true);
+    const red = { bg: '#f87171', fg: '#2a0a0a' };
+    const teal = { bg: '#5eead4', fg: '#06231f' };
+    const amber = { bg: '#fbbf24', fg: '#2a1d02' };
+    const cf = {
+      bailout: Object.assign({ title: 'Resume at Review?', keep: 'Keep it', go: 'Resume at Review',
+        lines: ['Spec, Plan, Red tests and Implement are skipped.', 'Review runs on the branch as it is now.'] }, amber),
+      override: Object.assign({ title: 'Use this for every stage?', keep: 'Cancel', go: 'Apply to every stage',
+        lines: ['Replaces the per-stage setup in sdlc.config.json for this run: all stages, the conflict reviewers and the judge.', 'Stays for later starts of this run until you clear it.', 'If your provider can’t serve this model (for example, no credits), the run fails.'] }, amber),
+      restart: Object.assign({ title: 'Restart the whole run from Spec?', keep: 'Keep it', go: 'Restart from Spec',
+        lines: ['Every stage runs again, starting at Spec.', 'Stage outputs from this run are replaced.'] }, red),
+      discard: Object.assign({ title: 'Discard the entire run?', keep: 'Keep it', go: 'Discard run',
+        lines: ['Removes this run and its worktree, branch sdlc/ui-code-indexer-setup and logs.', 'This can’t be undone.'] }, red)
+    };
+    const keys = ['bailout', 'override', 'restart', 'discard'];
+    const is = {}, open = {}, exp = {}, trig = {};
+    keys.forEach((k) => {
+      is[k] = confirm === k;
+      exp[k] = confirm === k ? 'true' : 'false';
+      trig[k] = confirm === k ? '#e6e9ef' : (k === 'bailout' ? '#2c3544' : '#5a2a2a');
+      open[k] = () => this.setState({ confirm: confirm === k ? 'none' : k });
+    });
+    const OV = { agent: 'opencode · high', model: 'opencode/gemini-4-carbon' };
+    const own = [
+      ['Spec', 'opencode · medium', 'opencode/gemini-4-carbon'],
+      ['Plan', 'claude · medium', 'sonnet'],
+      ['Red tests', 'codex · medium', 'gpt-6.1-terra'],
+      ['Implement', 'agy · medium', 'gemini-3.8-flash-medium'],
+      ['Test repair', 'claude · medium', 'sonnet'],
+      ['Review', 'claude · medium', 'opus'],
+      ['Finalise', 'no agent', 'commits files'],
+      ['Resolve conflicts', 'claude · medium', 'sonnet']
+    ];
+    const rail = own.map((o, i) => {
+      const failed = i === 0;
+      const optional = i === 4 || i === 7;
+      const useOv = ov && i !== 6;
+      return {
+        name: o[0], agent: useOv ? OV.agent : o[1], model: useOv ? OV.model : o[2],
+        modelColor: useOv ? '#fbbf24' : '#9aa3b2',
+        failed: failed, pending: !failed, dash: optional ? '2.5 2.5' : '0',
+        sub: failed ? 'Failed · out of credits' : (optional ? 'Only if needed' : 'Not started'),
+        subColor: failed ? '#f87171' : '#8e98a8', nameColor: failed ? '#f87171' : '#aab3c2',
+        bar: failed ? '#f87171' : '#2c3544',
+        bg: failed ? '#2a1414' : 'transparent', border: failed ? '#5a2a2a' : (optional ? '#3a4558' : 'transparent'),
+        bStyle: optional && !failed ? 'dashed' : 'solid'
+      };
+    });
+    const rev = [
+      ['Reviewer 1', null, 'high'],
+      ['Reviewer 2', 'claude · opus', 'high'],
+      ['Reviewer 3', null, 'high'],
+      ['Judge', null, 'high']
+    ].map((r) => {
+      const inherit = !r[1];
+      const pick = inherit ? (ov ? 'opencode · opencode/gemini-4-carbon' : 'claude · sonnet') : r[1];
+      return {
+        who: r[0], weight: r[0] === 'Judge' ? '600' : '400', pick: pick, effort: r[2],
+        color: inherit ? '#aab3c2' : '#e6e9ef',
+        hasSrc: true, src: inherit ? (ov ? 'from override' : 'stage default') : 'own choice',
+        srcBorder: inherit ? (ov ? '#5a4713' : '#2c3544') : '#1f4a52',
+        srcColor: inherit ? (ov ? '#fbbf24' : '#aab3c2') : '#5eead4'
+      };
+    });
+    return {
+      rail: rail, reviewers: rev, cf: cf, is: is, open: open, exp: exp, trig: trig,
+      close: () => this.setState({ confirm: 'none' }),
+      ovOn: ov, ovChecked: ov ? 'true' : 'false', ovTrack: ov ? '#d9a521' : '#2c3544', ovJustify: ov ? 'flex-end' : 'flex-start',
+      ovOpacity: ov ? '1' : '0.55',
+      toggleOverride: () => { if (ov) this.setState({ ov: false, confirm: 'none' }); else this.setState({ confirm: 'override' }); },
+      applyOverride: () => this.setState({ ov: true, confirm: 'none' }),
+      navOpen: this.state.nav, navClosed: !this.state.nav,
+      navWidth: this.state.nav ? '220px' : '56px',
+      navShadow: this.state.nav ? '8px 0 24px rgba(0,0,0,0.45)' : 'none',
+      navExpanded: this.state.nav ? 'true' : 'false',
+      navToggleLabel: this.state.nav ? 'Collapse menu' : 'Expand menu',
+      toggleNav: () => this.setState({ nav: !this.state.nav }),
+      closeNav: () => this.setState({ nav: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

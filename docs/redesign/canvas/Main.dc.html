@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stages rail</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif}
+a{color:#5eead4}a:hover{color:#99f6e4}
+</style>
+</helmet>
+<div style="width: 1320px; height: 660px; box-sizing: border-box; background: #0f1218; color: #e6e9ef; display: flex; position: relative">
+
+<div style="flex: none; width: 56px; position: relative; z-index: 20">
+<nav aria-label="Main" style="position: absolute; top: 0; left: 0; bottom: 0; width: {{navWidth}}; box-sizing: border-box; background: #12161d; border-right: 1px solid #222a36; box-shadow: {{navShadow}}; padding: 10px 8px; display: flex; flex-direction: column; gap: 4px; overflow: hidden">
+<div style="display: flex; align-items: center; gap: 8px; min-height: 40px">
+<button type="button" onClick="{{toggleNav}}" aria-label="{{navToggleLabel}}" aria-expanded="{{navExpanded}}" style="flex: none; width: 40px; height: 40px; border-radius: 6px; border: 0; background: transparent; color: #c9d1dc; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"></path></svg></button>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 13px; font-weight: 600; white-space: nowrap">ai-sdlc-helper <span style="color: #8e98a8; font-weight: 400">0.1.1</span></span></sc-if>
+</div>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><div style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8; padding: 10px 12px 4px">WORKSPACE</div></sc-if>
+<sc-if value="{{navClosed}}" hint-placeholder-val="{{true}}"><div style="height: 1px; background: #222a36; margin: 8px 6px"></div></sc-if>
+<a href="Board.dc.html" title="Board" aria-current="page" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: #1f2735; color: #e6e9ef; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" style="flex: none"><rect x="2.5" y="2.5" width="4.5" height="11" rx="1"></rect><rect x="9" y="2.5" width="4.5" height="7" rx="1"></rect></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Board</span><span style="font-size: 11px; color: #8e98a8">6</span></sc-if></a>
+<a href="Completed.dc.html" title="Completed" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: transparent; color: #c9d1dc; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="8" cy="8" r="6"></circle><path d="M5.5 8.2l1.8 1.8 3.2-3.6"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Completed</span><span style="font-size: 11px; color: #8e98a8">4</span></sc-if></a>
+<a href="NewItem.dc.html" title="New item" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: transparent; color: #c9d1dc; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" style="flex: none"><path d="M8 3v10M3 8h10"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">New item</span></sc-if></a>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><div style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8; padding: 14px 12px 4px">CONFIGURE</div></sc-if>
+<sc-if value="{{navClosed}}" hint-placeholder-val="{{true}}"><div style="height: 1px; background: #222a36; margin: 8px 6px"></div></sc-if>
+<a href="Settings.dc.html" title="Settings" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: transparent; color: #c9d1dc; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true" style="flex: none"><path d="M2.5 5h11M2.5 11h11"></path><circle cx="6" cy="5" r="1.7" fill="#12161d"></circle><circle cx="10" cy="11" r="1.7" fill="#12161d"></circle></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Settings</span></sc-if></a>
+<button type="button" onClick="{{closeNav}}" title="Prompts" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; border: 0; background: transparent; color: #c9d1dc; font: inherit; font-size: 13px; text-align: left; cursor: pointer"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M2.5 3.5h11v7H7.5l-3 2.5v-2.5h-2z"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Prompts</span><span style="font-size: 10px; padding: 0 5px; border: 1px dashed #4a5263; border-radius: 4px; color: #8e98a8">Future</span></sc-if></button>
+<button type="button" onClick="{{closeNav}}" title="Models" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; border: 0; background: transparent; color: #c9d1dc; font: inherit; font-size: 13px; text-align: left; cursor: pointer"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M8 2l5.5 3v6L8 14l-5.5-3V5z"></path><path d="M2.5 5L8 8l5.5-3M8 8v6"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Models</span><span style="font-size: 10px; padding: 0 5px; border: 1px dashed #4a5263; border-radius: 4px; color: #8e98a8">Future</span></sc-if></button>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><div style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8; padding: 14px 12px 4px">SYSTEM</div></sc-if>
+<sc-if value="{{navClosed}}" hint-placeholder-val="{{true}}"><div style="height: 1px; background: #222a36; margin: 8px 6px"></div></sc-if>
+<a href="Projects.dc.html" title="Projects" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: transparent; color: #c9d1dc; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M2.5 4.5h4l1.5 1.5h5.5v6.5h-11z"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Projects</span><span style="font-size: 11px; color: #8e98a8">4</span></sc-if></a>
+</nav>
+</div>
+
+<div style="flex: 1; min-width: 0; box-sizing: border-box; padding: 24px 28px; display: flex; flex-direction: column; gap: 16px">
+
+<section style="background: #151a23; border: 1px solid #262e3b; border-radius: 10px; display: flex; flex-direction: column; position: relative; z-index: 2">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid #262e3b">
+<div style="display: flex; align-items: baseline; gap: 12px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Stages</h2>
+<span style="font-size: 12px; color: #8e98a8">{{summary}}</span>
+</div>
+<div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap">
+<label style="display: flex; gap: 8px; align-items: center; font-size: 13px; color: #aab3c2"><input type="checkbox" checked> Resolve conflicts automatically after Finalise</label>
+<sc-if value="{{showResolveCta}}" hint-placeholder-val="{{false}}">
+<button type="button" style="min-height: 36px; padding: 0 14px; border-radius: 8px; border: 0; background: #fbbf24; color: #2a1d02; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer">Resolve conflicts</button>
+</sc-if>
+</div>
+</div>
+
+<ol style="list-style: none; margin: 0; padding: 10px 12px 12px; display: flex; gap: 4px; align-items: stretch">
+<sc-for list="{{rail}}" as="s" hint-placeholder-count="8">
+<li style="flex: {{s.flex}}; min-width: 0; display: flex; position: relative; border-left: 1px {{s.sepStyle}} {{s.sepColor}}; padding-left: {{s.sepPad}}; margin-left: {{s.sepMargin}}">
+<button type="button" onClick="{{s.toggle}}" aria-expanded="{{s.expanded}}" title="{{s.tip}}" style="flex: 1; min-width: 0; text-align: left; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 9px; border-radius: 8px; border: 1px {{s.bStyle}} {{s.border}}; background: {{s.bg}}; color: #e6e9ef; font: inherit; cursor: pointer">
+<sc-if value="{{s.notPanel}}" hint-placeholder-val="{{true}}">
+<span style="display: block; width: 100%; height: 3px; border-radius: 2px; background: #2c3544; overflow: hidden"><span style="display: block; height: 3px; width: {{s.pct}}; background: {{s.bar}}"></span></span>
+</sc-if>
+<sc-if value="{{s.isPanel}}" hint-placeholder-val="{{false}}">
+<span aria-hidden="true" style="display: flex; flex-direction: column; gap: 2px; width: 100%">
+<sc-for list="{{s.lanes}}" as="l" hint-placeholder-count="3">
+<span style="display: block; height: 2px; border-radius: 1px; background: #2c3544; overflow: hidden"><span style="display: block; height: 2px; width: {{l.pct}}; background: {{l.bar}}"></span></span>
+</sc-for>
+</span>
+</sc-if>
+<span style="display: flex; align-items: center; gap: 6px; min-width: 0">
+<sc-if value="{{s.isDone}}" hint-placeholder-val="{{true}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6ee7a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M3.5 8.5l3 3 6-7"></path></svg></sc-if>
+<sc-if value="{{s.isRunning}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#5eead4" stroke-width="1.6" aria-hidden="true" style="flex: none"><circle cx="8" cy="8" r="6"></circle><circle cx="8" cy="8" r="2.5" fill="#5eead4"></circle></svg></sc-if>
+<sc-if value="{{s.isPending}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#5b6475" stroke-width="1.6" aria-hidden="true" style="flex: none"><circle cx="8" cy="8" r="6"></circle></svg></sc-if>
+<sc-if value="{{s.isOptional}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6b7486" stroke-width="1.6" stroke-dasharray="2.5 2.5" aria-hidden="true" style="flex: none"><circle cx="8" cy="8" r="6"></circle></svg></sc-if>
+<sc-if value="{{s.isAttention}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#fbbf24" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M8 2.5l6 11H2z"></path><path d="M8 7v3M8 11.6v.1"></path></svg></sc-if>
+<sc-if value="{{s.isIdle}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#5b6475" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" style="flex: none"><circle cx="8" cy="8" r="6"></circle><path d="M5.5 8h5"></path></svg></sc-if>
+<sc-if value="{{s.isPaused}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#c4b5fd" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" style="flex: none"><circle cx="8" cy="8" r="6"></circle><path d="M6.5 5.8v4.4M9.5 5.8v4.4"></path></svg></sc-if>
+<span style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: {{s.nameColor}}">{{s.name}}</span>
+<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#8e98a8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-left: auto"><path d="M4 6l4 4 4-4"></path></svg>
+</span>
+<sc-if value="{{s.notPanel}}" hint-placeholder-val="{{true}}">
+<span style="display: flex; flex-direction: column; gap: 1px; min-width: 0; font-size: 12px; line-height: 1.35">
+<span style="color: #c9d1dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.agentLine}}</span>
+<span style="color: #9aa3b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, Menlo, monospace; font-size: 11px">{{s.modelLine}}</span>
+</span>
+</sc-if>
+<sc-if value="{{s.isPanel}}" hint-placeholder-val="{{false}}">
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+<sc-for list="{{s.laneRows}}" as="l" hint-placeholder-count="3">
+<span style="display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; line-height: 1.35; color: #c9d1dc"><span style="flex: none; width: 6px; height: 6px; border-radius: 50%; background: {{l.dot}}"></span><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{l.short}}</span></span>
+</sc-for>
+</span>
+</sc-if>
+<span style="display: flex; align-items: center; gap: 6px; min-width: 0">
+<sc-if value="{{s.hasTag}}" hint-placeholder-val="{{false}}"><span style="flex: none; font-size: 10px; padding: 0 5px; border-radius: 999px; border: 1px solid {{s.tagBorder}}; color: {{s.tagColor}}; white-space: nowrap">{{s.tagText}}</span></sc-if>
+<span style="font-size: 12px; color: {{s.subColor}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.sub}}</span>
+</span>
+</button>
+
+<sc-if value="{{s.open}}" hint-placeholder-val="{{false}}">
+<div role="dialog" aria-label="{{s.name}}" style="position: absolute; top: calc(100% + 8px); left: {{s.popL}}; right: {{s.popR}}; width: {{s.popW}}; max-height: 460px; overflow: auto; box-sizing: border-box; z-index: 10; background: #1a202b; border: 1px solid #3a4558; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.45)">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+<span style="font-size: 14px; font-weight: 600">{{s.name}}</span>
+<button type="button" onClick="{{close}}" aria-label="Close" style="width: 32px; height: 32px; border-radius: 6px; border: 0; background: transparent; color: #aab3c2; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button>
+</div>
+
+<sc-if value="{{s.isPanel}}" hint-placeholder-val="{{false}}">
+<p style="margin: 0; font-size: 12px; line-height: 1.5; color: #c9d1dc">{{s.reason}}</p>
+<p style="margin: 0; display: flex; align-items: center; gap: 6px; font-size: 11px; color: #8e98a8"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 3v10M8 3v10M13 3v10"></path></svg>Run in parallel. Each reviewer answers alone, without seeing the others.</p>
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+<sc-for list="{{s.lanes}}" as="l" hint-placeholder-count="3">
+<li style="display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 8px; background: #0f1218; border: 1px solid #262e3b">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{l.dot}}"></span>Reviewer {{l.n}}</span>
+<span style="font-size: 12px; color: {{l.statusColor}}">{{l.statusText}}</span>
+</div>
+<sc-if value="{{l.editable}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 6px">
+<select aria-label="Reviewer {{l.n}} agent" style="min-height: 32px; padding: 0 6px; border-radius: 6px; border: 1px solid #2c3544; background: #151a23; color: #e6e9ef; font: inherit; font-size: 12px"><option>{{l.agent}}</option></select>
+<select aria-label="Reviewer {{l.n}} model" style="min-height: 32px; padding: 0 6px; border-radius: 6px; border: 1px solid #2c3544; background: #151a23; color: #e6e9ef; font: inherit; font-size: 12px"><option>{{l.model}}</option></select>
+<select aria-label="Reviewer {{l.n}} effort" style="min-height: 32px; padding: 0 6px; border-radius: 6px; border: 1px solid #2c3544; background: #151a23; color: #e6e9ef; font: inherit; font-size: 12px"><option>{{l.effort}}</option></select>
+</div>
+</sc-if>
+<sc-if value="{{l.locked}}" hint-placeholder-val="{{true}}">
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #aab3c2"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#8e98a8" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" style="flex: none"><rect x="3.5" y="7" width="9" height="6.5" rx="1"></rect><path d="M5.5 7V5a2.5 2.5 0 015 0v2"></path></svg>{{l.agent}} · {{l.model}} · {{l.effort}}</span>
+</sc-if>
+<sc-if value="{{l.hasVerdict}}" hint-placeholder-val="{{false}}">
+<span style="font-size: 12px; line-height: 1.4; color: #e6e9ef">Answer: {{l.verdict}}</span>
+</sc-if>
+</li>
+</sc-for>
+</ol>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #8e98a8">Decide by<select style="min-height: 34px; padding: 0 8px; border-radius: 6px; border: 1px solid #2c3544; background: #0f1218; color: #e6e9ef; font: inherit; font-size: 13px"><option>Majority · a tie comes back to you</option></select></label>
+<sc-if value="{{s.canAdd}}" hint-placeholder-val="{{true}}">
+<button type="button" onClick="{{addLane}}" style="align-self: flex-start; min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px dashed #3a4558; background: transparent; color: #e6e9ef; font: inherit; font-size: 13px; cursor: pointer">Add reviewer</button>
+</sc-if>
+</sc-if>
+
+<sc-if value="{{s.notPanel}}" hint-placeholder-val="{{true}}">
+<sc-if value="{{s.hasSteps}}" hint-placeholder-val="{{false}}">
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px">
+<sc-for list="{{s.steps}}" as="t" hint-placeholder-count="3">
+<li style="color: {{t.color}}; font-weight: {{t.weight}}">{{t.label}}</li>
+</sc-for>
+</ol>
+</sc-if>
+<sc-if value="{{s.editable}}" hint-placeholder-val="{{true}}">
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #8e98a8">Agent<select style="min-height: 34px; padding: 0 8px; border-radius: 6px; border: 1px solid #2c3544; background: #0f1218; color: #e6e9ef; font: inherit; font-size: 13px"><option>{{s.agent}}</option></select></label>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 11px; color: #8e98a8">Model</span>
+<button type="button" onClick="{{s.mp.toggle}}" aria-expanded="{{s.mp.expanded}}" aria-haspopup="listbox" aria-label="Model: {{s.mp.value}}" style="min-height: 34px; padding: 0 8px; border-radius: 6px; border: 1px solid {{s.mp.border}}; background: #0f1218; color: #e6e9ef; font-family: ui-monospace, Menlo, monospace; font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 6px; text-align: left; cursor: pointer; min-width: 0"><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.mp.value}}</span><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#8e98a8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 6l4 4 4-4"></path></svg></button>
+<sc-if value="{{s.mp.open}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; border: 1px solid #3a4558; border-radius: 8px; background: #0f1218; overflow: hidden">
+<label style="display: flex; align-items: center; gap: 8px; padding: 0 10px; min-height: 38px; border-bottom: 1px solid #262e3b; color: #8e98a8"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" style="flex: none"><circle cx="7" cy="7" r="4.5"></circle><path d="M10.5 10.5L14 14"></path></svg><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search models</span><input type="search" value="{{q}}" onInput="{{setQ}}" onKeyDown="{{s.mp.keydown}}" placeholder="Search {{s.mp.total}} models" style="flex: 1; min-width: 0; border: 0; background: transparent; color: #e6e9ef; font: inherit; font-size: 13px; outline: none"></label>
+<div role="listbox" aria-label="Models" style="max-height: 220px; overflow: auto; padding: 4px 0">
+<sc-for list="{{s.mp.groups}}" as="g" hint-placeholder-count="2">
+<div style="padding: 8px 10px 2px; font-size: 10px; letter-spacing: 0.08em; color: #8e98a8">{{g.name}}</div>
+<sc-for list="{{g.items}}" as="m" hint-placeholder-count="3">
+<button type="button" role="option" aria-selected="{{m.sel}}" onClick="{{m.pick}}" style="width: 100%; min-height: 32px; padding: 0 10px; border: 0; background: {{m.bg}}; color: #e6e9ef; font-family: ui-monospace, Menlo, monospace; font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; cursor: pointer"><span>{{m.name}}</span><sc-if value="{{m.isSel}}" hint-placeholder-val="{{false}}"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#5eead4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg></sc-if></button>
+</sc-for>
+</sc-for>
+<sc-if value="{{s.mp.empty}}" hint-placeholder-val="{{false}}"><div style="padding: 10px; font-size: 12px; color: #aab3c2">No model matches “{{q}}”.</div></sc-if>
+</div>
+<div style="padding: 6px 10px; border-top: 1px solid #262e3b; font-size: 11px; color: #8e98a8">{{s.mp.countText}}</div>
+</div>
+</sc-if>
+</div>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #8e98a8">Effort<select style="min-height: 34px; padding: 0 8px; border-radius: 6px; border: 1px solid #2c3544; background: #0f1218; color: #e6e9ef; font: inherit; font-size: 13px"><option>{{s.effort}}</option></select></label>
+<sc-if value="{{s.hasDoubt}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #262e3b; padding-top: 10px">
+<span style="font-size: 11px; color: #8e98a8">Reviewers if the agent records doubt · they run in parallel</span>
+<sc-for list="{{s.reviewers}}" as="r" hint-placeholder-count="2">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: grid; grid-template-columns: 16px 1fr 1.5fr 32px; gap: 6px; align-items: center">
+<span style="font-size: 11px; color: #8e98a8">{{r.n}}</span>
+<select aria-label="Reviewer {{r.n}} agent" style="min-height: 32px; padding: 0 6px; border-radius: 6px; border: 1px solid #2c3544; background: #0f1218; color: #e6e9ef; font: inherit; font-size: 12px"><option>{{r.agent}}</option></select>
+<button type="button" onClick="{{r.mp.toggle}}" aria-expanded="{{r.mp.expanded}}" aria-haspopup="listbox" aria-label="Reviewer {{r.n}} model: {{r.mp.value}}" style="min-height: 32px; padding: 0 6px; border-radius: 6px; border: 1px solid {{r.mp.border}}; background: #0f1218; color: #e6e9ef; font-family: ui-monospace, Menlo, monospace; font-size: 11px; display: flex; align-items: center; justify-content: space-between; gap: 4px; text-align: left; cursor: pointer; min-width: 0"><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.mp.value}}</span><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#8e98a8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 6l4 4 4-4"></path></svg></button>
+<button type="button" onClick="{{r.remove}}" aria-label="Remove reviewer {{r.n}}" style="width: 32px; height: 32px; border-radius: 6px; border: 0; background: transparent; color: #aab3c2; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button>
+</div>
+<sc-if value="{{r.mp.open}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; border: 1px solid #3a4558; border-radius: 8px; background: #0f1218; overflow: hidden">
+<label style="display: flex; align-items: center; gap: 8px; padding: 0 10px; min-height: 38px; border-bottom: 1px solid #262e3b; color: #8e98a8"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" style="flex: none"><circle cx="7" cy="7" r="4.5"></circle><path d="M10.5 10.5L14 14"></path></svg><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search models</span><input type="search" value="{{q}}" onInput="{{setQ}}" onKeyDown="{{r.mp.keydown}}" placeholder="Search {{r.mp.total}} models" style="flex: 1; min-width: 0; border: 0; background: transparent; color: #e6e9ef; font: inherit; font-size: 13px; outline: none"></label>
+<div role="listbox" aria-label="Models" style="max-height: 200px; overflow: auto; padding: 4px 0">
+<sc-for list="{{r.mp.groups}}" as="g" hint-placeholder-count="2">
+<div style="padding: 8px 10px 2px; font-size: 10px; letter-spacing: 0.08em; color: #8e98a8">{{g.name}}</div>
+<sc-for list="{{g.items}}" as="m" hint-placeholder-count="3">
+<button type="button" role="option" aria-selected="{{m.sel}}" onClick="{{m.pick}}" style="width: 100%; min-height: 32px; padding: 0 10px; border: 0; background: {{m.bg}}; color: #e6e9ef; font-family: ui-monospace, Menlo, monospace; font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; cursor: pointer"><span>{{m.name}}</span><sc-if value="{{m.isSel}}" hint-placeholder-val="{{false}}"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#5eead4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"></path></svg></sc-if></button>
+</sc-for>
+</sc-for>
+<sc-if value="{{r.mp.empty}}" hint-placeholder-val="{{false}}"><div style="padding: 10px; font-size: 12px; color: #aab3c2">No model matches “{{q}}”.</div></sc-if>
+</div>
+<div style="padding: 6px 10px; border-top: 1px solid #262e3b; font-size: 11px; color: #8e98a8">{{r.mp.countText}}</div>
+</div>
+</sc-if>
+</div>
+</sc-for>
+<sc-if value="{{s.noReviewers}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; color: #aab3c2">None. The agent decides on its own.</span></sc-if>
+<button type="button" onClick="{{s.addRev}}" style="align-self: flex-start; min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px dashed #3a4558; background: transparent; color: #e6e9ef; font: inherit; font-size: 12px; cursor: pointer">Add reviewer</button>
+</div>
+</sc-if>
+<p style="margin: 0; font-size: 11px; line-height: 1.4; color: #8e98a8">Applies when the run starts or resumes.</p>
+</sc-if>
+<sc-if value="{{s.locked}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: #0f1218; border: 1px solid #262e3b">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #e6e9ef"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8e98a8" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" style="flex: none"><rect x="3.5" y="7" width="9" height="6.5" rx="1"></rect><path d="M5.5 7V5a2.5 2.5 0 015 0v2"></path></svg>{{s.agent}} · {{s.model}} · {{s.effort}}</span>
+<span style="font-size: 12px; line-height: 1.4; color: #8e98a8">{{s.lockNote}}</span>
+</div>
+</sc-if>
+</sc-if>
+</div>
+</sc-if>
+</li>
+</sc-for>
+</ol>
+</section>
+
+<div style="flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+<section style="grid-column: span 2; background: #151a23; border: 1px solid #262e3b; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+<sc-if value="{{hasPr}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">
+<div style="display: flex; align-items: center; gap: 8px"><h2 style="margin: 0; font-size: 15px; font-weight: 600">Pull Request</h2><span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid #1f4a3a; color: #6ee7a0">open</span></div>
+<div style="display: flex; gap: 8px"><button type="button" style="min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid #2c3544; background: transparent; color: #e6e9ef; font: inherit; font-size: 12px">Sync PR</button><button type="button" style="min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid #2c3544; background: transparent; color: #e6e9ef; font: inherit; font-size: 12px">Open on GitHub</button></div>
+</div>
+<div style="font-size: 13px; color: #aab3c2">github.com/techmanasi/ai-sdlc-helper/pull/85</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px"><span style="padding: 2px 8px; border-radius: 4px; background: #2a1414; color: #f3b4b4">Conflicts with the base branch</span><span style="padding: 2px 8px; border-radius: 4px; background: #2a1414; color: #f3b4b4">CI failed</span></div>
+</sc-if>
+<sc-if value="{{noPr}}" hint-placeholder-val="{{false}}">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Pull Request</h2>
+<div style="font-size: 13px; color: #8e98a8">No pull request yet. Finalise opens it.</div>
+</sc-if>
+<h2 style="margin: 8px 0 0; font-size: 15px; font-weight: 600">Output</h2>
+<div style="flex: 1; min-height: 0; overflow: hidden; background: #0b0e13; border-radius: 6px; padding: 10px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.6; color: #aab3c2; white-space: pre-line">{{output}}</div>
+</section>
+<section style="background: #151a23; border: 1px solid #262e3b; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; font-size: 13px">
+<h2 style="margin: 0 0 4px; font-size: 15px; font-weight: 600">This run</h2>
+<div style="display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 6px 10px">
+<span style="color: #8e98a8">State</span><span>{{runState}}</span>
+<span style="color: #8e98a8">Files</span><span>{{filesText}}</span>
+<span style="color: #8e98a8">Tests</span><span>{{testsText}}</span>
+<span style="color: #8e98a8">Updated</span><span>2026-11-10 02:55</span>
+</div>
+<h2 style="margin: 10px 0 0; font-size: 15px; font-weight: 600">Agent rounds</h2>
+<div style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #aab3c2; white-space: pre-line">{{roundsText}}</div>
+</section>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"scenario":{"editor":"enum","options":["not-started","spec-reviewers","implement-running","test-repair","conflicts","resolving","conflict-reviewers","done"],"default":"conflict-reviewers"},"$preview":{"width":1320,"height":660}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { open: null, nav: false, extra: 0, rev: {}, picker: null, q: '', models: {} };
+  }
+  renderVals() {
+    const sc = this.props.scenario ?? 'conflict-reviewers';
+    const base = [
+      { id: 'spec', name: 'Spec', agent: 'agy', model: 'gemini-3.8-flash-medium', effort: 'medium', files: '3 files', doubt: 3 },
+      { id: 'plan', name: 'Plan', agent: 'claude', model: 'sonnet', effort: 'medium', files: '1 file', doubt: 0 },
+      { id: 'red', name: 'Red tests', agent: 'codex', model: 'gpt-6.1-terra', effort: 'medium', files: '8 files', doubt: 0 },
+      { id: 'impl', name: 'Implement', agent: 'agy', model: 'gemini-3.8-flash-medium', effort: 'medium', files: '16 files', doubt: 0 },
+      { id: 'repair', name: 'Test repair', agent: 'claude', model: 'sonnet', effort: 'medium', files: '3 files', doubt: 0 },
+      { id: 'review', name: 'Review', agent: 'claude', model: 'opus', effort: 'medium', files: '8 files', doubt: 2 },
+      { id: 'final', name: 'Finalise', agent: 'no agent', model: 'commits files', effort: 'none', files: '1 file', doubt: null }
+    ];
+    const resolveDef = { id: 'resolve', name: 'Resolve conflicts', agent: 'claude', model: 'sonnet', effort: 'medium', files: '2 files', doubt: 3 };
+    const pool = [['claude', 'opus'], ['codex', 'gpt-6.1-terra'], ['agy', 'gemini-3.8-flash-medium'], ['claude', 'sonnet'], ['codex', 'gpt-6.1-sol']];
+    const catalog = {
+      claude: [['Anthropic', ['opus', 'sonnet', 'haiku']]],
+      codex: [['OpenAI', ['gpt-6.1-terra', 'gpt-6.1-sol', 'gpt-6.1-terra-mini', 'gpt-6.1-codex', 'gpt-6.1-codex-mini']]],
+      agy: [
+        ['Google', ['gemini-3.8-pro', 'gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-low', 'gemini-3.8-flash-lite']],
+        ['Anthropic', ['opus', 'sonnet']],
+        ['Open models', ['gpt-oss-120b', 'qwen3-coder', 'deepseek-v4', 'kimi-k3', 'glm-5']]
+      ]
+    };
+    const query = (this.state.q || '').trim().toLowerCase();
+    const picker = (key, agent, fallback) => {
+      const value = this.state.models[key] || fallback;
+      const open = this.state.picker === key;
+      const cat = catalog[agent] || [];
+      const total = cat.reduce((n, g) => n + g[1].length, 0);
+      const choose = (m) => this.setState({ models: Object.assign({}, this.state.models, { [key]: m }), picker: null, q: '' });
+      const groups = cat.map((g) => ({
+        name: g[0].toUpperCase(),
+        items: g[1].filter((m) => !query || m.toLowerCase().includes(query) || g[0].toLowerCase().includes(query)).map((m) => ({
+          name: m, isSel: m === value, sel: m === value ? 'true' : 'false',
+          bg: m === value ? '#1f2735' : 'transparent', pick: () => choose(m)
+        }))
+      })).filter((g) => g.items.length > 0);
+      const shown = groups.reduce((n, g) => n + g.items.length, 0);
+      const first = groups.length ? groups[0].items[0] : null;
+      return {
+        value: value, open: open, expanded: open ? 'true' : 'false', border: open ? '#46536a' : '#2c3544',
+        total: total, groups: groups, empty: shown === 0,
+        countText: query ? shown + ' of ' + total + ' models · Enter picks the first' : total + ' models from ' + agent,
+        toggle: () => this.setState({ picker: open ? null : key, q: '' }),
+        keydown: (e) => {
+          if (e.key === 'Enter' && first) { e.preventDefault(); first.pick(); }
+          if (e.key === 'Escape') { e.stopPropagation(); this.setState({ picker: null, q: '' }); }
+        }
+      };
+    };
+    const D7 = ['done', 'done', 'done', 'done', 'done', 'done', 'done'];
+    const panels = {
+      spec: {
+        name: 'Spec review',
+        reason: 'Spec recorded doubt: [the question the agent could not settle]. Spec waits for the answer, then continues.',
+        lanes: [
+          { agent: 'claude', model: 'opus', effort: 'medium', status: 'done', verdict: '[answer]' },
+          { agent: 'codex', model: 'gpt-6.1-terra', effort: 'medium', status: 'running' },
+          { agent: 'agy', model: 'gemini-3.8-flash-medium', effort: 'medium', status: 'running' }
+        ]
+      },
+      resolve: {
+        name: 'Conflict review',
+        reason: 'Resolve conflicts recorded doubt in src/pipeline/finalise.ts: keep both retry paths, or drop the older one from main? It waits for the answer, then pushes.',
+        lanes: [
+          { agent: 'claude', model: 'opus', effort: 'medium', status: 'done', verdict: 'Keep both retry paths' },
+          { agent: 'codex', model: 'gpt-6.1-terra', effort: 'medium', status: 'done', verdict: 'Keep both retry paths' },
+          { agent: 'agy', model: 'gemini-3.8-flash-medium', effort: 'medium', status: 'running' }
+        ]
+      }
+    };
+    const plans = {
+      'not-started': { st: ['pending', 'pending', 'pending', 'pending', 'optional', 'pending', 'pending'], resolve: 'optional', run: 'not started', pre: true },
+      'spec-reviewers': { st: ['paused', 'pending', 'pending', 'pending', null, 'pending', 'pending'], resolve: null, run: 'running · Spec review', panel: 'spec' },
+      'implement-running': { st: ['done', 'done', 'done', 'running', null, 'pending', 'pending'], resolve: null, run: 'running · Implement' },
+      'test-repair': { st: ['done', 'done', 'done', 'done', 'running', 'pending', 'pending'], resolve: null, run: 'running · Test repair' },
+      'conflicts': { st: D7, resolve: 'attention', run: 'done · PR conflicts' },
+      'resolving': { st: D7, resolve: 'running', run: 'running · Resolve conflicts' },
+      'conflict-reviewers': { st: D7, resolve: 'paused', run: 'running · Conflict review', panel: 'resolve' },
+      'done': { st: ['done', 'done', 'done', 'done', null, 'done', 'done'], resolve: 'idle', run: 'done' }
+    };
+    const plan = plans[sc] || plans['conflict-reviewers'];
+    const pre = !!plan.pre;
+    const look = {
+      done: { bar: '#6ee7a0', name: '#e6e9ef', sub: '#9aa3b2' },
+      running: { bar: '#5eead4', name: '#5eead4', sub: '#9fd8cf' },
+      pending: { bar: '#2c3544', name: '#aab3c2', sub: '#8e98a8' },
+      attention: { bar: '#fbbf24', name: '#fbbf24', sub: '#e8cf86' },
+      idle: { bar: '#2c3544', name: '#aab3c2', sub: '#8e98a8' },
+      optional: { bar: '#2c3544', name: '#aab3c2', sub: '#8e98a8' },
+      paused: { bar: '#c4b5fd', name: '#c4b5fd', sub: '#b8acdf' }
+    };
+    const laneLook = {
+      done: { bar: '#6ee7a0', dot: '#6ee7a0', pct: '100%', text: 'Answered', color: '#6ee7a0' },
+      running: { bar: '#5eead4', dot: '#5eead4', pct: '50%', text: 'Thinking…', color: '#5eead4' },
+      'new': { bar: '#2c3544', dot: '#5b6475', pct: '0%', text: 'Starts when you close this', color: '#aab3c2' }
+    };
+    const step = (label, kind) => {
+      if (kind === 'done') return { label: '✓ ' + label, color: '#6ee7a0', weight: '400' };
+      if (kind === 'live') return { label: '● ' + label, color: '#5eead4', weight: '600' };
+      return { label: '○ ' + label, color: '#8e98a8', weight: '400' };
+    };
+
+    const seq = [];
+    base.forEach((b, i) => {
+      if (!plan.st[i]) return;
+      seq.push(Object.assign({}, b, { status: plan.st[i], after: false }));
+      if (plan.panel === b.id) seq.push({ id: 'panel', panelOf: b.id, after: false });
+    });
+    if (plan.resolve) {
+      seq.push(Object.assign({}, resolveDef, { status: plan.resolve, after: true }));
+      if (plan.panel === 'resolve') seq.push({ id: 'panel', panelOf: 'resolve', after: true });
+    }
+    const total = seq.length;
+    const firstAfter = seq.findIndex((s) => s.after);
+
+    const decorate = (s, idx) => {
+      const open = this.state.open === s.id;
+      const right = s.after || idx >= total - 2;
+      const sepOn = idx === firstAfter;
+      const common = {
+        open: open, expanded: open ? 'true' : 'false',
+        toggle: () => this.setState({ open: open ? null : s.id }),
+        flex: s.after ? '0 0 168px' : '1 1 0',
+        sepStyle: sepOn ? 'dashed' : 'solid', sepColor: sepOn ? '#343d4d' : 'transparent',
+        sepPad: sepOn ? '14px' : '0', sepMargin: sepOn ? '10px' : '0',
+        popL: right ? 'auto' : '0', popR: right ? '0' : 'auto'
+      };
+      if (s.id === 'panel') {
+        const P = panels[s.panelOf];
+        const lanes = P.lanes.slice();
+        for (let k = 0; k < this.state.extra; k++) lanes.push({ agent: 'claude', model: 'sonnet', effort: 'medium', status: 'new' });
+        const L = lanes.map((l, n) => {
+          const LL = laneLook[l.status];
+          return Object.assign({}, l, {
+            n: n + 1, bar: LL.bar, dot: LL.dot, pct: LL.pct, statusText: LL.text, statusColor: LL.color,
+            short: l.agent + ' · ' + l.model,
+            editable: l.status === 'new', locked: l.status !== 'new',
+            hasVerdict: !!l.verdict
+          });
+        });
+        const answered = L.filter((l) => l.status === 'done').length;
+        const running = L.some((l) => l.status === 'running');
+        const st = running ? 'running' : 'done';
+        const LK = look[st];
+        return Object.assign({}, common, {
+          id: 'panel', name: P.name, reason: P.reason,
+          isPanel: true, notPanel: false,
+          lanes: L, laneRows: L.slice(0, 3), canAdd: running,
+          sub: answered + ' of ' + L.length + ' answered',
+          tip: P.name + ': ' + L.length + ' reviewers in parallel',
+          hasTag: true, tagText: L.length + ' parallel', tagBorder: '#3b3260', tagColor: '#c4b5fd',
+          nameColor: LK.name, subColor: LK.sub,
+          bg: open ? '#1f2735' : '#16152a', border: open ? '#46536a' : '#3b3260', bStyle: 'solid',
+          popW: '380px',
+          isDone: st === 'done', isRunning: st === 'running', isPending: false, isOptional: false,
+          isAttention: false, isIdle: false, isPaused: false
+        });
+      }
+      const LK = look[s.status];
+      const optional = s.status === 'optional';
+      let sub = 'Waiting';
+      let pct = '0%';
+      let steps = [];
+      if (s.status === 'done') { sub = s.files; pct = '100%'; }
+      if (s.status === 'running') {
+        if (s.id === 'repair') { sub = 'Repairing 2/2 tests · 1m 08s'; pct = '50%'; steps = [step('Audit · gpt-6.1-sol', 'done'), step('Repairing 2 of 2 tests', 'live'), step('Lock tests', 'todo')]; }
+        else if (s.id === 'resolve') { sub = 'Agent resolving · 3m'; pct = '66%'; steps = [step('Fetched main', 'done'), step('Rebased · 2 files conflict', 'done'), step('Agent resolving 2 of 2 files', 'live'), step('Push with lease', 'todo')]; }
+        else { sub = 'Running · 2m 14s'; pct = '40%'; }
+      }
+      if (s.status === 'paused') {
+        sub = 'Doubt recorded · waiting'; pct = '60%';
+        steps = s.id === 'resolve'
+          ? [step('Fetched main', 'done'), step('Rebased · 2 files conflict', 'done'), step('Recorded doubt · waiting on review', 'live'), step('Push with lease', 'todo')]
+          : [step('Draft spec', 'done'), step('Recorded doubt · waiting on review', 'live'), step('Finish spec', 'todo')];
+      }
+      if (s.status === 'attention') { sub = 'Conflicts with main'; pct = '100%'; }
+      if (s.status === 'idle') { sub = 'Not needed'; }
+      if (s.status === 'pending' && pre) { sub = 'Not started'; }
+      if (optional) { sub = s.id === 'repair' ? 'Only if Implement flags tests' : 'Only on PR conflicts'; }
+      const busy = s.status === 'running' || s.status === 'paused';
+      const revCount = s.doubt === null ? 0 : (this.state.rev[s.id] ?? s.doubt);
+      const revs = [];
+      for (let k = 0; k < revCount; k++) {
+        revs.push({
+          n: k + 1, agent: pool[k % pool.length][0], model: pool[k % pool.length][1],
+          mp: picker('rev:' + s.id + ':' + (k + 1), pool[k % pool.length][0], pool[k % pool.length][1]),
+          remove: () => this.setState({ rev: Object.assign({}, this.state.rev, { [s.id]: Math.max(0, revCount - 1) }) })
+        });
+      }
+      return Object.assign({}, s, common, {
+        isPanel: false, notPanel: true,
+        sub: sub, pct: pct, steps: steps, hasSteps: steps.length > 0,
+        agentLine: s.id === 'final' ? 'no agent' : s.agent + ' · ' + s.effort,
+        modelLine: this.state.models['stage:' + s.id] || s.model,
+        mp: picker('stage:' + s.id, s.agent, s.model),
+        tip: s.name + ': ' + (s.id === 'final' ? 'no agent' : s.agent + ' · ' + s.model + ' · ' + s.effort),
+        bar: LK.bar, nameColor: LK.name, subColor: LK.sub,
+        bg: open ? '#1f2735' : (busy ? '#122227' : 'transparent'),
+        border: open ? '#46536a' : (busy ? '#1f4a52' : (optional ? '#3a4558' : 'transparent')),
+        bStyle: optional && !open ? 'dashed' : 'solid',
+        popW: '320px',
+        hasTag: s.id === 'repair' && !optional, tagText: 'added', tagBorder: '#2c4b50', tagColor: '#9fd8cf',
+        editable: !busy, locked: busy,
+        lockNote: s.status === 'paused' ? 'Locked while this stage waits on its reviewers.' : 'Locked while this stage runs. Stop the run to change it.',
+        hasDoubt: s.doubt !== null,
+        reviewers: revs,
+        noReviewers: revs.length === 0,
+        addRev: () => this.setState({ rev: Object.assign({}, this.state.rev, { [s.id]: revCount + 1 }) }),
+        isDone: s.status === 'done', isRunning: s.status === 'running', isPending: s.status === 'pending',
+        isOptional: optional, isAttention: s.status === 'attention', isIdle: s.status === 'idle', isPaused: s.status === 'paused'
+      });
+    };
+    const rail = seq.map(decorate);
+    const main = rail.filter((s) => s.notPanel && s.status !== 'optional');
+    const doneCount = main.filter((s) => s.status === 'done').length;
+    let output = '== 4b Test repair (only because the Implement agent claimed test defects)\nResuming at test-repair from tests commit d17ee49\n  -> agent: test-repair\n  model=sonnet effort=medium';
+    let rounds = 'resolve-conflicts-1 · 43s · 6 turns';
+    if (plan.panel === 'resolve') {
+      output = '== Resolve conflicts\nDOUBT recorded: src/pipeline/finalise.ts (retry paths)\n== Conflict review · 3 reviewers in parallel\n  reviewer-1 claude/opus      answered\n  reviewer-2 codex/gpt-6.1    answered\n  reviewer-3 agy/gemini       running';
+      rounds = 'resolve-conflicts-1 · 43s · 6 turns\nconflict-review-1..3 · parallel';
+    }
+    if (plan.panel === 'spec') {
+      output = '== 1/6 Spec\nDOUBT recorded: [question]\n== Spec review · 3 reviewers in parallel\n  reviewer-1 claude/opus      answered\n  reviewer-2 codex/gpt-6.1    running\n  reviewer-3 agy/gemini       running';
+      rounds = 'spec-1 · [time]\nspec-review-1..3 · parallel';
+    }
+    if (pre) { output = '$ ai-sdlc-helper start ci-full-suite-gate\nOutput appears here when the run starts.'; rounds = 'none yet'; }
+    return {
+      rail: rail,
+      showResolveCta: plan.resolve === 'attention',
+      summary: pre ? '7 stages, 2 conditional · click a stage to change its agent, model or effort' : doneCount + ' of ' + main.length + ' done',
+      runState: plan.run,
+      hasPr: !pre && !!plan.resolve, noPr: pre || !plan.resolve,
+      output: output,
+      filesText: pre ? 'none yet' : '34 changed · 2 uncommitted',
+      testsText: pre ? 'none yet' : '823 passed · 0 failing',
+      roundsText: rounds,
+      addLane: () => this.setState({ extra: this.state.extra + 1 }),
+      q: this.state.q,
+      setQ: (e) => this.setState({ q: e.target.value }),
+      close: () => this.setState({ open: null }),
+      navOpen: this.state.nav, navClosed: !this.state.nav,
+      navWidth: this.state.nav ? '220px' : '56px',
+      navShadow: this.state.nav ? '8px 0 24px rgba(0,0,0,0.45)' : 'none',
+      navExpanded: this.state.nav ? 'true' : 'false',
+      navToggleLabel: this.state.nav ? 'Collapse menu' : 'Expand menu',
+      toggleNav: () => this.setState({ nav: !this.state.nav }),
+      closeNav: () => this.setState({ nav: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Completed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif}
+a{color:#5eead4}a:hover{color:#99f6e4}
+</style>
+</helmet>
+<div style="width: 1320px; height: 620px; box-sizing: border-box; background: #0f1218; color: #e6e9ef; display: flex; position: relative">
+
+<div style="flex: none; width: 56px; position: relative; z-index: 20">
+<nav aria-label="Main" style="position: absolute; top: 0; left: 0; bottom: 0; width: {{navWidth}}; box-sizing: border-box; background: #12161d; border-right: 1px solid #222a36; box-shadow: {{navShadow}}; padding: 10px 8px; display: flex; flex-direction: column; gap: 4px; overflow: hidden">
+<div style="display: flex; align-items: center; gap: 8px; min-height: 40px">
+<button type="button" onClick="{{toggleNav}}" aria-label="{{navToggleLabel}}" aria-expanded="{{navExpanded}}" style="flex: none; width: 40px; height: 40px; border-radius: 6px; border: 0; background: transparent; color: #c9d1dc; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"></path></svg></button>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 13px; font-weight: 600; white-space: nowrap">ai-sdlc-helper <span style="color: #8e98a8; font-weight: 400">0.1.1</span></span></sc-if>
+</div>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><div style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8; padding: 10px 12px 4px">WORKSPACE</div></sc-if>
+<sc-if value="{{navClosed}}" hint-placeholder-val="{{true}}"><div style="height: 1px; background: #222a36; margin: 8px 6px"></div></sc-if>
+<a href="Board.dc.html" title="Board" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: transparent; color: #c9d1dc; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" style="flex: none"><rect x="2.5" y="2.5" width="4.5" height="11" rx="1"></rect><rect x="9" y="2.5" width="4.5" height="7" rx="1"></rect></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Board</span><span style="font-size: 11px; color: #8e98a8">6</span></sc-if></a>
+<a href="Completed.dc.html" title="Completed" aria-current="page" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: #1f2735; color: #e6e9ef; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="8" cy="8" r="6"></circle><path d="M5.5 8.2l1.8 1.8 3.2-3.6"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Completed</span><span style="font-size: 11px; color: #8e98a8">4</span></sc-if></a>
+<a href="NewItem.dc.html" title="New item" style="text-decoration: none;display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; border: 0; background: transparent; color: #c9d1dc; font: inherit; font-size: 13px; text-align: left; cursor: pointer"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" style="flex: none"><path d="M8 3v10M3 8h10"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">New item</span></sc-if></a>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><div style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8; padding: 14px 12px 4px">CONFIGURE</div></sc-if>
+<sc-if value="{{navClosed}}" hint-placeholder-val="{{true}}"><div style="height: 1px; background: #222a36; margin: 8px 6px"></div></sc-if>
+<a href="Settings.dc.html" title="Settings" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: transparent; color: #c9d1dc; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true" style="flex: none"><path d="M2.5 5h11M2.5 11h11"></path><circle cx="6" cy="5" r="1.7" fill="#12161d"></circle><circle cx="10" cy="11" r="1.7" fill="#12161d"></circle></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Settings</span></sc-if></a>
+<button type="button" onClick="{{closeNav}}" title="Prompts" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; border: 0; background: transparent; color: #c9d1dc; font: inherit; font-size: 13px; text-align: left; cursor: pointer"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M2.5 3.5h11v7H7.5l-3 2.5v-2.5h-2z"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Prompts</span><span style="font-size: 10px; padding: 0 5px; border: 1px dashed #4a5263; border-radius: 4px; color: #8e98a8">Future</span></sc-if></button>
+<button type="button" onClick="{{closeNav}}" title="Models" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; border: 0; background: transparent; color: #c9d1dc; font: inherit; font-size: 13px; text-align: left; cursor: pointer"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M8 2l5.5 3v6L8 14l-5.5-3V5z"></path><path d="M2.5 5L8 8l5.5-3M8 8v6"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Models</span><span style="font-size: 10px; padding: 0 5px; border: 1px dashed #4a5263; border-radius: 4px; color: #8e98a8">Future</span></sc-if></button>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><div style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8; padding: 14px 12px 4px">SYSTEM</div></sc-if>
+<sc-if value="{{navClosed}}" hint-placeholder-val="{{true}}"><div style="height: 1px; background: #222a36; margin: 8px 6px"></div></sc-if>
+<a href="Projects.dc.html" title="Projects" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 6px; background: transparent; color: #c9d1dc; font-size: 13px; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M2.5 4.5h4l1.5 1.5h5.5v6.5h-11z"></path></svg><sc-if value="{{navOpen}}" hint-placeholder-val="{{false}}"><span style="flex: 1; white-space: nowrap">Projects</span><span style="font-size: 11px; color: #8e98a8">4</span></sc-if></a>
+</nav>
+</div>
+
+<main style="flex: 1; min-width: 0; box-sizing: border-box; padding: 24px 28px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap">
+<div style="display: flex; align-items: baseline; gap: 12px">
+<h1 style="margin: 0; font-size: 22px; font-weight: 600">Completed</h1>
+<span style="font-size: 13px; color: #8e98a8">4 items · merged PRs move here</span>
+</div>
+<label style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; width: 280px; box-sizing: border-box; border-radius: 8px; border: 1px solid #2c3544; background: #151a23; color: #8e98a8; font-size: 13px"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" style="flex: none"><circle cx="7" cy="7" r="4.5"></circle><path d="M10.5 10.5L14 14"></path></svg><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search completed items</span><input type="search" placeholder="Search items or branches" style="flex: 1; min-width: 0; border: 0; background: transparent; color: #e6e9ef; font: inherit; font-size: 13px; outline: none"></label>
+</div>
+
+<section style="background: #151a23; border: 1px solid #262e3b; border-radius: 10px; overflow: hidden">
+<div style="display: grid; grid-template-columns: 2.2fr 2.4fr 1fr 1fr 0.9fr; gap: 16px; padding: 10px 18px; border-bottom: 1px solid #262e3b; font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">
+<span>ITEM</span><span>STAGES THAT RAN</span><span>PR</span><span>MERGED</span><span></span>
+</div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="4">
+<div style="display: grid; grid-template-columns: 2.2fr 2.4fr 1fr 1fr 0.9fr; gap: 16px; align-items: center; padding: 14px 18px; border-bottom: 1px solid #1f2632">
+<div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #8e98a8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.branch}}</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+<div style="display: flex; gap: 3px">
+<sc-for list="{{r.segs}}" as="g" hint-placeholder-count="7">
+<span title="{{g.tip}}" style="flex: 1; height: 6px; border-radius: 2px; background: {{g.color}}; border: 1px {{g.bStyle}} {{g.border}}; box-sizing: border-box"></span>
+</sc-for>
+</div>
+<span style="font-size: 12px; color: #aab3c2">{{r.note}}</span>
+</div>
+<div style="display: flex; align-items: center; gap: 8px"><span style="font-size: 13px; color: #aab3c2">{{r.pr}}</span><span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid #3b3260; color: #c4b5fd">merged</span></div>
+<span style="font-size: 13px; color: #8e98a8">{{r.merged}}</span>
+<div style="display: flex; justify-content: flex-end"><button type="button" style="min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid #2c3544; background: transparent; color: #e6e9ef; font: inherit; font-size: 13px; cursor: pointer">Open</button></div>
+</div>
+</sc-for>
+</section>
+</main>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1320,"height":620}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { nav: false };
+  }
+  renderVals() {
+    const C = {
+      d: { color: '#6ee7a0', tip: 'done' },
+      s: { color: '#3a4558', tip: 'skipped' },
+      o: { color: 'transparent', tip: 'not needed' }
+    };
+    const names = ['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise', 'Resolve conflicts'];
+    const segs = (code) => code.split('').map((c, i) => ({
+      color: C[c].color, tip: names[i] + ': ' + C[c].tip,
+      border: c === 'o' ? '#3a4558' : 'transparent', bStyle: c === 'o' ? 'dashed' : 'solid'
+    }));
+    const rows = [
+      { name: '[item name]', branch: 'sdlc/[branch]', code: 'ddddoddo', note: '7 stages', pr: '#[n]', merged: '[date]' },
+      { name: '[item name]', branch: 'sdlc/[branch]', code: 'dddddddo', note: '7 stages · Test repair ran', pr: '#[n]', merged: '[date]' },
+      { name: '[item name]', branch: 'sdlc/[branch]', code: 'ddddoddd', note: '8 stages · Resolve conflicts ran', pr: '#[n]', merged: '[date]' },
+      { name: '[item name]', branch: 'sdlc/[branch]', code: 'ddddoddo', note: '7 stages', pr: '#[n]', merged: '[date]' }
+    ].map((r) => Object.assign({}, r, { segs: segs(r.code) }));
+    return {
+      rows: rows,
+      navOpen: this.state.nav, navClosed: !this.state.nav,
+      navWidth: this.state.nav ? '220px' : '56px',
+      navShadow: this.state.nav ? '8px 0 24px rgba(0,0,0,0.45)' : 'none',
+      navExpanded: this.state.nav ? 'true' : 'false',
+      navToggleLabel: this.state.nav ? 'Collapse menu' : 'Expand menu',
+      toggleNav: () => this.setState({ nav: !this.state.nav }),
+      closeNav: () => this.setState({ nav: false })
+    };
+  }
+}
+</script>
+</body>
+</html>
