@@ -1,5 +1,7 @@
 # Run page and run view: plan to stop rebuilding it every 2 seconds
 
+Status (2026-11-13): superseded by `web-performance.md`. Its step 2 (context cache) is done there (#120); steps 6 and 7 are pending as P8 and P9.
+
 Status: **superseded** by [web-performance.md](web-performance.md) (2026-11-12),
 which merges this plan with `dashboard-performance.md`. Keep this file for its
 evidence: the trace design, measurements, R-n risks and reviewer notes.

@@ -36,7 +36,7 @@ why, the way around it today, and the suggested change (with its status).
 - **Why:** the Projects screen runs `doctor` once when the card appears and not again after an action changes the
   project.
 - **Today:** press **Run doctor again** on the card.
-- **Suggested:** re-run the checks after Register (and after any palette command run for that project). Status: open.
+- **Suggested:** re-run the checks after Register (and after any palette command run for that project). Status: open for the card. Done on the server (#120): a request that changes a project drops its cached context, so the next read is fresh; the card still has to ask again.
 
 ### 2. "No test suite found" for a repository whose Node package is not at the root
 - **Seen:** doctor: "settings · no test suite found"; `suggest` in the palette: "no package.json here; only
