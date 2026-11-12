@@ -163,8 +163,8 @@ P8 only if P9 says so.
 
 ### P2 — Make the register honest
 
-- **Files:** `src/runs/records.ts` (`writeRecord`, `alive`, `isRunning`,
-  `RunRecord`), `src/runs/supervisor.ts` (its own writer, line 57),
+- **Files:** new `src/runs/proc.ts`, `src/runs/records.ts` (`writeRecord`,
+  `isRunning`, `RunRecord`), `src/runs/supervisor.ts` (its own writer, line 57),
   `src/runs/index.ts`, `src/pipeline/status.ts` (it writes the `pid` in
   `status.json`), `src/runs/view.ts` (`viewState` checks that pid, line 213).
 - **Change — writes:** a unique temp name per write (`<file>.<pid>.<n>.tmp`) in
@@ -174,16 +174,26 @@ P8 only if P9 says so.
   `:335`, `:398`) and the supervisor both read, change and rewrite the record.
   That is recorded as a known limit; a lock is added only if the two-writer test
   below shows a lost field in practice.
-- **Change — liveness:** `alive()` already runs `ps -o stat= -p <pid>`. Ask the
-  same call for the start time too (`ps -o stat=,lstart= -p <pid>`, with
-  `LC_ALL=C` so the text is stable), so the check costs no extra spawn. The
-  supervisor stores that text for itself as a new optional field `pidStarted`
-  when the run starts; the pipeline stores the same next to `pid` in
-  `status.json`. `alive(pid, pidStarted?)` is false when both are present and
-  differ (a reused pid). A record or status without the field, a caller that
-  passes no start time (`web/server/triage.ts`, `web/server/index.ts:393`), and
-  Windows (no `ps`) all keep today's behaviour. The record's existing `started`
-  is the time the run was asked for, not the process start, and is not used.
+- **Change — liveness:** this is the same work as step A2 of
+  `docs/plans/detached-jobs.md` (process identity), so build that step's module
+  and names here and do it once: new `src/runs/proc.ts` with `ProcIdentity`
+  (`pid`, `start`, optional `bootId`), `procStart`, `identity` and
+  `sameProcess`, and the optional record field `supervisor?: ProcIdentity` from
+  that plan's record schema. The pipeline stores its own identity next to `pid`
+  in `status.json`. One difference from A2 as written: `alive()` already runs
+  `ps -o stat= -p <pid>`, so `sameProcess` asks that one call for the start time
+  too (`ps -o stat=,lstart=`, with `LC_ALL=C`) instead of spawning a second
+  `ps`. `isRunning` and `viewState` use `sameProcess` when the identity is
+  present. A record or status without it, a caller that has only a pid
+  (`web/server/triage.ts`, `web/server/index.ts:393`), and Windows (no `ps`)
+  all keep today's behaviour. The record's existing `started` is the time the
+  run was asked for, not the process start, and is not used. A2's group
+  helpers (`ownPgid`, `groupMembers`) are not needed here and stay with that
+  plan.
+- **Can ride along (optional):** `docs/pipeline-edge-cases.md` entry 8 asks the
+  record to say who started a run. This PR already adds an optional field and
+  touches every writer, so adding `trigger?: 'ui' | 'cli'` here costs one line
+  per start path. Leave it out if it makes the PR harder to review.
 - **No slow tick here.** Because the start time rides on the `ps` that already
   runs, this step adds no timer. P3 adds the slow tick.
 - **Tests** (`test/records.test.ts`, new): two real writers, no unparseable read
@@ -194,7 +204,9 @@ P8 only if P9 says so.
   the counting `ps` shim sees the same number of calls per board read as before
   this step.
 - **Risk:** medium — it changes when `ai-sdlc-helper status` says "running", and
-  it adds one optional field to the record and to `status.json`.
+  it adds one optional field to the record and to `status.json`. A wrong
+  `sameProcess` reports a live run as stopped, so the tests run on macOS and
+  Linux in CI.
 
 ### P3 — Counts on a slow tick, cached by mtime
 
@@ -260,10 +272,14 @@ P8 only if P9 says so.
 - **Files:** `web/server/index.ts`, new `web/server/board-stream.ts` (uses P4's
   registry), `web/server/watch.ts`, `web/ui/src/Board.tsx`, `web/ui/src/App.tsx`.
 - **Decide first:** what the left menu's counts use on pages other than the
-  board (section 10, point 4).
+  board (section 10, point 4); and whether a hidden tab keeps its board stream
+  (section 11, point 5).
 - **Change:** watch the register folder, the backlog `index.md` and the `logs`
   folder of every active run; debounce 150 ms; push only when the board changed;
-  ignore `run.out` (the tail belongs to the run stream). The board has no 30 s
+  ignore `run.out` (the tail belongs to the run stream), `*.live.json` (the
+  supervisor heartbeat that `docs/plans/detached-jobs.md` step B2 will write to
+  the register folder every 10 s; `web/server/watch.ts` already ignores it) and
+  `*.tmp` (P2's temp files). The board has no 30 s
   tick today — its only timer is the 2 s poller (`web/server/index.ts:98,468`) —
   so this step changes the P5 poller to a 30 s tick, which becomes the
   correctness net; P9 tunes it. After this step the board has two timers: the
@@ -273,7 +289,8 @@ P8 only if P9 says so.
 - **Tests** (`web/test/server.test.ts`; the client side in `test/stream.test.ts`,
   which already drives the DOM-free `web/ui/src/stream.ts` with a fake clock, no
   new dependency and no DOM): a record write reaches a
-  client within a stated time; a `run.out` write triggers nothing; a write made
+  client within a stated time; a `run.out` write, a `<slug>.live.json` write and a `.tmp` write each trigger
+  nothing; a write made
   with the watchers paused is caught by the 30 s tick; a watcher error falls back
   to polling without losing an update; the board and a run page on the same folder
   share one handle; the machine opens a connection once per page and closes it on
@@ -295,7 +312,9 @@ P8 only if P9 says so.
   `runContext` reads settings and the registry.
 - **Change:** one `RunContext` per project, rebuilt only when the settings file,
   the personal settings or the model registry change; every GET route uses it;
-  `start` checks liveness through the same cached answer as the slow tick.
+  `start` checks liveness through the same cached answer as the slow tick. A
+  request that changes a project (Register, a palette command, a settings save)
+  drops that project's cached context at once, without waiting for an mtime.
 - **Tests** (`web/test/server.test.ts`): with a counting `git`, 10 run requests
   make the context spawns once — today `runContext` runs three per call:
   `rev-parse --show-toplevel` in `projectRoot`, and `rev-parse --git-common-dir`
@@ -349,6 +368,10 @@ P8 only if P9 says so.
   - Board with running runs: add one `ps` per running run per rebuild tick.
   - Idle open run page: 0 spawns/min, 4 pings/min, 2 ticks/min.
   - No `changed:false` board rebuild outside the 30 s tick.
+  - The longest single board rebuild, in ms (`timer:board-rebuild`). Git and
+    `ps` calls are synchronous on the server's one event loop, so this is how
+    long every other tab and stream waits. Record it per state; P9 sets the
+    limit.
 
 ## 7. Risks and constraints
 
@@ -363,6 +386,14 @@ P8 only if P9 says so.
 - **Errors must not take the server down.** Every watcher path has a fallback:
   poller (P5), tick (P6), and the run stream's own 30 s tick.
 - **No new dependencies.** Everything here is Node's own `fs`, `http` and timers.
+- **The new tests must not slow the suite.** `web/test/server.test.ts` is
+  already the third slowest file (22 tests, 223 s of test time,
+  `docs/investigations/test-suite-speed.md`), and P3, P5, P6, P7 and P8 all add
+  server tests. So: the poller, the watcher registry and the board stream get
+  their own test files, which run in other workers; every tick, debounce and
+  refresh interval is injected (as `pollMs` and `opts.stream` are today) and set
+  to milliseconds in tests; no test waits for a real 10 s, 30 s or 60 s; tests
+  that need a server and a repository share one per file.
 
 ## 8. Not in this plan
 
@@ -411,7 +442,9 @@ P8 only if P9 says so.
     be reverted without the steps it does not feed.
 11. No step changes stage names, the meaning of an existing run record field, or
     the shape of `runView`'s full answer. P2 adds one optional field
-    (`pidStarted`) to the record and to `status.json`; nothing else is added.
+    (`supervisor`, the process identity from `docs/plans/detached-jobs.md`) to
+    the record and its counterpart to `status.json`; nothing else is added
+    unless the optional `trigger` field is taken.
 12. `npm run check` is green; long commands are logged, and only failing parts
     are read.
 
@@ -454,6 +487,61 @@ New pages the redesign adds, and what they must reuse rather than rebuild:
 
 None of this is a step in this plan. It belongs in the redesign's own
 implementation plan, which should cite this section.
+
+## 11. What the other docs add
+
+Every file under `docs/` was read for work that overlaps this plan (the
+top-level docs, `investigations/`, `incidents/`, `plans/`). What overlaps is
+folded into the steps above; this is the list, so nothing is done twice.
+
+**Folded into a step**
+
+| # | Source | What it asks | Where it went |
+|---|---|---|---|
+| 1 | `plans/detached-jobs.md` A2 (process identity) and the record schema | pid plus start time, so a reused pid is not "alive" | P2 builds that module and field; A2 is then done apart from its group helpers |
+| 2 | `plans/detached-jobs.md` B2 (heartbeat file in the register folder every 10 s) | — | P6 ignores `*.live.json`, or every running run would rebuild the board every 10 s |
+| 3 | `pipeline-edge-cases.md` entry 8 (who started a run) | a `trigger` field in the record | optional rider on P2 |
+| 4 | `findings.md` finding 1 (doctor checks stale after Register) | refresh after an action changes the project | P7 drops the cached context on any changing request; re-running doctor on the card is a small UI follow-up, not in this plan |
+| 5 | `plans/process-isolation-research.md`, last section (sync git and `ps` block every tab) | — | section 6 now records the longest board rebuild |
+| 6 | `investigations/test-suite-speed.md` | the server tests are among the slowest | section 7's rule for the new tests |
+
+**Decisions these docs force**
+
+5. **Notices while the tab is hidden.** `docs/web-ui.md` promises notices on
+   state changes and a count in the tab title, and `web/ui/src/App.tsx` drives
+   both from board events. The existing stream machine opens no connection in a
+   hidden tab (criterion 7). If P6 puts the board on that machine unchanged, the
+   tab title stops counting exactly when the user has looked away. Decide before
+   P6: keep the board stream open while hidden (one idle connection per tab;
+   the title stays right), or accept a title that is only correct when the tab
+   is shown. The run page's stream can stay as it is either way.
+
+**Constraints on later work, not steps here**
+
+- `plans/detached-jobs.md` E2 plans a file tailer that polls every 500 ms **per
+  client**. That is the per-client timer P5 removes from the board. When it is
+  built it should share one tailer per file and count against the one stream
+  per page rule (section 7).
+- `plans/detached-jobs.md` C5 adds `orphaned` and `hung` to the card's state.
+  Its classifier must run from files (the heartbeat) on the board path, not
+  from a new `ps` per card; P1's spawn test is the guard.
+- Once the heartbeat exists (B2), a running run's liveness can be read from the
+  heartbeat file's age, and the remaining `ps` per running run per tick can go.
+  That is a follow-up for after both plans, to be decided in P9.
+- `docs/web-ui.md` still describes live updates as `fs.watch` with a 3-second
+  poll and one `/api/events` route. The P6 PR updates that paragraph and the
+  API table.
+
+**Read and found unrelated to this plan**
+
+`agent-lifecycle-adapters.md`, `web-ui-implementation-plan.md` (its E-9 tokens
+and durations, and the history file, stay out as section 8 says),
+`investigations/vitest-ontaskupdate-timeout.md`,
+`incidents/2026-11-08-codex-usage-limit-false-positive.md`,
+`plans/codex-cli-graft-integration.md`, `plans/mvp-node-ts-recovery-matrix.md`,
+`plans/opencode-harness-support.md`, `plans/tool-notes.md`, and the test-gate
+parts of `plans/process-isolation-research.md` (test slots, result cache,
+repeated suite runs), which speed up pipeline runs, not the web pane.
 
 ## Appendix: mapping from the two superseded plans
 
