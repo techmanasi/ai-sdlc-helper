@@ -259,6 +259,8 @@ P8 only if P9 says so.
 - **Needs:** P4 (the registry) and P5 (the shared poller, its fallback).
 - **Files:** `web/server/index.ts`, new `web/server/board-stream.ts` (uses P4's
   registry), `web/server/watch.ts`, `web/ui/src/Board.tsx`, `web/ui/src/App.tsx`.
+- **Decide first:** what the left menu's counts use on pages other than the
+  board (section 10, point 4).
 - **Change:** watch the register folder, the backlog `index.md` and the `logs`
   folder of every active run; debounce 150 ms; push only when the board changed;
   ignore `run.out` (the tail belongs to the run stream). The board has no 30 s
@@ -412,6 +414,46 @@ P8 only if P9 says so.
     (`pidStarted`) to the record and to `status.json`; nothing else is added.
 12. `npm run check` is green; long commands are logged, and only failing parts
     are read.
+
+## 10. The UI redesign (`docs/redesign`, merged in #116)
+
+The redesign is a design only; no code has changed and it has no implementation
+plan yet. It does not change what this plan fixes, but it changes four things
+this plan must not paint itself into.
+
+1. **Server steps are unaffected and go first.** P0, P1, P2, P4, P5 and P7 touch
+   no file the redesign rewrites. Land them regardless of when the redesign is
+   built.
+2. **Two steps touch pages the redesign replaces.** P3 adds the stale mark to
+   `web/ui/src/Board.tsx`; P6 changes `Board.tsx` and `App.tsx`. Keep their
+   logic in the DOM-free helpers (`web/ui/src/stale.ts`, `stream.ts`,
+   `useStream.ts`), which the redesign keeps, and keep the edits to the page
+   files as small as they can be. If the redesigned board lands first, P3 and P6
+   attach to the new row instead of the card.
+3. **The board row will need more per run.** The redesigned board shows a stage
+   progress strip per item, and reviewer stages add one status per parallel
+   reviewer. Those must come from files the card already reads (`status.json`)
+   or from new files under the run's `logs` folder, which P6 already watches —
+   never from a new git call per row. P1's test (a second read of an unchanged
+   board makes no per-run git call) is the guard, and whoever adds the strip
+   extends that test.
+4. **The left menu shows counts on every page.** That means a run page also
+   wants board data, which conflicts with "one stream per page" (section 7,
+   criterion 7). Decide this before P6: either one stream per tab that carries
+   both the board and the open run (preferred — it stays at one connection), or
+   menu counts that are fetched once and refreshed on navigation. Two streams
+   per page is the option to avoid.
+
+New pages the redesign adds, and what they must reuse rather than rebuild:
+
+| Page | Reuses |
+|---|---|
+| Projects (counts per repository) | P5's one poller per project, started only while a client shows that project's counts; never a board build for every project on every tick |
+| Completed (merged items, PR, merge date) | `getPrStatusCached`; no `gh` on the request path |
+| Model picker (long lists per harness) | the model list is asked for once per harness and cached with P7's context cache |
+
+None of this is a step in this plan. It belongs in the redesign's own
+implementation plan, which should cite this section.
 
 ## Appendix: mapping from the two superseded plans
 
