@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  AGENT_STAGES, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
+  AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, type RunCard, start, stop, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
@@ -119,9 +119,26 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     return p;
   }
 
+  // One context per project, built again only when what it is made from changes: the project's settings file and the
+  // registry (which holds the personal settings and overrides). Building one costs three git calls, and every request
+  // and every board rebuild asks for it. A request that changes a project drops its context (see the request handler).
+  const contexts = new Map<string, { key: string; ctx: RunContext }>();
+  const stampOf = (file: string): string => { try { const st = fs.statSync(file); return `${st.mtimeMs}:${st.size}`; } catch { return '-'; } };
+  const contextKey = (root: string): string => `${stampOf(path.join(root, CONFIG_FILE))}|${stampOf(registryFile(env))}`;
   const contextFor = (p: Project, extra: Record<string, string> = {}): RunContext => {
-    try { return runContext(p.path, { ...env, ...extra }); } catch (e) { throw new HttpError(400, (e as Error).message); }
+    try {
+      // A request with its own environment (run options) is built on its own, and not kept.
+      if (Object.keys(extra).length) return runContext(p.path, { ...env, ...extra });
+      const id = `${p.name}\n${p.path}`;
+      const hit = contexts.get(id);
+      if (hit && hit.key === contextKey(hit.ctx.root)) { trace({ action: 'context', why: 'cached', run: p.name, changed: false }); return { ...hit.ctx }; }
+      const ctx = runContext(p.path, env);
+      contexts.set(id, { key: contextKey(ctx.root), ctx });
+      trace({ action: 'context', why: hit ? 'changed' : 'first', run: p.name, changed: true });
+      return { ...ctx };
+    } catch (e) { throw new HttpError(400, (e as Error).message); }
   };
+  const dropContext = (name: string): void => { for (const id of contexts.keys()) if (id.startsWith(`${name}\n`)) contexts.delete(id); };
 
   /** The models each harness offers, with whether they take an effort, for the pickers. */
   const harnessModels = async () => {
@@ -498,6 +515,13 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const parts = url.pathname.split('/');
         const shape = parts.map((x, i) => (parts[i - 1] === 'projects' ? ':project' : parts[i - 1] === 'runs' || parts[i - 1] === 'items' ? ':slug' : x)).join('/');
         res.once('close', () => trace({ action: 'request', why: `${req.method} ${shape}`, run: parts[2] === 'projects' ? parts[4] === 'runs' ? parts[5] : undefined : undefined, ms: Math.round((performance.now() - t0) * 1000) / 1000, code: res.statusCode }));
+      }
+      // A request that may change a project (a start, a settings save, a palette command) drops its cached context,
+      // before it is handled and again when it is answered, so the next read sees the change whatever its mtime.
+      if (req.method !== 'GET' && url.pathname.startsWith('/api/projects/')) {
+        const name = decodeURIComponent(url.pathname.split('/')[3] || '');
+        dropContext(name);
+        res.once('close', () => dropContext(name));
       }
       // The opening URL carries the token once: it becomes a cookie, and the address bar drops it.
       if (url.pathname === '/' && url.searchParams.has('t')) {
