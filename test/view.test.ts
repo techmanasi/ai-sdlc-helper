@@ -6,6 +6,7 @@ import { answerQuestions, boardView, clearGitFacts, parseQuestions, resumeStage,
 import { clearPrCache } from '../src/pipeline/finalise.js';
 import { runContext } from '../src/runs/index.js';
 import { addBacklogItem, backlogItems } from '../src/backlog/index.js';
+import { TRACE_DEFAULTS, startTrace, stopTrace } from '../src/trace.js';
 import { tmp, write } from './helpers.js';
 
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
@@ -271,5 +272,38 @@ describe('the cached git facts of runView', () => {
     git(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'test(tok): add failing tests');
     write(wt, 'Docs/backlog/tok/logs/status.json', status('Implement'));
     expect(runView(ctx, 'tok', { cacheGit: true }).redCommit).not.toBe('');
+  });
+});
+
+describe('the trace of a board read', () => {
+  const savedPath = process.env.PATH;
+  afterEach(() => { stopTrace(); process.env.PATH = savedPath; });
+
+  test('every git call of a board read is in the trace, a run in Resolve conflicts included', () => {
+    const { root, wt } = repoWithRun('add-tokens', { state: 'exited', exit_code: '1', finished: '2026-10-19T10:05:00' }, {
+      'logs/status.json': { stage: 'Resolve conflicts', state: 'failed' },
+      'logs/resolve-conflicts.json': { before: 'not-the-head' },
+    });
+    expect(fs.existsSync(wt)).toBe(true);
+    // A git that logs one line per call and then runs the real one: the independent count of spawns.
+    const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+    const bin = tmp('view-bin-');
+    const log = path.join(bin, 'git-calls.txt');
+    fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\necho "$@" >> "${log}"\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    process.env.PATH = `${bin}:${savedPath}`;
+    const ctx = runContext(root, { ...GIT_ENV, PATH: process.env.PATH });
+    const file = path.join(tmp('view-trace-'), 'ui-trace.jsonl');
+    fs.rmSync(log, { force: true });
+    stopTrace(); // drops the events kept from before a trace starts (the fixture's own git calls)
+    startTrace({ file, settings: TRACE_DEFAULTS });
+    const board = boardView(ctx);
+    stopTrace();
+    expect(board.runs.map(r => [r.slug, r.stage, r.state])).toEqual([['add-tokens', 'Resolve conflicts', 'failed']]);
+    const seen = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean);
+    const traced = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)).filter(l => l.action === 'spawn:git');
+    expect(seen.some(l => l.includes('for-each-ref'))).toBe(true);
+    expect(seen.some(l => l.includes('refs/sdlc-attempt/'))).toBe(true);
+    expect(seen.some(l => l.includes('--grep'))).toBe(true);
+    expect(traced).toHaveLength(seen.length);
   });
 });
