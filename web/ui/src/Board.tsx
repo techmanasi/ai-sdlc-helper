@@ -70,7 +70,7 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
         </span>
       )}
       {r.state === 'done' && r.pullRequest?.state === 'OPEN' && <PrCi ci={r.pullRequest.ci} failing={r.pullRequest.failing} summary={summary} busy={fixing} onFix={fix} conflicts={r.pullRequest.conflicts} resolveBusy={resolving} onResolve={resolve} />}
-      <span class="mono muted small">{[r.attempt && (r.state === 'running' ? `running iteration ${r.attempt}` : `iteration ${r.attempt}`), r.model && `${r.model} · ${r.effort}`, r.changes && `${r.changes.changed} files`].filter(Boolean).join(' · ') || r.state}</span>
+      <span class="mono muted small" title={r.changes ? 'File counts are read again at most once a minute (every 30 s while the run is going), so they may be a little behind' : undefined}>{[r.attempt && (r.state === 'running' ? `running iteration ${r.attempt}` : `iteration ${r.attempt}`), r.model && `${r.model} · ${r.effort}`, r.changes && `${r.changes.changed} files`].filter(Boolean).join(' · ') || r.state}</span>
       <a href={`#/run/${r.slug}`} onClick={e => { e.preventDefault(); go(`/run/${r.slug}`); }} class="small">Open</a>
       <a href={`#/edit/board/${r.slug}`} onClick={e => { e.preventDefault(); go(`/edit/board/${r.slug}`); }} class="small">Edit</a>
     </div>

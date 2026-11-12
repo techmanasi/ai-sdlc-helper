@@ -307,6 +307,8 @@ describe('the board card', () => {
     expect(first.runs[0].changes!.uncommitted).toBeGreaterThan(0);
     const second = boardView(ctx);
     expect(perRun(c.calls('git').slice(afterFirst))).toEqual([]);
+    // Nothing the board is made from changed, so the second read asked git for nothing at all.
+    expect(c.calls('git').slice(afterFirst)).toEqual([]);
     expect(second.runs).toEqual(first.runs);
   });
 

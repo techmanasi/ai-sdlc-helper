@@ -512,8 +512,8 @@ export const BOARD_GIT_MAX_AGE_MS = 60_000;
  * the cache the run page uses, so a board read of runs that did not move runs no git command for them.
  */
 export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): BoardView {
-  const backlog = backlogItems({ root: ctx.root, backlogDir: ctx.backlogDir, branchPrefix: ctx.branchPrefix });
-  const runs = projectSlugs(ctx).map((slug): RunCard => {
+  const backlog = backlogItems({ root: ctx.root, backlogDir: ctx.backlogDir, branchPrefix: ctx.branchPrefix }, { keepBranches: true });
+  const runs = projectSlugs(ctx, { keep: true }).map((slug): RunCard => {
     const v = runView(ctx, slug, { changes: opts.changes, tailLines: 0, checkPr: false, parts: ['live', 'git'], cacheGit: true, gitMaxAgeMs: BOARD_GIT_MAX_AGE_MS });
     return {
       slug, state: v.state, stage: v.stage, agent: v.agent, model: v.model, effort: v.effort, attempt: v.attempt, note: v.note, updated: v.updated,
