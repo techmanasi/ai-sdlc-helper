@@ -17,12 +17,16 @@ const git = (cwd: string, ...args: string[]) => {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, ...GIT_ENV } });
   if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
 };
-/** How often the board was built: the backlog asks git for the branches once per build. */
-const builds = (): number => { try { return fs.readFileSync(path.join(base, 'git-calls.txt'), 'utf8').split('\n').filter(l => l.includes('for-each-ref')).length; } catch { return 0; } };
+/** How often the board was built, from the server's trace (written within the flush time set below). */
+const FLUSH_MS = 40;
+const builds = (): number => { try { return fs.readFileSync(path.join(base, 'config', 'ui-trace.jsonl'), 'utf8').split('\n').filter(l => l.includes('"timer:board-rebuild"')).length; } catch { return 0; } };
+const settle = () => new Promise(r => setTimeout(r, FLUSH_MS * 4));
+/** The git calls of the server (the stand-in on PATH logs them). */
+const gitCalls = (): number => { try { return fs.readFileSync(path.join(base, 'git-calls.txt'), 'utf8').split('\n').filter(Boolean).length; } catch { return 0; } };
 
 async function start(pollMs: number): Promise<RunningServer> {
-  const env = { ...process.env, ...GIT_ENV, AI_SDLC_HELPER_CONFIG_DIR: path.join(base, 'config'), SDLC_TRACE: '0' };
-  server = await startServer({ port: 0, env, cwd: repo, uiDir: path.join(base, 'ui'), pollMs, cli: ['/bin/sh', '-c', 'exit 3', 'sh'] });
+  const env = { ...process.env, ...GIT_ENV, AI_SDLC_HELPER_CONFIG_DIR: path.join(base, 'config') };
+  server = await startServer({ port: 0, env, cwd: repo, uiDir: path.join(base, 'ui'), pollMs, traceFlushMs: FLUSH_MS, cli: ['/bin/sh', '-c', 'exit 3', 'sh'] });
   return server;
 }
 
@@ -75,18 +79,23 @@ describe('the board feed', () => {
     const s = await start(60_000); // no tick during the test: every build is a page joining
     const first = await page(s);
     expect(first.board.items.map((i: { slug: string }) => i.slug)).toEqual(['one']);
+    await settle();
     expect(builds()).toBe(1);
+    const afterFirst = gitCalls();
     const second = await page(s);
     const third = await page(s);
     expect(second.board).toEqual(first.board);
     expect(third.board).toEqual(first.board);
+    await settle();
     expect(builds()).toBe(1);
+    expect(gitCalls()).toBe(afterFirst);
     for (const p of [first, second, third]) p.close();
   });
 
   test('a change reaches every page, from one build per tick', async () => {
     const s = await start(100);
     const pages = [await page(s), await page(s), await page(s)];
+    await settle();
     const before = builds();
     fs.appendFileSync(path.join(repo, 'Docs/backlog/index.md'), '- [ ] `two` - Bug: Two\n');
     await eventually(() => pages.every(p => p.boards() >= 2));
@@ -107,13 +116,13 @@ describe('the board feed', () => {
     const withOne = builds();
     await eventually(() => builds() > withOne); // still ticking for the page that stayed
     two.close();
-    await new Promise(r => setTimeout(r, 150));
+    await new Promise(r => setTimeout(r, 300));
     const stopped = builds();
-    await new Promise(r => setTimeout(r, 400));
+    await new Promise(r => setTimeout(r, 500));
     expect(builds()).toBe(stopped);
     const again = await page(s);
     expect(again.board.items).toHaveLength(1);
-    expect(builds()).toBeGreaterThan(stopped);
+    await eventually(() => builds() > stopped);
     again.close();
   });
 });

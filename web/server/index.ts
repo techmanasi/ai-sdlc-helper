@@ -30,6 +30,8 @@ export interface ServerOptions {
   cli?: string[];
   /** How often the live board is read, in ms (default 2000). */
   pollMs?: number;
+  /** How often the trace is written to its file (default 1 s); tests set it low to read the trace soon after an event. */
+  traceFlushMs?: number;
   /** Timings of the per-run stream (tests): debounce, safety tick, ping and tail throttle, in ms. */
   stream?: Partial<StreamTimings>;
   /** The claude command triage runs spawn (tests); default 'claude'. */
@@ -102,7 +104,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   // The trace of repeating actions (src/trace.ts): always on, rotating; settings from the opening folder's sdlc.config.json.
   let traceBlock: unknown;
   try { if (current) traceBlock = JSON.parse(fs.readFileSync(path.join(current, 'sdlc.config.json'), 'utf8')).trace; } catch { /* no file or not JSON: defaults */ }
-  const tracer = startTrace({ file: path.join(configDir(env), TRACE_FILE), settings: traceSettings(traceBlock, env).settings, rotate: true });
+  const tracer = startTrace({ file: path.join(configDir(env), TRACE_FILE), settings: traceSettings(traceBlock, env).settings, rotate: true, ...(opts.traceFlushMs ? { flushMs: opts.traceFlushMs } : {}) });
 
   async function projects(): Promise<Project[]> {
     const list: Project[] = readRegistry(env).map(e => ({ name: e.name, path: e.path, registered: true }));
