@@ -2,7 +2,11 @@
 
 **Date:** 2026-11-08  
 **Severity:** High  
-**Status:** Confirmed; remediation pending  
+**Status:** Closed 2026-11-12 for the code: fixed in #77 (`e833b0a`),
+regressions covered in `test/agent-failure-and-limits.test.ts` (see
+[Resolution](#resolution-2026-11-12)). One manual check stays open: a Codex
+stage on `gpt-5.6-luna`, which the remediation asked for and no later run
+performed.  
 **Affected stage:** Spec  
 **Affected model:** `gpt-5.6-luna`  
 **Run:** `config-modal-keyboard`
@@ -71,6 +75,11 @@ The transcript contains a successful `turn.completed` event and a completed
 file change for `specs-1.md`. It also contains Graft command output that quotes
 source and test code containing the literal `usage_limit_reached`.
 
+That block describes the file **as captured on 2026-11-08**. The resumed run
+overwrote it on 2026-11-09, so the path now holds a different, single-line
+transcript; the shape above lives on in the regression test named in the
+checklist below.
+
 ## Root cause
 
 `src/pipeline/agent.ts` parses structured JSONL events, but then performs a
@@ -117,11 +126,71 @@ The detector therefore confused **content mentioned by the agent/tools** with
 
 ## Verification checklist
 
-- [ ] `usageLimit()` returns `null` for this archived `spec-1.json` plus
+- [x] `usageLimit()` returns `null` for this archived `spec-1.json` plus
       `spec-1.err`.
-- [ ] Actual Codex `rate_limit_exceeded` JSONL still returns `rate limit reached`.
-- [ ] Actual quota error JSONL still returns `quota exceeded`.
-- [ ] A successful Codex stage with Graft output is not stopped.
-- [ ] The UI no longer shows a quota recovery message for transcript text.
+      The original pair was overwritten by the resumed run on 2026-11-09
+      (`spec-1.err` is now empty, `spec-1.json` is a different single-line
+      file), so the replay is the regression test that encodes this transcript's
+      shape: Codex `command_execution` output quoting `usage_limit_reached`,
+      `quota exceeded` and `rate_limit_exceeded`, plus an `agent_message` quoting
+      them, all in a successful turn (`test/agent-failure-and-limits.test.ts`,
+      "ignores quota strings in Codex tool output and assistant text of a
+      successful turn").
+- [x] Actual Codex `rate_limit_exceeded` JSONL still returns `rate limit reached`.
+      `{"error":{"code":"rate_limit_exceeded"}}` and
+      `{"type":"turn.failed","error":{"code":"rate_limit_exceeded"}}` both return
+      it (same file).
+- [x] Actual quota error JSONL still returns `quota exceeded`.
+      `{"error":{"code":"insufficient_quota",…}}`, a `turn.failed` with the quota
+      message, and the stderr fallback all return it (same file).
+- [x] A successful Codex stage with Graft output is not stopped.
+      The same regression test runs `graft grep usage_limit_reached` as the
+      tool command and asserts `usageLimit()` is `null`, so the pipeline never
+      writes the `hit the usage limit` line and never stops the stage.
+- [x] The UI no longer shows a quota recovery message for transcript text.
+      `stageRecoveryHint` only diagnoses a quota from the run.out line
+      `!! agent '<name>' hit the usage limit` / `quota / usage limit reached`
+      (`test/agent-failure-and-limits.test.ts`, "stageRecoveryHint diagnoses
+      agent failures and quotas across stages"). With `usageLimit()` returning
+      `null`, that line is never written.
 - [ ] The repaired pipeline reaches Plan.
+      **Not demonstrated on the Codex path.** The same worktree did go on to
+      Implement and Finalise on 2026-11-09
+      (`../ai-sdlc-helper-sdlc/config-modal-keyboard/docs/backlog/config-modal-keyboard/logs/run.out`),
+      but that run resumed with the claude harness (`model=opus` / `sonnet`), not
+      `gpt-5.6-luna` on codex, so the remediation's "re-run with `gpt-5.6-luna`"
+      was never done. The detector itself is proven by the regression tests
+      above; this item is a manual check to run the next time a Codex stage runs.
+
+## Resolution (2026-11-12)
+
+What shipped in #77, against the remediation plan:
+
+- **Done.** Detection reads only typed provider events: `error.code`,
+  `event.code`, `type: "error" | "turn.failed" | "rate_limit"`, the
+  `RATE_LIMITED` / `QUOTA_EXCEEDED` statuses, and the stderr file
+  (`src/pipeline/agent.ts`, `usageLimit`). The whole-transcript scan
+  (`const fromRaw = checkText(raw)`) is gone; JSONL is walked event by event.
+- **Done.** For a single-object transcript only typed fields are read (`status`,
+  `error.code`, `error.status`, `api_error`), plus `result` when `is_error` is
+  true — the text of a failed run is the provider's message, the text of a
+  successful one is the agent's own answer.
+- **Done.** Regression coverage for quoted limit strings in tool output and
+  assistant text, and positive fixtures for real Codex rate-limit, quota and
+  usage-limit events, including the resets message.
+- **Done.** The regression tests prove the detector returns `null` for this
+  transcript's shape, so the stage is not stopped. What the tests do not show is
+  a live Codex run: the later run of `config-modal-keyboard` that continued past
+  Spec used the claude harness (`model=opus` / `sonnet`), not `gpt-5.6-luna`, so
+  the remediation's re-run was never made and that line stays open below.
+- **Not done, deliberately.** The matched source (`stderr`, structured event or
+  status field) is not surfaced separately in the UI: `usageLimit()` returns the
+  provider's text ("resets 3pm", "quota exceeded"), and the recovery hint shows
+  that text, not which field it came from. Add it if a future false positive
+  needs to be triaged from the UI rather than the logs.
+
+Closing note: the archived evidence under
+`../ai-sdlc-helper-sdlc/config-modal-keyboard/` was overwritten by the resumed
+run, so this file and the regression tests are the record. Keep a copy of the
+transcript with an incident when one is filed, not only its path.
 

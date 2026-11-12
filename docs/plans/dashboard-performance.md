@@ -1,6 +1,11 @@
 # Dashboard performance and run register: plan
 
-Status: proposed, nothing implemented. Not a backlog item (the pipeline does not pick it up).
+Status: **superseded** by [web-performance.md](web-performance.md) (2026-11-12),
+which merges this plan with `run-view-performance.md` and starts from what is
+already built. Keep this file for its evidence: measurements, findings (F-n),
+reviewer notes and the user's answers (U-n).
+
+Original status: proposed, nothing implemented. Not a backlog item (the pipeline does not pick it up).
 Each step below is its own small PR into `main`; stop after any step.
 
 Claim status tags: **[measured]** run and timed here, **[verified]** read in the code, **[reasoned]** argued, not run,
