@@ -1,6 +1,6 @@
 # Web performance: the board, the run page and the run register
 
-Status (2026-11-13): **P0, P1, P2, P3 and P7 are merged. P5 is built and held. P4, P6, P8 and P9 are pending.**
+Status (2026-11-13): **P0, P1, P2, P3, P5 and P7 are merged. P4, P6, P8 and P9 are pending.**
 Section 12 has what was built, what was measured, and the decision still open. One PR per step, **direct**
 (no backlog briefs).
 Revised 2026-11-12 after a review against the code: P1 and P2 are redesigned,
@@ -253,7 +253,7 @@ P8 only if P9 says so.
   distinct folders, not the number of subscribers.
 - **Risk:** medium — a refcount bug leaks handles or closes a folder still in use.
 
-### P5 — One board poller per project — **built, held unmerged (#121)**
+### P5 — One board poller per project — **done (#121)**
 
 - **Files:** `web/server/index.ts` (`events()`).
 - **Change:** one poller per project, shared by every SSE client, computing the
@@ -556,7 +556,7 @@ repeated suite runs), which speed up pipeline runs, not the web pane.
 | P2 honest register | **done** | #119 | `src/runs/proc.ts`; no boot id, no `trigger` field (both still open) |
 | P7 context cache | **done** | #120 | done before P3 because the numbers showed it was the larger cost |
 | P3 kept branch names and main tree | **done** | #123 | no 10 s slow tick and no live stale age: see below |
-| P5 one board feed per project | **built, not merged** | #121 | held until the stream decision below is taken |
+| P5 one board feed per project | **done** | #121 | merged 2026-11-13 on its three-window numbers |
 | P4 watcher registry | **pending** | | |
 | P6 push the board on change | **pending** | | needs P4; see "Is P6 still worth it" below |
 | P8 conditional GET | **pending** | | only if P9 says so |
@@ -571,8 +571,8 @@ repeated suite runs), which speed up pipeline runs, not the web pane.
   ref folder changes, 60 s at most; the main working tree for a minute.
 - **The stale mark is a tooltip, not a live age.** An age in the board data changes every tick and would defeat
   "push only on change". The card's file count says how old it can be.
-- **The every-fifth-read rule for counts** is still in `events()` on `main`. P5 removes it.
-- **A new `traceFlushMs` server option** (in P5's branch) lets tests read the trace soon after an event.
+- **The every-fifth-read rule for counts** is gone: P5 removed it, since the counts come from the per-run git cache.
+- **A new `traceFlushMs` server option** lets tests read the trace soon after an event.
 
 ### Measured
 
@@ -641,8 +641,8 @@ Points to weigh:
   The two decisions cannot both stand as taken.
 - A cheaper way to keep the title right is a board fetch once a minute in hidden tabs (no held connection, no leader).
 
-Recommendation, to confirm: keep close-when-hidden, do not build one connection per browser, and merge P5 (#121) as
-it is small, tested and green. Revisit only if a stale title in hidden tabs turns out to matter in use.
+P5 (#121) was merged on 2026-11-13. Still to confirm: keep close-when-hidden and do not build one connection per
+browser. Revisit only if a stale title in hidden tabs turns out to matter in use.
 
 ## Appendix: mapping from the two superseded plans
 
