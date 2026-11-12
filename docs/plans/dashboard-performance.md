@@ -1,6 +1,6 @@
 # Dashboard performance and run register: plan
 
-Status (2026-11-13): superseded by `web-performance.md`. Its steps 2, 3 (context cache), 4 and 5 are done there (#118, #120, #119, #123); the shared poller of step 3 is built and held (#121); step 6 is pending.
+Status (2026-11-13): superseded by `web-performance.md`. Its steps 2, 3 (context cache), 4 and 5 are done there (#118, #120, #119, #123); the shared poller of step 3 is done (#121); step 6 is pending.
 
 Status: **superseded** by [web-performance.md](web-performance.md) (2026-11-12),
 which merges this plan with `run-view-performance.md` and starts from what is
