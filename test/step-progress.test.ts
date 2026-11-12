@@ -76,6 +76,7 @@ describe('Status.beginStep', () => {
     const { s } = tmpStatus('Test repair');
     s.step = { i: 5, n: 12, label: 'Repairing the claimed tests', started: '2026-01-01T00:00:00' };
     const N = 300;
+    s.write(); // the first write also looks up this process's start time, once; what is timed is every write after it
     const t0 = performance.now();
     for (let k = 0; k < N; k++) s.write();
     const perWrite = (performance.now() - t0) / N;
