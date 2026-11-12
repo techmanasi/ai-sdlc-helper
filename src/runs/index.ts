@@ -507,10 +507,10 @@ export async function restart(ctx: RunContext, slug: string, opts: StartOptions 
  * The slugs of this project's runs. The run registry is shared by every checkout of the repository: a record names the
  * checkout that started it (root); one without (from the shell pipeline) belongs to the main working tree.
  */
-export function projectSlugs(ctx: RunContext): string[] {
+export function projectSlugs(ctx: RunContext, opts: { keep?: boolean } = {}): string[] {
   const real = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
   const here = real(ctx.root);
-  const main = real(mainTree(ctx.root, ctx.env));
+  const main = real(mainTree(ctx.root, ctx.env, opts));
   return recordedSlugs(ctx.reg).filter(slug => {
     const rec = readRecord(ctx.reg, slug) || {};
     return real(typeof rec.root === 'string' && rec.root ? rec.root : main) === here;

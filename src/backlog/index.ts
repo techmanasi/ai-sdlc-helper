@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from '../trace.js';
+import { branchNameInputs, commonDirOf, stampOf } from '../gitdir.js';
 import { readSettings } from '../util.js';
 import { readRecord } from '../runs/records.js';
 import { hashOf } from '../config/edit.js';
@@ -92,23 +93,39 @@ export function parseBrief(place: Pick<BacklogPlace, 'root' | 'backlogDir'>, slu
   return { hasBrief: true, type: typeLine ? typeLine[1].toLowerCase() : null, priority: pri ? pri[0] : null, pr };
 }
 
-/** Whether a local or origin branch <branchPrefix><slug> exists. <refs> holds the repository's refs, read once on first use. */
-function branchExists(place: BacklogPlace, slug: string, refs: { names?: Set<string> }): boolean {
-  if (!safeSlug(slug)) return false;
-  if (!refs.names) {
-    try {
-      const out = execFileSync('git', ['-C', place.root, 'for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes/origin'],
-        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-      refs.names = new Set(out.split('\n').filter(Boolean));
-    } catch {
-      refs.names = new Set();
-    }
+/** How long a kept list of branch names is trusted when nothing it depends on changed: a change the stamp misses is late, never lost. */
+export const BRANCH_NAMES_MAX_AGE_MS = 60_000;
+const branchNames = new Map<string, { key: string; at: number; names: Set<string> }>();
+
+/** The repository's local and origin branch refs. With <keep>, the last answer is used while the ref files and folders are unchanged. */
+function readBranchNames(place: BacklogPlace, keep: boolean): Set<string> {
+  const common = keep ? commonDirOf(place.root) : null;
+  const id = `${place.root}\n${place.branchPrefix}`;
+  // The stamp is taken before git is asked: a change in between makes the next stamp differ.
+  const key = common ? stampOf(branchNameInputs(common, place.branchPrefix)) : '';
+  const hit = common ? branchNames.get(id) : undefined;
+  if (hit && hit.key === key && Date.now() - hit.at < BRANCH_NAMES_MAX_AGE_MS) return hit.names;
+  let names: Set<string>;
+  try {
+    const out = execFileSync('git', ['-C', place.root, 'for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes/origin'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    names = new Set(out.split('\n').filter(Boolean));
+  } catch {
+    return new Set();
   }
+  if (common) branchNames.set(id, { key, at: Date.now(), names });
+  return names;
+}
+
+/** Whether a local or origin branch <branchPrefix><slug> exists. <refs> holds the repository's refs, read once on first use. */
+function branchExists(place: BacklogPlace, slug: string, refs: { names?: Set<string>; keep?: boolean }): boolean {
+  if (!safeSlug(slug)) return false;
+  if (!refs.names) refs.names = readBranchNames(place, refs.keep === true);
   const branch = `${place.branchPrefix}${slug}`;
   return refs.names.has(`refs/heads/${branch}`) || refs.names.has(`refs/remotes/origin/${branch}`);
 }
 
-function deriveItem(entry: IndexEntry, place: BacklogPlace, refs: { names?: Set<string> }): BacklogItem {
+function deriveItem(entry: IndexEntry, place: BacklogPlace, refs: { names?: Set<string>; keep?: boolean }): BacklogItem {
   const { type, title, blockedReason, parkedReason } = parseTitle(entry.rest);
   const brief = parseBrief(place, entry.slug);
   let status: Status;
@@ -200,13 +217,13 @@ export const formatJson = (items: BacklogItem[]): string => JSON.stringify(items
 }))) + '\n';
 
 /** Every item of the backlog at <place>, with its derived status; null when the index is missing. */
-export function backlogItems(place: BacklogPlace): { items: BacklogItem[]; entries: IndexEntry[] } | null {
+export function backlogItems(place: BacklogPlace, opts: { /** Keep the branch names between calls while the ref files are unchanged (the board). */ keepBranches?: boolean } = {}): { items: BacklogItem[]; entries: IndexEntry[] } | null {
   const indexFile = path.join(place.root, place.backlogDir, 'index.md');
   if (!fs.existsSync(indexFile)) return null;
   const text = fs.readFileSync(indexFile, 'utf8');
   const entries = parseIndex(text);
   const archiveIndex = text.search(/^##\s+Archive/im);
-  const refs = {};
+  const refs = { keep: opts.keepBranches === true };
   return {
     items: entries.map(e => {
       const item = deriveItem(e, place, refs);
