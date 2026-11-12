@@ -9,6 +9,8 @@ export class CodexHarness implements AgentHarness {
   readonly name = 'OpenAI Codex CLI';
   readonly defaultBinary = 'codex';
   readonly catalog: ModelCatalogAdapter;
+  /** Codex model ids go to the CLI as they are: no provider indirection. */
+  readonly ownsModelIds = true;
 
   constructor(catalog: ModelCatalogAdapter = defaultCodexCatalog) {
     this.catalog = catalog;

@@ -7,6 +7,8 @@ export class AgyHarness implements AgentHarness {
   readonly id = 'agy' as const;
   readonly name = 'Google Antigravity CLI';
   readonly defaultBinary = 'agy';
+  /** Gemini ids go to the CLI as they are: no provider indirection. */
+  readonly ownsModelIds = true;
 
   selectStageModel(opts: { configuredModel?: string; configuredEffort?: string }): { model: string; effort?: string } {
     return { model: opts.configuredModel || '', effort: opts.configuredEffort };

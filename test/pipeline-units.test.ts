@@ -88,7 +88,34 @@ describe('model and provider resolution', () => {
     expect(brief(sm.provider)).toBe('0|opencode/gemini-4-carbon|||1');
     expect(errorOf(() => stageModels(opencode))).toBe('');
     const claude = { ...menv({}), project: () => ({ harness: 'claude', model: 'opencode/gemini-4-carbon' }) };
-    expect(errorOf(() => stageModel('spec', claude))).toBe("ERROR: model 'opencode/gemini-4-carbon' (stage spec): provider 'opencode' is not listed in SDLC_PROVIDERS (see .env.example)");
+    expect(errorOf(() => stageModel('spec', claude))).toBe("ERROR: model 'opencode/gemini-4-carbon' belongs to the opencode harness; stage spec runs on claude (set agent.stages.spec.harness, or pick a claude model)");
+  });
+
+  test('a model that belongs to another harness fails at the start, naming the stage, whatever source set it', () => {
+    const mismatch = (stage: string, harness: string) =>
+      `ERROR: model 'opencode/gemini-4-carbon' belongs to the opencode harness; stage ${stage} runs on ${harness} (set agent.stages.${stage}.harness, or pick a ${harness} model)`;
+    // A stale stage entry: the harness changed, the model it was paired with did not.
+    const stale = { ...menv({}), project: () => ({ harness: 'claude', model: 'opencode/gemini-4-carbon' }) };
+    expect(errorOf(() => stageModel('test-repair', stale))).toBe(mismatch('test-repair', 'claude'));
+    expect(errorOf(() => stageModel('implement', { ...menv({}), project: () => ({ harness: 'agy', model: 'opencode/gemini-4-carbon' }) }))).toBe(mismatch('implement', 'agy'));
+    // An OpenCode provider id ("opencode-go") is OpenCode's too, without a harness id in front of it.
+    expect(errorOf(() => stageModel('review', { ...menv({}), project: () => ({ harness: 'claude', model: 'opencode-go/kimi-k3.1-pro' }) })))
+      .toBe("ERROR: model 'opencode-go/kimi-k3.1-pro' belongs to the opencode harness; stage review runs on claude (set agent.stages.review.harness, or pick a claude model)");
+    expect(brief(stageModel('review', { ...menv({}), project: () => ({ harness: 'opencode', model: 'opencode-go/kimi-k3.1-pro', effort: 'high' }) }).provider))
+      .toBe('0|opencode-go/kimi-k3.1-pro|||1');
+    // The three sources that outrank the project's stage entry.
+    expect(errorOf(() => stageModel('plan', { ...menv({}), force: { model: 'opencode/gemini-4-carbon' } }))).toBe(mismatch('plan', 'claude'));
+    expect(errorOf(() => stageModel('plan', menv({ MODEL_PLAN: 'opencode/gemini-4-carbon' })))).toBe(mismatch('plan', 'claude'));
+    expect(errorOf(() => stageModel('plan', menv({ SDLC_MODEL: 'opencode/gemini-4-carbon' })))).toBe(mismatch('plan', 'claude'));
+    // Every stage is resolved at the start, so the stage named is the one whose setting is wrong.
+    const mixed = { ...menv({}), project: (st: string) => (st === 'plan' ? { harness: 'codex', model: 'opencode/gemini-4-carbon' } : { harness: 'claude' }) };
+    expect(errorOf(() => stageModels(mixed))).toBe(mismatch('plan', 'codex'));
+    // A prefix that is not a harness id keeps the claude provider paths, registry first.
+    expect(brief(stageModel('plan', { ...menv(PROVIDER_ENV), project: () => ({ harness: 'claude', model: 'openrouter/openai/gpt-5' }) }).provider))
+      .toBe('1|openai/gpt-5|https://gw.example/api|sk-secret-1|0');
+    expect(brief(stageModel('plan', { ...menv({ REG_KEY: KEY }, REG), project: () => ({ harness: 'claude', model: 'reg/org/m2' }) }).provider))
+      .toBe(`1|org/m2|https://reg.example/api|${KEY}|0`);
+    expect(brief(stageModel('review', { ...menv(PROVIDER_ENV), project: () => ({ harness: 'claude', model: 'opus' }) }).provider)).toBe('0|opus|||1');
   });
 
   test('envModels reads only SDLC_PROVIDER* keys from .env, strips quotes, and the shell wins', () => {

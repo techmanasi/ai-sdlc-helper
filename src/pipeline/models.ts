@@ -6,6 +6,7 @@ import path from 'node:path';
 import { has } from '../util.js';
 import { loadRegistry, resolvePath } from '../models/index.js';
 import { EFFORT_LEVELS, agentFor } from '../config/settings.js';
+import { defaultRegistry, ownsModelIds } from './harness/registry.js';
 import { AGENT_STAGES, SetupError, type AgentStage, type Ctx } from './context.js';
 
 /** The default "<model> <effort>" of each stage; MODEL_<STAGE>, EFFORT_<STAGE>, SDLC_MODEL and SDLC_EFFORT override it. */
@@ -119,25 +120,31 @@ export function resolveProvider(spec: string, stage: string, { env, fromFile = {
 
 export interface StageModel { model: string; effort: string; provider: Provider }
 
+/** The error for a stage that cannot run <spec>: the harness that owns it, and how to fix the setting. */
+const harnessMismatch = (spec: string, stage: string, harness: string, owner: string): SetupError =>
+  new SetupError(`ERROR: model '${spec}' belongs to the ${owner} harness; stage ${stage} runs on ${harness} (set agent.stages.${stage}.harness, or pick a ${harness} model)`);
+
 /**
  * The model and effort of <stage>, and its provider. Highest first: the run's --model / --effort, MODEL_<STAGE> /
  * EFFORT_<STAGE>, the project's setting, SDLC_MODEL / SDLC_EFFORT, the stage default.
  *
- * Only the claude harness resolves "<provider>/<model>" through a provider: every other harness owns its model ids and
- * passes them to its own CLI (OpenCode's ids are always "<provider>/<model>"), so they are never treated as providers.
+ * The stage's harness decides what its model ids mean. A harness that owns its ids (every harness but claude) passes
+ * them to its own CLI untouched; the claude harness resolves "<provider>/<model>" through a provider. A model that
+ * another harness claims — "opencode/gemini-4-carbon" is OpenCode's — cannot run here: that is a setting to fix, not a
+ * provider to look up, so it fails with both harnesses and the stage named.
  */
 export function stageModel(stage: AgentStage, menv: ModelEnv): StageModel {
   const up = stage.toUpperCase().replace(/-/g, '_');
   const def = STAGE_DEFAULTS[stage];
   const proj = menv.project ? menv.project(stage) : {};
+  const harness = defaultRegistry.get(proj.harness || 'claude') || defaultRegistry.get('claude')!;
   const model = menv.force?.model || menv.env[`MODEL_${up}`] || proj.model || menv.env.SDLC_MODEL || def.model;
   const effort = menv.force?.effort || menv.env[`EFFORT_${up}`] || proj.effort || menv.env.SDLC_EFFORT || def.effort;
   if (!EFFORTS.includes(effort)) throw new SetupError(`ERROR: invalid effort '${effort}' for stage ${stage} (use low, medium, high, xhigh or max)`);
-  const ownsModels = (proj.harness || 'claude') !== 'claude';
-  const provider = ownsModels
-    ? { active: false, model, endpoint: '', key: '', effortFlag: true }
-    : resolveProvider(model, stage, menv);
-  return { model, effort, provider };
+  const owner = defaultRegistry.ownerOf(model);
+  if (owner && owner !== harness.id) throw harnessMismatch(model, stage, harness.id, owner);
+  if (ownsModelIds(harness)) return { model, effort, provider: { active: false, model, endpoint: '', key: '', effortFlag: true } };
+  return { model, effort, provider: resolveProvider(model, stage, menv) };
 }
 
 /** The model settings of a run: its environment, the project's settings and the run's --model / --effort. */
