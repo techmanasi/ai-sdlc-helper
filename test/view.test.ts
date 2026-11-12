@@ -275,6 +275,62 @@ describe('the cached git facts of runView', () => {
   });
 });
 
+describe('the board card', () => {
+  const savedPath = process.env.PATH;
+  afterEach(() => { process.env.PATH = savedPath; clearGitFacts(); });
+
+  /** Stand-ins for git and ps that log their arguments and then run the real program. */
+  function counting(...programs: string[]): { env: NodeJS.ProcessEnv; calls: (program: string) => string[] } {
+    const bin = tmp('card-bin-');
+    for (const p of programs) {
+      const real = spawnSync('sh', ['-c', `command -v ${p}`], { encoding: 'utf8', env: { ...process.env, PATH: savedPath } }).stdout.trim();
+      fs.writeFileSync(path.join(bin, p), `#!/bin/sh\necho "$@" >> "${path.join(bin, `${p}-calls.txt`)}"\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    }
+    process.env.PATH = `${bin}:${savedPath}`;
+    return {
+      env: { ...GIT_ENV, PATH: process.env.PATH },
+      calls: p => { try { return fs.readFileSync(path.join(bin, `${p}-calls.txt`), 'utf8').split('\n').filter(Boolean); } catch { return []; } },
+    };
+  }
+  const perRun = (calls: string[]) => calls.filter(l => !l.includes('for-each-ref') && !l.includes('worktree list') && !l.includes('rev-parse'));
+
+  test('a second read of a board that did not move runs no git command for its runs, and the cards are the same', () => {
+    const { root, wt } = repoWithRun('add-tokens', { state: 'exited', exit_code: '2' }, { 'questions.md': QUESTIONS, 'logs/status.json': { state: 'paused', stage: 'Spec', attempt: '2/5' } });
+    write(wt, 'src/new.js', 'export const a = 1;\n');
+    const c = counting('git');
+    const ctx = runContext(root, c.env);
+    const first = boardView(ctx);
+    const afterFirst = c.calls('git').length;
+    expect(perRun(c.calls('git')).length).toBeGreaterThan(0);
+    expect(c.calls('git').some(l => l.includes('--grep'))).toBe(true);
+    expect(first.runs[0]).toEqual(expect.objectContaining({ slug: 'add-tokens', state: 'paused', stage: 'Spec', questions: 2, permissions: 0, deniedPermissions: 0 }));
+    expect(first.runs[0].changes!.uncommitted).toBeGreaterThan(0);
+    const second = boardView(ctx);
+    expect(perRun(c.calls('git').slice(afterFirst))).toEqual([]);
+    expect(second.runs).toEqual(first.runs);
+  });
+
+  test('a stage change makes the counts fresh on the next read', () => {
+    const { root, wt } = repoWithRun('add-tokens', { state: 'exited', exit_code: '2' }, { 'logs/status.json': { state: 'paused', stage: 'Spec', attempt: '1' } });
+    const c = counting('git');
+    const ctx = runContext(root, c.env);
+    const before = boardView(ctx).runs[0].changes!.uncommitted;
+    write(wt, 'src/new.js', 'export const a = 1;\n');
+    expect(boardView(ctx).runs[0].changes!.uncommitted).toBe(before);
+    write(wt, 'Docs/backlog/add-tokens/logs/status.json', { state: 'paused', stage: 'Plan', attempt: '1' });
+    expect(boardView(ctx).runs[0].changes!.uncommitted).toBeGreaterThan(before);
+  });
+
+  test('a running run asks ps once per board read', () => {
+    const { root } = repoWithRun('add-tokens', { state: 'running', pid: process.pid, exit_code: '' }, { 'logs/status.json': { state: 'running', stage: 'Implement', attempt: '1' } });
+    const c = counting('git', 'ps');
+    const ctx = runContext(root, c.env);
+    const b = boardView(ctx, { changes: false });
+    expect(b.runs[0].state).toBe('running');
+    expect(c.calls('ps')).toHaveLength(1);
+  });
+});
+
 describe('the trace of a board read', () => {
   const savedPath = process.env.PATH;
   afterEach(() => { stopTrace(); process.env.PATH = savedPath; });

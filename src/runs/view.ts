@@ -294,11 +294,12 @@ function mergeFixKept(worktree: string | null, branch: string, logs: string): bo
  * The git facts of a run from the cache, read again when the run's stage, attempt or state changed (the key), when a
  * running run's facts are older than 30 s, or when <refresh> is set. Returns the facts and their age (null: just read).
  */
-function gitFactsOf(ctx: RunContext, slug: string, worktree: string, key: string, running: boolean, refresh: boolean): { facts: GitFacts; ageMs: number | null } {
+function gitFactsOf(ctx: RunContext, slug: string, worktree: string, key: string, running: boolean, refresh: boolean, maxAgeMs?: number): { facts: GitFacts; ageMs: number | null } {
   const id = `${worktree}::${slug}`;
   const hit = gitCache.get(id);
   const now = Date.now();
-  if (hit && !refresh && hit.key === key && !(running && now - hit.at >= GIT_TTL_RUNNING_MS)) return { facts: hit.facts, ageMs: now - hit.at };
+  const limit = running ? Math.min(GIT_TTL_RUNNING_MS, maxAgeMs ?? Infinity) : maxAgeMs ?? Infinity;
+  if (hit && !refresh && hit.key === key && now - hit.at < limit) return { facts: hit.facts, ageMs: now - hit.at };
   const c = runChanges(ctx, slug);
   const facts: GitFacts = { changes: 'error' in c ? null : { changed: c.changed, uncommitted: c.uncommitted, files: c.files }, redCommit: redCommitOf(worktree, slug) };
   gitCache.set(id, { key, at: now, facts });
@@ -314,6 +315,8 @@ export function runView(ctx: RunContext, slug: string, opts: {
   cacheGit?: boolean;
   /** With cacheGit: read the git facts again now. */
   refresh?: boolean;
+  /** With cacheGit: read the git facts again when they are older than this, also for a run that is not running (the board). */
+  gitMaxAgeMs?: number;
 } = {}): RunView {
   const want = (part: RunPart): boolean => !opts.parts || opts.parts.includes(part);
   const rec = readRecord(ctx.reg, slug);
@@ -335,7 +338,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
   if (want('git') && worktree) {
     if (opts.cacheGit) {
       const key = `${stateNow}|${stageNow}|${s.attempt || ''}|${rec?.finished || ''}`;
-      const g = gitFactsOf(ctx, slug, worktree, key, stateNow === 'running', opts.refresh === true);
+      const g = gitFactsOf(ctx, slug, worktree, key, stateNow === 'running', opts.refresh === true, opts.gitMaxAgeMs);
       redCommit = g.facts.redCommit;
       gitAgeMs = g.ageMs;
       if (opts.changes !== false) changes = g.facts.changes;
@@ -349,7 +352,8 @@ export function runView(ctx: RunContext, slug: string, opts: {
   }
   const discarded = (readText(path.join(ctx.reg, `${slug}.discarded`)) || '').trim();
   const rawStage = typeof s.stage === 'string' ? s.stage : '';
-  const state = viewState(rec, status);
+  // The state was worked out above; working it out again would ask `ps` a second time for a running run.
+  const state = stateNow;
   const stage = rawStage || (state === 'running' ? (FROM_TO_STAGE[rec?.from || 'spec'] || 'Spec') : '');
   return {
     slug,
@@ -500,11 +504,17 @@ export interface BoardView {
   running: number;
 }
 
-/** The board: the backlog and a card for every run of this checkout (see projectSlugs). */
+/** How old a card's file counts and Red tests commit may be for a run that is not running (a running run: 30 s). */
+export const BOARD_GIT_MAX_AGE_MS = 60_000;
+
+/**
+ * The board: the backlog and a card for every run of this checkout (see projectSlugs). A card takes its git facts from
+ * the cache the run page uses, so a board read of runs that did not move runs no git command for them.
+ */
 export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): BoardView {
   const backlog = backlogItems({ root: ctx.root, backlogDir: ctx.backlogDir, branchPrefix: ctx.branchPrefix });
   const runs = projectSlugs(ctx).map((slug): RunCard => {
-    const v = runView(ctx, slug, { changes: opts.changes, tailLines: 0, checkPr: false });
+    const v = runView(ctx, slug, { changes: opts.changes, tailLines: 0, checkPr: false, parts: ['live', 'git'], cacheGit: true, gitMaxAgeMs: BOARD_GIT_MAX_AGE_MS });
     return {
       slug, state: v.state, stage: v.stage, agent: v.agent, model: v.model, effort: v.effort, attempt: v.attempt, note: v.note, updated: v.updated,
       message: v.message, tests: v.tests, branch: v.branch, questions: v.questions.length, permissions: v.permissions.length,
