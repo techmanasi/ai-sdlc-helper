@@ -54,7 +54,8 @@ function finish(rc, message) {
   const rec = Object.assign({}, job.record, {
     pid: process.pid, state: 'exited', exit_code: String(rc), interrupted: fs.existsSync(job.interruptFile), finished: now(), message: message || '',
   });
-  try { fs.writeFileSync(job.recordFile + '.tmp', JSON.stringify(rec) + '\n'); fs.renameSync(job.recordFile + '.tmp', job.recordFile); } catch (e) { log('cannot write the run record: ' + e.message); }
+  const tmp = job.recordFile + '.' + process.pid + '.tmp';
+  try { fs.writeFileSync(tmp, JSON.stringify(rec) + '\n'); fs.renameSync(tmp, job.recordFile); } catch (e) { log('cannot write the run record: ' + e.message); }
   log('== ' + now() + ' finished ' + job.slug + ' exit ' + rc);
   process.exit(rc);
 }

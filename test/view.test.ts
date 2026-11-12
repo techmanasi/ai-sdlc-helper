@@ -331,6 +331,20 @@ describe('the board card', () => {
   });
 });
 
+test('a run that only has a status file is stopped when its pid now belongs to a process that started at another time', () => {
+  const base = fs.realpathSync(tmp('view-inplace-'));
+  const root = path.join(base, 'repo');
+  write(root, 'Docs/backlog/index.md', '# Backlog\n\n- [ ] `tok` - Feature: Tokens\n');
+  write(root, 'Docs/backlog/tok/brief.md', '# tok\n');
+  git(root, 'init', '-q', '-b', 'main');
+  const ctx = runContext(root, GIT_ENV);
+  const status = (extra: object) => write(root, 'Docs/backlog/tok/logs/status.json', { state: 'running', stage: 'Spec', pid: process.pid, ...extra });
+  status({});
+  expect(runView(ctx, 'tok', { parts: ['live'] }).state).toBe('running');
+  status({ pid_start: 'Thu Jan 1 00:00:00 1970' });
+  expect(runView(ctx, 'tok', { parts: ['live'] }).state).toBe(process.platform === 'win32' ? 'running' : 'stopped');
+});
+
 describe('the trace of a board read', () => {
   const savedPath = process.env.PATH;
   afterEach(() => { stopTrace(); process.env.PATH = savedPath; });

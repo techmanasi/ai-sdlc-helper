@@ -15,6 +15,7 @@ import {
   alive, isRunning, killTree, mainTree, projectRoot, now, readRecord, recordFile, recordedSlugs, registryDir, runState, writeRecord, type RunRecord,
 } from './records.js';
 import { startSupervisor, type SetupStep } from './supervisor.js';
+import { identity } from './proc.js';
 
 /** The controls' own environment variables: read here, never passed to the pipeline. */
 export const CONTROL_ENV = ['SDLC_BASE', 'SDLC_WT_BASE', 'SDLC_MAX_PARALLEL', 'SDLC_ALLOW_MERGED', 'FROM', 'AI_SDLC_HELPER_PIPELINE_CMD', 'WATCH_REPORT_DEPENDENCIES'];
@@ -308,7 +309,8 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
       return refuse(1, `could not start the pipeline: ${(e as Error).message}`);
     }
     // The supervisor waits for this record before it writes the final one.
-    writeRecord(ctx.reg, { ...record, pid });
+    const supervisor = identity(pid);
+    writeRecord(ctx.reg, { ...record, pid, ...(supervisor.start ? { supervisor } : {}) });
     const line = `started ${slug} (pid ${pid}) in ${wt} on ${branch}${opts.from ? `, from ${opts.from}` : ''}`;
     fs.appendFileSync(log, `${line}\n`);
     return ok(line);

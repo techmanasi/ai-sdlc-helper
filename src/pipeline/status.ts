@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import { stamp } from './context.js';
 import { STEPS } from './steps.js';
+import { procStart } from '../runs/proc.js';
 
 export type RunState = 'running' | 'done' | 'paused' | 'failed';
 
@@ -18,6 +19,8 @@ export interface StatusLine {
   run_started: string;
   updated: string;
   pid: number;
+  /** When that process started (see procStart), so a later process with the same pid is not taken for the run; absent when unknown. */
+  pid_start?: string;
   /** Why a running run waits, for example "usage limit, resets 1:10am (Asia/Dubai)" (only when SDLC_LIMIT_RETRY is set); empty otherwise. */
   note: string;
   /** The full suite in CI (tests.fullSuite "ci"); absent when the setting is off. */
@@ -65,7 +68,7 @@ export class Status {
     const line: StatusLine = {
       slug: this.slug, state: this.state, stage: this.stage, agent: this.agent, model: this.model, effort: this.effort,
       models: this.models, attempt: this.attempt, agent_started: this.agentStarted, run_started: this.runStarted,
-      updated: stamp(), pid: this.pid, note: this.note,
+      updated: stamp(), pid: this.pid, ...(this.pidStart() ? { pid_start: this.pidStart() } : {}), note: this.note,
       ...(this.ci ? { ci: this.ci } : {}),
     };
     if (this.step) line.step = this.step;
@@ -89,6 +92,13 @@ export class Status {
       this.step = { i: at + 1, n: list.length, label, started: new Date().toISOString() };
       this.write();
     } catch { /* best effort */ }
+  }
+
+  private started: string | null = null;
+  /** This process's start time, asked for once; '' for a pid that is not this process. */
+  private pidStart(): string {
+    if (this.started === null) this.started = this.pid === process.pid ? procStart(this.pid) : '';
+    return this.started;
   }
 
   write(): void {

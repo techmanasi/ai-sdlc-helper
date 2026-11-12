@@ -210,7 +210,7 @@ function viewState(rec: Partial<RunRecord> | null, status: any): ViewState {
     return !rec.worktree && rec.message ? 'refused' : 'failed';
   }
   if (!status) return 'not started';
-  if (status.state === 'running') return alive(status.pid) ? 'running' : 'stopped';
+  if (status.state === 'running') return alive(status.pid, typeof status.pid_start === 'string' && status.pid_start ? status.pid_start : undefined) ? 'running' : 'stopped';
   return ['paused', 'done', 'failed'].includes(status.state) ? status.state : 'failed';
 }
 
