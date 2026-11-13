@@ -695,6 +695,12 @@ the user on 2026-11-13 as a setting to tune after monitoring: `SDLC_BOARD_SILENC
 Not reachable from here: Linux is only exercised in CI (where a removed folder kills its watcher silently, which the
 audit is there to catch), and Windows is untested.
 
+### Notes kept from the work
+
+- `docs/investigations/web-performance-review-pr-126.md`: the independent review of the board watcher, per
+  criterion, with the defects found and what was done about each.
+- `docs/investigations/web-performance-side-agent-points.md`: the points raised by side agents during the work.
+
 ### Future enhancements
 
 - Tune `silenceMs` (30 s today; 2 minutes was the first proposal) once the trace shows how often an audit finds a missed change.
