@@ -615,7 +615,7 @@ the three states not measured), then decide whether P4 and P6 are still worth bu
   connection per browser as a later step.
 - **Hidden tabs:** close the stream while hidden.
 
-### Open decision: one connection per browser, or close when hidden — settle before P6
+### Decided: one connection per browser is a future enhancement; close when hidden stays
 
 Found while measuring: **the board already closes its stream in a hidden tab.** `web/ui/src/App.tsx` opens the board
 through `useStream`, whose machine holds no connection while the tab is hidden and reconnects when it is shown; the
@@ -641,8 +641,11 @@ Points to weigh:
   The two decisions cannot both stand as taken.
 - A cheaper way to keep the title right is a board fetch once a minute in hidden tabs (no held connection, no leader).
 
-P5 (#121) was merged on 2026-11-13. Still to confirm: keep close-when-hidden and do not build one connection per
-browser. Revisit only if a stale title in hidden tabs turns out to matter in use.
+P5 (#121) was merged on 2026-11-13.
+
+**Decision (2026-11-14):** one connection per browser is kept as a future enhancement and is not built now.
+Close-when-hidden stays the current behaviour. Revisit only if a stale title or missed notices in hidden tabs turn
+out to matter in use.
 
 ## 13. The board watcher (replaces P4 and the server side of P6)
 
@@ -744,7 +747,7 @@ The median did not fall; the gain is the long tail and the spawn count.
   conditional GET would save nothing measurable.
 - **Not measured:** Linux and Windows; more than one tab (section 12 has the three-window numbers). The cold start's
   6 `gh` calls are one per finished run and are not repeated after a restart since #127.
-- **Open decision carried over:** one connection per browser (section 12). The recommendation is unchanged: drop it.
+- **Decided (2026-11-14):** one connection per browser (section 12) is a future enhancement, not built now; close-when-hidden stays the current behaviour.
 
 ## Appendix: mapping from the two superseded plans
 

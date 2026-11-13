@@ -8,6 +8,7 @@ Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 - [x] `add-setup-branch-pr` - Feature: commit `add` setup files on a chore/sdlc-setup branch from main, then optionally push and open a PR
 - [x] `stage-files-tree-viewer` - Feature: collapsible tree viewer for files changed per stage in web UI
 - [ ] `non-node-ecosystem-support` - Feature: support non-Node/non-TypeScript ecosystems (Python, Go, Rust) for test detection, red-checks, and execution
+- [ ] `fix-dependabot-alerts` - Bug: fix the open Dependabot alerts (13: 1 critical, 1 high, 10 medium, 1 low)
 - [ ] `ui-code-indexer-setup` - Feature: interactive UI button to configure and build graft/graphify code indexers
 - [x] `config-modal-keyboard` - Improvement: Projects page Config modal closes on Esc, keeps focus inside, and returns it to the Config button
 - [ ] `red-tests-minimal-case-tests` - Improvement: Red tests stage writes the fewest tests covering every case, one named test per case ID, shared non-blocking setup

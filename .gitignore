@@ -7,3 +7,7 @@ build/
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
 .claude/
+
+# Local folders that are not part of the project.
+/.opencode/
+/BU/
