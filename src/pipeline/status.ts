@@ -30,7 +30,13 @@ export interface StatusLine {
   /** Which start of this item this run is (1 for the first), and how the one before ended; absent on old files. */
   run_number?: number;
   previous_run?: PreviousRun;
+  /** The branch the run is on when it is not <prefix><slug> (it moved: see branch-move.ts). */
+  branch?: string;
+  moved_from?: MovedFrom;
 }
+
+/** Where a run came from when it moved to a new branch, and why. */
+export interface MovedFrom { branch: string; reason: string; pr?: string | null; at: string }
 
 /** How the start before this one ended, as far as is known. */
 export interface PreviousRun { stage?: string; state?: string; at?: string }
@@ -67,6 +73,8 @@ export class Status {
   step: StepLine | null = null;
   runNumber?: number;
   previousRun?: PreviousRun;
+  branch?: string;
+  movedFrom?: MovedFrom;
   private stepId = '';
   readonly runStarted = stamp();
 
@@ -81,6 +89,8 @@ export class Status {
     };
     if (this.step) line.step = this.step;
     if (this.runNumber) line.run_number = this.runNumber;
+    if (this.branch) line.branch = this.branch;
+    if (this.movedFrom) line.moved_from = this.movedFrom;
     if (this.previousRun && Object.keys(this.previousRun).length) line.previous_run = this.previousRun;
     return line;
   }
@@ -130,3 +140,15 @@ export function previousState(file: string): string {
 
 /** The final state for an exit code: done (0), paused for answers (2), failed (anything else). */
 export const finalState = (code: number): RunState => (code === 0 ? 'done' : code === 2 ? 'paused' : 'failed');
+
+/** The branch and move a status file names (both absent when there is none): read before this run overwrites it. */
+export function previousBranch(file: string): { branch?: string; movedFrom?: MovedFrom } {
+  try {
+    const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const m = j.moved_from;
+    return {
+      ...(typeof j.branch === 'string' && j.branch ? { branch: j.branch } : {}),
+      ...(m && typeof m.branch === 'string' ? { movedFrom: m as MovedFrom } : {}),
+    };
+  } catch { return {}; }
+}

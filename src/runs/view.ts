@@ -47,6 +47,8 @@ export interface RunView {
   dir: string | null;
   worktree: string | null;
   branch: string;
+  /** Set when the run moved to a new branch because its first one could not be pushed. */
+  movedFrom?: { branch: string; reason: string; pr?: string; at: string };
   base: string;
   /** Why a start was refused or a run could not begin. */
   message: string;
@@ -337,11 +339,15 @@ export function runView(ctx: RunContext, slug: string, opts: {
   let gitAgeMs: number | null = null;
   const stageNow = typeof s.stage === 'string' ? s.stage : '';
   const stateNow = viewState(rec, status);
+  // A moved run's status.json names its branch; the record may still hold the first one.
+  const branchNow = (typeof s.branch === 'string' && s.branch) || rec?.branch || `${ctx.branchPrefix}${slug}`;
+  const mv = s.moved_from && typeof s.moved_from === 'object' ? s.moved_from : null;
+  const movedFrom = mv && typeof mv.branch === 'string' ? { branch: mv.branch, reason: String(mv.reason || ''), ...(typeof mv.pr === 'string' ? { pr: mv.pr } : {}), at: String(mv.at || '') } : undefined;
   if (want('git') && worktree) {
     if (opts.cacheGit) {
       let key = `${stateNow}|${stageNow}|${s.attempt || ''}|${rec?.finished || ''}`;
       // A run that is not running changes its commits or staged files only through its git files, so those are the key.
-      if (stateNow !== 'running') key += `|${stampOf(worktreeInputs(worktree, commonDirOf(ctx.root), rec?.branch || ''))}`;
+      if (stateNow !== 'running') key += `|${stampOf(worktreeInputs(worktree, commonDirOf(ctx.root), branchNow))}`;
       const g = gitFactsOf(ctx, slug, worktree, key, stateNow === 'running', opts.refresh === true, opts.gitMaxAgeMs);
       redCommit = g.facts.redCommit;
       gitAgeMs = g.ageMs;
@@ -376,7 +382,8 @@ export function runView(ctx: RunContext, slug: string, opts: {
     record: rec,
     dir,
     worktree,
-    branch: rec?.branch || `${ctx.branchPrefix}${slug}`,
+    branch: branchNow,
+    ...(movedFrom ? { movedFrom } : {}),
     base: rec?.base || '',
     message: rec?.message || '',
     questions,
@@ -417,7 +424,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
           prConflicts: null,
         };
       }
-      const b = rec?.branch || `${ctx.branchPrefix}${slug}`;
+      const b = branchNow;
       // Never waits for gh: the last known status, refreshed in the background (a cold cache shows it on the next load).
       const st = getPrStatusCached(ctx.root, p || b, ctx.env, prPollOptions(ctx.env)).status;
       return {
@@ -431,7 +438,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
     ci: ciView(ctx.root, ctx.env, status, readText(path.join(docsDir, 'brief.md'))),
     hasPrComments: (() => { try { return !prCommentsEmpty(fs.readFileSync(path.join(docsDir, 'pr-comments.md'), 'utf8')); } catch { return false; } })(),
     undo: (() => { const c = readCheckpoint(ctx, slug); return c ? { from: c.from, at: c.at } : null; })(),
-    mergeFix: stage === 'Resolve conflicts' && ['failed', 'paused'].includes(state) ? mergeFixKept(worktree, rec?.branch || `${ctx.branchPrefix}${slug}`, logs) : false,
+    mergeFix: stage === 'Resolve conflicts' && ['failed', 'paused'].includes(state) ? mergeFixKept(worktree, branchNow, logs) : false,
     ciSummary: ciSummaryOf(readText(path.join(docsDir, 'ci-failure.md')) || ''),
     // A round still marked running when the run is not running it (or runs another agent) was cut short.
     attempts: readRounds(logs).map(r => (r.running && !(state === 'running' && (s.agent || '') === r.agent) ? { ...r, running: false, warnings: [...r.warnings, 'the round did not finish: the run stopped'] } : r)),

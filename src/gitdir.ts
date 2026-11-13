@@ -53,3 +53,11 @@ export function branchNameInputs(commonDir: string, prefix: string): string[] {
   }
   return out;
 }
+
+/** True for <prefix><slug> and <prefix><slug>-<n>: a branch that is this item's run, first or moved. */
+export function isRunBranch(branch: string, prefix: string, slug: string): boolean {
+  const base = `${prefix}${slug}`;
+  if (!branch.startsWith(base)) return false;
+  const rest = branch.slice(base.length);
+  return rest === '' || /^-\d+$/.test(rest);
+}

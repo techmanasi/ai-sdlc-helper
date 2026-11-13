@@ -19,6 +19,7 @@ import { installDeps } from './deps.js';
 import { appendRound, repeatedFailures } from './observe.js';
 import { keepError } from './errors.js';
 import { withAnswerLines } from './questions.js';
+import { moveSkipped, moveToNewBranch, openMovedPr } from './branch-move.js';
 import { checkCiAvailability, waitForCiAndClassify, type CiStepResult } from './ci.js';
 import { ciFailureText, ciState, ciStatusLine, ciWarnings, duration, localCounts, setCiStatus } from './ci-rounds.js';
 
@@ -235,6 +236,19 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   ctx.lockSha = ctx.redSha;
   // The full suite in CI: the tests are locked, so push and open the draft PR now (a failed red gate never gets here).
   if (ctx.config.tests.fullSuite === 'ci') await openCi(ctx);
+  else if (ctx.movedFrom) await openMovedPr(ctx);
+  if (ctx.movedFrom) commitBriefLink(ctx);
+}
+
+/** A moved run's new pull request link is in brief.md: it is committed and pushed (the same commit Finalise makes). */
+function commitBriefLink(ctx: Ctx): void {
+  const rel = `${ctx.docs}/brief.md`;
+  try {
+    if (!ctx.git.run('status', '--porcelain', '--', rel).trim()) return;
+    ctx.git.run('add', '--', rel);
+    ctx.git.run('commit', '-q', '-m', `chore(${ctx.slug}): link pull request`, '--', rel);
+    ctx.git.tryRun('push', 'origin', ctx.branch);
+  } catch (e) { keepError(ctx, 'link pull request', (e as Error).message); }
 }
 
 /** Whether the full suite runs in CI for this run: the setting is on and CI has not been given up on. */
@@ -255,7 +269,13 @@ function fallBack(ctx: Ctx, reason: string): void {
 
 /** Pushes the branch and opens (or finds) the draft PR; when CI cannot be used the run falls back to the local full suite. */
 async function openCi(ctx: Ctx): Promise<void> {
-  const r = await checkCiAvailability(ctx);
+  let r = await checkCiAvailability(ctx);
+  // Origin refused the push (it has commits this run lacks): the work goes on a new branch and is pushed there, once.
+  // Resolve conflicts works on the pull request's own branch, so it never moves.
+  if (!r.available && r.rejected && !moveSkipped(ctx.env) && ctx.status.stage !== 'Resolve conflicts') {
+    moveToNewBranch(ctx, { kind: 'remote-ahead', detail: `origin refused the push of ${ctx.branch}` });
+    r = await checkCiAvailability(ctx);
+  }
   if (!r.available) { fallBack(ctx, r.reason || 'unknown'); return; }
   ctx.ciAvailable = true;
   setCiStatus(ctx, { state: 'waiting', pr: r.pr ?? briefPr(ctx), ...(r.prDraft !== undefined ? { prDraft: r.prDraft } : {}) });

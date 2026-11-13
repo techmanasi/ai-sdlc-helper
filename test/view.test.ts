@@ -115,6 +115,18 @@ describe('runView', () => {
     expect(runView(ctx, 'add-tokens', { changes: false }).redCommit).toMatch(/^[0-9a-f]{7,}$/);
   });
 
+  test('a run that moved shows its new branch and where it came from; one that did not shows the default', () => {
+    const moved = { branch: 'sdlc/add-tokens-2', moved_from: { branch: 'sdlc/add-tokens', reason: 'remote-ahead', pr: 'https://github.com/o/r/pull/5', at: '2026-11-13T10:00:00' } };
+    const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Implement', ...moved } });
+    const v = runView(ctx, 'add-tokens', { changes: false });
+    expect(v.branch).toBe('sdlc/add-tokens-2');
+    expect(v.movedFrom).toEqual(moved.moved_from);
+    const plain = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Implement' } });
+    const p = runView(plain.ctx, 'add-tokens', { changes: false });
+    expect(p.branch).toBe('sdlc/add-tokens');
+    expect(p.movedFrom).toBeUndefined();
+  });
+
   test('counts the files the run changed in its worktree', () => {
     const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Implement' } });
     const v = runView(ctx, 'add-tokens');

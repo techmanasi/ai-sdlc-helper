@@ -63,6 +63,14 @@ export function gitReason(message: string): string {
 
 // --- Availability ----------------------------------------------------------------------------------------------------
 
+/** The title and body of the draft pull request a run opens. */
+export function draftPrText(ctx: Ctx): { title: string; body: string } {
+  return {
+    title: `feat(${ctx.slug}): implement per ${ctx.docs}/specs-1.md`,
+    body: `Automated draft for \`${ctx.slug}\`.\n\nSpecs: \`${ctx.docs}/specs-1.md\``,
+  };
+}
+
 /**
  * Whether the full suite can run in CI: an origin remote, gh installed and signed in, the branch pushed (with upstream
  * tracking), and an open PR for it (a draft is opened when there is none). The PR link goes into brief.md.
@@ -97,8 +105,7 @@ export async function checkCiAvailability(ctx: Ctx): Promise<{ available: boolea
   clearPrCache();
   let pr: PrStatus | null = getPrStatus(ctx.root, branch, ctx.env);
   if (!pr) {
-    const title = `feat(${ctx.slug}): implement per ${ctx.docs}/specs-1.md`;
-    const body = `Automated draft for \`${ctx.slug}\`.\n\nSpecs: \`${ctx.docs}/specs-1.md\``;
+    const { title, body } = draftPrText(ctx);
     const url = createOrGetPr(ctx.root, branch, title, body, ctx.config.git.base || undefined, { draft: true });
     if (!url) {
       keepError(ctx, 'gh pr create', 'no output available');

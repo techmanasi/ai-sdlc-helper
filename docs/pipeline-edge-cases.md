@@ -91,3 +91,13 @@ Entry format: **Symptom** (what the user sees), **How to tell** (where to look),
 - **What to do:** `FROM=review` does not help, because the test lint defects still fail the gate. Until this is fixed, the test files must be corrected by a person or by a new Test repair run that is allowed past the check.
 - **Gap:** a task can need Test repair twice (after a rebase, or after a lint rule changes). Entry 1 tells the user to resume at Test repair; this check can then refuse it.
 - **Status:** open (seen on `ci-full-suite-gate`, 2026-11-11). Proposed: allow the resume when the lint or test check still reports defects in locked test files, and say so in the message.
+
+## 10. The run's branch on origin has commits this run does not have, or its pull request is closed or merged
+
+- **Symptom:** `run.out` shows `MOVED` lines at the start of a Spec or Plan, and the run page shows `moved from <old branch>: <reason>` and a branch ending in `-2` (or `-3`, and so on).
+- **How to tell:** `status.json` holds `branch` and `moved_from` (old branch, reason, old pull request); `attempts.jsonl` has a `move` row; the brief's `pr:` line points at the new draft pull request.
+- **Cause:** a push of `<prefix><slug>` cannot work: origin's branch has commits the run does not have, or its pull request is closed or merged. The same happens when a later push is refused.
+- **What happens:** the work goes on on `<prefix><slug>-N` with a new draft pull request, and the brief points at it. The old branch and its pull request are left alone. `SDLC_MOVE_BRANCH=0` turns this off.
+- **What is not done:** the old pull request is not closed; the brief in the main checkout is not edited; a start at Resolve conflicts (or Review) never moves.
+- **Gap:** the old pull request stays open for a person to close.
+- **Status:** handled.

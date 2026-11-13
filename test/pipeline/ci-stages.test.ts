@@ -11,6 +11,8 @@ import type { Ctx } from '../../src/pipeline/context.js';
 
 const ci = vi.hoisted(() => ({ available: vi.fn(), wait: vi.fn(), ready: vi.fn() }));
 vi.mock('../../src/pipeline/ci.js', () => ({ checkCiAvailability: ci.available, waitForCiAndClassify: ci.wait }));
+const mv = vi.hoisted(() => ({ move: vi.fn() }));
+vi.mock('../../src/pipeline/branch-move.js', async importOriginal => ({ ...await importOriginal<typeof import('../../src/pipeline/branch-move.js')>(), moveToNewBranch: mv.move }));
 vi.mock('../../src/pipeline/agent.js', async importOriginal => ({ ...await importOriginal<typeof import('../../src/pipeline/agent.js')>(), runAgent: vi.fn(async () => {}), stageFlags: vi.fn(() => ({ model: 'fixture-model', effort: 'high' })) }));
 vi.mock('../../src/pipeline/deps.js', () => ({ installDeps: vi.fn() }));
 vi.mock('../../src/changes/index.js', async importOriginal => ({ ...await importOriginal<typeof import('../../src/changes/index.js')>(), mark: vi.fn(), changed: vi.fn() }));
@@ -48,6 +50,35 @@ function context(mode = 'ci') {
   };
 }
 const cast = (ctx: ReturnType<typeof context>) => ctx as unknown as Ctx;
+
+describe('a refused push moves the run to a new branch', () => {
+  it('asks again once on the new branch and then uses CI', async () => {
+    const ctx = context();
+    mv.move.mockImplementation((c: { branch: string }) => { c.branch = 'sdlc/feature-2'; });
+    ci.available.mockReturnValueOnce({ available: false, rejected: true, reason: 'push failed: rejected' }).mockReturnValueOnce({ available: true, pr: 'https://github.com/acme/repo/pull/7' });
+    await redTestsStage(cast(ctx));
+    expect(ctx.branch).toBe('sdlc/feature-2');
+    expect(ctx.ciAvailable).toBe(true);
+    expect(mv.move).toHaveBeenCalledTimes(1);
+    expect(ci.available).toHaveBeenCalledTimes(2);
+  });
+  it('falls back when the second try fails too, without a third', async () => {
+    const ctx = context();
+    mv.move.mockImplementation((c: { branch: string }) => { c.branch = 'sdlc/feature-2'; });
+    ci.available.mockReturnValue({ available: false, rejected: true, reason: 'push failed: rejected' });
+    await redTestsStage(cast(ctx));
+    expect(ctx.ciAvailable).not.toBe(true);
+    expect(ci.available).toHaveBeenCalledTimes(2);
+    expect(mv.move).toHaveBeenCalledTimes(1);
+  });
+  it('does not move when SDLC_MOVE_BRANCH=0', async () => {
+    const ctx = context(); ctx.env = { SDLC_CREATE_PR: '0', SDLC_MOVE_BRANCH: '0' } as typeof ctx.env;
+    ci.available.mockReturnValue({ available: false, rejected: true, reason: 'push failed: rejected' });
+    await redTestsStage(cast(ctx));
+    expect(mv.move).not.toHaveBeenCalled();
+    expect(ci.available).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('CI stage orchestration (spec 4, 7, 9)', () => {
   it('S01 checks availability only after red tests are committed and locked, even with createPr off', async () => {

@@ -16,7 +16,8 @@ import { projectRoot } from '../runs/records.js';
 import { Git } from './git.js';
 import { envModels, modelEnvOf, registryFile, stageModels } from './models.js';
 import { PROMPTS_DIR } from './prompts.js';
-import { Status, finalState, previousStage, previousState } from './status.js';
+import { Status, finalState, previousBranch, previousStage, previousState } from './status.js';
+import { isRunBranch, moveSkipped, moveToNewBranch, openMovedPr, whyMove } from './branch-move.js';
 import { formatRecoveryCli, stageRecoveryHint } from './hints.js';
 import { appendRound, priorStarts } from './observe.js';
 import { redCommitTestFiles, resultsAt } from './gates.js';
@@ -199,9 +200,18 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
   status.runNumber = runNumber;
   status.previousRun = previousRun;
   const git = new Git(root, env);
+  // A run that moved to <prefix><slug>-N stays there on a resume: the worktree's branch is the run's branch.
+  const defaultBranch = `${config.git.branchPrefix}${slug}`;
+  const current = (git.tryRun('symbolic-ref', '--short', '-q', 'HEAD') || '').trim();
+  const branch = current && isRunBranch(current, config.git.branchPrefix, slug) ? current : defaultBranch;
+  const moved = previousBranch(status.file);
+  if (branch !== defaultBranch) {
+    status.branch = branch;
+    if (moved.movedFrom) status.movedFrom = moved.movedFrom;
+  }
   const ctx: Ctx = {
     root, config, layout: lay, slug, from, fromN: FROM_STAGES.indexOf(from) + 1, docs, log, backlog,
-    branch: `${config.git.branchPrefix}${slug}`, env, envModels: envModels(root, env), force: { ...(opts.model ? { model: opts.model } : {}), ...(opts.effort ? { effort: opts.effort } : {}) }, registryFile: registryFile(env), limits,
+    branch, ...(status.movedFrom ? { movedFrom: { branch: status.movedFrom.branch, pr: status.movedFrom.pr, reason: status.movedFrom.reason } } : {}), env, envModels: envModels(root, env), force: { ...(opts.model ? { model: opts.model } : {}), ...(opts.effort ? { effort: opts.effort } : {}) }, registryFile: registryFile(env), limits,
     priorStage, runNumber, previousRun, git, keys: new Keys(testLayout(config), root), status, spawnAgent: opts.spawnAgent || spawnAgentProcess, signal: opts.signal,
     promptsDir: opts.promptsDir || PROMPTS_DIR, guide: codeSearchGuide(search, root),
     allowed: [...new Set([...allowedTools(config), `Bash(${testFileCmd}:*)`, `Bash(${fetchCmd}:*)`])], testFileCmd, fetchCmd,
@@ -216,6 +226,12 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
 async function stages(ctx: Ctx): Promise<void> {
   const { git, fromN } = ctx;
   git.checkoutBranch(ctx.branch);
+  // A start at Spec or Plan on a branch origin has moved on from, or whose pull request is closed or merged, goes on
+  // a new branch (a later start never moves: Resolve conflicts works on the pull request's own branch).
+  if ((ctx.from === 'spec' || ctx.from === 'plan') && !moveSkipped(ctx.env)) {
+    const why = whyMove(ctx);
+    if (why) { moveToNewBranch(ctx, why); await openMovedPr(ctx); }
+  }
   // "Fix with Implement": the kept merged result becomes the branch before anything else touches the logs it ended with.
   if (ctx.env.SDLC_ON_ATTEMPT === '1') adoptKeptAttempt(ctx);
   await tick();

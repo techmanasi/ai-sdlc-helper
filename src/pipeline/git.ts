@@ -21,6 +21,16 @@ export class Git {
     }
   }
 
+  /** Like run, but gives up after <timeoutMs> (a fetch from a remote that does not answer). */
+  runTimeout(timeoutMs: number, ...args: string[]): string {
+    try {
+      return execFileSync('git', args, { cwd: this.root, env: this.env, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      const err = e as { stderr?: string; stdout?: string; message: string };
+      throw new GitError(`git ${args.join(' ')} failed: ${String(err.stderr || err.stdout || err.message).trim()}`);
+    }
+  }
+
   /** Runs git; null when it fails. */
   tryRun(...args: string[]): string | null {
     try { return this.run(...args); } catch { return null; }

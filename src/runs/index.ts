@@ -7,6 +7,7 @@ import { spawnSync } from '../trace.js';
 import { fileURLToPath } from 'node:url';
 import { CONFIG_FILE, exists, readSettings } from '../util.js';
 import { shellArgv } from '../shell.js';
+import { isRunBranch } from '../gitdir.js';
 import { PERSONAL_ENV, personalAgentOf } from '../config/personal.js';
 import { forceEnv, resolve, worktreeBase, type Force } from '../config/settings.js';
 import { findContaining, readRegistry, type ProjectOverrides } from '../registry/projects.js';
@@ -235,7 +236,12 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
       }
     }
     const wt = rec?.worktree && exists(path.join(rec.worktree, '.git')) ? rec.worktree : path.join(ctx.wtBase, slug);
-    const branch = branchOf(ctx, slug, rec?.worktree === wt ? rec : null);
+    let branch = branchOf(ctx, slug, rec?.worktree === wt ? rec : null);
+    // A run moved to a new branch keeps working there: the worktree's own branch is the truth.
+    if (exists(path.join(wt, '.git'))) {
+      const current = git(wt, ['symbolic-ref', '--short', '-q', 'HEAD'], ctx.env).stdout.trim();
+      if (current && isRunBranch(current, ctx.branchPrefix, slug)) branch = current;
+    }
     const base = pickBase(ctx);
     let created = false;
     if (!exists(path.join(wt, '.git'))) {

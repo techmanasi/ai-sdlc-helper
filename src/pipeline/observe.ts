@@ -153,7 +153,10 @@ export function repeatedFailures(previous: string[] | null, now: string[]): bool
   return now.every(f => was.has(f));
 }
 
-export function appendRound(logDir: string, row: AgentRound | GateResult | RoundStart | RunMark): void {
+/** Written when a run moves to a new branch (readRounds ignores it). */
+export interface MoveMark { kind: 'move'; at: string; from: string; to: string; reason: string }
+
+export function appendRound(logDir: string, row: AgentRound | GateResult | RoundStart | RunMark | MoveMark): void {
   try {
     fs.mkdirSync(logDir, { recursive: true });
     fs.appendFileSync(path.join(logDir, 'attempts.jsonl'), `${JSON.stringify(row)}\n`);
