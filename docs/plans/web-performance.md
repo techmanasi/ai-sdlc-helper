@@ -788,6 +788,26 @@ Section 10 asked for "no `gh` on the request path" for this page. A load with an
 load still waits for the one list, because whether a task is in the list depends on its PR being merged. Showing
 rows first and their state later would change the list's rows after they are shown; not built, see the PR.
 
+### Rows first, and the start-up warm-up (2026-11-14, the follow-up)
+
+Decided by the user: rows at once, PR states after. `GET …/completed?rows=first` answers from git and the cache and
+marks unknown PRs `prPending`; the page then asks the settled list (`GET …/completed`, unchanged, so its content is
+exactly what section 15's test pins) only when a row is pending, and names the rows that left ("N tasks removed: PR
+not merged"). The settled request joins the gh calls the rows request started. The server also warms every
+registered project's statuses 3 s after it starts (`SDLC_WARM_PR_CACHE=0` turns it off), so the first list after a
+start is warm. Same probe, 120 tasks, fake gh 850 ms, median of 5:
+
+| Load | First rows | Settled | gh calls |
+|---|---|---|---|
+| Cold, one request (#137) | 2.10 s | 2.10 s | 7 |
+| Cold, rows first | 0.18 s | 2.18 s | 7 |
+| First load after a start with the warm-up done | 0.24 s | 0.24 s | 0 at the load |
+| Warm, 20 merged runs in worktrees (#137 → now) | 1.12 s → 0.18 s | same | 2 → 0 |
+| Restart, the same 20 (#137 → now) | 2.01 s → 0.18 s | same | 8 → 0 |
+
+The worktree fix: a merged run whose link the #136 cleanup took out of the main checkout's brief keeps being keyed by
+its run worktree's link (cached), not by its branch.
+
 ## Appendix: mapping from the two superseded plans
 
 | Old step | Here |

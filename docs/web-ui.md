@@ -330,6 +330,20 @@ plugin or the page shows in all three, and the server keeps only a cache it can 
 | Permission rules | `.claude/sdlc-permissions.json`; committed |
 | Projects, model providers | the user's config directory (`~/.config/ai-sdlc-helper/`); keys by variable name only |
 
+| Pull request statuses | `<git common dir>/sdlc-runs/pr-status.cache`, written whenever GitHub answers; a restarted server reads it back |
+
+Pull request statuses come from `gh`. The server's settings for them, all environment variables:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SDLC_PR_POLL_MS` | 3600000 (an hour) | how long a known status counts as fresh; a merged PR is never asked again |
+| `SDLC_PR_TIMEOUT_MS` | 3000 | how long one `gh pr view` may take; the Completed list's one `gh pr list` gets 2 + 2 per 100 PRs times that |
+| `SDLC_WARM_PR_CACHE` | on | `0` turns off the start-up warm-up: 3 s after the server starts, it asks the statuses of every registered project's Completed list, one project at a time, so the first list finds them cached. Projects without a GitHub `origin`, without `gh`, or whose statuses are still fresh are skipped; a failure goes to `<git common dir>/sdlc-runs/errors.log` and one line on stderr |
+
+The Completed page asks for its rows first (`GET …/completed?rows=first`: what git and the cache know, at once; a
+PR not known yet is `prPending`), then, only when a row is pending, for the settled list (`GET …/completed`, which
+waits for GitHub). Rows whose PR turns out not to be merged leave the list, and the page says how many.
+
 Phase 2 adds `queue.json` (the run queue, so it survives a server restart) and prompt overrides in
 `<project>/.sdlc/prompts/` and the user's config directory, both files too.
 
