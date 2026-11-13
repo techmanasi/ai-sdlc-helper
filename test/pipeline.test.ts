@@ -65,7 +65,10 @@ describe('a full run', () => {
     expect(read(f.fake, 'env-implement.txt')).not.toMatch(/^FROM=/m);
 
     const st = statusOf(f.dir);
-    expect(Object.keys(st)).toEqual(['slug', 'state', 'stage', 'agent', 'model', 'effort', 'models', 'attempt', 'agent_started', 'run_started', 'updated', 'pid', ...(process.platform === 'win32' ? [] : ['pid_start']), 'note']);
+    expect(Object.keys(st)).toEqual(['slug', 'state', 'stage', 'agent', 'model', 'effort', 'models', 'attempt', 'agent_started', 'run_started', 'updated', 'pid', ...(process.platform === 'win32' ? [] : ['pid_start']), 'note', 'run_number']);
+    // The first start of an item: nothing came before it.
+    expect(st.run_number).toBe(1);
+    expect(st.previous_run).toBeUndefined();
     expect(st).toMatchObject({ slug: SLUG, state: 'done', stage: 'Finalise', agent: '', model: '', effort: '', attempt: '', pid: process.pid });
     expect(st.models).toEqual({
       spec: { model: 'opus', effort: 'medium' }, plan: { model: 'opus', effort: 'medium' }, 'red-tests': { model: 'sonnet', effort: 'medium' },
