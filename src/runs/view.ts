@@ -18,6 +18,7 @@ import { Git } from '../pipeline/git.js';
 import { commonDirOf, stampOf, worktreeInputs } from '../gitdir.js';
 import { withAnswerLines } from '../pipeline/questions.js';
 import { redPattern } from '../pipeline/stages.js';
+import { cleanMergedRunBrief } from './completed.js';
 
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused';
 
@@ -576,13 +577,16 @@ export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): Bo
   const backlog = backlogItems({ root: ctx.root, backlogDir: ctx.backlogDir, branchPrefix: ctx.branchPrefix }, { keepBranches: true });
   const runs = projectSlugs(ctx, { keep: true }).map((slug): RunCard => {
     const v = runView(ctx, slug, { changes: opts.changes, tailLines: 0, checkPr: false, parts: ['live', 'git'], cacheGit: true, gitMaxAgeMs: BOARD_GIT_MAX_AGE_MS });
+    const pr = v.state === 'done' ? getPrStatusCached(ctx.root, prKeyOf(ctx, slug, v), ctx.env, prPollOptions(ctx.env)) : null;
+    // Merged: the pull request link in the main checkout's brief goes (no git call for a brief already looked at).
+    if (pr?.status?.state === 'MERGED') cleanMergedRunBrief(ctx, slug, v.record, pr.status.url);
     return {
       slug, state: v.state, stage: v.stage, agent: v.agent, model: v.model, effort: v.effort, attempt: v.attempt, note: v.note, updated: v.updated,
       message: v.message, tests: v.tests, branch: v.branch, questions: v.questions.length, permissions: v.permissions.length,
       deniedPermissions: v.deniedPermissions.length,
       changes: v.changes && { changed: v.changes.changed, uncommitted: v.changes.uncommitted },
       // Never waits for gh: the last known status, asked again at most once an hour (a cold cache fills within a poll).
-      pullRequest: v.state === 'done' ? prCard(v.pr || null, getPrStatusCached(ctx.root, prKeyOf(ctx, slug, v), ctx.env, prPollOptions(ctx.env))) : null,
+      pullRequest: pr ? prCard(v.pr || null, pr) : null,
     };
   });
   return { items: backlog ? backlog.items : null, runs, maxParallel: ctx.maxParallel, running: runs.filter(r => r.state === 'running').length };
