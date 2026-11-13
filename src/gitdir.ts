@@ -16,6 +16,24 @@ export function commonDirOf(root: string): string | null {
   } catch { return null; }
 }
 
+/** The files whose change means the commits or the staged files of the working tree at <worktree> changed, read without running git. */
+export function worktreeInputs(worktree: string, commonDir: string | null, branch: string): string[] {
+  const dot = path.join(worktree, '.git');
+  let gitDir = dot;
+  try {
+    if (!fs.statSync(dot).isDirectory()) {
+      const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dot, 'utf8'));
+      if (m) gitDir = path.resolve(worktree, m[1].trim());
+    }
+  } catch { gitDir = dot; }
+  const out = [path.join(gitDir, 'HEAD'), path.join(gitDir, 'index')];
+  if (commonDir) {
+    out.push(path.join(commonDir, 'packed-refs'));
+    if (branch) out.push(path.join(commonDir, 'refs', 'heads', branch));
+  }
+  return out;
+}
+
 /** One text for the modification time and size of each path ('-' for a missing one): equal texts, nothing changed. */
 export const stampOf = (files: readonly string[]): string =>
   files.map(f => { try { const st = fs.statSync(f); return `${st.mtimeMs}:${st.size}`; } catch { return '-'; } }).join('|');
