@@ -1,7 +1,7 @@
 // The Completed Tasks view: lists finished tasks from backlog and git, displays commits and files changed
 // directly from git (resilient across machines), PR link or "Create PR" button, and task archiving controls.
-import { useEffect, useState } from 'preact/hooks';
-import { api, type CompletedTask, type CompletedTaskDetail } from './api';
+import { useEffect, useRef, useState } from 'preact/hooks';
+import { api, type CompletedTask, type CompletedTaskDetail, type PrCheckErrors } from './api';
 import { ErrorBox, Markdown, Panel, Spinner, useApp } from './ui';
 
 export function Completed() {
@@ -13,6 +13,8 @@ export function Completed() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [prErrors, setPrErrors] = useState<PrCheckErrors>([]);
+  const marked = useRef(false);
   const [filter, setFilter] = useState<'all' | 'active' | 'archived'>('all');
   const [query, setQuery] = useState('');
 
@@ -22,6 +24,7 @@ export function Completed() {
     try {
       const res = await api.completed(project);
       setTasks(res.completed);
+      setPrErrors(res.prErrors || []);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -46,12 +49,29 @@ export function Completed() {
     loadTasks();
   }, [project]);
 
+  // The page's first load, for measuring it: when the rows are painted, and when every row's PR state is shown (the
+  // list answers both at once, so the marks are one frame apart at most).
+  useEffect(() => {
+    if (loading || marked.current) return;
+    marked.current = true;
+    requestAnimationFrame(() => {
+      try { performance.mark('completed:first-row', { detail: { rows: tasks.length } }); performance.mark('completed:pr-states'); } catch { /* marks are for measuring only */ }
+    });
+  }, [loading]);
+
+  // Archiving answers which tasks it archived, so the list is changed here rather than asked for again.
+  const markArchived = (slugs: string[]) => {
+    const done = new Set(slugs);
+    setTasks(ts => ts.map(t => (done.has(t.slug) ? { ...t, archived: true } : t)));
+  };
+
   const handleArchive = async (slug: string) => {
     setBusyAction(`archive-${slug}`);
     try {
-      await api.archiveTask(project, slug);
+      const res = await api.archiveTask(project, slug);
+      if (!res.archived) throw new Error(`${slug} could not be archived`);
       toast(`Archived ${slug}`);
-      await loadTasks();
+      markArchived([slug]);
       if (selectedSlug === slug && detail) {
         setDetail({ ...detail, archived: true });
       }
@@ -67,8 +87,8 @@ export function Completed() {
     try {
       const res = await api.archiveAll(project, { olderThanDays: undefined });
       toast(`Archived ${res.count} task(s)`);
-      await loadTasks();
-      if (detail) {
+      markArchived(res.archived || []);
+      if (detail && (res.archived || []).includes(detail.slug)) {
         setDetail({ ...detail, archived: true });
       }
     } catch (e) {
@@ -84,6 +104,7 @@ export function Completed() {
       const res = await api.createCompletedPr(project, slug);
       if (res.ok && res.pr) {
         toast(`PR created: ${res.pr}`);
+        // Asked for again: whether the task stays in the list depends on the new PR's state, which the answer does not hold.
         await loadTasks();
         if (selectedSlug === slug) {
           await loadDetail(slug);
@@ -160,6 +181,11 @@ export function Completed() {
       </div>
 
       <ErrorBox error={error} />
+      {prErrors.length > 0 && (
+        <div class="error" role="alert">
+          GitHub could not be asked about {prErrors.length} pull request{prErrors.length === 1 ? '' : 's'}; their state may be missing or old (the whole message is in each task's logs/errors.log): {prErrors[0].message.split('\n')[0]}
+        </div>
+      )}
 
       <div class="row" style={{ gap: '10px', alignItems: 'center' }}>
         <input
@@ -216,6 +242,7 @@ export function Completed() {
                   </button>
                   <div class="row" style={{ gap: '4px' }}>
                     {t.archived && <span class="tag muted">Archived</span>}
+                    {t.prError && <span class="tag s-failed" title={t.prError}>PR check failed</span>}
                     {t.pr ? (
                       <a
                         href={t.pr}

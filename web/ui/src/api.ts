@@ -87,7 +87,12 @@ export interface CompletedTask {
   prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null;
   archived: boolean;
   date?: string | null;
+  /** The last check of the PR failed: gh's message. */
+  prError?: string;
 }
+
+/** Every PR whose check failed, also of tasks the list leaves out (absent when all answered). */
+export type PrCheckErrors = { slug: string; pr: string; message: string }[];
 
 export interface CommitInfo {
   sha: string;
@@ -225,14 +230,14 @@ export const api = {
   testIssues: (project: string, slug: string) => call<{ slug: string; text: string | null }>('GET', `${r(project, slug)}/test-issues`),
   saveTestIssues: (project: string, slug: string, text: string, resume = true) =>
     call<{ ok: boolean; text: string; resumed: Outcome | null }>('POST', `${r(project, slug)}/test-issues`, { text, resume }),
-  completed: (project: string) => call<{ completed: CompletedTask[] }>('GET', `${p(project)}/completed`),
+  completed: (project: string) => call<{ completed: CompletedTask[]; prErrors?: PrCheckErrors }>('GET', `${p(project)}/completed`),
   completedTask: (project: string, slug: string) => call<CompletedTaskDetail>('GET', `${p(project)}/completed/${encodeURIComponent(slug)}`),
   createCompletedPr: (project: string, slug: string) =>
     call<{ ok: boolean; pr: string | null; out: string[]; err: string[] }>('POST', `${p(project)}/completed/${encodeURIComponent(slug)}/pr`, {}),
   syncCompletedPrComments: (project: string, slug: string) =>
     call<PrSync>('POST', `${p(project)}/completed/${encodeURIComponent(slug)}/sync`, {}),
   archiveTask: (project: string, slug: string) => call<{ ok: boolean; archived: boolean }>('POST', `${p(project)}/archive/${encodeURIComponent(slug)}`, {}),
-  archiveAll: (project: string, opts?: { olderThanDays?: number }) => call<{ ok: boolean; count: number }>('POST', `${p(project)}/archive`, opts || {}),
+  archiveAll: (project: string, opts?: { olderThanDays?: number }) => call<{ ok: boolean; count: number; archived: string[] }>('POST', `${p(project)}/archive`, opts || {}),
   command: (project: string, args: string[]) => call<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }>('POST', `${p(project)}/command`, { args }),
   triage: (project: string) => call<{ run: TriageRun | null }>('GET', `${p(project)}/triage`),
   triageStart: (project: string, body: { report: string; quick: boolean }, onEvent: (e: TriageEvent) => void, signal?: AbortSignal) =>
