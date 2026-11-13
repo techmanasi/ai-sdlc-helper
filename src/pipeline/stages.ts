@@ -17,6 +17,7 @@ import { resumeCommand, resumeHint } from './hints.js';
 import { finalise, getPrFromBrief, markPrReady } from './finalise.js';
 import { installDeps } from './deps.js';
 import { appendRound, repeatedFailures } from './observe.js';
+import { keepError } from './errors.js';
 import { withAnswerLines } from './questions.js';
 import { checkCiAvailability, waitForCiAndClassify, type CiStepResult } from './ci.js';
 import { ciFailureText, ciState, ciStatusLine, ciWarnings, duration, localCounts, setCiStatus } from './ci-rounds.js';
@@ -73,6 +74,7 @@ export function formatCheckFailures(ctx: Ctx): string[] {
       if (res && Array.isArray(res.suiteErrors)) {
         for (const e of res.suiteErrors) {
           const msg = String(e.message || '').trim().split('\n')[0];
+          if (String(e.message || '').trim().includes('\n')) keepError(ctx, `suite ${e.file || '(unknown)'}`, String(e.message));
           lines.push(`ERROR: suite ${e.file || '(unknown)'} failed to run${msg ? `: ${msg}` : ''}`);
         }
       }
@@ -80,6 +82,7 @@ export function formatCheckFailures(ctx: Ctx): string[] {
         const failed = res.tests.filter((t: any) => t.status === 'failed');
         for (const t of failed) {
           const msg = String(t.message || '').trim().split('\n')[0];
+          if (String(t.message || '').trim().includes('\n')) keepError(ctx, `test ${t.file} :: ${t.name}`, String(t.message));
           lines.push(`FAIL: ${t.file} :: ${t.name}${msg ? ` (${msg})` : ''}`);
         }
       }
@@ -358,6 +361,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
         endRound('Push failed (paused)');
         setCiStatus(ctx, { state: 'timed out (paused)', reason: 'push failed' });
         saveAttempts(ctx, i - 1);
+        keepError(ctx, 'implement push', String((e as Error).message));
         return stop(ctx, `PAUSED: ${String((e as Error).message).split('\n')[0]}. Fix it and resume with FROM=implement (${resumeCommand(ctx.slug, 'implement')})`, 2);
       }
       let result: CiStepResult;
@@ -499,6 +503,8 @@ function retryUnclaimed(ctx: Ctx): void {
  */
 export async function testRepairStage(ctx: Ctx): Promise<void> {
   stage(ctx, '4b Test repair (only because the Implement agent claimed test defects)');
+  // Same as Review: a run resumed at Test repair is a new process that has not asked about CI yet.
+  if (ctx.config.tests.fullSuite === 'ci' && ctx.ciAvailable === undefined) await openCi(ctx);
   await tick();
   ctx.status?.beginStep?.('trigger');
   const specs = ctx.layout.testPathspecs;
@@ -581,6 +587,9 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
 /** Review: the agent reviews and fixes the source; the tests must not change and every check must still pass. */
 export async function reviewStage(ctx: Ctx): Promise<void> {
   stage(ctx, '5/6 Review');
+  // A run resumed here is a new process that has not asked about CI yet; without the answer the check after the review
+  // would run the whole suite here.
+  if (ctx.config.tests.fullSuite === 'ci' && ctx.ciAvailable === undefined) await openCi(ctx);
   await tick();
   ctx.status.attempt = '1/1';
   ctx.status.write();

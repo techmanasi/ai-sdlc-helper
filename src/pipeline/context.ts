@@ -58,6 +58,10 @@ export interface Ctx {
   env: NodeJS.ProcessEnv;
   /** The stage the previous run of this item ended at ('' for none): what a resume refused before its first stage keeps. */
   priorStage?: string;
+  /** Which start of this item this run is: 1 for the first. */
+  runNumber?: number;
+  /** How the start before this one ended, when this is not the first. */
+  previousRun?: { stage?: string; state?: string; at?: string };
   /** SDLC_PROVIDER* keys read from the project's .env, for model resolution only (never passed on). */
   envModels: Record<string, string>;
   /** --model and --effort of the run, for every stage. */

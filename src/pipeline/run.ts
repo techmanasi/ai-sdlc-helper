@@ -16,9 +16,9 @@ import { projectRoot } from '../runs/records.js';
 import { Git } from './git.js';
 import { envModels, modelEnvOf, registryFile, stageModels } from './models.js';
 import { PROMPTS_DIR } from './prompts.js';
-import { Status, finalState, previousStage } from './status.js';
+import { Status, finalState, previousStage, previousState } from './status.js';
 import { formatRecoveryCli, stageRecoveryHint } from './hints.js';
-import { appendRound } from './observe.js';
+import { appendRound, priorStarts } from './observe.js';
 import { redCommitTestFiles, resultsAt } from './gates.js';
 import { adoptKeptAttempt, resolveConflictsStage } from './resolve-conflicts.js';
 import {
@@ -187,11 +187,22 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
 
   const status = new Status(path.join(root, log, 'status.json'), slug);
   const priorStage = previousStage(status.file);
+  // Read before status.write() below replaces the file: how the previous start ended.
+  const priorState = previousState(status.file);
+  const prior = priorStarts(path.join(root, log));
+  const runNumber = prior.count + 1;
+  const previousRun = runNumber > 1 ? {
+    ...(prior.stage || priorStage ? { stage: prior.stage || priorStage } : {}),
+    ...(priorState ? { state: priorState } : {}),
+    ...(prior.at ? { at: prior.at } : {}),
+  } : undefined;
+  status.runNumber = runNumber;
+  status.previousRun = previousRun;
   const git = new Git(root, env);
   const ctx: Ctx = {
     root, config, layout: lay, slug, from, fromN: FROM_STAGES.indexOf(from) + 1, docs, log, backlog,
     branch: `${config.git.branchPrefix}${slug}`, env, envModels: envModels(root, env), force: { ...(opts.model ? { model: opts.model } : {}), ...(opts.effort ? { effort: opts.effort } : {}) }, registryFile: registryFile(env), limits,
-    priorStage, git, keys: new Keys(testLayout(config), root), status, spawnAgent: opts.spawnAgent || spawnAgentProcess, signal: opts.signal,
+    priorStage, runNumber, previousRun, git, keys: new Keys(testLayout(config), root), status, spawnAgent: opts.spawnAgent || spawnAgentProcess, signal: opts.signal,
     promptsDir: opts.promptsDir || PROMPTS_DIR, guide: codeSearchGuide(search, root),
     allowed: [...new Set([...allowedTools(config), `Bash(${testFileCmd}:*)`, `Bash(${fetchCmd}:*)`])], testFileCmd, fetchCmd,
     // Repository-wide allow rules live in the main working tree, so every worktree run sees them.
@@ -209,7 +220,16 @@ async function stages(ctx: Ctx): Promise<void> {
   if (ctx.env.SDLC_ON_ATTEMPT === '1') adoptKeptAttempt(ctx);
   await tick();
   ctx.out(`SDLC: ${ctx.slug} on branch ${ctx.branch}`);
-  appendRound(at(ctx, ctx.log), { kind: 'run', at: stamp(), from: ctx.from });
+  const trigger = ctx.env.SDLC_RUN_TRIGGER === 'ui' ? 'ui' : 'cli';
+  const n = ctx.runNumber ?? 1;
+  if (n > 1) {
+    const p = ctx.previousRun || {};
+    ctx.out(`Start ${n} of this item, started from the ${trigger === 'ui' ? 'web UI' : 'command line'}: the previous start ended ${p.state || 'without a recorded state'} at ${p.stage || 'no stage'}${p.at ? ` (${p.at})` : ''}`);
+  }
+  appendRound(at(ctx, ctx.log), {
+    kind: 'run', at: stamp(), from: ctx.from, n, trigger,
+    ...(n > 1 && ctx.previousRun ? { previous: ctx.previousRun } : {}),
+  });
   // A previous run's test logs describe another state of the code: this run writes its own before anyone reads them. They are moved
   // aside, not deleted: a run never throws its logs away.
   setAside(ctx, ['tests.log', 'tests.json', 'integration.log'].map(f => `${ctx.log}/${f}`));

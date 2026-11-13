@@ -10,6 +10,7 @@ import { parseNodeTest } from '../runners/nodeTest.js';
 import type { RunParts } from '../runners/types.js';
 import { checkAllowedFailures, isRedTest, matchesAllowEntry } from './allow-failures.js';
 import type { Ctx } from './context.js';
+import { keepError } from './errors.js';
 import { clearPrCache, createOrGetPr, getPrStatus, getPrFromBrief, recordPrInBrief, type CheckRunStatus, type PrStatus } from './finalise.js';
 
 export type CiClassification = 'infrastructure' | 'pre-existing' | 'flaky' | 'allowed' | 'side-effect';
@@ -46,8 +47,19 @@ const QUERY_FAILURES_ALLOWED = 3;
 const REPORT_MISSING_LINE = 'CI test report not found: classifying by check';
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => { setTimeout(resolve, ms); });
-const firstLine = (s: string): string => String(s).split('\n').map(l => l.trim()).find(Boolean) || '';
-const cleanGitMessage = (s: string): string => firstLine(s).replace(/^git .* failed:\s*/, '');
+
+/**
+ * The line of a failed git command that says why. A rejected push starts with "To <url>", and the reason (the
+ * [rejected] line, error:, hint:) comes after it, so the first line alone is useless.
+ */
+export function gitReason(message: string): string {
+  const lines = String(message).replace(/^\s*git .*? failed:\s*/, '').split('\n').map(l => l.trim()).filter(Boolean);
+  const pick = lines.find(l => /\[rejected\]|\[remote rejected\]/.test(l))
+    || lines.find(l => /^(?:error:|fatal:|remote:)/.test(l))
+    || lines.find(l => !l.startsWith('To '))
+    || '';
+  return pick.replace(/ {2,}/g, ' ');
+}
 
 // --- Availability ----------------------------------------------------------------------------------------------------
 
@@ -55,7 +67,7 @@ const cleanGitMessage = (s: string): string => firstLine(s).replace(/^git .* fai
  * Whether the full suite can run in CI: an origin remote, gh installed and signed in, the branch pushed (with upstream
  * tracking), and an open PR for it (a draft is opened when there is none). The PR link goes into brief.md.
  */
-export async function checkCiAvailability(ctx: Ctx): Promise<{ available: boolean; reason?: string; pr?: string; prDraft?: boolean }> {
+export async function checkCiAvailability(ctx: Ctx): Promise<{ available: boolean; reason?: string; pr?: string; prDraft?: boolean; rejected?: boolean }> {
   let remotes = '';
   try { remotes = ctx.git.run('remote'); } catch { remotes = ''; }
   if (!remotes.split('\n').map(s => s.trim()).includes('origin')) return { available: false, reason: 'no remote' };
@@ -66,11 +78,20 @@ export async function checkCiAvailability(ctx: Ctx): Promise<{ available: boolea
   const version = gh(['--version']);
   if (!version || version.status !== 0) return { available: false, reason: 'gh not installed' };
   const auth = gh(['auth', 'status']);
-  if (!auth || auth.status !== 0) return { available: false, reason: 'gh not authenticated' };
+  if (!auth || auth.status !== 0) {
+    keepError(ctx, 'gh auth status', auth ? `${String(auth.stderr || '')}\n${String(auth.stdout || '')}`.trim() || 'no output available' : 'no output available');
+    return { available: false, reason: 'gh not authenticated' };
+  }
 
   const branch = ctx.branch;
   try { ctx.git.run('push', '-u', 'origin', branch); } catch (e) {
-    return { available: false, reason: `push failed: ${cleanGitMessage((e as Error).message)}` };
+    const message = (e as Error).message;
+    keepError(ctx, 'push', message);
+    return {
+      available: false,
+      reason: `push failed: ${gitReason(message)}; the whole message is in ${ctx.log}/errors.log`,
+      ...(/non-fast-forward|fetch first|\[rejected\]/.test(message) ? { rejected: true } : {}),
+    };
   }
 
   clearPrCache();
@@ -79,7 +100,10 @@ export async function checkCiAvailability(ctx: Ctx): Promise<{ available: boolea
     const title = `feat(${ctx.slug}): implement per ${ctx.docs}/specs-1.md`;
     const body = `Automated draft for \`${ctx.slug}\`.\n\nSpecs: \`${ctx.docs}/specs-1.md\``;
     const url = createOrGetPr(ctx.root, branch, title, body, ctx.config.git.base || undefined, { draft: true });
-    if (!url) return { available: false, reason: 'PR could not be created' };
+    if (!url) {
+      keepError(ctx, 'gh pr create', 'no output available');
+      return { available: false, reason: 'PR could not be created' };
+    }
     clearPrCache();
     pr = getPrStatus(ctx.root, url, ctx.env) || { url, state: 'OPEN', isDraft: true };
   }

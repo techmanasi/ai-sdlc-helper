@@ -39,6 +39,12 @@ export interface RunMark {
   kind: 'run';
   at: string;
   from: string;
+  /** Which start of the item this is (1 for the first). */
+  n?: number;
+  /** The last stage the start before this one reached, and how it ended. */
+  previous?: { stage?: string; agent?: string; state?: string; at?: string };
+  /** What started the run: the web UI or the command line. */
+  trigger?: 'ui' | 'cli';
 }
 
 export interface GateResult {
@@ -152,6 +158,23 @@ export function appendRound(logDir: string, row: AgentRound | GateResult | Round
     fs.mkdirSync(logDir, { recursive: true });
     fs.appendFileSync(path.join(logDir, 'attempts.jsonl'), `${JSON.stringify(row)}\n`);
   } catch { /* observability never stops a run */ }
+}
+
+/** How many starts the item had before this one, and the last stage the latest of them reached (from its rows after its run line). */
+export function priorStarts(logDir: string): { count: number; stage?: string; agent?: string; at?: string } {
+  let text = '';
+  try { text = fs.readFileSync(path.join(logDir, 'attempts.jsonl'), 'utf8'); } catch { return { count: 0 }; }
+  let count = 0;
+  let last: { stage?: string; agent?: string; at?: string } = {};
+  for (const line of text.split('\n').filter(Boolean)) {
+    let row: { kind?: string; stage?: unknown; agent?: unknown; at?: unknown };
+    try { row = JSON.parse(line); } catch { continue; }
+    if (row.kind === 'run') { count++; last = {}; }
+    else if (typeof row.stage === 'string' && row.stage) {
+      last = { stage: row.stage, ...(typeof row.agent === 'string' && row.agent ? { agent: row.agent } : {}), ...(typeof row.at === 'string' ? { at: row.at } : {}) };
+    }
+  }
+  return { count, ...last };
 }
 
 /** The rounds since the pipeline was last started, in order, each agent round with the gate result that followed it. */

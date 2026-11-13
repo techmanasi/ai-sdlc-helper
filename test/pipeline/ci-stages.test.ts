@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { implementStage, redTestsStage, finaliseStage } from '../../src/pipeline/stages.js';
+import { implementStage, redTestsStage, reviewStage, finaliseStage } from '../../src/pipeline/stages.js';
 import { runAgent } from '../../src/pipeline/agent.js';
 import { successCheck, testsPass } from '../../src/pipeline/gates.js';
 import { finalise } from '../../src/pipeline/finalise.js';
@@ -174,5 +174,22 @@ describe('CI stage orchestration (spec 4, 7, 9)', () => {
     await expect(implementStage(cast(ctx))).rejects.toMatchObject({ code: 2 });
     expect(ctx.ciAvailable).toBe(true);
     expect(ctx.out.mock.calls.flat().join('\n')).toContain('FROM=implement');
+  });
+  it('S16 a run resumed at Review asks about CI first, so the check after the review leaves the full suite to CI', async () => {
+    const ctx = context(); ctx.from = 'review'; ctx.fromN = 6;
+    (ctx as { ciAvailable?: boolean }).ciAvailable = undefined;
+    let seen: boolean | undefined;
+    vi.mocked(successCheck).mockImplementation(async c => { seen = c.ciAvailable; return true; });
+    await reviewStage(cast(ctx));
+    expect(ci.available).toHaveBeenCalledTimes(1);
+    expect(ctx.ciAvailable).toBe(true);
+    expect(seen).toBe(true);
+  });
+  it('S17 Review does not ask again when this process already knows, and local mode never asks', async () => {
+    const known = context();
+    await reviewStage(cast(known));
+    const local = context('local'); (local as { ciAvailable?: boolean }).ciAvailable = undefined;
+    await reviewStage(cast(local));
+    expect(ci.available).not.toHaveBeenCalled();
   });
 });

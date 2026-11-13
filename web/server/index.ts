@@ -102,7 +102,8 @@ const gitTop = (dir: string, env: NodeJS.ProcessEnv): Promise<string | null> => 
 const outcome = (o: Outcome) => ({ ok: o.code === 0, code: o.code, out: o.out, err: o.err });
 
 export async function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
-  const env = opts.env || process.env;
+  // Every run this server starts gets its environment from here, so one marker says the web UI started it.
+  const env: NodeJS.ProcessEnv = { ...(opts.env || process.env), SDLC_RUN_TRIGGER: 'ui' };
   const token = opts.token || crypto.randomBytes(24).toString('base64url');
   const uiDir = opts.uiDir || path.join(here, '..', 'ui');
   const cli = opts.cli || [process.execPath, path.join(here, '..', '..', 'bin.js')];
