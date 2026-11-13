@@ -749,6 +749,38 @@ The median did not fall; the gain is the long tail and the spawn count.
   6 `gh` calls are one per finished run and are not repeated after a restart since #127.
 - **Decided (2026-11-14):** one connection per browser (section 12) is a future enhancement, not built now; close-when-hidden stays the current behaviour.
 
+## 15. The Completed list (2026-11-14)
+
+Measured with `scripts/completed-probe.mjs` (120 completed tasks, a fake `gh` answering in 850 ms, what a live
+`gh pr view` took on this repository; 5 runs each, median), before on `main` 851a137 and after on the same seeded state.
+
+| Load | Before | After | gh calls before / after |
+|---|---|---|---|
+| Cold (nothing known) | 32.1 s | 2.2 s | 120 / 7 |
+| Warm (cache fresh) | 4.0 s | 0.24 s | 0 / 0 |
+| Restart (pr-status.cache present) | 32.2 s | 0.18 s | 120 / 0 |
+| Expired (poll time passed) | 4.5 s | 0.28 s | 12 in the background, both |
+
+Where the time went, and what changed (`src/runs/completed.ts`):
+
+- **Blocking git per row (the warm 4 s).** `git log -1` for every task without a run record, `pickBase` (up to 8
+  `git` calls) and `backlogItems`' `for-each-ref`, all `spawnSync`: the event loop was blocked about 4 s per load.
+  Now one asynchronous `git for-each-ref` gives every branch date (`branchDates`, with git's own name lookup order),
+  `pickBaseAsync` asks its candidates in one `git cat-file --batch-check`, and the titles come from the index without
+  the branch lookup. The longest synchronous stretch during a load is now about 40 ms (cpu profile).
+- **A restart forgot every status.** `pr-status.cache` was only read by a board or run view; the list now reads it too.
+- **One `gh pr view` per PR on a cold load.** The links are now asked for in one `gh pr list --state all` with the
+  same fields (`prefetchPrStatuses`); branches without a link still get their own `gh pr view` (gh picks among a
+  branch's PRs), four at a time, while the list runs. The remaining cold floor is those branch calls. Live, the list
+  of this repository's 134 PRs takes 5 to 7 s, against about 0.9 s for one `gh pr view`.
+- **Failures were silent.** A failed check now keeps gh's whole message: in the task's `logs/errors.log` when it
+  happens, on the row (`prError`) and for every task in `prErrors`. `SDLC_PR_TIMEOUT_MS` sets gh's timeout (3 s;
+  the list gets 2 + 2 per 100 PRs times that).
+
+Section 10 asked for "no `gh` on the request path" for this page. A load with anything cached keeps to that; a cold
+load still waits for the one list, because whether a task is in the list depends on its PR being merged. Showing
+rows first and their state later would change the list's rows after they are shown; not built, see the PR.
+
 ## Appendix: mapping from the two superseded plans
 
 | Old step | Here |
