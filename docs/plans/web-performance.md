@@ -1,6 +1,6 @@
 # Web performance: the board, the run page and the run register
 
-Status (2026-11-13): **P0, P1, P2, P3, P5 and P7 are merged. P4, P6, P8 and P9 are pending.**
+Status (2026-11-13): **P0, P1, P2, P3, P5, P7 and P9 are merged or done; P4 and P6 are done as the board watcher; P8 is dropped.**
 Section 12 has what was built, what was measured, and the decision still open. One PR per step, **direct**
 (no backlog briefs).
 Revised 2026-11-12 after a review against the code: P1 and P2 are redesigned,
@@ -268,7 +268,7 @@ P8 only if P9 says so.
   number of `timer:board-rebuild` lines as one tab.
 - **Risk:** medium — the shared snapshot must never be mutated by a client.
 
-### P6 — Push the board on change — **server side done as the board watcher (section 13); client side pending**
+### P6 — Push the board on change — **done: server side is the board watcher (section 13); the client needed nothing (section 14)**
 
 - **Needs:** P4 (the registry) and P5 (the shared poller, its fallback).
 - **Files:** `web/server/index.ts`, new `web/server/board-stream.ts` (uses P4's
@@ -328,7 +328,7 @@ P8 only if P9 says so.
   measured before and after.
 - **Risk:** medium — a stale context is the one failure that is worse than slow.
 
-### P8 — Conditional GET for the backup path (only if P6 leaves one) — **pending**
+### P8 — Conditional GET for the backup path (only if P6 leaves one) — **dropped (section 14)**
 
 - **Files:** the run route in `web/server/index.ts`.
 - **Change:** fingerprint the run's record, `status.json`, `permissions.json`,
@@ -342,7 +342,7 @@ P8 only if P9 says so.
   its own measurement rather than borrowing that figure.
 - **Risk:** low. Drop this step if P6 leaves the backup path rare.
 
-### P9 — Measure, then tune or delete — **pending (idle-board numbers taken: section 12)**
+### P9 — Measure, then tune or delete — **done (section 14)**
 
 - **No code, no files, no tests by design** — the one exception to the rule
   above. Run the trace report on four states (section 6), with the counting
@@ -558,9 +558,9 @@ repeated suite runs), which speed up pipeline runs, not the web pane.
 | P3 kept branch names and main tree | **done** | #123 | no 10 s slow tick and no live stale age: see below |
 | P5 one board feed per project | **done** | #121 | merged 2026-11-13 on its three-window numbers |
 | P4 watcher registry | **replaced** | | by the board watcher, section 13: one watcher set per project feed, so no registry is needed |
-| P6 push the board on change | **server side done** | | section 13; pending on the client: menu counts on every page (one stream per tab) |
-| P8 conditional GET | **pending** | | only if P9 says so |
-| P9 measure all four states | **pending** | | only the idle board is measured so far |
+| P6 push the board on change | **done** | #126, #127 | server side is the board watcher (section 13); the client needed nothing (section 14) |
+| P8 conditional GET | **dropped** | | no silent reconnect happened in any measured state (section 14) |
+| P9 measure all four states | **done** | | section 14; it found the finished-run re-reads, fixed in the same PR |
 
 #122 is marked merged on GitHub but was merged into the P7 branch, not `main`; #123 is the same change on `main`.
 
@@ -698,10 +698,47 @@ audit is there to catch), and Windows is untested.
 ### Future enhancements
 
 - Tune `silenceMs` (30 s today; 2 minutes was the first proposal) once the trace shows how often an audit finds a missed change.
-- Cache the cards of finished runs, keyed on their files' fingerprint.
+- Cache the cards of finished runs, keyed on their files' fingerprint. The git part is done (section 14); what is left is skipping the card's file reads (about 17 a run, 8 ms for the whole board).
 - A line in the trace report summarising audits, misses and time spent in fallback.
 - Back-off between failures, if real faults turn out to come in bursts.
 - Linux and Windows measurements with `scripts/watch-probe.mjs`.
+
+## 14. Final measurements (P9), 2026-11-13
+
+A scratch repository with six finished runs and one simulated running run (a real process, its status rewritten every
+10 s and its output appended every 2 s), one headless Chrome tab, logging stand-ins for `git`, `ps` and `gh`, 120 s
+per state, on `main` after #127.
+
+| State | git | ps | gh | Board rebuilds | Longest rebuild | Audits (missed) |
+|---|---|---|---|---|---|---|
+| Cold board (first 16 s) | 43 | 0 | 6 | 2 | 286 ms | 0 |
+| Idle board | 2 | 0 | 0 | 0 | none | 4 (0) |
+| Board, one run running | 64 | 12 | 0 | 12, each after a real change | 276 ms | 0 |
+| Idle run page | 2 | 0 | 0 | 0 | none | 4 (0) |
+| Running run page | 68 | 28 | 0 | 12, each after a real change | 306 ms | 0 |
+
+Idle: one `git worktree list` a minute, no rebuild, no missed change and no watcher failure. Section 6's target (at
+most 2 spawns a minute) is met. Every rebuild followed a real change; no rebuild that changed nothing is left.
+
+**Finding and change.** With a run running, 48 of the 64 git calls were for the six finished runs, read again every
+60 s. Now a finished run's counts are read again only when its git files change (HEAD, index, packed refs and its
+branch ref), or every 10 minutes, the longest an edit that is neither staged nor committed can go unseen. A running
+run is still read every 30 s.
+
+| Board, one run running | git calls | Median rebuild | Longest rebuild |
+|---|---|---|---|
+| Before | 64 | 19 ms (mostly 12 to 21 ms; 72, 74, 78, 266 and 276 ms when counts were read) | 276 ms |
+| After | 20 | 23 ms | 69 ms |
+
+The median did not fall; the gain is the long tail and the spawn count.
+
+- **P6, client side:** nothing to build. The board stream is opened once at the top of the app (`web/ui/src/App.tsx`),
+  so the menu counts are live on every page, and a hidden tab closes it (`useStream`).
+- **P8, dropped:** the backup poll runs only after a reconnect that stays silent. None happened in any state, so a
+  conditional GET would save nothing measurable.
+- **Not measured:** Linux and Windows; more than one tab (section 12 has the three-window numbers). The cold start's
+  6 `gh` calls are one per finished run and are not repeated after a restart since #127.
+- **Open decision carried over:** one connection per browser (section 12). The recommendation is unchanged: drop it.
 
 ## Appendix: mapping from the two superseded plans
 

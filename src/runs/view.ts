@@ -14,6 +14,7 @@ import { ciSummaryOf, getPrFromBrief, getPrStatusCached, keepPrStatusIn, PR_STAT
 import { readRounds, type Round } from '../pipeline/observe.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
+import { commonDirOf, stampOf, worktreeInputs } from '../gitdir.js';
 import { withAnswerLines } from '../pipeline/questions.js';
 import { redPattern } from '../pipeline/stages.js';
 
@@ -338,7 +339,9 @@ export function runView(ctx: RunContext, slug: string, opts: {
   const stateNow = viewState(rec, status);
   if (want('git') && worktree) {
     if (opts.cacheGit) {
-      const key = `${stateNow}|${stageNow}|${s.attempt || ''}|${rec?.finished || ''}`;
+      let key = `${stateNow}|${stageNow}|${s.attempt || ''}|${rec?.finished || ''}`;
+      // A run that is not running changes its commits or staged files only through its git files, so those are the key.
+      if (stateNow !== 'running') key += `|${stampOf(worktreeInputs(worktree, commonDirOf(ctx.root), rec?.branch || ''))}`;
       const g = gitFactsOf(ctx, slug, worktree, key, stateNow === 'running', opts.refresh === true, opts.gitMaxAgeMs);
       redCommit = g.facts.redCommit;
       gitAgeMs = g.ageMs;
@@ -545,8 +548,12 @@ export function boardIgnores(dir: string, file: string, root?: string): boolean 
   return path.basename(dir) === 'logs' && !BOARD_LOG_FILES.includes(file);
 }
 
-/** How old a card's file counts and Red tests commit may be for a run that is not running (a running run: 30 s). */
-export const BOARD_GIT_MAX_AGE_MS = 60_000;
+/**
+ * How old a card's file counts and Red tests commit may be for a run that is not running: they are read again when
+ * the run's git files change (a commit, a staged file) and otherwise every 10 minutes, which is how long an edit that
+ * is neither staged nor committed in a finished run's working tree can go unseen on the board. A running run: 30 s.
+ */
+export const BOARD_GIT_MAX_AGE_MS = 600_000;
 
 /**
  * The board: the backlog and a card for every run of this checkout (see projectSlugs). A card takes its git facts from

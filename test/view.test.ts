@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { answerQuestions, boardIgnores, boardInputs, boardView, clearGitFacts, parseQuestions, resumeStage, runView, syncRunPr } from '../src/runs/view.js';
 import { clearPrCache } from '../src/pipeline/finalise.js';
 import { runContext } from '../src/runs/index.js';
 import { addBacklogItem, backlogItems } from '../src/backlog/index.js';
 import { TRACE_DEFAULTS, startTrace, stopTrace } from '../src/trace.js';
+import { worktreeInputs } from '../src/gitdir.js';
 import { tmp, write } from './helpers.js';
 
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
@@ -323,6 +324,74 @@ describe('the board card', () => {
     expect(boardView(ctx).runs[0].changes!.uncommitted).toBeGreaterThan(before);
   });
 
+  describe('a finished run on the board', () => {
+    afterEach(() => { vi.useRealTimers(); });
+    const finished = () => repoWithRun('add-tokens', { state: 'exited', exit_code: '0', finished: '2026-10-19T10:30:00' }, { 'logs/status.json': { state: 'done', stage: 'Finalise' } });
+    const countsRead = (calls: string[]) => calls.filter(l => /(^| )(merge-base|diff|status|log) /.test(l));
+    /** Builds the board twice, so that git's own refresh of the index (its first status) is behind the run's key. */
+    function settled(ctx: ReturnType<typeof runContext>) { boardView(ctx); boardView(ctx); }
+    const later = (ms: number) => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(Date.now() + ms); };
+
+    test('a finished run\'s file counts are not read again while its git files do not change', () => {
+      const { root } = finished();
+      const c = counting('git');
+      const ctx = runContext(root, c.env);
+      settled(ctx);
+      expect(countsRead(c.calls('git')).length).toBeGreaterThan(0);
+      const n = c.calls('git').length;
+      later(2 * 60_000);
+      boardView(ctx);
+      expect(countsRead(c.calls('git').slice(n))).toEqual([]);
+    });
+
+    test('a commit in a finished run\'s working tree is seen at the next board build', () => {
+      const { root, wt } = finished();
+      const c = counting('git');
+      const ctx = runContext(root, c.env);
+      settled(ctx);
+      const before = boardView(ctx).runs[0].changes!.changed;
+      const n = c.calls('git').length;
+      write(wt, 'src/added.js', 'export const a = 1;\n');
+      git(wt, 'add', '-A');
+      git(wt, 'commit', '-q', '-m', 'more');
+      const after = boardView(ctx).runs[0].changes!;
+      expect(countsRead(c.calls('git').slice(n)).length).toBeGreaterThan(0);
+      expect(after.changed).toBe(before + 1);
+    });
+
+    test('an edit that is not staged is seen after ten minutes at most', () => {
+      const { root, wt } = finished();
+      const c = counting('git');
+      const ctx = runContext(root, c.env);
+      settled(ctx);
+      const before = boardView(ctx).runs[0].changes!.uncommitted;
+      fs.appendFileSync(path.join(wt, 'Docs/backlog/index.md'), '- [ ] `x` - Bug: edit\n');
+      const n = c.calls('git').length;
+      later(2 * 60_000);
+      expect(boardView(ctx).runs[0].changes!.uncommitted).toBe(before);
+      expect(countsRead(c.calls('git').slice(n))).toEqual([]);
+      later(10 * 60_000);
+      expect(boardView(ctx).runs[0].changes!.uncommitted).toBe(before + 1);
+      expect(countsRead(c.calls('git').slice(n)).length).toBeGreaterThan(0);
+    });
+  });
+
+  test('a running run\'s counts are still read again after 30 seconds', () => {
+    const { root } = repoWithRun('add-tokens', { state: 'running', pid: process.pid, exit_code: '' }, { 'logs/status.json': { state: 'running', stage: 'Implement', attempt: '1' } });
+    const c = counting('git');
+    const ctx = runContext(root, c.env);
+    try {
+      boardView(ctx);
+      const n = c.calls('git').length;
+      boardView(ctx);
+      expect(c.calls('git').slice(n).filter(l => / status /.test(l))).toEqual([]);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.now() + 31_000);
+      boardView(ctx);
+      expect(c.calls('git').slice(n).some(l => / status /.test(l))).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
   test('a running run asks ps once per board read', () => {
     const { root } = repoWithRun('add-tokens', { state: 'running', pid: process.pid, exit_code: '' }, { 'logs/status.json': { state: 'running', stage: 'Implement', attempt: '1' } });
     const c = counting('git', 'ps');
@@ -430,5 +499,22 @@ describe('the trace of a board read', () => {
     expect(seen.some(l => l.includes('refs/sdlc-attempt/'))).toBe(true);
     expect(seen.some(l => l.includes('--grep'))).toBe(true);
     expect(traced).toHaveLength(seen.length);
+  });
+});
+
+describe('worktreeInputs', () => {
+  test('for a linked worktree and for a plain repository it names the HEAD and index files under the real git folder', () => {
+    const { root, wt } = repoWithRun('tok', { exit_code: '0' });
+    const linked = worktreeInputs(wt, path.join(root, '.git'), 'sdlc/tok');
+    expect(fs.statSync(path.join(wt, '.git')).isFile()).toBe(true);
+    expect(linked.slice(0, 2).every(f => fs.existsSync(f))).toBe(true);
+    expect(linked[0]).toMatch(/worktrees[\\/]tok[\\/]HEAD$/);
+    expect(linked[1]).toMatch(/worktrees[\\/]tok[\\/]index$/);
+    expect(linked).toContain(path.join(root, '.git', 'packed-refs'));
+    expect(linked).toContain(path.join(root, '.git', 'refs', 'heads', 'sdlc', 'tok'));
+    const plain = worktreeInputs(root, path.join(root, '.git'), 'main');
+    expect(plain.slice(0, 2)).toEqual([path.join(root, '.git', 'HEAD'), path.join(root, '.git', 'index')]);
+    expect(plain.slice(0, 2).every(f => fs.existsSync(f))).toBe(true);
+    expect(worktreeInputs(root, null, '')).toHaveLength(2);
   });
 });
