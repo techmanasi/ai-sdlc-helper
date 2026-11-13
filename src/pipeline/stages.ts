@@ -694,7 +694,7 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
     keepError: (where, text) => keepError(ctx, where, text), linkPr: url => linkPrEverywhere(ctx, url),
   });
   // A pull request that is merged already: the link in the main checkout's brief is not needed there any more.
-  if (res.merged && res.pr) cleanRunMainBrief(ctx, res.pr);
+  if (res.merged && res.pr) await cleanRunMainBrief(ctx, res.pr);
   // The full suite ran in CI: the PR opened as a draft after Red tests is now ready for review (never a second PR, no squashing).
   const draft = opened || null;
   if (draft) {

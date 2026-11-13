@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { spawnSync, trace } from '../trace.js';
+import { execFileAsync, spawnSync, trace } from '../trace.js';
 import { has } from '../util.js';
 import { changed, mirror, type Baseline } from '../changes/index.js';
 import type { Git } from './git.js';
@@ -84,6 +84,14 @@ function ghFailure(what: string, r: { status: number | null; stdout?: unknown; s
   const how = r.error ? `could not run: ${r.error.message}` : `exited with ${r.status === null ? 'no code (killed or timed out)' : r.status}`;
   const printed = [String(r.stderr ?? '').trim(), String(r.stdout ?? '').trim()].filter(Boolean).join('\n');
   return `${what} ${how}: ${printed || '(no output)'}`;
+}
+
+/** ghFailure for an asynchronous call: a program that did not start, a call stopped at its timeout, or gh's exit code. */
+function ghError(what: string, err: Error, stdout: unknown, stderr: unknown, timeoutMs: number): string {
+  const e = err as Error & { code?: unknown; killed?: boolean };
+  if (typeof e.code === 'string') return ghFailure(what, { status: null, stdout, stderr, error: err });
+  if (e.killed) return `${ghFailure(what, { status: null, stdout, stderr })} (stopped after ${timeoutMs} ms)`;
+  return ghFailure(what, { status: typeof e.code === 'number' ? e.code : null, stdout, stderr });
 }
 
 /** Finds or creates a GitHub PR for the branch; when there is none and gh cannot open one, says why in gh's own words. */
@@ -204,16 +212,21 @@ export function ciOf(rollup: unknown): { ci: CiState; failing: string[] } {
 
 const PR_FIELDS = 'url,state,number,isDraft,statusCheckRollup,headRefOid,mergeable';
 
-interface PrEntry { time: number; val: PrStatus | null; failed?: boolean }
+interface PrEntry { time: number; val: PrStatus | null; failed?: boolean; error?: string }
 const prCache = new Map<string, PrEntry>();
 const inflight = new Map<string, Promise<PrStatus | null>>();
 const PR_CACHE_TTL_MS = 60_000;
 const PR_TIMEOUT_MS = 3000;
+/** How long one gh call may take: SDLC_PR_TIMEOUT_MS, else 3 s. A `gh pr list` of many PRs gets more (see prefetchPrStatuses). */
+const prTimeout = (env: NodeJS.ProcessEnv): number => { const ms = Number(env.SDLC_PR_TIMEOUT_MS); return Number.isFinite(ms) && ms > 0 ? ms : PR_TIMEOUT_MS; };
 /** How often the web server asks GitHub again for a PR it already knows: once an hour (SDLC_PR_POLL_MS changes it). */
 export const PR_POLL_MS = 3_600_000;
 
-/** How a reader of the cache sees an entry: <ttlMs> is how long it counts as fresh; a failed refresh is tried again at once unless <retryFailed> is false. */
-export interface PrReadOptions { ttlMs?: number; retryFailed?: boolean }
+/**
+ * How a reader of the cache sees an entry: <ttlMs> is how long it counts as fresh; a failed refresh is tried again at
+ * once unless <retryFailed> is false. <onError> gets gh's whole message when a refresh this read started (or joined) fails.
+ */
+export interface PrReadOptions { ttlMs?: number; retryFailed?: boolean; onError?: (message: string) => void }
 
 /** The web server's reading of the cache: a status is checked again only every hour, and a failed check waits as long. */
 export function prPollOptions(env: NodeJS.ProcessEnv = process.env): PrReadOptions {
@@ -249,7 +262,7 @@ export function keepPrStatusIn(cwd: string, file: string): void {
     for (const [key, e] of Object.entries(data.entries as Record<string, PrEntry>)) {
       if (!e || typeof e.time !== 'number' || (e.val !== null && typeof e.val !== 'object')) continue;
       const k = prKey(cwd, key);
-      if (!prCache.has(k)) prCache.set(k, { time: e.time, val: e.val, ...(e.failed ? { failed: true } : {}) });
+      if (!prCache.has(k)) prCache.set(k, { time: e.time, val: e.val, ...(e.failed ? { failed: true, ...(typeof e.error === 'string' ? { error: e.error } : {}) } : {}) });
     }
   } catch { /* a missing or broken file is the same as no file */ }
 }
@@ -272,20 +285,27 @@ const prKey = (cwd: string, branchOrUrl: string): string => `${cwd}::${branchOrU
 
 function parsePr(stdout: string): PrStatus | null {
   try {
-    const data = JSON.parse(stdout.trim());
-    if (data && data.url) {
+    return prOfData(JSON.parse(stdout.trim()));
+  } catch { /* best effort */ }
+  return null;
+}
+
+/** One PR of gh's JSON (`pr view` or one item of `pr list`, same fields) as a PrStatus. */
+function prOfData(data: Record<string, unknown> | null): PrStatus | null {
+  {
+    if (data && typeof data.url === 'string' && data.url) {
       return {
         url: data.url,
-        state: (data.state || 'OPEN').toUpperCase() as 'OPEN' | 'MERGED' | 'CLOSED',
+        state: String(data.state || 'OPEN').toUpperCase() as 'OPEN' | 'MERGED' | 'CLOSED',
         number: typeof data.number === 'number' ? data.number : undefined,
         ...(Array.isArray(data.statusCheckRollup) ? ciOf(data.statusCheckRollup) : {}),
         ...(typeof data.mergeable === 'string' ? { conflicts: conflictsOf(data.mergeable) } : {}),
         ...(typeof data.isDraft === 'boolean' ? { isDraft: data.isDraft } : {}),
-        ...(Array.isArray(data.statusCheckRollup) ? { statusCheckRollup: data.statusCheckRollup } : {}),
+        ...(Array.isArray(data.statusCheckRollup) ? { statusCheckRollup: data.statusCheckRollup as CheckRunStatus[] } : {}),
         ...(typeof data.headRefOid === 'string' ? { headRefOid: data.headRefOid } : {}),
       };
     }
-  } catch { /* best effort */ }
+  }
   return null;
 }
 
@@ -328,6 +348,8 @@ export interface PrRead {
   pending: boolean;
   /** The last check failed (the value, if any, is from an earlier one). */
   failed?: boolean;
+  /** gh's whole message for that failed check. */
+  error?: string;
 }
 
 type PrListener = (e: { cwd: string; branchOrUrl: string; status: PrStatus | null }) => void;
@@ -339,18 +361,35 @@ export function onPrStatusChange(fn: PrListener): () => void {
   return () => { prListeners.delete(fn); };
 }
 
-/** One asynchronous gh call per key at a time; a failure keeps the old value and marks it stale. */
-function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv): Promise<PrStatus | null> {
+/** Who waits for the failure of a running refresh, per key: every reader that started or joined it. */
+const failureWaiters = new Map<string, Set<(message: string) => void>>();
+const waitForFailure = (key: string, fn?: (message: string) => void) => {
+  if (!fn) return;
+  const set = failureWaiters.get(key) || new Set();
+  set.add(fn);
+  failureWaiters.set(key, set);
+};
+/** Tells the readers of <key> that its check failed, once; a reader's own error must not break the refresh. */
+const reportFailure = (key: string, message: string | null) => {
+  const set = failureWaiters.get(key);
+  failureWaiters.delete(key);
+  if (message && set) for (const fn of set) { try { fn(message); } catch { /* the reader's problem, not the refresh's */ } }
+};
+
+/** One asynchronous gh call per key at a time; a failure keeps the old value, marks it stale and keeps gh's message. */
+function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv, onError?: (message: string) => void): Promise<PrStatus | null> {
   const key = prKey(cwd, branchOrUrl);
+  waitForFailure(key, onError);
   const running = inflight.get(key);
   if (running) return running;
   const t0 = performance.now();
   const p = new Promise<PrStatus | null>(resolve => {
-    execFile('gh', ['pr', 'view', branchOrUrl, '--json', PR_FIELDS], { cwd, env, encoding: 'utf8', timeout: PR_TIMEOUT_MS }, (err, stdout, stderr) => {
+    execFile('gh', ['pr', 'view', branchOrUrl, '--json', PR_FIELDS], { cwd, env, encoding: 'utf8', timeout: prTimeout(env) }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as unknown as { code: number }).code : -1) : 0;
-      trace({ action: 'spawn:gh', why: 'pr', ms: Math.round((performance.now() - t0) * 1000) / 1000, code });
+      trace({ action: 'spawn:gh', why: 'async pr', ms: Math.round((performance.now() - t0) * 1000) / 1000, code });
       const before = prCache.get(key);
       let status: PrStatus | null;
+      let error: string | null = null;
       // "no pull requests found" is GitHub's answer for a branch without a PR, not a failed check.
       const none = Boolean(err) && /no pull requests found/i.test(String(stderr || ''));
       if (none) {
@@ -358,7 +397,8 @@ function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEn
         prCache.set(key, { time: Date.now(), val: null });
       } else if (err) {
         status = before ? before.val : null;
-        prCache.set(key, { time: Date.now(), val: status, failed: true });
+        error = ghError(`gh pr view ${branchOrUrl}`, err, stdout, stderr, prTimeout(env));
+        prCache.set(key, { time: Date.now(), val: status, failed: true, error });
       } else {
         status = stdout.trim() ? parsePr(stdout) : null;
         const entry = { time: Date.now(), val: status };
@@ -368,6 +408,7 @@ function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEn
       }
       savePrStatuses(cwd);
       inflight.delete(key);
+      reportFailure(key, error);
       if ((!err || none) && (!before || JSON.stringify(before.val) !== JSON.stringify(status))) {
         for (const fn of prListeners) { try { fn({ cwd, branchOrUrl, status }); } catch { /* a listener must not break the refresh */ } }
       }
@@ -384,7 +425,7 @@ function readEntry(e: PrEntry | undefined, now: number, o: PrReadOptions = {}): 
   // A merged PR does not change again: it is not asked for twice.
   if (e.val && e.val.state === 'MERGED' && !e.failed) return { status: e.val, ageMs, stale: false, pending: false };
   const stale = (e.failed && o.retryFailed !== false) || ageMs >= (o.ttlMs ?? PR_CACHE_TTL_MS);
-  return { status: e.val, ageMs, stale, pending: false, ...(e.failed ? { failed: true } : {}) };
+  return { status: e.val, ageMs, stale, pending: false, ...(e.failed ? { failed: true, ...(e.error ? { error: e.error } : {}) } : {}) };
 }
 
 /**
@@ -395,7 +436,7 @@ export function getPrStatusCached(cwd: string, branchOrUrl: string, env: NodeJS.
   if (!branchOrUrl || !branchOrUrl.trim()) return { status: null, ageMs: null, stale: false, pending: false };
   const e = prCache.get(prKey(cwd, branchOrUrl));
   const r = readEntry(e, Date.now(), o);
-  if (!e || r.stale) void refreshPrStatus(cwd, branchOrUrl, env);
+  if (!e || r.stale) void refreshPrStatus(cwd, branchOrUrl, env, o.onError);
   return r;
 }
 
@@ -407,8 +448,66 @@ export async function getPrStatusAsync(cwd: string, branchOrUrl: string, env: No
   if (!branchOrUrl || !branchOrUrl.trim()) return { status: null, ageMs: null, stale: false, pending: false };
   const e = prCache.get(prKey(cwd, branchOrUrl));
   if (e) return getPrStatusCached(cwd, branchOrUrl, env, o);
-  await refreshPrStatus(cwd, branchOrUrl, env);
+  await refreshPrStatus(cwd, branchOrUrl, env, o.onError);
+  // A prefetch it joined that did not hold this PR leaves nothing behind: then it is asked for on its own.
+  if (!prCache.has(prKey(cwd, branchOrUrl))) await refreshPrStatus(cwd, branchOrUrl, env, o.onError);
   return readEntry(prCache.get(prKey(cwd, branchOrUrl)), Date.now(), o);
+}
+
+/** Below this many unknown links, one `gh pr view` each is as quick as one list. */
+const PREFETCH_MIN = 3;
+
+/**
+ * Fills the cache for many PR links at once with one `gh pr list --state all` (the same fields `gh pr view` gives, so
+ * an entry is the same whichever call made it), instead of one gh call per link: for a list of many completed tasks
+ * when nothing is known about them yet (a first load, or after the cache was cleared). Only links are asked for, not
+ * branches (a branch's PR is gh's own pick among several), and only those neither cached nor being fetched. A link
+ * the list does not hold (an older PR past its limit, another repository) is left for its own `gh pr view`. A failed
+ * list marks each of them failed with gh's message, which <onError> also gets once per link. Returns the links filled.
+ */
+export async function prefetchPrStatuses(cwd: string, links: string[], env: NodeJS.ProcessEnv = process.env, onError?: (link: string, message: string) => void): Promise<number> {
+  const cold = [...new Set(links.map(k => k.trim()))].filter(k => /^https?:\/\//.test(k) && !prCache.has(prKey(cwd, k)) && !inflight.has(prKey(cwd, k)));
+  if (cold.length < PREFETCH_MIN) return 0;
+  const limit = Math.min(1000, Math.max(100, cold.length + 50));
+  // gh asks GitHub for 100 PRs a page; each page gets the time of two single calls.
+  const timeoutMs = prTimeout(env) * (2 + 2 * Math.ceil(limit / 100));
+  let release: () => void = () => {};
+  const done = new Promise<void>(r => { release = r; });
+  // Readers that ask for one of these links meanwhile wait for the list instead of starting their own call.
+  for (const k of cold) inflight.set(prKey(cwd, k), done.then(() => prCache.get(prKey(cwd, k))?.val ?? null));
+  let filled = 0;
+  try {
+    const r = await execFileAsync('gh', ['pr', 'list', '--state', 'all', '--limit', String(limit), '--json', PR_FIELDS], { cwd, env, timeout: timeoutMs });
+    let list: unknown = null;
+    if (r.code === 0) { try { list = JSON.parse(r.stdout.trim() || '[]'); } catch { /* reported below */ } }
+    if (!Array.isArray(list)) {
+      const what = `gh pr list --state all --limit ${limit}`;
+      const error = r.code !== 0 && r.error ? ghError(what, r.error, r.stdout, r.stderr, timeoutMs) : ghFailure(`${what} printed no list;`, { status: r.code, stdout: r.stdout, stderr: r.stderr });
+      const now = Date.now();
+      for (const k of cold) {
+        prCache.set(prKey(cwd, k), { time: now, val: null, failed: true, error });
+        reportFailure(prKey(cwd, k), error);
+        if (onError) { try { onError(k, error); } catch { /* the reader's problem */ } }
+      }
+      return 0;
+    }
+    const byUrl = new Map<string, PrStatus>();
+    for (const item of list) { const s = prOfData(item as Record<string, unknown>); if (s) byUrl.set(s.url, s); }
+    const now = Date.now();
+    for (const k of cold) {
+      const status = byUrl.get(k);
+      if (!status) continue;
+      prCache.set(prKey(cwd, k), { time: now, val: status });
+      failureWaiters.delete(prKey(cwd, k));
+      filled++;
+      for (const fn of prListeners) { try { fn({ cwd, branchOrUrl: k, status }); } catch { /* a listener must not break the refresh */ } }
+    }
+    return filled;
+  } finally {
+    savePrStatuses(cwd);
+    for (const k of cold) inflight.delete(prKey(cwd, k));
+    release();
+  }
 }
 
 /** Asks GitHub now, whatever the cache holds (the user pressed "Sync PR status"), and answers the new status. */

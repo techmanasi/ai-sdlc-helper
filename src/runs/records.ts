@@ -2,7 +2,7 @@
 // every checkout (and the control pane) sees the same runs. The fields are the ones scripts/sdlc-mod.sh wrote.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from '../trace.js';
+import { execFileAsync, spawnSync } from '../trace.js';
 import { alive, type ProcIdentity } from './proc.js';
 import { commonDirOf } from '../gitdir.js';
 
@@ -42,8 +42,32 @@ export function now(d = new Date()): string {
 }
 
 /** <git common dir>/sdlc-runs for the repository holding <root>. */
+/**
+ * git's answers about a folder asked ahead without blocking (primeRepoPaths), for the blocking readers below
+ * (registryDir, projectRoot): the web server asks them before it builds a project's context. Kept 2 s, never longer.
+ */
+const primed = new Map<string, { at: number; status: number; stdout: string }>();
+const PRIMED_MS = 2000;
+const primedGit = (dir: string, args: string[]): { status: number; stdout: string } | null => {
+  const e = primed.get(`${dir}\0${args.join(' ')}`);
+  return e && Date.now() - e.at < PRIMED_MS ? e : null;
+};
+
+/** Asks git, asynchronously, what registryDir and projectRoot will ask about <dir> next, so they need not block. */
+export async function primeRepoPaths(dir: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const ask = async (cwd: string, args: string[], e: NodeJS.ProcessEnv) => {
+    const r = await execFileAsync('git', ['-C', cwd, ...args], { env: e });
+    primed.set(`${cwd}\0${args.join(' ')}`, { at: Date.now(), status: r.code, stdout: r.stdout });
+    return r;
+  };
+  const top = await ask(dir, ['rev-parse', '--show-toplevel'], env);
+  const root = top.code === 0 && top.stdout.trim() ? top.stdout.trim() : dir;
+  // registryDir asks with the process's own environment, as it always has.
+  await ask(root, ['rev-parse', '--git-common-dir'], process.env);
+}
+
 export function registryDir(root: string): string {
-  const r = spawnSync('git', ['-C', root, 'rev-parse', '--git-common-dir'], { encoding: 'utf8' });
+  const r = primedGit(root, ['rev-parse', '--git-common-dir']) ?? spawnSync('git', ['-C', root, 'rev-parse', '--git-common-dir'], { encoding: 'utf8' });
   const common = r.status === 0 && r.stdout.trim() ? r.stdout.trim() : '.git';
   return path.join(path.resolve(root, common), 'sdlc-runs');
 }
@@ -150,7 +174,7 @@ const mainTrees = new Map<string, { common: string; at: number; tree: string }>(
  * checkout the run was started from (its record's root; a record without one: the main working tree).
  */
 export function projectRoot(dir: string, env: NodeJS.ProcessEnv = process.env): string {
-  const r = spawnSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', env });
+  const r = primedGit(dir, ['rev-parse', '--show-toplevel']) ?? spawnSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', env });
   const top = r.status === 0 && r.stdout.trim() ? r.stdout.trim() : dir;
   const reg = registryDir(top);
   const here = realOr(top);

@@ -3,7 +3,7 @@
 // (docs/plans/run-view-performance.md, section 4a). Always on; the file rotates by size and age.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync as nodeSpawnSync, execFileSync as nodeExecFileSync, type SpawnSyncOptions, type SpawnSyncReturns } from 'node:child_process';
+import { spawnSync as nodeSpawnSync, execFile as nodeExecFile, execFileSync as nodeExecFileSync, type SpawnSyncOptions, type SpawnSyncReturns } from 'node:child_process';
 
 export interface TraceSettings { enabled: boolean; maxSizeKb: number; keepFiles: number; maxAgeHours: number }
 export const TRACE_DEFAULTS: TraceSettings = { enabled: true, maxSizeKb: 5120, keepFiles: 4, maxAgeHours: 24 };
@@ -20,6 +20,8 @@ export interface TraceEvent {
   n?: number;
   /** An exit code (-1: killed or not started). */
   code?: number;
+  /** Milliseconds per phase of a traced request (e.g. the Completed list: keys, prs, git, build). */
+  phases?: Record<string, number>;
 }
 export interface TraceLine extends TraceEvent { t: number }
 
@@ -186,6 +188,30 @@ export const spawnSync = ((command: string, args?: readonly string[] | SpawnSync
   trace({ action: `spawn:${path.basename(command)}`, why: firstWord(command, list), ms: Math.round((performance.now() - t0) * 1000) / 1000, code: r.status === null ? -1 : r.status });
   return r;
 }) as typeof nodeSpawnSync;
+
+/** What execFileAsync gives back: the exit code (-1: killed, timed out or not started) and the output as text. */
+export interface ExecResult { code: number; stdout: string; stderr: string; error?: Error }
+
+/**
+ * child_process.execFile as a promise that never rejects, with the same trace line as spawnSync (why gets an "async "
+ * prefix, so the trace tells a blocking call from one that is not). For the web server, which must not block.
+ */
+export function execFileAsync(command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number; maxBuffer?: number; input?: string } = {}): Promise<ExecResult> {
+  const t0 = performance.now();
+  const { input, ...opts } = options;
+  return new Promise(resolve => {
+    const child = nodeExecFile(command, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...opts }, (err, stdout, stderr) => {
+      const raw = err ? (err as { code?: unknown }).code : 0;
+      const code = typeof raw === 'number' ? raw : err ? -1 : 0;
+      const w = firstWord(command, args);
+      trace({ action: `spawn:${path.basename(command)}`, why: `async ${w || ''}`.trim(), ms: Math.round((performance.now() - t0) * 1000) / 1000, code });
+      resolve({ code, stdout: String(stdout ?? ''), stderr: String(stderr ?? ''), ...(err ? { error: err } : {}) });
+    });
+    // Written and closed at once: a program that reads no input is not left waiting, and one that exits early is no error.
+    child.stdin?.on('error', () => {});
+    child.stdin?.end(input ?? '');
+  });
+}
 
 /** child_process.execFileSync with a trace line per call (same fields as spawnSync; the code is 0, or the failing status). */
 export const execFileSync = ((command: string, args?: readonly string[] | object, options?: object) => {
