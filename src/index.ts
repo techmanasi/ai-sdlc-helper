@@ -40,7 +40,7 @@ export {
 } from './runs/index.js';
 export { alive, killTree, readRecord, recordedSlugs, registryDir, runState, type RunRecord } from './runs/records.js';
 export {
-  answerQuestions, boardView, syncRunPr, parseQuestions, resumeStage, runView, runPaths, runTail, RUN_PARTS, clearGitFacts, type RunPart, type BoardView, type PrCard, type Question, type RunCard, type RunView,
+  answerQuestions, boardView, boardInputs, boardIgnores, syncRunPr, parseQuestions, resumeStage, runView, runPaths, runTail, RUN_PARTS, clearGitFacts, type RunPart, type BoardView, type PrCard, type Question, type RunCard, type RunView,
   type TestCounts, type ViewState,
 } from './runs/view.js';
 export { runPipeline, firstPending, type PipelineOptions } from './pipeline/run.js';
@@ -71,3 +71,4 @@ export {
   type RunClaude, type TriageResult, type TriageItem, type TriageDraft, type TriageQuestion, type TriageState, type DraftStatus, type TriageStreamPart,
 } from './triage.js';
 export * from './pipeline/harness/index.js';
+export { stampOf } from './gitdir.js';

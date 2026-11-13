@@ -8,13 +8,14 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, createPrForCompleted,
+  AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, onPrStatusChange, prPollOptions, PR_POLL_MS, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
 import { createRunStreams, type RunSource, type StreamTimings } from './watch.js';
+import { BOARD_WATCH_TIMINGS, createBoardWatch, type BoardWatch, type BoardWatchTimings } from './board-watch.js';
 
 export interface ServerOptions {
   /** The port to listen on; an explicitly requested port is fixed. The default tries the next 20 ports. 0: any free port. */
@@ -29,7 +30,10 @@ export interface ServerOptions {
   /** How to run the command for the command palette; default this Node and dist/bin.js. */
   cli?: string[];
   /** How often the live board is read, in ms (default 2000). */
+  /** No longer used: the board is rebuilt when a file changes (board-watch.ts), not on a clock. Kept so callers that pass it still compile. */
   pollMs?: number;
+  /** The board watcher's timings (see board-watch.ts); tests shorten them. */
+  boardWatch?: Partial<BoardWatchTimings>;
   /** How often the trace is written to its file (default 1 s); tests set it low to read the trace soon after an event. */
   traceFlushMs?: number;
   /** Timings of the per-run stream (tests): debounce, safety tick, ping and tail throttle, in ms. */
@@ -97,7 +101,6 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   const token = opts.token || crypto.randomBytes(24).toString('base64url');
   const uiDir = opts.uiDir || path.join(here, '..', 'ui');
   const cli = opts.cli || [process.execPath, path.join(here, '..', '..', 'bin.js')];
-  const pollMs = opts.pollMs ?? 2000;
   const current = opts.cwd ? await gitTop(opts.cwd, env) : null;
   let port = opts.port ?? DEFAULT_PORT;
 
@@ -454,7 +457,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
 
   // One board feed per project, shared by every page that shows it: the board is built once a tick however many tabs
   // are open, a page that joins later gets the last board at once, and the feed stops with its last page.
-  interface BoardFeed { clients: Set<http.ServerResponse>; last: string; ticks: number; busy: boolean; timer: NodeJS.Timeout; ping: NodeJS.Timeout }
+  interface BoardFeed { clients: Set<http.ServerResponse>; last: string; ticks: number; busy: boolean; running: number; hasPr: boolean; builtAt: number; ping: NodeJS.Timeout; watch: BoardWatch; build(why: string): void }
   const feeds = new Map<string, BoardFeed>();
   const boardEvent = (text: string): string => `event: board\ndata: ${text}\n\n`;
 
@@ -462,29 +465,51 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     const had = feeds.get(p.name);
     if (had) return had;
     const all = (text: string): void => { for (const c of feed.clients) c.write(text); };
-    const tick = (): void => {
+    const tick = (why: string): void => {
       if (feed.busy) return;
       feed.busy = true;
       try {
         // A card's file counts come from the per-run git cache (boardView), so every read may ask for them.
         const t0 = performance.now();
-        const text = JSON.stringify(boardView(contextFor(p)));
+        const board = boardView(contextFor(p));
+        feed.running = board.running;
+        feed.hasPr = board.runs.some(r => r.pullRequest);
+        feed.builtAt = Date.now();
+        const text = JSON.stringify(board);
         const changed = text !== feed.last;
-        trace({ action: 'timer:board-rebuild', why: 'pollMs', run: p.name, ms: Math.round((performance.now() - t0) * 1000) / 1000, changed, n: ++feed.ticks });
+        trace({ action: 'timer:board-rebuild', why, run: p.name, ms: Math.round((performance.now() - t0) * 1000) / 1000, changed, n: ++feed.ticks });
         if (changed) { feed.last = text; all(boardEvent(text)); trace({ action: 'sse:board', run: p.name, changed: true, n: feed.clients.size }); }
       } catch (e) {
         all(`event: problem\ndata: ${JSON.stringify({ message: (e as Error).message })}\n\n`);
         trace({ action: 'sse:problem', run: p.name });
       } finally { feed.busy = false; }
     };
+    // The board is rebuilt when a file it reads changes (board-watch.ts), not on a clock. Two things no file tells:
+    // a run whose process died without a word, which is looked for whenever the watcher finds everything quiet
+    // (`quiet`, once per silence period, and only with a run going); and a pull request's status, which is asked
+    // for again once an hour (also from `quiet`) and shown when GitHub answers (see onPrStatusChange below).
+    const inputs = () => boardInputs(contextFor(p));
     const feed: BoardFeed = {
-      clients: new Set(), last: '', ticks: 0, busy: false,
-      timer: setInterval(tick, pollMs),
+      clients: new Set(), last: '', ticks: 0, busy: false, running: 0, hasPr: false, builtAt: 0,
+      build: why => { feed.watch.baseline(); tick(why); },
+      watch: createBoardWatch({
+        folders: () => inputs().folders,
+        fingerprint: () => fingerprintOf(inputs().files),
+        ignore: boardIgnores,
+        rebuild: tick,
+        quiet: () => {
+          if (feed.running > 0) return feed.build('liveness');
+          // A pull request is asked about again only when a board build finds its status old (once an hour). A board
+          // that nothing changes is never built, so it is built here when that hour has passed.
+          if (feed.hasPr && Date.now() - feed.builtAt >= (prPollOptions(env).ttlMs ?? PR_POLL_MS)) feed.build('pr-poll');
+        },
+        trace: e => trace({ ...e, run: p.name }),
+      }, { ...BOARD_WATCH_TIMINGS, ...opts.boardWatch }),
       ping: setInterval(() => { all('event: ping\ndata: {}\n\n'); trace({ action: 'sse:ping', run: p.name }); }, 15000),
     };
     feeds.set(p.name, feed);
     // The first page waits for nothing: the board is built as it joins (events() adds it before this runs).
-    queueMicrotask(tick);
+    queueMicrotask(() => tick('join'));
     return feed;
   }
 
@@ -499,11 +524,14 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     req.on('close', () => {
       feed.clients.delete(res);
       if (feed.clients.size || feeds.get(p.name) !== feed) return;
-      clearInterval(feed.timer);
       clearInterval(feed.ping);
+      feed.watch.close();
       feeds.delete(p.name);
     });
   }
+
+  // A pull request's status comes from GitHub in the background: no file changes, so the boards are told here.
+  const offPr = onPrStatusChange(() => { for (const f of feeds.values()) f.build('pr'); });
 
   const runStreams = createRunStreams(opts.stream);
 
@@ -611,6 +639,6 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     url, port, token,
     openUrl: `${url}/?t=${token}`,
     streamStats: () => runStreams.stats(),
-    close: () => new Promise(res => { for (const f of feeds.values()) { clearInterval(f.timer); clearInterval(f.ping); } feeds.clear(); runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
+    close: () => new Promise(res => { offPr(); for (const f of feeds.values()) { clearInterval(f.ping); f.watch.close(); } feeds.clear(); runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
   };
 }

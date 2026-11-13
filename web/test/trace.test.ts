@@ -91,21 +91,30 @@ describe('the trace of the UI server', () => {
     expect(req[0].code).toBe(200);
   });
 
-  test('the board stream traces its rebuilds with whether they changed anything', async () => {
+  test('the board stream traces its rebuilds with why they were made and whether they changed anything', async () => {
     const s = await start();
+    const rebuilds = () => lines().filter(l => l.action === 'timer:board-rebuild');
     await new Promise<void>((res, rej) => {
       const req = http.get({ host: '127.0.0.1', port: s.port, path: '/api/events?project=shop', headers: { 'x-sdlc-token': s.token } }, r => {
         let n = 0;
-        r.on('data', () => { if (++n === 1) eventually(() => lines().filter(l => l.action === 'timer:board-rebuild').length >= 2, 15_000).then(() => { req.destroy(); res(); }, rej); });
+        r.on('data', () => {
+          if (++n !== 1) return;
+          eventually(() => rebuilds().length >= 1, 15_000)
+            // The same text again: the watcher reports a change, the board built from it is the same.
+            .then(() => { fs.writeFileSync(path.join(repo, 'Docs/backlog/index.md'), '# Backlog\n\n- [ ] `one` - Feature: One\n'); })
+            .then(() => eventually(() => rebuilds().length >= 2, 15_000))
+            .then(() => { req.destroy(); res(); }, rej);
+        });
       });
       req.on('error', e => { if ((e as NodeJS.ErrnoException).code !== 'ECONNRESET') rej(e); });
     });
     await s.close();
     server = null;
-    const rebuilds = lines().filter(l => l.action === 'timer:board-rebuild');
-    expect(rebuilds.length).toBeGreaterThanOrEqual(2);
-    expect(rebuilds[0].changed).toBe(true);
-    expect(rebuilds.slice(1).every(l => l.changed === false)).toBe(true);
+    const got = rebuilds();
+    expect(got.length).toBeGreaterThanOrEqual(2);
+    expect([got[0].why, got[0].changed]).toEqual(['join', true]);
+    expect(got.slice(1).every(l => l.why === 'watch' && l.changed === false)).toBe(true);
+    expect(lines().some(l => l.action === 'board-watch:watching')).toBe(true);
   });
 
   test('SDLC_TRACE=0 writes no file', async () => {
