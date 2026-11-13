@@ -10,7 +10,9 @@
 // set off in total (counted once nothing more starts). Server-side phases come from the trace (action "completed").
 // Usage: npm run build (or tsc of src and web/server), then
 //   node scripts/completed-probe.mjs [--root <checkout with dist/>] [--tasks 120] [--runs 5] [--gh-ms 850]
-//                                    [--cpu-prof <dir>] [--json <file>]
+//                                    [--worktrees <n>] [--cpu-prof <dir>] [--json <file>]
+//   --worktrees <n>: n merged tasks ran in worktrees of their own and linked their PR in the main checkout's brief
+//   (uncommitted there), so each load also finds briefs to clean (cleanMergedRunBrief).
 //   --serve <port>: no measuring; serves the seeded project with the built UI (dist/web/ui) for a browser, prints the
 //   sign-in URL, and starts a new server on fresh files (nothing known: a cold load) whenever the file it names is
 //   touched. Stops at Ctrl-C.
@@ -32,6 +34,7 @@ const GH_MS = Number(opt('gh-ms', 850));
 const cpuProf = opt('cpu-prof', '');
 const jsonOut = opt('json', '');
 const servePort = Number(opt('serve', 0));
+const WORKTREES = Number(opt('worktrees', 0));
 const serverJs = path.join(root, 'dist', 'web', 'server', 'index.js');
 if (!fs.existsSync(serverJs)) { console.error(`${serverJs} is missing: build first`); process.exit(2); }
 
@@ -110,7 +113,31 @@ function freshCopy() {
   const d = path.join(base, `w${++workN}`);
   fs.cpSync(template, d, { recursive: true });
   fs.writeFileSync(path.join(d, 'gh-calls.txt'), '');
+  if (WORKTREES) addWorktrees(d);
   return d;
+}
+
+/** <WORKTREES> merged tasks with a record get a worktree; their main-checkout brief holds the link uncommitted. */
+function addWorktrees(d) {
+  const repo = path.join(d, 'shop');
+  const reg = path.join(repo, '.git', 'sdlc-runs');
+  const picked = [];
+  for (let i = 3; i <= TASKS && picked.length < WORKTREES; i += 2) if (i % 20 !== 0 && i % 20 !== 1) picked.push(i);
+  for (const i of picked) {
+    const slug = `task-${String(i).padStart(3, '0')}`;
+    const wt = path.join(d, 'wt', slug);
+    git(repo, 'worktree', 'add', '-q', '--detach', wt);
+    const f = path.join(reg, `${slug}.json`);
+    fs.writeFileSync(f, JSON.stringify({ ...JSON.parse(fs.readFileSync(f, 'utf8')), worktree: wt, root: repo }));
+    const b = path.join(repo, 'Docs/backlog', slug, 'brief.md');
+    fs.writeFileSync(`${b}.linked`, fs.readFileSync(b));
+    fs.writeFileSync(b, fs.readFileSync(b, 'utf8').replace(/^---\npr: .*\n---\n\n/, ''));
+  }
+  git(repo, 'commit', '-q', '-am', 'briefs without their links');
+  for (const i of picked) {
+    const b = path.join(repo, 'Docs/backlog', `task-${String(i).padStart(3, '0')}`, 'brief.md');
+    fs.renameSync(`${b}.linked`, b);
+  }
 }
 
 const calls = dir => fs.readFileSync(path.join(dir, 'gh-calls.txt'), 'utf8').split('\n').filter(l => l.startsWith('start ')).length;
@@ -219,7 +246,7 @@ const rows = Object.entries(results).map(([name, rs]) => {
   const ms = stat(rs.map(r => r.ms));
   return { scenario: name, runs: rs.length, rows: rs[0]?.rows, medianMs: Math.round(ms.median), worstMs: Math.round(ms.worst), ghDuringMedian: stat(rs.map(r => r.during)).median, ghTotalMedian: stat(rs.map(r => r.total)).median, ghTotalWorst: stat(rs.map(r => r.total)).worst };
 });
-console.log(`Completed endpoint, ${TASKS} completed tasks, fake gh ${GH_MS} ms per call, ${RUNS} runs each (${root})`);
+console.log(`Completed endpoint, ${TASKS} completed tasks${WORKTREES ? ` (${WORKTREES} merged in worktrees, briefs to clean)` : ''}, fake gh ${GH_MS} ms per call, ${RUNS} runs each (${root})`);
 console.table(rows);
 const ph = results.cold.map(r => r.phases).filter(Boolean);
 if (ph.length) console.log('cold phases (last run):', JSON.stringify(ph[ph.length - 1]));

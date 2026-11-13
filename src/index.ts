@@ -38,7 +38,7 @@ export {
   runContext, start, stop, restart, discard, discardStage, undoLast, statusLines, statusRecords, watchFrame, runChanges, allChanges, runWorktree, pickBase,
   pipelineArgv, pipelineEnv, type RunContext, type Outcome,
 } from './runs/index.js';
-export { alive, killTree, readRecord, recordedSlugs, registryDir, runState, type RunRecord } from './runs/records.js';
+export { alive, killTree, readRecord, recordedSlugs, registryDir, primeRepoPaths, runState, type RunRecord } from './runs/records.js';
 export {
   answerQuestions, boardView, boardInputs, boardIgnores, syncRunPr, parseQuestions, resumeStage, runView, runPaths, runTail, RUN_PARTS, clearGitFacts, type RunPart, type BoardView, type PrCard, type Question, type RunCard, type RunView,
   type TestCounts, type ViewState,
@@ -49,7 +49,7 @@ export {
   FINALISE_PERMISSIONS,
 } from './permissions/index.js';
 export {
-  listCompletedTasks, listCompletedTasksAsync, completedListAsync, getCompletedTaskDetail, getCompletedTaskDetailAsync, createPrForCompleted, isArchivedInIndex, syncPrComments,
+  listCompletedTasks, listCompletedTasksAsync, completedListAsync, settleBriefCleanups, getCompletedTaskDetail, getCompletedTaskDetailAsync, createPrForCompleted, isArchivedInIndex, syncPrComments,
   type CompletedTask, type CompletedList, type CompletedTaskDetail, type CommitInfo, type FileChange,
 } from './runs/completed.js';
 export {

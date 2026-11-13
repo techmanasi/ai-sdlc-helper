@@ -234,11 +234,29 @@ export function cleanMergedRunBrief(ctx: RunContext, slug: string, rec: Partial<
   if (!rec?.worktree || real(rec.worktree) === real(ctx.root)) return;
   const wt = runWorktree(ctx, slug);
   const where = wt ? { root: wt, log: path.join(ctx.backlogDir, slug, 'logs') } : { root: ctx.reg, log: '' };
-  cleanMainBrief({
-    root: ctx.root, rel: path.join(ctx.backlogDir, slug, 'brief.md'), mergedPr, env: ctx.env,
-    keepError: (w, t) => keepError(where, w, t),
-    out: l => { process.stderr.write(`${l}\n`); },
-  });
+  // Off the request path: started once the list or board that found the merge is answered, with asynchronous git, and
+  // one after another per repository (two checkouts at once would fight over git's index lock).
+  const before = cleanupChains.get(ctx.root) || Promise.resolve();
+  const job = before.then(() => new Promise<void>(resolve => setImmediate(resolve)))
+    .then(() => cleanMainBrief({
+      root: ctx.root, rel: path.join(ctx.backlogDir, slug, 'brief.md'), mergedPr, env: ctx.env,
+      keepError: (w, t) => keepError(where, w, t),
+      out: l => { process.stderr.write(`${l}\n`); },
+    }))
+    .then(() => undefined, e => {
+      keepError(where, 'clean the main checkout\'s brief', (e as Error).stack || String(e));
+      process.stderr.write(`WARNING: could not clean the pull request link out of ${slug}'s brief (see errors.log)\n`);
+    })
+    .finally(() => { briefCleanups.delete(job); if (cleanupChains.get(ctx.root) === job) cleanupChains.delete(ctx.root); });
+  briefCleanups.add(job);
+  cleanupChains.set(ctx.root, job);
+}
+
+const briefCleanups = new Set<Promise<void>>();
+const cleanupChains = new Map<string, Promise<void>>();
+/** Resolves once every brief cleanup started so far (and any they start) has finished: for tests and a clean exit. */
+export async function settleBriefCleanups(): Promise<void> {
+  while (briefCleanups.size) await Promise.all([...briefCleanups]);
 }
 
 function completedTasks(ctx: RunContext, prOf: (key: string) => PrKnown, facts: GitFacts): CompletedTask[] {

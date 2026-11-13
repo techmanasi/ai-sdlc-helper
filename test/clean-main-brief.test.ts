@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { cleanMainBrief } from '../src/pipeline/pr-link.js';
 import { clearPrCache, recordPrInBrief } from '../src/pipeline/finalise.js';
-import { listCompletedTasks } from '../src/runs/completed.js';
+import { listCompletedTasks, settleBriefCleanups } from '../src/runs/completed.js';
 import { runContext } from '../src/runs/index.js';
 import { tmp } from './helpers.js';
 
@@ -54,17 +54,17 @@ function project() {
 }
 
 /** cleanMainBrief on <p>'s brief, with what it said and kept. */
-function clean(p: ReturnType<typeof project>, mergedPr = PR) {
+async function clean(p: ReturnType<typeof project>, mergedPr = PR) {
   const out: string[] = [];
   const kept: Array<[string, string]> = [];
-  const r = cleanMainBrief({ root: p.main, rel: p.rel, mergedPr, keepError: (w, t) => { kept.push([w, t]); }, out: l => { out.push(l); } });
+  const r = await cleanMainBrief({ root: p.main, rel: p.rel, mergedPr, keepError: (w, t) => { kept.push([w, t]); }, out: l => { out.push(l); } });
   return { r, out, kept };
 }
 
 describe('cleanMainBrief', () => {
-  test('only the link changed and its pull request is merged: the brief is checked out again and the checkout is clean', () => {
+  test('only the link changed and its pull request is merged: the brief is checked out again and the checkout is clean', async () => {
     const p = project();
-    const c = clean(p);
+    const c = await clean(p);
     expect(c.r).toBe('restored');
     expect(fs.readFileSync(p.file, 'utf8')).toBe(BODY);
     expect(git(p.main, 'status', '--porcelain')).toBe('');
@@ -72,32 +72,32 @@ describe('cleanMainBrief', () => {
     expect(c.kept).toEqual([]);
   });
 
-  test('the link and an edit of the user\'s: the brief is kept as it is, and one line says why', () => {
+  test('the link and an edit of the user\'s: the brief is kept as it is, and one line says why', async () => {
     const p = project();
     const edited = `${fs.readFileSync(p.file, 'utf8')}\nA note of mine.\n`;
     fs.writeFileSync(p.file, edited);
-    const c = clean(p);
+    const c = await clean(p);
     expect(c.r).toBe('kept');
     expect(fs.readFileSync(p.file, 'utf8')).toBe(edited);
     expect(c.out).toEqual([`Kept ${p.file} as it is: it has edits besides the pull request link, so the link was not taken out (the pull request ${PR} is merged)`]);
     // Asked again in the same state: nothing more is said.
-    expect(clean(p).out).toEqual([]);
+    expect((await clean(p)).out).toEqual([]);
   });
 
-  test('an unmodified brief, and a brief whose link is another pull request\'s: nothing is done', () => {
+  test('an unmodified brief, and a brief whose link is another pull request\'s: nothing is done', async () => {
     const p = project();
     git(p.main, 'commit', '-q', '-am', 'the link, committed');
-    expect(clean(p)).toMatchObject({ r: 'none', out: [] });
+    expect(await clean(p)).toMatchObject({ r: 'none', out: [] });
     const q = project();
     // A moved run: the brief names its current pull request; only that one's merge cleans it.
-    expect(clean(q, OLD_PR)).toMatchObject({ r: 'none', out: [] });
+    expect(await clean(q, OLD_PR)).toMatchObject({ r: 'none', out: [] });
     expect(fs.readFileSync(q.file, 'utf8')).toBe(recordPrInBrief(BODY, PR));
   });
 
-  test('git refuses the checkout: git\'s message is kept and one line says the brief was not cleaned', () => {
+  test('git refuses the checkout: git\'s message is kept and one line says the brief was not cleaned', async () => {
     const p = project();
     fs.writeFileSync(path.join(p.main, '.git', 'index.lock'), '');
-    const c = clean(p);
+    const c = await clean(p);
     fs.rmSync(path.join(p.main, '.git', 'index.lock'));
     expect(c.r).toBe('none');
     expect(c.kept).toHaveLength(1);
@@ -106,7 +106,7 @@ describe('cleanMainBrief', () => {
     expect(fs.readFileSync(p.file, 'utf8')).toBe(recordPrInBrief(BODY, PR));
   });
 
-  test('after the cleanup, a pull that brings the committed link goes through', () => {
+  test('after the cleanup, a pull that brings the committed link goes through', async () => {
     const p = project();
     // The merge brought the brief with the link onto origin's main.
     const other = path.join(p.base, 'other');
@@ -118,7 +118,7 @@ describe('cleanMainBrief', () => {
     git(other, 'push', '-q', 'origin', 'main');
     // With the link still uncommitted here, the pull is refused.
     expect(tryGit(p.main, 'pull', '-q', '--ff-only', 'origin', 'main').status).not.toBe(0);
-    expect(clean(p).r).toBe('restored');
+    expect((await clean(p)).r).toBe('restored');
     expect(tryGit(p.main, 'pull', '-q', '--ff-only', 'origin', 'main').status).toBe(0);
     expect(fs.readFileSync(p.file, 'utf8')).toContain(`pr: ${PR}`);
   });
@@ -132,17 +132,21 @@ describe('the completed tasks list cleans a merged run\'s brief, and only a merg
     process.env.PATH = `${bin}:${saved}`;
   }
 
-  test('an open pull request: the brief keeps the link', () => {
+  test('an open pull request: the brief keeps the link', async () => {
     const p = project();
     fakeGh(p, 'OPEN');
     listCompletedTasks(runContext(p.main));
+    await settleBriefCleanups();
     expect(fs.readFileSync(p.file, 'utf8')).toBe(recordPrInBrief(BODY, PR));
   });
 
-  test('a merged pull request: the brief is checked out again', () => {
+  test('a merged pull request: the brief is checked out again', async () => {
     const p = project();
     fakeGh(p, 'MERGED');
     const tasks = listCompletedTasks(runContext(p.main));
+    // The cleanup runs after the list is answered, never inside it.
+    expect(fs.readFileSync(p.file, 'utf8')).toBe(recordPrInBrief(BODY, PR));
+    await settleBriefCleanups();
     expect(tasks.map(t => [t.slug, t.prState])).toEqual([[SLUG, 'MERGED']]);
     expect(fs.readFileSync(p.file, 'utf8')).toBe(BODY);
     expect(git(p.main, 'status', '--porcelain')).toBe('');

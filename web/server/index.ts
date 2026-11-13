@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, prPollOptions, PR_POLL_MS, createPrForCompleted,
-  decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, completedListAsync, main, readRegistry, repoRulesFile, resolve,
+  decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, completedListAsync, primeRepoPaths, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
@@ -149,6 +149,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       return { ...ctx };
     } catch (e) { throw new HttpError(400, (e as Error).message); }
   };
+  const contextFresh = (p: Project): boolean => { const hit = contexts.get(`${p.name}\n${p.path}`); return Boolean(hit && hit.key === contextKey(hit.ctx.root)); };
   const dropContext = (name: string): void => { for (const id of contexts.keys()) if (id.startsWith(`${name}\n`)) contexts.delete(id); };
 
   /** The models each harness offers, with whether they take an effort, for the pickers. */
@@ -236,6 +237,8 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     if (parts[0] !== 'projects' || !parts[1]) throw new HttpError(404, 'no such API');
     const p = await project(parts[1]);
     const what = parts[2];
+    // A project whose context must be built: git's part of it is asked first without blocking (about 150 ms of git).
+    if (!contextFresh(p)) await primeRepoPaths(p.path, env);
 
     if (what === 'doctor' && method === 'GET') return send(200, { checks: doctor(p.path, { env }) });
     if (what === 'board' && method === 'GET') return send(200, boardView(contextFor(p)));

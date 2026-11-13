@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { startServer, type RunningServer } from '../server/index.js';
-import { forgetPrStatuses } from 'ai-sdlc-helper';
+import { forgetPrStatuses, settleBriefCleanups } from 'ai-sdlc-helper';
 
 const GIT_ENV = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
 const git = (cwd: string, args: string[], env: Record<string, string> = {}) => {
@@ -197,16 +197,47 @@ describe('the Completed list endpoint', () => {
     expect(fs.readFileSync(path.join(repo, 'Docs/backlog/echo/logs/errors.log'), 'utf8')).toMatch(/stopped after 300 ms/);
   });
 
-  test('a load runs no blocking git or gh call, and traces its phases', async () => {
+  test('a load runs no blocking git or gh call, from the first request on, and traces its phases', async () => {
     server = await startServer({ port: 0, env: envFor({ SDLC_TRACE: '1', SDLC_PR_POLL_MS: '1000' }), cwd: repo, uiDir: path.join(base, 'ui'), traceFlushMs: 20, cli: ['/bin/sh', '-c', 'exit 3', 'sh'] });
-    await completed(server); // the project's context is read (and cached) by the first request
+    await new Promise(r => setTimeout(r, 300)); // what the server does once at its start is not a load
+    const blockingSince = async (from: number) => {
+      await new Promise(r => setTimeout(r, 200));
+      return traceLines().filter(e => e.t >= from && e.action.startsWith('spawn:') && !(e.why || '').startsWith('async'));
+    };
+    let from = Date.now() * 1000;
+    expect(await completed(server)).toEqual(EXPECTED); // the first: the project's context is built now
+    expect(await blockingSince(from)).toEqual([]);
     await new Promise(r => setTimeout(r, 1100)); // the open PR and the branch without one are due again
-    const from = Date.now() * 1000;
+    from = Date.now() * 1000;
     expect(await completed(server)).toEqual(EXPECTED);
+    expect(await blockingSince(from)).toEqual([]);
+    expect(traceLines().filter(e => e.t >= from).find(e => e.action === 'completed')?.phases).toMatchObject({ keys: expect.any(Number), prs: expect.any(Number), git: expect.any(Number), build: expect.any(Number) });
+  });
+
+  test('merged runs with their own worktrees: the load runs no blocking call, and their briefs are cleaned after it answers', async () => {
+    // alpha and bravo ran in worktrees, and linked their PR in the main checkout's brief too (uncommitted there).
+    for (const slug of ['alpha', 'bravo']) {
+      const wt = path.join(base, `wt-${slug}`);
+      git(repo, ['worktree', 'add', '-q', '--detach', wt]);
+      const recFile = path.join(repo, '.git', 'sdlc-runs', `${slug}.json`);
+      const rec = fs.existsSync(recFile) ? JSON.parse(fs.readFileSync(recFile, 'utf8')) : { slug, pid: 0, state: 'exited', exit_code: '0', interrupted: false, message: '', branch: `sdlc/${slug}`, base: 'main', started: '', finished: '' };
+      fs.writeFileSync(recFile, JSON.stringify({ ...rec, worktree: wt, root: repo }));
+      brief(slug, '# Task\n');
+    }
+    git(repo, ['commit', '-q', '-am', 'briefs without their links']);
+    brief('alpha', linked(1));
+    brief('bravo', linked(2));
+    server = await startServer({ port: 0, env: envFor({ SDLC_TRACE: '1' }), cwd: repo, uiDir: path.join(base, 'ui'), traceFlushMs: 20, cli: ['/bin/sh', '-c', 'exit 3', 'sh'] });
+    await new Promise(r => setTimeout(r, 300));
+    const from = Date.now() * 1000;
+    const body = await completed(server);
+    expect(body.completed.filter((t: { prState: string }) => t.prState === 'MERGED').map((t: { slug: string }) => t.slug)).toEqual(expect.arrayContaining(['alpha', 'bravo']));
+    await settleBriefCleanups();
     await new Promise(r => setTimeout(r, 200));
-    const during = traceLines().filter(e => e.t >= from);
-    const blocking = during.filter(e => e.action.startsWith('spawn:') && !(e.why || '').startsWith('async'));
-    expect(blocking).toEqual([]);
-    expect(during.find(e => e.action === 'completed')?.phases).toMatchObject({ keys: expect.any(Number), prs: expect.any(Number), git: expect.any(Number), build: expect.any(Number) });
+    expect(traceLines().filter(e => e.t >= from && e.action.startsWith('spawn:') && !(e.why || '').startsWith('async'))).toEqual([]);
+    // Cleaned after the answer, one after the other: each brief is back to its committed text (charlie's link, from gh, stays).
+    expect(fs.readFileSync(path.join(repo, 'Docs/backlog/alpha/brief.md'), 'utf8')).toBe('# Task\n');
+    expect(fs.readFileSync(path.join(repo, 'Docs/backlog/bravo/brief.md'), 'utf8')).toBe('# Task\n');
+    expect(git(repo, ['status', '--porcelain', '--', 'Docs/backlog/alpha', 'Docs/backlog/bravo'])).toBe('');
   });
 });
