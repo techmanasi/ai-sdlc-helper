@@ -504,6 +504,46 @@ export interface BoardView {
   running: number;
 }
 
+/** The files of a run's logs folder that a board card is made from; everything else there (run.out, agents' logs) is left alone. */
+const BOARD_LOG_FILES = ['status.json', 'permissions.json', 'stage-files.json', 'tests.json', 'finalise-options.json', 'attempts.jsonl', 'resolve-conflicts.json'];
+const BOARD_ITEM_FILES = ['brief.md', 'questions.md', 'test-issues.md', 'pr-comments.md', 'ci-failure.md'];
+
+/**
+ * What the board is made from: the folders to watch for a change, and the files whose modification time and size
+ * make its fingerprint (see web/server/board-watch.ts). No git call and no file is read: folders are listed, no more.
+ */
+export function boardInputs(ctx: RunContext): { folders: string[]; files: string[] } {
+  const backlog = path.join(ctx.root, ctx.backlogDir);
+  // The project's own folder is watched for one file only, its settings (see boardIgnores).
+  const folders = new Set<string>([ctx.reg, backlog, ctx.root]);
+  const files = new Set<string>([ctx.reg, backlog, path.join(backlog, 'index.md'), path.join(ctx.root, 'sdlc.config.json')]);
+  let items: string[] = [];
+  try { items = fs.readdirSync(backlog, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name); } catch { /* no backlog */ }
+  for (const item of items) { folders.add(path.join(backlog, item)); files.add(path.join(backlog, item, 'brief.md')); }
+  for (const slug of projectSlugs(ctx, { keep: true })) {
+    files.add(path.join(ctx.reg, `${slug}.json`));
+    files.add(path.join(ctx.reg, `${slug}.discarded`));
+    const worktree = runWorktree(ctx, slug);
+    for (const dir of new Set([worktree, ctx.root])) {
+      if (!dir) continue;
+      const docs = path.join(dir, ctx.backlogDir, slug);
+      folders.add(docs);
+      folders.add(path.join(docs, 'logs'));
+      for (const f of BOARD_ITEM_FILES) files.add(path.join(docs, f));
+      for (const f of BOARD_LOG_FILES) files.add(path.join(docs, 'logs', f));
+    }
+  }
+  // Folders that do not exist yet are named too: the watcher waits for them (see web/server/board-watch.ts).
+  return { folders: [...folders], files: [...files] };
+}
+
+/** Whether a change to <file> in <dir> cannot change the board: temporary and heartbeat files, and in a logs folder anything a card does not read. */
+export function boardIgnores(dir: string, file: string, root?: string): boolean {
+  if (file.endsWith('.tmp') || file.endsWith('.live.json')) return true;
+  if (root && dir === root) return file !== 'sdlc.config.json';
+  return path.basename(dir) === 'logs' && !BOARD_LOG_FILES.includes(file);
+}
+
 /** How old a card's file counts and Red tests commit may be for a run that is not running (a running run: 30 s). */
 export const BOARD_GIT_MAX_AGE_MS = 60_000;
 

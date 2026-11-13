@@ -238,7 +238,7 @@ P8 only if P9 says so.
   refresh); the 10 s ticks in between cost file stats only.
 - **Risk:** medium — a stale mark that is not shown turns "behind" into "wrong".
 
-### P4 — One watcher registry — **pending**
+### P4 — One watcher registry — **done as part of the board watcher: see section 13**
 
 - **Files:** new `web/server/watchers.ts`; `web/server/watch.ts` uses it.
 - **Change:** refcounted `fs.watch` per folder, never recursive (Node 18 on
@@ -268,7 +268,7 @@ P8 only if P9 says so.
   number of `timer:board-rebuild` lines as one tab.
 - **Risk:** medium — the shared snapshot must never be mutated by a client.
 
-### P6 — Push the board on change — **pending**
+### P6 — Push the board on change — **server side done as the board watcher (section 13); client side pending**
 
 - **Needs:** P4 (the registry) and P5 (the shared poller, its fallback).
 - **Files:** `web/server/index.ts`, new `web/server/board-stream.ts` (uses P4's
@@ -557,8 +557,8 @@ repeated suite runs), which speed up pipeline runs, not the web pane.
 | P7 context cache | **done** | #120 | done before P3 because the numbers showed it was the larger cost |
 | P3 kept branch names and main tree | **done** | #123 | no 10 s slow tick and no live stale age: see below |
 | P5 one board feed per project | **done** | #121 | merged 2026-11-13 on its three-window numbers |
-| P4 watcher registry | **pending** | | |
-| P6 push the board on change | **pending** | | needs P4; see "Is P6 still worth it" below |
+| P4 watcher registry | **replaced** | | by the board watcher, section 13: one watcher set per project feed, so no registry is needed |
+| P6 push the board on change | **server side done** | | section 13; pending on the client: menu counts on every page (one stream per tab) |
 | P8 conditional GET | **pending** | | only if P9 says so |
 | P9 measure all four states | **pending** | | only the idle board is measured so far |
 
@@ -643,6 +643,68 @@ Points to weigh:
 
 P5 (#121) was merged on 2026-11-13. Still to confirm: keep close-when-hidden and do not build one connection per
 browser. Revisit only if a stale title in hidden tabs turns out to matter in use.
+
+## 13. The board watcher (replaces P4 and the server side of P6)
+
+Built from the user's design of 2026-11-13: the watcher first, the fingerprint only as its auditor and its stand-in.
+The code and its header comment are in `web/server/board-watch.ts`; this is the summary.
+
+- **Watching.** `fs.watch` on the folders the board reads (`boardInputs` in `src/runs/view.ts`). An event rebuilds
+  the board after 150 ms. No fingerprint is compared while events keep coming. Changes that cannot alter the board
+  (a run's `run.out`, agents' logs, temporary and heartbeat files) are ignored.
+- **Audit.** After 30 s without an event the fingerprint (modification time and size of every file the board reads)
+  is compared once with the one taken at the last rebuild. Equal: nothing was missed, and the host uses that quiet
+  moment, not a timer of its own, to check that a run said to be going still is. Different: the watcher missed a
+  change.
+- **Waiting.** A folder that does not exist yet (the register before a project's first run, a new run's logs) is
+  waited for by name on the nearest folder above it that exists; when it appears the watchers are attached again.
+  Found in the browser check: without this a project's first run showed only at the audit, 25 s later, and was
+  counted as a failure. With it: 212 ms.
+- **Failure.** A missed change, a watcher error, or a watcher that cannot be attached. The board is rebuilt and
+  every watcher attached again. Silence alone is never a failure.
+- **Cannot attach.** A watcher that cannot be attached is tried again every 5 s, comparing the fingerprint each time; each failed try is one failure, so the fallback is reached after about 50 s, not at once.
+- **Fallback.** After 10 failures in a row: no watcher, the fingerprint compared every 5 s, until the process
+  restarts. Every start begins with the watcher.
+- **Not from a file.** A pull request's status arrives from GitHub in the background; the board is rebuilt when it
+  does (`onPrStatusChange`). That is a notification, not a timer. The status is asked for again once an hour
+  (`SDLC_PR_POLL_MS`), and only a board build asks; a board that nothing changes is never built, so the same quiet
+  moment builds it when a finished run has a pull request and the last build is older than that hour.
+- **Follow-up, not in this change.** Write the pull request's status to a file beside the run's record. The watcher
+  would then catch it like any other change, the special case above would go, and the status would survive a
+  restart.
+
+The 2 s board rebuild is gone, and so is the `pollMs` server option's effect.
+
+### Measured (`scripts/watch-probe.mjs`, macOS, APFS, two volumes, 400 changes)
+
+| | Result |
+|---|---|
+| Changes the watcher did not report | 0 of 400 |
+| Delay of the first event | 12 ms median, 20 ms worst |
+| 50 changes at once | 50 events |
+| A watched folder removed and made again | no error is raised; on macOS the old watcher still sees the new folder |
+| One audit of this repository's board (169 files, 29 folders) | 1.1 ms median, 2.1 ms worst |
+| `git` calls in 60 s, one idle board open (6 finished runs, headless Chrome) | 26 on `main`; 0 with the watcher in a 60 s window (the kept main-tree answer lasts a minute, so about one `git worktree list` a minute is expected over longer periods) |
+| A project's first run appears on an open board, no reload | 212 ms |
+| How long real runs go without changing a file the board reads | 4 to 16 s at the median, 2 to 33 minutes at the 90th percentile |
+
+Why 30 s and not the 2 minutes first proposed: silence says nothing about the watcher's health (runs are quiet for
+minutes), so the period is only the bound on how long a deaf watcher, or a run that died silently, can go unseen. An
+audit costs about 1 ms, so a shorter bound is nearly free. 30 s is also the run page's own safety tick. Confirmed by
+the user on 2026-11-13 as a setting to tune after monitoring: `SDLC_BOARD_SILENCE_MS` (ms, at least 1000) or the
+`silenceMs` constant.
+
+Not reachable from here: Linux is only exercised in CI (where a removed folder kills its watcher silently, which the
+audit is there to catch), and Windows is untested.
+
+### Future enhancements
+
+- Tune `silenceMs` (30 s today; 2 minutes was the first proposal) once the trace shows how often an audit finds a missed change.
+- Write a pull request's status to a file beside the run's record so the watcher catches it and it survives a restart.
+- Cache the cards of finished runs, keyed on their files' fingerprint.
+- A line in the trace report summarising audits, misses and time spent in fallback.
+- Back-off between failures, if real faults turn out to come in bursts.
+- Linux and Windows measurements with `scripts/watch-probe.mjs`.
 
 ## Appendix: mapping from the two superseded plans
 

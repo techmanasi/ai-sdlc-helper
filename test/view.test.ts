@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, test } from 'vitest';
-import { answerQuestions, boardView, clearGitFacts, parseQuestions, resumeStage, runView, syncRunPr } from '../src/runs/view.js';
+import { answerQuestions, boardIgnores, boardInputs, boardView, clearGitFacts, parseQuestions, resumeStage, runView, syncRunPr } from '../src/runs/view.js';
 import { clearPrCache } from '../src/pipeline/finalise.js';
 import { runContext } from '../src/runs/index.js';
 import { addBacklogItem, backlogItems } from '../src/backlog/index.js';
@@ -345,6 +345,49 @@ test('a run that only has a status file is stopped when its pid now belongs to a
   expect(runView(ctx, 'tok', { parts: ['live'] }).state).toBe('running');
   status({ pid_start: 'Thu Jan 1 00:00:00 1970' });
   expect(runView(ctx, 'tok', { parts: ['live'] }).state).toBe(process.platform === 'win32' ? 'running' : 'stopped');
+});
+
+describe('what the board is made from', () => {
+  test('the folders to watch and the files of its fingerprint cover a run, the register and the backlog, with no git call', () => {
+    const { root, wt, ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '2' }, { 'questions.md': QUESTIONS, 'logs/status.json': { state: 'paused', stage: 'Spec' } });
+    boardView(ctx); // fills what the board keeps (the main working tree)
+    const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+    const bin = tmp('inputs-bin-');
+    const log = path.join(bin, 'git-calls.txt');
+    fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\necho "$@" >> "${log}"\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    const saved = process.env.PATH;
+    process.env.PATH = `${bin}:${saved}`;
+    let got: ReturnType<typeof boardInputs>;
+    try { got = boardInputs(ctx); } finally { process.env.PATH = saved; }
+    expect(fs.existsSync(log)).toBe(false);
+    const reg = path.join(root, '.git/sdlc-runs');
+    const docs = path.join(wt, 'Docs/backlog/add-tokens');
+    expect(got.folders).toEqual(expect.arrayContaining([reg, path.join(root, 'Docs/backlog'), path.join(root, 'Docs/backlog/add-tokens'), docs, path.join(docs, 'logs')]));
+    expect(got.folders).toContain(root);
+    // A folder that is not there yet is named too, so that the watcher can wait for it.
+    const later = path.join(root, 'Docs/backlog/add-tokens/logs');
+    expect(fs.existsSync(later)).toBe(false);
+    expect(got.folders).toContain(later);
+    expect(got.files).toEqual(expect.arrayContaining([
+      path.join(reg, 'add-tokens.json'), path.join(root, 'Docs/backlog/index.md'), path.join(root, 'sdlc.config.json'),
+      path.join(docs, 'questions.md'), path.join(docs, 'logs', 'status.json'), path.join(docs, 'logs', 'permissions.json'), path.join(docs, 'logs', 'tests.json'),
+    ]));
+    expect(got.files.some(f => f.endsWith('run.out'))).toBe(false);
+  });
+
+  test('a run\'s output, an agent\'s log, a temporary file and a heartbeat cannot change the board; a status and a record can', () => {
+    expect(boardIgnores('/wt/Docs/backlog/tok/logs', 'run.out')).toBe(true);
+    expect(boardIgnores('/wt/Docs/backlog/tok/logs', 'spec-1.json')).toBe(true);
+    expect(boardIgnores('/wt/Docs/backlog/tok/logs', 'status.json')).toBe(false);
+    expect(boardIgnores('/wt/Docs/backlog/tok/logs', 'status.json.tmp')).toBe(true);
+    expect(boardIgnores('/repo/.git/sdlc-runs', 'tok.json')).toBe(false);
+    expect(boardIgnores('/repo/.git/sdlc-runs', 'tok.json.123.0.tmp')).toBe(true);
+    expect(boardIgnores('/repo/.git/sdlc-runs', 'tok.live.json')).toBe(true);
+    expect(boardIgnores('/wt/Docs/backlog/tok', 'questions.md')).toBe(false);
+    expect(boardIgnores('/repo', 'README.md', '/repo')).toBe(true);
+    expect(boardIgnores('/repo', 'sdlc.config.json', '/repo')).toBe(false);
+    expect(boardIgnores('/repo/.git/sdlc-runs', 'tok.json', '/repo')).toBe(false);
+  });
 });
 
 describe('the trace of a board read', () => {
