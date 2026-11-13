@@ -15,7 +15,7 @@ import { newTestFiles, repairTestFiles, resultsAt, resultsNow, successCheck, tar
 import { renderPrompt } from './prompts.js';
 import { resumeCommand, resumeHint } from './hints.js';
 import { finalise, firstLine, getPrFromBrief, markPrReady } from './finalise.js';
-import { linkPrEverywhere } from './pr-link.js';
+import { cleanRunMainBrief, linkPrEverywhere } from './pr-link.js';
 import { installDeps } from './deps.js';
 import { appendRound, repeatedFailures } from './observe.js';
 import { keepError } from './errors.js';
@@ -693,6 +693,8 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
     out: l => ctx.out(l), err: l => ctx.err(l),
     keepError: (where, text) => keepError(ctx, where, text), linkPr: url => linkPrEverywhere(ctx, url),
   });
+  // A pull request that is merged already: the link in the main checkout's brief is not needed there any more.
+  if (res.merged && res.pr) cleanRunMainBrief(ctx, res.pr);
   // The full suite ran in CI: the PR opened as a draft after Red tests is now ready for review (never a second PR, no squashing).
   const draft = opened || null;
   if (draft) {

@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from '../trace.js';
 import { backlogItems, parseBrief, parseIndex } from '../backlog/index.js';
-import { readRecord } from './records.js';
+import { readRecord, type RunRecord } from './records.js';
+import { cleanMainBrief } from '../pipeline/pr-link.js';
 import { liveBranch, liveBriefPr, pickBase, runWorktree, type RunContext } from './index.js';
 import { keepError } from '../pipeline/errors.js';
 import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, getPrStatusAsync, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
@@ -119,6 +120,24 @@ export async function listCompletedTasksAsync(ctx: RunContext): Promise<Complete
   return completedTasks(ctx, key => known.get(key) ?? null);
 }
 
+/**
+ * A run with its own worktree whose pull request <mergedPr> is merged: the link linkPrEverywhere wrote into the main checkout's
+ * brief is taken out again (see cleanMainBrief). A failure is kept in the run worktree's errors.log, or in the run registry's
+ * (<git dir>/sdlc-runs/errors.log) once the worktree is gone, and said on stderr: this path has no run output.
+ */
+export function cleanMergedRunBrief(ctx: RunContext, slug: string, rec: Partial<RunRecord> | null, mergedPr: string): void {
+  const real = (p: string): string => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  // A run in the main checkout itself has no copy there to clean.
+  if (!rec?.worktree || real(rec.worktree) === real(ctx.root)) return;
+  const wt = runWorktree(ctx, slug);
+  const where = wt ? { root: wt, log: path.join(ctx.backlogDir, slug, 'logs') } : { root: ctx.reg, log: '' };
+  cleanMainBrief({
+    root: ctx.root, rel: path.join(ctx.backlogDir, slug, 'brief.md'), mergedPr, env: ctx.env,
+    keepError: (w, t) => keepError(where, w, t),
+    out: l => { process.stderr.write(`${l}\n`); },
+  });
+}
+
 function completedTasks(ctx: RunContext, prOf: (key: string) => PrStatus | null): CompletedTask[] {
   const { indexText, entries, completedSlugs } = completedSlugsOf(ctx);
   const items = backlogItems({ root: ctx.root, backlogDir: ctx.backlogDir, branchPrefix: ctx.branchPrefix });
@@ -155,6 +174,7 @@ function completedTasks(ctx: RunContext, prOf: (key: string) => PrStatus | null)
     }
 
     const prState = prStatus ? prStatus.state : null;
+    if (prStatus?.state === 'MERGED') cleanMergedRunBrief(ctx, slug, rec, prStatus.url);
     const isMarkedDoneInIndex = entry && (entry.marker.toLowerCase() === 'x' || isArchivedInIndex(indexText, slug));
 
     // RULE: A task with a PR is only completed once the PR is MERGED into base.

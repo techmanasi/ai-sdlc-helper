@@ -33,6 +33,8 @@ export interface FinaliseOptions {
 export interface FinaliseResult {
   committed: number;
   pr: string | null;
+  /** The pull request is merged already. */
+  merged?: boolean;
 }
 
 /** Parses the PR URL from brief.md frontmatter or body. */
@@ -649,7 +651,7 @@ export function finalise(o: FinaliseOptions): FinaliseResult {
     o.out(`WARNING: ${o.slug} not found in ${o.backlog}; not ticked`);
   }
 
-  return { committed: include.length, pr: prUrl };
+  return { committed: include.length, pr: prUrl, ...(isPrMerged ? { merged: true } : {}) };
 }
 
 export interface CiReport {
