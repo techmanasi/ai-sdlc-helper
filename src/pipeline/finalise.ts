@@ -58,6 +58,18 @@ export function recordPrInBrief(text: string, prUrl: string): string {
   return `---\npr: ${prUrl}\n---\n\n${text.trimStart()}`;
 }
 
+/** Takes every PR link out of brief.md: the front-matter lines (and the block, when that leaves it empty) and the body lines. */
+export function clearPrInBrief(text: string): string {
+  let out = text;
+  const m = out.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (m && /^pr:\s*\S+/im.test(m[1])) {
+    const rest = m[1].split(/\r?\n/).filter(l => !/^pr:\s*/i.test(l)).join('\n').trim();
+    const tail = out.slice(m[0].length);
+    out = rest ? `---\n${rest}\n---${tail}` : tail.replace(/^\s*\n/, '');
+  }
+  return out.replace(/^(?:PR|pr):\s*https?:\/\/\S+[ \t]*(?:\r?\n|$)/gim, '');
+}
+
 /** Finds or creates a GitHub PR for the branch. */
 export function createOrGetPr(cwd: string, branch: string, title: string, body: string, base?: string, opts: { draft?: boolean } = {}): string | null {
   // Check if PR already exists

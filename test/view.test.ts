@@ -4,7 +4,9 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { answerQuestions, boardIgnores, boardInputs, boardView, clearGitFacts, parseQuestions, resumeStage, runView, syncRunPr } from '../src/runs/view.js';
 import { clearPrCache } from '../src/pipeline/finalise.js';
-import { runContext } from '../src/runs/index.js';
+import { liveBranch, liveBriefPr, runContext } from '../src/runs/index.js';
+import { moveReasonText } from '../src/pipeline/status.js';
+import { getPrFromBrief } from '../src/pipeline/finalise.js';
 import { addBacklogItem, backlogItems } from '../src/backlog/index.js';
 import { TRACE_DEFAULTS, startTrace, stopTrace } from '../src/trace.js';
 import { worktreeInputs } from '../src/gitdir.js';
@@ -113,6 +115,37 @@ describe('runView', () => {
     expect(runView(ctx, 'add-tokens', { changes: false }).redCommit).toBe('');
     git(wt, 'commit', '-q', '--allow-empty', '-m', 'test(add-tokens): add failing tests');
     expect(runView(ctx, 'add-tokens', { changes: false }).redCommit).toMatch(/^[0-9a-f]{7,}$/);
+  });
+
+  test('a run that moved shows its new branch and where it came from; one that did not shows the default', () => {
+    const moved = { branch: 'sdlc/add-tokens_2', moved_from: { branch: 'sdlc/add-tokens', reason: 'earlier-run', reason_text: 'the words', pr: 'https://github.com/o/r/pull/5', at: '2026-11-13T10:00:00' } };
+    const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Implement', ...moved } });
+    const v = runView(ctx, 'add-tokens', { changes: false });
+    expect(v.branch).toBe('sdlc/add-tokens_2');
+    const { reason_text: words, ...rest } = moved.moved_from;
+    expect(v.movedFrom).toEqual({ ...rest, reasonText: words });
+    // An older status file without the words: they come from the code.
+    const old = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Implement', moved_from: { branch: 'sdlc/add-tokens', reason: 'pr-merged', at: '' } } });
+    expect(runView(old.ctx, 'add-tokens', { changes: false }).movedFrom?.reasonText).toBe(moveReasonText('pr-merged'));
+    const plain = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Implement' } });
+    const p = runView(plain.ctx, 'add-tokens', { changes: false });
+    expect(p.branch).toBe('sdlc/add-tokens');
+    expect(p.movedFrom).toBeUndefined();
+  });
+
+  test('liveBranch: status.json first, then the worktree\'s run branch, then the record; the worktree\'s brief link first', () => {
+    const { ctx, wt, root } = repoWithRun('add-tokens', { state: 'running', exit_code: '' }, { 'logs/status.json': { state: 'running', stage: 'Red tests', branch: 'sdlc/add-tokens_3' } });
+    expect(liveBranch(ctx, 'add-tokens')).toBe('sdlc/add-tokens_3');
+    fs.rmSync(path.join(wt, 'Docs/backlog/add-tokens/logs/status.json'));
+    git(wt, 'checkout', '-q', '-b', 'sdlc/add-tokens_2');
+    expect(liveBranch(ctx, 'add-tokens')).toBe('sdlc/add-tokens_2');
+    // Another item's branch (add-tokens-2) is not this run's: the record's branch is used.
+    git(wt, 'checkout', '-q', '-b', 'sdlc/add-tokens-2');
+    expect(liveBranch(ctx, 'add-tokens')).toBe('sdlc/add-tokens');
+    write(root, 'Docs/backlog/add-tokens/brief.md', '---\npr: https://github.com/o/r/pull/5\n---\n');
+    expect(liveBriefPr(ctx, 'add-tokens', getPrFromBrief)).toBe('https://github.com/o/r/pull/5');
+    write(wt, 'Docs/backlog/add-tokens/brief.md', '---\npr: https://github.com/o/r/pull/9\n---\n');
+    expect(liveBriefPr(ctx, 'add-tokens', getPrFromBrief)).toBe('https://github.com/o/r/pull/9');
   });
 
   test('counts the files the run changed in its worktree', () => {

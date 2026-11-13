@@ -16,7 +16,9 @@ import { projectRoot } from '../runs/records.js';
 import { Git } from './git.js';
 import { envModels, modelEnvOf, registryFile, stageModels } from './models.js';
 import { PROMPTS_DIR } from './prompts.js';
-import { Status, finalState, previousStage, previousState } from './status.js';
+import { Status, finalState, previousBranch, previousStage, previousState } from './status.js';
+import { isRunBranch } from './branch-move.js';
+import { ensurePushable } from './push-check.js';
 import { formatRecoveryCli, stageRecoveryHint } from './hints.js';
 import { appendRound, priorStarts } from './observe.js';
 import { redCommitTestFiles, resultsAt } from './gates.js';
@@ -199,9 +201,18 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
   status.runNumber = runNumber;
   status.previousRun = previousRun;
   const git = new Git(root, env);
+  // A run that moved to <prefix><slug>_N stays there on a resume: the worktree's branch is the run's branch.
+  const defaultBranch = `${config.git.branchPrefix}${slug}`;
+  const current = (git.tryRun('symbolic-ref', '--short', '-q', 'HEAD') || '').trim();
+  const branch = current && isRunBranch(current, config.git.branchPrefix, slug) ? current : defaultBranch;
+  const moved = previousBranch(status.file);
+  if (branch !== defaultBranch) {
+    status.branch = branch;
+    if (moved.movedFrom) status.movedFrom = moved.movedFrom;
+  }
   const ctx: Ctx = {
     root, config, layout: lay, slug, from, fromN: FROM_STAGES.indexOf(from) + 1, docs, log, backlog,
-    branch: `${config.git.branchPrefix}${slug}`, env, envModels: envModels(root, env), force: { ...(opts.model ? { model: opts.model } : {}), ...(opts.effort ? { effort: opts.effort } : {}) }, registryFile: registryFile(env), limits,
+    branch, ...(status.movedFrom ? { movedFrom: { branch: status.movedFrom.branch, pr: status.movedFrom.pr, reason: status.movedFrom.reason } } : {}), env, envModels: envModels(root, env), force: { ...(opts.model ? { model: opts.model } : {}), ...(opts.effort ? { effort: opts.effort } : {}) }, registryFile: registryFile(env), limits,
     priorStage, runNumber, previousRun, git, keys: new Keys(testLayout(config), root), status, spawnAgent: opts.spawnAgent || spawnAgentProcess, signal: opts.signal,
     promptsDir: opts.promptsDir || PROMPTS_DIR, guide: codeSearchGuide(search, root),
     allowed: [...new Set([...allowedTools(config), `Bash(${testFileCmd}:*)`, `Bash(${fetchCmd}:*)`])], testFileCmd, fetchCmd,
@@ -246,6 +257,10 @@ async function stages(ctx: Ctx): Promise<void> {
 
   if (fromN <= 1) await specStage(ctx);
   if (fromN <= 2) await planStage(ctx);
+  // The push check: before Red tests commits and pushes anything, the branch is made pushable (or the run moves to a new
+  // branch). After refuseRedone, so a refused start changes nothing. (A kept attempt, SDLC_ON_ATTEMPT=1, starts at
+  // Implement only: adoptKeptAttempt stops any other start, so it never gets here.)
+  if (fromN <= 3) await ensurePushable(ctx, { resume: 'red-tests', fresh: ctx.from === 'spec' || ctx.from === 'plan' });
   if (fromN <= 3) await redTestsStage(ctx);
   else resumeAtTests(ctx);
   ctx.origRedSha = ctx.redSha;

@@ -7,6 +7,7 @@ import { spawnSync } from '../trace.js';
 import { fileURLToPath } from 'node:url';
 import { CONFIG_FILE, exists, readSettings } from '../util.js';
 import { shellArgv } from '../shell.js';
+import { headBranchOf, isRunBranch } from '../gitdir.js';
 import { PERSONAL_ENV, personalAgentOf } from '../config/personal.js';
 import { forceEnv, resolve, worktreeBase, type Force } from '../config/settings.js';
 import { findContaining, readRegistry, type ProjectOverrides } from '../registry/projects.js';
@@ -125,6 +126,37 @@ export function runWorktree(ctx: RunContext, slug: string): string | null {
   return isDir(wt) ? wt : null;
 }
 
+/**
+ * The branch a run is on now, also while it is going: status.json's (a run that moved to <prefix><slug>_N names it there),
+ * else its worktree's when that is this item's run branch, else the record's, else <prefix><slug>.
+ */
+export function liveBranch(ctx: RunContext, slug: string, rec: Partial<RunRecord> | null = readRecord(ctx.reg, slug)): string {
+  const wt = runWorktree(ctx, slug);
+  for (const dir of [wt, ctx.root]) {
+    if (!dir) continue;
+    try {
+      const s = JSON.parse(fs.readFileSync(path.join(dir, ctx.backlogDir, slug, 'logs', 'status.json'), 'utf8')) as { branch?: unknown };
+      if (typeof s.branch === 'string' && s.branch) return s.branch;
+    } catch { /* no status here */ }
+  }
+  // Read from the HEAD file: the board asks this for every card, so no git call.
+  const current = wt ? headBranchOf(wt) : '';
+  if (current && isRunBranch(current, ctx.branchPrefix, slug)) return current;
+  return rec?.branch || `${ctx.branchPrefix}${slug}`;
+}
+
+/** The pull request link of a run's brief: the worktree's first (a moved run's new link is there), else the main checkout's. */
+export function liveBriefPr(ctx: RunContext, slug: string, parse: (text: string) => string | null): string | null {
+  const dirs = [runWorktree(ctx, slug), ctx.root].filter((d): d is string => !!d);
+  for (const dir of dirs) {
+    let text = '';
+    try { text = fs.readFileSync(path.join(dir, ctx.backlogDir, slug, 'brief.md'), 'utf8'); } catch { continue; }
+    const pr = parse(text);
+    if (pr) return pr;
+  }
+  return null;
+}
+
 /** Holds <reg>/.start.lock while <fn> runs, so two starts cannot both pass the parallel cap. */
 function withStartLock<T>(reg: string, fn: () => T): T {
   fs.mkdirSync(reg, { recursive: true });
@@ -235,7 +267,12 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
       }
     }
     const wt = rec?.worktree && exists(path.join(rec.worktree, '.git')) ? rec.worktree : path.join(ctx.wtBase, slug);
-    const branch = branchOf(ctx, slug, rec?.worktree === wt ? rec : null);
+    let branch = branchOf(ctx, slug, rec?.worktree === wt ? rec : null);
+    // A run moved to a new branch keeps working there: the worktree's own branch is the truth.
+    if (exists(path.join(wt, '.git'))) {
+      const current = git(wt, ['symbolic-ref', '--short', '-q', 'HEAD'], ctx.env).stdout.trim();
+      if (current && isRunBranch(current, ctx.branchPrefix, slug)) branch = current;
+    }
     const base = pickBase(ctx);
     let created = false;
     if (!exists(path.join(wt, '.git'))) {
@@ -303,7 +340,7 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
       pid = startSupervisor({
         slug, recordFile: recordFile(ctx.reg, slug), interruptFile: regFile(ctx, slug, 'interrupt'), logFile: log,
         outFile: path.join(logs, 'run.out'), cwd: wt, argv: pipelineArgv(slug, opts.from, ctx.env), setup, setupMarker: marker,
-        record: { ...record, pid: 0 },
+        record: { ...record, pid: 0 }, prefix: ctx.branchPrefix,
       }, { ...pipelineEnv(ctx, slug), ...forceEnv(opts.force) });
     } catch (e) {
       return refuse(1, `could not start the pipeline: ${(e as Error).message}`);

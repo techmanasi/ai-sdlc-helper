@@ -792,3 +792,31 @@ describe('undo last start', () => {
     expect((await undoLast(runContext(repo, baseEnv()), 'alpha')).code).toBe(1);
   });
 });
+
+describe('a run that moved to a new branch', () => {
+  test('the record names the worktree\'s branch: at the end of a run that moved, and at a later start', async () => {
+    const stub = path.join(tmp, 'move-stub.sh');
+    fs.writeFileSync(stub, '#!/bin/sh\ngit checkout -q -b "sdlc/${1}_2"\n', { mode: 0o755 });
+    expect((await cli(['start', 'alpha'], { AI_SDLC_HELPER_PIPELINE_CMD: `sh ${stub}` })).status).toBe(0);
+    const wt = path.join(wts, 'alpha');
+    const rec = await finished('alpha');
+    expect(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('sdlc/alpha_2');
+    expect(rec.branch).toBe('sdlc/alpha_2');
+
+    // Started again, the worktree is still on the moved branch, so the new record and the message say so.
+    const r = await cli(['start', 'alpha']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(`in ${wt} on sdlc/alpha_2`);
+    expect((await finished('alpha')).branch).toBe('sdlc/alpha_2');
+    expect(git(repo, 'branch', '--list', 'sdlc/alpha')).not.toBe('');
+  });
+
+  test('a branch that is not the run\'s is not taken for it', async () => {
+    expect((await cli(['start', 'alpha'])).status).toBe(0);
+    await finished('alpha');
+    // sdlc/alpha-2 is the branch an item named alpha-2 would have.
+    git(path.join(wts, 'alpha'), 'checkout', '-q', '-b', 'sdlc/alpha-2');
+    expect((await cli(['start', 'alpha'])).status).toBe(0);
+    expect((await finished('alpha')).branch).toBe('sdlc/alpha');
+  });
+});

@@ -19,7 +19,9 @@ import { installDeps } from './deps.js';
 import { appendRound, repeatedFailures } from './observe.js';
 import { keepError } from './errors.js';
 import { withAnswerLines } from './questions.js';
-import { checkCiAvailability, waitForCiAndClassify, type CiStepResult } from './ci.js';
+import { openMovedPr } from './branch-move.js';
+import { ensurePushable, pushCheckSkipped } from './push-check.js';
+import { checkCiAvailability, isRejectedPush, waitForCiAndClassify, type CiStepResult } from './ci.js';
 import { ciFailureText, ciState, ciStatusLine, ciWarnings, duration, localCounts, setCiStatus } from './ci-rounds.js';
 
 const short = (sha: string) => sha.slice(0, 7);
@@ -235,6 +237,19 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   ctx.lockSha = ctx.redSha;
   // The full suite in CI: the tests are locked, so push and open the draft PR now (a failed red gate never gets here).
   if (ctx.config.tests.fullSuite === 'ci') await openCi(ctx);
+  else if (ctx.movedFrom) await openMovedPr(ctx);
+  if (ctx.movedFrom) commitBriefLink(ctx);
+}
+
+/** A moved run's new pull request link is in brief.md: it is committed and pushed (the same commit Finalise makes). */
+function commitBriefLink(ctx: Ctx): void {
+  const rel = `${ctx.docs}/brief.md`;
+  try {
+    if (!ctx.git.run('status', '--porcelain', '--', rel).trim()) return;
+    ctx.git.run('add', '--', rel);
+    ctx.git.run('commit', '-q', '-m', `chore(${ctx.slug}): link pull request`, '--', rel);
+    ctx.git.tryRun('push', 'origin', ctx.branch);
+  } catch (e) { keepError(ctx, 'link pull request', (e as Error).message); }
 }
 
 /** Whether the full suite runs in CI for this run: the setting is on and CI has not been given up on. */
@@ -253,9 +268,39 @@ function fallBack(ctx: Ctx, reason: string): void {
   setCiStatus(ctx, { state: 'unavailable: running locally', reason });
 }
 
+/**
+ * Whether a refused push gets the push check. Not when the developer turned it off, not in Resolve conflicts (it works on
+ * the pull request's own branch), and not on a kept attempt ("Fix with Implement"): that branch was reset to a rebased
+ * result, so its push is rightly not a fast-forward, and the lease push at the end of the run is what updates origin.
+ */
+function mayCheckPush(ctx: Ctx): boolean {
+  return !pushCheckSkipped(ctx.env) && ctx.status.stage !== 'Resolve conflicts' && ctx.env.SDLC_ON_ATTEMPT !== '1';
+}
+
+/** Where a run resumes when the push check stops it in <stage> (Red tests has committed its tests by then). */
+const RESUME_AFTER: Record<string, string> = { 'Red tests': 'implement', Implement: 'implement', 'Test repair': 'test-repair', Review: 'review' };
+const resumeKey = (ctx: Ctx): string => RESUME_AFTER[ctx.status.stage] || ctx.from;
+
+/**
+ * Implement's push was refused: the push check settles the branch (a fix, or a new branch), and the round goes on once
+ * CI can be used on it. False when not (the run then pauses as for any push failure; a resume goes on from that branch).
+ */
+async function pushAfterCheck(ctx: Ctx): Promise<boolean> {
+  await ensurePushable(ctx, { resume: resumeKey(ctx), fresh: false });
+  const r = await checkCiAvailability(ctx);
+  if (!r.available) return false;
+  setCiStatus(ctx, { state: 'waiting', pr: r.pr ?? briefPr(ctx), ...(r.prDraft !== undefined ? { prDraft: r.prDraft } : {}) });
+  return true;
+}
+
 /** Pushes the branch and opens (or finds) the draft PR; when CI cannot be used the run falls back to the local full suite. */
 async function openCi(ctx: Ctx): Promise<void> {
-  const r = await checkCiAvailability(ctx);
+  let r = await checkCiAvailability(ctx);
+  // Origin refused the push: the push check settles the branch, and CI is asked once more (never in a loop).
+  if (!r.available && r.rejected && mayCheckPush(ctx)) {
+    await ensurePushable(ctx, { resume: resumeKey(ctx), fresh: false });
+    r = await checkCiAvailability(ctx);
+  }
   if (!r.available) { fallBack(ctx, r.reason || 'unknown'); return; }
   ctx.ciAvailable = true;
   setCiStatus(ctx, { state: 'waiting', pr: r.pr ?? briefPr(ctx), ...(r.prDraft !== undefined ? { prDraft: r.prDraft } : {}) });
@@ -358,11 +403,16 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
         ctx.git.run('push', '-u', 'origin', ctx.branch);
         sha = ctx.git.head();
       } catch (e) {
-        endRound('Push failed (paused)');
-        setCiStatus(ctx, { state: 'timed out (paused)', reason: 'push failed' });
-        saveAttempts(ctx, i - 1);
-        keepError(ctx, 'implement push', String((e as Error).message));
-        return stop(ctx, `PAUSED: ${String((e as Error).message).split('\n')[0]}. Fix it and resume with FROM=implement (${resumeCommand(ctx.slug, 'implement')})`, 2);
+        const message = String((e as Error).message);
+        keepError(ctx, 'implement push', message);
+        // Origin refused it: the push check settles the branch and the round goes on as after a push.
+        if (!(isRejectedPush(message) && mayCheckPush(ctx) && await pushAfterCheck(ctx))) {
+          endRound('Push failed (paused)');
+          setCiStatus(ctx, { state: 'timed out (paused)', reason: 'push failed' });
+          saveAttempts(ctx, i - 1);
+          return stop(ctx, `PAUSED: ${message.split('\n')[0]}. Fix it and resume with FROM=implement (${resumeCommand(ctx.slug, 'implement')})`, 2);
+        }
+        sha = ctx.git.head();
       }
       let result: CiStepResult;
       if (!committed && last && last.sha === sha) result = last.result; // nothing new to check: CI already answered for this head

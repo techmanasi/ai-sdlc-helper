@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { implementStage, redTestsStage, reviewStage, finaliseStage } from '../../src/pipeline/stages.js';
+import { implementStage, redTestsStage, reviewStage, testRepairStage, finaliseStage } from '../../src/pipeline/stages.js';
 import { runAgent } from '../../src/pipeline/agent.js';
 import { successCheck, testsPass } from '../../src/pipeline/gates.js';
 import { finalise } from '../../src/pipeline/finalise.js';
@@ -10,7 +10,9 @@ import { changed } from '../../src/changes/index.js';
 import type { Ctx } from '../../src/pipeline/context.js';
 
 const ci = vi.hoisted(() => ({ available: vi.fn(), wait: vi.fn(), ready: vi.fn() }));
-vi.mock('../../src/pipeline/ci.js', () => ({ checkCiAvailability: ci.available, waitForCiAndClassify: ci.wait }));
+vi.mock('../../src/pipeline/ci.js', async importOriginal => ({ ...await importOriginal<typeof import('../../src/pipeline/ci.js')>(), checkCiAvailability: ci.available, waitForCiAndClassify: ci.wait }));
+const pc = vi.hoisted(() => ({ ensure: vi.fn(async (_ctx: { branch: string }, _opts: { resume: string; fresh: boolean }) => {}) }));
+vi.mock('../../src/pipeline/push-check.js', () => ({ ensurePushable: pc.ensure, pushCheckSkipped: (env: NodeJS.ProcessEnv) => ['0', 'no', 'off'].includes(String(env.SDLC_PUSH_CHECK ?? '')) }));
 vi.mock('../../src/pipeline/agent.js', async importOriginal => ({ ...await importOriginal<typeof import('../../src/pipeline/agent.js')>(), runAgent: vi.fn(async () => {}), stageFlags: vi.fn(() => ({ model: 'fixture-model', effort: 'high' })) }));
 vi.mock('../../src/pipeline/deps.js', () => ({ installDeps: vi.fn() }));
 vi.mock('../../src/changes/index.js', async importOriginal => ({ ...await importOriginal<typeof import('../../src/changes/index.js')>(), mark: vi.fn(), changed: vi.fn() }));
@@ -24,6 +26,7 @@ vi.mock('../../src/pipeline/finalise.js', async importOriginal => ({ ...await im
 let root: string;
 beforeEach(async () => {
   vi.clearAllMocks();
+  pc.ensure.mockReset();
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'ci-stages-'));
   await fs.mkdir(path.join(root, 'docs/logs'), { recursive: true });
   await fs.writeFile(path.join(root, 'docs/plan-1.md'), '');
@@ -48,6 +51,89 @@ function context(mode = 'ci') {
   };
 }
 const cast = (ctx: ReturnType<typeof context>) => ctx as unknown as Ctx;
+
+describe('a refused push gets the push check', () => {
+  const moveTo = (b: string) => async (c: { branch: string }): Promise<void> => { c.branch = b; };
+  it('runs the check once, asks CI again once, and then uses CI', async () => {
+    const ctx = context();
+    pc.ensure.mockImplementation(moveTo('sdlc/feature_2'));
+    ci.available.mockReturnValueOnce({ available: false, rejected: true, reason: 'push failed: rejected' }).mockReturnValueOnce({ available: true, pr: 'https://github.com/acme/repo/pull/7' });
+    await redTestsStage(cast(ctx));
+    expect(ctx.branch).toBe('sdlc/feature_2');
+    expect(ctx.ciAvailable).toBe(true);
+    expect(pc.ensure).toHaveBeenCalledTimes(1);
+    // Red tests has committed its tests: a stopped check resumes at Implement; a refused push is never a fresh start.
+    expect(pc.ensure.mock.calls[0][1]).toEqual({ resume: 'implement', fresh: false });
+    expect(ci.available).toHaveBeenCalledTimes(2);
+  });
+  it('falls back when the second try fails too, without a third', async () => {
+    const ctx = context();
+    ci.available.mockReturnValue({ available: false, rejected: true, reason: 'push failed: rejected' });
+    await redTestsStage(cast(ctx));
+    expect(ctx.ciAvailable).toBe(false);
+    expect(ci.available).toHaveBeenCalledTimes(2);
+    expect(pc.ensure).toHaveBeenCalledTimes(1);
+  });
+  it('does not run the check when SDLC_PUSH_CHECK=0, or for a push that failed for another reason', async () => {
+    const ctx = context(); ctx.env = { SDLC_CREATE_PR: '0', SDLC_PUSH_CHECK: '0' } as typeof ctx.env;
+    ci.available.mockReturnValue({ available: false, rejected: true, reason: 'push failed: rejected' });
+    await redTestsStage(cast(ctx));
+    expect(pc.ensure).not.toHaveBeenCalled();
+    expect(ci.available).toHaveBeenCalledTimes(1);
+    const other = context();
+    ci.available.mockReturnValue({ available: false, reason: 'push failed: could not resolve host' });
+    await redTestsStage(cast(other));
+    expect(pc.ensure).not.toHaveBeenCalled();
+  });
+  it('does not run on a kept attempt (Fix with Implement) in ci mode: same branch, same pull request', async () => {
+    const ctx = context(); ctx.env = { SDLC_CREATE_PR: '0', SDLC_ON_ATTEMPT: '1' } as typeof ctx.env;
+    (ctx as { ciAvailable?: boolean }).ciAvailable = undefined; ctx.from = 'implement'; ctx.fromN = 4;
+    ci.available.mockReturnValue({ available: false, rejected: true, reason: 'push failed: ! [rejected] (non-fast-forward)' });
+    await implementStage(cast(ctx));
+    expect(pc.ensure).not.toHaveBeenCalled();
+    expect(ctx.branch).toBe('sdlc/feature');
+    expect(ci.available).toHaveBeenCalledTimes(1);
+    expect(ctx.ciAvailable).toBe(false);
+  });
+  for (const [name, run, from, fromN] of [['Review', reviewStage, 'review', 6], ['Test repair', testRepairStage, 'test-repair', 4]] as const) {
+    it(`runs for a ${name} run first entered in ci mode, and the suite is not run locally`, async () => {
+      const ctx = context(); ctx.from = from; ctx.fromN = fromN;
+      (ctx as { ciAvailable?: boolean }).ciAvailable = undefined;
+      pc.ensure.mockImplementation(moveTo('sdlc/feature_2'));
+      ci.available.mockReturnValueOnce({ available: false, rejected: true, reason: 'push failed: rejected' }).mockReturnValueOnce({ available: true, pr: 'https://github.com/acme/repo/pull/7' });
+      await run(cast(ctx)).catch(() => {});
+      expect(pc.ensure).toHaveBeenCalledTimes(1);
+      expect(pc.ensure.mock.calls[0][1]).toMatchObject({ fresh: false });
+      expect(ctx.branch).toBe('sdlc/feature_2');
+      expect(ctx.ciAvailable).toBe(true);
+      expect(ci.available).toHaveBeenCalledTimes(2);
+      expect(ctx.out.mock.calls.flat().join('\n')).not.toContain('running the full suite locally');
+    });
+  }
+  it('Implement\'s own refused push: the check runs, CI is asked once, and the round goes on to CI', async () => {
+    const ctx = context();
+    pc.ensure.mockImplementation(moveTo('sdlc/feature_2'));
+    let first = true;
+    ctx.git.run.mockImplementation((...args) => {
+      if (args.includes('push') && first) { first = false; throw new Error('git push failed: ! [rejected] sdlc/feature -> sdlc/feature (fetch first)'); }
+      return '';
+    });
+    ci.available.mockReturnValue({ available: true, pr: 'https://github.com/acme/repo/pull/7' });
+    expect(await implementStage(cast(ctx))).toBe(true);
+    expect(pc.ensure).toHaveBeenCalledTimes(1);
+    expect(pc.ensure.mock.calls[0][1]).toEqual({ resume: 'implement', fresh: false });
+    expect(ctx.branch).toBe('sdlc/feature_2');
+    expect(ci.available).toHaveBeenCalledTimes(1);
+    expect(ci.wait).toHaveBeenCalled();
+  });
+  it('still pauses when CI cannot be used after the check', async () => {
+    const ctx = context();
+    ctx.git.run.mockImplementation((...args) => { if (args.includes('push')) throw new Error('git push failed: ! [rejected] x (fetch first)'); return ''; });
+    ci.available.mockReturnValue({ available: false, rejected: true, reason: 'push failed: rejected' });
+    await expect(implementStage(cast(ctx))).rejects.toMatchObject({ code: 2 });
+    expect(pc.ensure).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('CI stage orchestration (spec 4, 7, 9)', () => {
   it('S01 checks availability only after red tests are committed and locked, even with createPr off', async () => {

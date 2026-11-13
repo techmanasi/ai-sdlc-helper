@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from '../trace.js';
 import { backlogItems, parseBrief, parseIndex } from '../backlog/index.js';
 import { readRecord } from './records.js';
-import { pickBase, runWorktree, type RunContext } from './index.js';
+import { liveBranch, liveBriefPr, pickBase, runWorktree, type RunContext } from './index.js';
 import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, getPrStatusAsync, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
 
 export interface CompletedTask {
@@ -316,9 +316,9 @@ export function syncPrComments(
   const docsDir = path.join(ctx.root, ctx.backlogDir, slug);
   const briefFile = path.join(docsDir, 'brief.md');
   const briefText = fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '';
-  const pr = getPrFromBrief(briefText);
-  const rec = readRecord(ctx.reg, slug);
-  const branch = (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
+  // A run that moved to a new branch: its worktree's brief holds the new link, and its branch is the one it is on now.
+  const pr = liveBriefPr(ctx, slug, getPrFromBrief) || getPrFromBrief(briefText);
+  const branch = liveBranch(ctx, slug);
 
   const target = pr || branch;
   const res = fetchPrComments(ctx.root, target, ctx.env);

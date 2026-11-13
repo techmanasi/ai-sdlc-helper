@@ -665,6 +665,7 @@ export function Run({ slug }: { slug: string }) {
       </div>
       <Cli args={startArgs} />
       {envArgs.length > 0 && <p class="mono small muted" style={{ margin: 0 }}>with {envArgs.join(' ')}</p>}
+      {v.movedFrom && <p class="small muted" style={{ margin: 0 }}>moved from <span class="mono">{v.movedFrom.branch}</span>: {v.movedFrom.reasonText || v.movedFrom.reason}</p>}
       {v.discarded && <p class="small muted" style={{ margin: 0 }}>Discarded before. To get that branch back: <span class="mono">{v.discarded}</span></p>}
 
       <Panel title="Stages" extra={<span class="small muted">A stage's agent, model and effort apply when the run starts or resumes (MODEL_&lt;STAGE&gt;, EFFORT_&lt;STAGE&gt;). Changing them while it runs: <Future id="E-2" /></span>}>

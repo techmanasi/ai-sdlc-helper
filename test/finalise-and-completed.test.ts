@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { Git } from '../src/pipeline/git.js';
 import { snapshot } from '../src/changes/index.js';
 import {
-  finalise, getPrFromBrief, recordPrInBrief,
+  finalise, getPrFromBrief, recordPrInBrief, clearPrInBrief,
 } from '../src/pipeline/finalise.js';
 import {
   archiveCompleted, archiveTask, unarchiveTask,
@@ -58,6 +58,25 @@ Type: feature
     // Updating existing PR
     const updatedAgain = recordPrInBrief(updated, 'https://github.com/org/repo/pull/200');
     expect(getPrFromBrief(updatedAgain)).toBe('https://github.com/org/repo/pull/200');
+  });
+
+  test('clearPrInBrief undoes recordPrInBrief in each of its shapes', () => {
+    const url = 'https://github.com/org/repo/pull/7';
+    // No front matter: recordPrInBrief adds a block, clearing removes it again.
+    const plain = '# task\nType: bug\n';
+    expect(clearPrInBrief(recordPrInBrief(plain, url))).toBe(plain);
+    // Front matter with other keys: only the pr line goes.
+    const other = '---\nowner: me\npr: ' + url + '\n---\n\n# task\n';
+    const cleared = clearPrInBrief(other);
+    expect(cleared).toBe('---\nowner: me\n---\n\n# task\n');
+    expect(getPrFromBrief(cleared)).toBeNull();
+    // A body line.
+    const body = '# task\nPR: ' + url + '\nType: bug\n';
+    const noBody = clearPrInBrief(body);
+    expect(getPrFromBrief(noBody)).toBeNull();
+    expect(noBody).toBe('# task\nType: bug\n');
+    // Nothing to clear.
+    expect(clearPrInBrief(plain)).toBe(plain);
   });
 
   test('finalise commits changes, ticks backlog, and records PR when enabled', () => {

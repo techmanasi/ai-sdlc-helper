@@ -11,6 +11,7 @@ import type { RunParts } from '../runners/types.js';
 import { checkAllowedFailures, isRedTest, matchesAllowEntry } from './allow-failures.js';
 import type { Ctx } from './context.js';
 import { keepError } from './errors.js';
+import { moveReasonText } from './status.js';
 import { clearPrCache, createOrGetPr, getPrStatus, getPrFromBrief, recordPrInBrief, type CheckRunStatus, type PrStatus } from './finalise.js';
 
 export type CiClassification = 'infrastructure' | 'pre-existing' | 'flaky' | 'allowed' | 'side-effect';
@@ -63,6 +64,19 @@ export function gitReason(message: string): string {
 
 // --- Availability ----------------------------------------------------------------------------------------------------
 
+/** Whether a failed push message says origin refused it because the branch has commits this run lacks. */
+export const isRejectedPush = (message: string): boolean => /non-fast-forward|fetch first|\[rejected\]/.test(message);
+
+/** The title and body of the draft pull request a run opens; a moved run's says what it replaces and why. */
+export function draftPrText(ctx: Ctx): { title: string; body: string } {
+  const m = ctx.movedFrom;
+  const replaces = m ? `\n\nReplaces ${m.pr || `branch ${m.branch}`} (${moveReasonText(m.reason || '')}).` : '';
+  return {
+    title: `feat(${ctx.slug}): implement per ${ctx.docs}/specs-1.md`,
+    body: `Automated draft for \`${ctx.slug}\`.\n\nSpecs: \`${ctx.docs}/specs-1.md\`${replaces}`,
+  };
+}
+
 /**
  * Whether the full suite can run in CI: an origin remote, gh installed and signed in, the branch pushed (with upstream
  * tracking), and an open PR for it (a draft is opened when there is none). The PR link goes into brief.md.
@@ -90,15 +104,14 @@ export async function checkCiAvailability(ctx: Ctx): Promise<{ available: boolea
     return {
       available: false,
       reason: `push failed: ${gitReason(message)}; the whole message is in ${ctx.log}/errors.log`,
-      ...(/non-fast-forward|fetch first|\[rejected\]/.test(message) ? { rejected: true } : {}),
+      ...(isRejectedPush(message) ? { rejected: true } : {}),
     };
   }
 
   clearPrCache();
   let pr: PrStatus | null = getPrStatus(ctx.root, branch, ctx.env);
   if (!pr) {
-    const title = `feat(${ctx.slug}): implement per ${ctx.docs}/specs-1.md`;
-    const body = `Automated draft for \`${ctx.slug}\`.\n\nSpecs: \`${ctx.docs}/specs-1.md\``;
+    const { title, body } = draftPrText(ctx);
     const url = createOrGetPr(ctx.root, branch, title, body, ctx.config.git.base || undefined, { draft: true });
     if (!url) {
       keepError(ctx, 'gh pr create', 'no output available');

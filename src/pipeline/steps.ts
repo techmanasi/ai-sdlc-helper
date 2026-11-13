@@ -14,6 +14,7 @@ export const STEPS: Record<string, StepDef[]> = {
     { key: 'answers', label: 'Recording your answers' },
     { key: 'agent', label: 'Writing the plan' },
     { key: 'check', label: 'Checking the plan was written' },
+    { key: 'push-check', label: 'Checking the branch can be pushed' },
   ],
   'Red tests': [
     { key: 'agent', label: 'Writing the failing tests' },
