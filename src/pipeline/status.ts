@@ -46,6 +46,7 @@ export function moveReasonText(kind: string): string {
     case 'pr-merged': return 'its pull request is merged';
     case 'earlier-run': return "origin's branch holds an earlier run's work";
     case 'diverged': return "origin's branch has other commits that do not combine with this run's without a conflict";
+    case 'branch-refused': return 'origin refuses pushes to this branch (a hook or a branch protection rule)';
     case 'push-refused': return 'origin refused the push for a reason the push check does not know';
     case 'remote-ahead': return "origin's branch has commits this run does not have";
     default: return kind || 'moved';

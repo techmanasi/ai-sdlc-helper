@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from '../trace.js';
-import { at, type Ctx } from './context.js';
+import { at, stop, type Ctx } from './context.js';
 import { Git } from './git.js';
 import { keepError } from './errors.js';
 import { clearPrCache, getPrFromBrief, getPrStatus } from './finalise.js';
@@ -23,7 +23,7 @@ export type PushFindingKind = 'ok' | 'unreachable' | 'new-branch' | 'fast-forwar
 /** What diagnosePush found. L is HEAD, R origin's branch (null when it has none), B the base (origin's, else the local one). */
 export interface PushFinding {
   kind: PushFindingKind;
-  /** A code for the attempts log: no-origin, pushable, fetch-failed, pr-closed, pr-merged, earlier-run, behind, same-commits, diverged, dry-run-failed. */
+  /** A code for the attempts log: no-origin, pushable, fetch-failed, push-unreachable, branch-refused, pr-closed, pr-merged, earlier-run, behind, same-commits, diverged, dry-run-failed. */
   reason: string;
   /** The finding in words, for the output. */
   text: string;
@@ -31,6 +31,18 @@ export interface PushFinding {
   remote: string | null;
   base: string | null;
   pr?: string;
+}
+
+/**
+ * What a failed push says, in one word: origin refuses this branch in particular (a hook, a protected branch);
+ * origin has commits the run lacks; origin cannot be reached or does not accept this user (a new branch would fail the
+ * same way); or something else.
+ */
+export function pushFailureKind(message: string): 'unreachable' | 'branch-refused' | 'rejected' | 'unknown' {
+  if (/remote rejected|pre-receive hook declined|protected branch|\bGH006\b|\bGH013\b/i.test(message)) return 'branch-refused';
+  if (isRejectedPush(message)) return 'rejected';
+  if (/could not resolve host|unable to access|connection (refused|timed out|reset)|timed out|ETIMEDOUT|authentication failed|permission denied|could not read username|terminal prompts disabled|\b(401|403)\b|repository not found|does not appear to be a git repository|could not read from remote repository/i.test(message)) return 'unreachable';
+  return 'unknown';
 }
 
 const short = (sha: string | null): string => (sha || '').slice(0, 7);
@@ -53,8 +65,12 @@ function fetchBranch(ctx: Ctx, name: string): 'ok' | 'absent' | { error: string 
 
 /** The pull request of the branch (the brief's link first) when it is closed or merged; null when open, none, or gh is missing. */
 function endedPr(ctx: Ctx): { state: 'CLOSED' | 'MERGED'; url: string } | null {
-  const gh = spawnSync('gh', ['--version'], { cwd: ctx.root, encoding: 'utf8', env: ctx.env, timeout: 30_000 });
-  if (!gh || gh.status !== 0) return null;
+  let gh: ReturnType<typeof spawnSync> | null = null;
+  try { gh = spawnSync('gh', ['--version'], { cwd: ctx.root, encoding: 'utf8', env: ctx.env, timeout: 30_000 }); } catch { gh = null; }
+  if (!gh || gh.status !== 0) {
+    ctx.out("Push check: gh is not available, so the pull request's state was not checked");
+    return null;
+  }
   let briefPr: string | null = null;
   try { briefPr = getPrFromBrief(fs.readFileSync(at(ctx, `${ctx.docs}/brief.md`), 'utf8')); } catch { /* no brief */ }
   clearPrCache();
@@ -107,15 +123,24 @@ export function diagnosePush(ctx: Ctx, opts: { fresh: boolean }): PushFinding {
   };
 
   if (!remote || isAncestor(git, remote, local)) {
-    try {
-      netGit(ctx).runTimeout(60_000, 'push', '--dry-run', '-q', 'origin', `HEAD:refs/heads/${branch}`);
-      return found('ok', 'pushable', `${branch} can be pushed`, ctxOf);
-    } catch (e) {
-      const message = (e as Error).message;
-      keepError(ctx, 'push check: dry run', message);
-      if (remote && isRejectedPush(message)) return diverged();
-      return found('unknown', 'dry-run-failed', `a trial push of ${branch} failed (${gitReason(message)}; see ${ctx.log}/errors.log)`, ctxOf);
+    // Tried twice: one failed trial push is not enough to leave a branch.
+    let message = '';
+    for (let i = 0; i < 2; i++) {
+      try {
+        netGit(ctx).runTimeout(60_000, 'push', '--dry-run', '-q', 'origin', `HEAD:refs/heads/${branch}`);
+        return found('ok', 'pushable', `${branch} can be pushed`, ctxOf);
+      } catch (e) { message = (e as Error).message; }
     }
+    keepError(ctx, 'push check: dry run', message);
+    const why = `${gitReason(message)}; see ${ctx.log}/errors.log`;
+    switch (pushFailureKind(message)) {
+      case 'rejected': if (remote) return diverged(); break;
+      // A new branch would fail the same way: the run keeps its branch.
+      case 'unreachable': return found('unreachable', 'push-unreachable', `origin cannot be reached or does not accept this user for a push of ${branch} (${why})`, ctxOf);
+      case 'branch-refused': return found('new-branch', 'branch-refused', `origin refuses pushes to ${branch} (${why})`, ctxOf);
+      default: break;
+    }
+    return found('unknown', 'dry-run-failed', `a trial push of ${branch} failed (${why})`, ctxOf);
   }
   if (isAncestor(git, local, remote)) {
     if (opts.fresh && ownCommits(git, local, base).length === 0) {
@@ -160,6 +185,7 @@ function branchFromBase(ctx: Ctx, to: string, f: PushFinding): 'base' | 'here' {
   const git = ctx.git;
   const from = ctx.branch;
   const own = ownCommits(git, f.local, f.base);
+  if (!shaOf(git, `refs/sdlc-backup/${from}/local`)) git.run('update-ref', `refs/sdlc-backup/${from}/local`, f.local);
   if (f.base && git.tryRun('checkout', '-q', '-b', to, f.base) !== null) {
     let ok = true;
     for (const c of own) {
@@ -171,7 +197,10 @@ function branchFromBase(ctx: Ctx, to: string, f: PushFinding): 'base' | 'here' {
     }
     if (ok) return 'base';
     if (inCherryPick(git)) git.tryRun('cherry-pick', '--abort');
-    if (git.tryRun('checkout', '-q', from) === null) git.run('checkout', '-q', '-f', from);
+    // Nothing is thrown away by force: when the old branch cannot be checked out again, the run stops and says where things are.
+    if (git.tryRun('checkout', '-q', from) === null) {
+      stop(ctx, `ERROR: the push check could not go back from ${to} to ${from} after putting this run's commits on ${f.base?.slice(0, 7)} failed. Nothing was discarded: ${from} is at refs/sdlc-backup/${from}/local (${f.local.slice(0, 7)}); check out ${from} by hand, then resume.`);
+    }
     git.tryRun('branch', '-q', '-D', to);
     if (git.head() !== f.local) git.run('reset', '-q', '--hard', f.local);
   }

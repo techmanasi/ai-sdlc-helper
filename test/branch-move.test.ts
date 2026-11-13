@@ -9,7 +9,7 @@ import type { Ctx } from '../src/pipeline/context.js';
 import { isRunBranch, moveReasonText, moveSkipped, moveToNewBranch, nextRunBranch, openMovedPr } from '../src/pipeline/branch-move.js';
 import { clearPrCache, clearPrInBrief, getPrFromBrief } from '../src/pipeline/finalise.js';
 import { draftPrText } from '../src/pipeline/ci.js';
-import { diagnosePush, ensurePushable } from '../src/pipeline/push-check.js';
+import { diagnosePush, ensurePushable, pushFailureKind } from '../src/pipeline/push-check.js';
 
 const sh = (cwd: string, ...args: string[]) => {
   const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
@@ -417,5 +417,70 @@ describe('ensurePushable', () => {
     expect(errors.match(/^=== /gm)).toHaveLength(1);
     expect(checks()).toMatchObject([{ finding: 'fetch-failed', action: 'none' }]);
     expect(lines.join('\n')).toContain('going on unchanged');
+  });
+});
+
+describe('pushFailureKind', () => {
+  const cases: Array<[string, ReturnType<typeof pushFailureKind>]> = [
+    ['fatal: unable to access \'https://github.com/o/r.git/\': Could not resolve host: github.com', 'unreachable'],
+    ['ssh: connect to host github.com port 22: Connection refused', 'unreachable'],
+    ['ssh: connect to host github.com port 22: Connection timed out', 'unreachable'],
+    ['Connection reset by peer', 'unreachable'],
+    ['git push --dry-run failed: spawnSync git ETIMEDOUT', 'unreachable'],
+    ['remote: Invalid username or password.\nfatal: Authentication failed for \'https://github.com/o/r.git/\'', 'unreachable'],
+    ['git@github.com: Permission denied (publickey).', 'unreachable'],
+    ['fatal: could not read Username for \'https://github.com\': terminal prompts disabled', 'unreachable'],
+    ['The requested URL returned error: 403', 'unreachable'],
+    ['The requested URL returned error: 401', 'unreachable'],
+    ['remote: Repository not found.', 'unreachable'],
+    ['fatal: \'/x/nowhere.git\' does not appear to be a git repository\nfatal: Could not read from remote repository.', 'unreachable'],
+    [' ! [remote rejected] sdlc/foo -> sdlc/foo (pre-receive hook declined)', 'branch-refused'],
+    ['remote: error: GH006: Protected branch update failed for refs/heads/sdlc/foo.', 'branch-refused'],
+    ['remote: error: GH013: Repository rule violations found for refs/heads/sdlc/foo.', 'branch-refused'],
+    [' ! [rejected]        sdlc/foo -> sdlc/foo (non-fast-forward)', 'rejected'],
+    [' ! [rejected]        sdlc/foo -> sdlc/foo (fetch first)', 'rejected'],
+    ['error: something nobody has seen before', 'unknown'],
+  ];
+  for (const [message, kind] of cases) it(`${kind}: ${message.split('\n').pop()}`, () => { expect(pushFailureKind(message)).toBe(kind); });
+});
+
+describe('ensurePushable, when origin takes no push or gh is missing', () => {
+  it('a trial push origin cannot take (push URL nowhere, fetch fine): branch, HEAD and origin unchanged, no new branch', async () => {
+    const ctx = setup('sdlc/');
+    commitFile(repo, 'mine.txt', 'mine');
+    const head = sh(repo, 'rev-parse', 'HEAD');
+    const before = remoteSha();
+    sh(repo, 'remote', 'set-url', '--push', 'origin', path.join(root, 'nowhere.git'));
+    await ensurePushable(ctx, { resume: 'red-tests', fresh: true });
+    expect([ctx.branch, sh(repo, 'symbolic-ref', '--short', 'HEAD'), sh(repo, 'rev-parse', 'HEAD'), remoteSha()]).toEqual(['sdlc/foo', 'sdlc/foo', head, before]);
+    expect(sh(repo, 'branch', '--list', 'sdlc/foo_*')).toBe('');
+    expect(ctx.movedFrom).toBeUndefined();
+    expect(checks()).toMatchObject([{ finding: 'push-unreachable', action: 'none' }]);
+    expect(fs.readFileSync(path.join(repo, ctx.log, 'errors.log'), 'utf8').match(/^=== /gm)).toHaveLength(1);
+    expect(lines.join('\n')).toContain('origin cannot be reached or does not accept this user');
+  });
+
+  it('says once that gh is not available when it is not on PATH', async () => {
+    const ctx = setup('sdlc/');
+    ctx.env = { ...ctx.env, PATH: '/usr/bin:/bin' };
+    await ensurePushable(ctx, { resume: 'red-tests', fresh: true });
+    expect(lines.filter(l => l === "Push check: gh is not available, so the pull request's state was not checked")).toHaveLength(1);
+    expect(ctx.branch).toBe('sdlc/foo');
+  });
+
+  it('origin has one commit with the same change and one the run lacks: no lease push, origin\'s extra commit survives', async () => {
+    const ctx = setup('sdlc/');
+    commitFile(repo, 'a.txt', 'a\n', 'a');
+    sh(repo, 'push', '-q', 'origin', 'sdlc/foo');
+    const theirs = theyPush('b.txt', 'b\n');
+    // The run's commit, rewritten here (same change, new commit): git cherry shows one "-" and one "+".
+    sh(repo, 'commit', '-q', '--amend', '-m', 'a again');
+    sh(repo, 'fetch', '-q', 'origin');
+    const cherry = sh(repo, 'cherry', 'HEAD', 'origin/sdlc/foo').split('\n').map(l => l[0]).sort();
+    expect(cherry).toEqual(['+', '-']);
+    await ensurePushable(ctx, { resume: 'red-tests', fresh: false });
+    expect(sh(origin, 'merge-base', '--is-ancestor', theirs, 'sdlc/foo')).toBe('');
+    expect(sh(origin, 'show', 'sdlc/foo:b.txt')).toBe('b');
+    expect(checks().map(c => c.action)).not.toContain('lease-push');
   });
 });

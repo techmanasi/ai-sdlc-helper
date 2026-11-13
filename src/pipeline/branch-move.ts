@@ -14,7 +14,7 @@ export { isRunBranch, moveReasonText };
 
 /** Why a run goes on on a new branch: a code (moved_from.reason) and the details for the output. */
 export interface MoveReason {
-  /** pr-closed, pr-merged, earlier-run, diverged, push-refused (remote-ahead in status files from before the push check). */
+  /** pr-closed, pr-merged, earlier-run, diverged, branch-refused, push-refused (remote-ahead in status files from before the push check). */
   kind: string;
   detail: string;
 }

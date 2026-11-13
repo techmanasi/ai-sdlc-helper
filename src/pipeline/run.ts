@@ -258,8 +258,9 @@ async function stages(ctx: Ctx): Promise<void> {
   if (fromN <= 1) await specStage(ctx);
   if (fromN <= 2) await planStage(ctx);
   // The push check: before Red tests commits and pushes anything, the branch is made pushable (or the run moves to a new
-  // branch). After refuseRedone, so a refused start changes nothing; not on a kept attempt, which keeps its pull request.
-  if (fromN <= 3 && ctx.env.SDLC_ON_ATTEMPT !== '1') await ensurePushable(ctx, { resume: 'red-tests', fresh: ctx.from === 'spec' || ctx.from === 'plan' });
+  // branch). After refuseRedone, so a refused start changes nothing. (A kept attempt, SDLC_ON_ATTEMPT=1, starts at
+  // Implement only: adoptKeptAttempt stops any other start, so it never gets here.)
+  if (fromN <= 3) await ensurePushable(ctx, { resume: 'red-tests', fresh: ctx.from === 'spec' || ctx.from === 'plan' });
   if (fromN <= 3) await redTestsStage(ctx);
   else resumeAtTests(ctx);
   ctx.origRedSha = ctx.redSha;

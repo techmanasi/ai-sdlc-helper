@@ -11,7 +11,7 @@ import type { Ctx } from '../../src/pipeline/context.js';
 
 const ci = vi.hoisted(() => ({ available: vi.fn(), wait: vi.fn(), ready: vi.fn() }));
 vi.mock('../../src/pipeline/ci.js', async importOriginal => ({ ...await importOriginal<typeof import('../../src/pipeline/ci.js')>(), checkCiAvailability: ci.available, waitForCiAndClassify: ci.wait }));
-const pc = vi.hoisted(() => ({ ensure: vi.fn(async (..._args: unknown[]) => {}) }));
+const pc = vi.hoisted(() => ({ ensure: vi.fn(async (_ctx: { branch: string }, _opts: { resume: string; fresh: boolean }) => {}) }));
 vi.mock('../../src/pipeline/push-check.js', () => ({ ensurePushable: pc.ensure, pushCheckSkipped: (env: NodeJS.ProcessEnv) => ['0', 'no', 'off'].includes(String(env.SDLC_PUSH_CHECK ?? '')) }));
 vi.mock('../../src/pipeline/agent.js', async importOriginal => ({ ...await importOriginal<typeof import('../../src/pipeline/agent.js')>(), runAgent: vi.fn(async () => {}), stageFlags: vi.fn(() => ({ model: 'fixture-model', effort: 'high' })) }));
 vi.mock('../../src/pipeline/deps.js', () => ({ installDeps: vi.fn() }));
@@ -53,7 +53,7 @@ function context(mode = 'ci') {
 const cast = (ctx: ReturnType<typeof context>) => ctx as unknown as Ctx;
 
 describe('a refused push gets the push check', () => {
-  const moveTo = (b: string) => (c: { branch: string }) => { c.branch = b; };
+  const moveTo = (b: string) => async (c: { branch: string }): Promise<void> => { c.branch = b; };
   it('runs the check once, asks CI again once, and then uses CI', async () => {
     const ctx = context();
     pc.ensure.mockImplementation(moveTo('sdlc/feature_2'));
