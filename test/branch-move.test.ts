@@ -41,6 +41,7 @@ function setup(prefix: string, withBrief = `---\npr: ${OLD_PR}\n---\n\n# ${slug}
     'if [ "$1" = "--version" ]; then echo gh 1; exit 0; fi',
     'if [ "$1 $2" = "pr view" ]; then [ -f "$GHDIR/view.json" ] && { cat "$GHDIR/view.json"; exit 0; }; exit 1; fi',
     'if [ "$1 $2" = "pr list" ]; then exit 1; fi',
+    'if [ "$1 $2" = "pr create" ] && [ -f "$GHDIR/create-fails" ]; then cat "$GHDIR/create-fails" >&2; exit 1; fi',
     `if [ "$1 $2" = "pr create" ]; then echo "$@" >> "$GHDIR/create.log"; echo ${NEW_PR}; exit 0; fi`,
     'exit 1', '',
   ].join('\n'), { mode: 0o755 });
@@ -209,6 +210,19 @@ describe('openMovedPr', () => {
     const ctx = setup('sdlc/');
     expect(await openMovedPr(ctx)).toBeNull();
   });
+  it('a failed gh pr create: gh\'s message and exit code are kept in errors.log, and one line names it and where the rest is', async () => {
+    const ctx = setup('sdlc/');
+    const said = 'pull request create failed: GraphQL: Head sha can\'t be blank (createPullRequest)';
+    fs.writeFileSync(path.join(ghDir, 'create-fails'), `${said}\n`);
+    moveToNewBranch(ctx, { kind: 'pr-merged', detail: OLD_PR });
+    fs.writeFileSync(path.join(repo, 'a.txt'), 'a');
+    sh(repo, 'add', '-A'); sh(repo, 'commit', '-q', '-m', 'work');
+    expect(await openMovedPr(ctx)).toBeNull();
+    const errors = fs.readFileSync(path.join(repo, ctx.log, 'errors.log'), 'utf8');
+    expect(errors).toContain(`gh pr create exited with 1: ${said}`);
+    expect(lines).toContain(`   could not open a pull request for sdlc/foo_2: gh pr create exited with 1: ${said} (the whole message is in ${ctx.log}/errors.log)`);
+    expect(getPrFromBrief(fs.readFileSync(path.join(repo, ctx.docs, 'brief.md'), 'utf8'))).toBeNull();
+  });
 });
 
 // ---- The push check ----
@@ -336,20 +350,100 @@ describe('ensurePushable', () => {
     expect(ctx.status.movedFrom).toMatchObject({ branch: 'sdlc/foo', reason: 'diverged' });
   });
 
-  it('a pick that conflicts with the base puts everything back and makes the branch where the run is', async () => {
+  it('a new branch starts from origin\'s base, fetched just now, also when the local base is behind it', async () => {
     const ctx = setup('sdlc/');
-    const mine = commitFile(repo, 'c.txt', 'mine\n', 'mine');
-    theyPush('c.txt', 'theirs\n');
+    const mine = commitFile(repo, 'mine.txt', 'mine\n', 'mine');
+    const localMain = sh(repo, 'rev-parse', 'main');
     const other = otherClone();
     sh(other, 'checkout', '-q', 'main');
-    commitFile(other, 'c.txt', 'base\n');
+    const ahead = commitFile(other, 'base.txt', 'base\n');
     sh(other, 'push', '-q', 'origin', 'main');
+    fs.writeFileSync(path.join(ghDir, 'view.json'), JSON.stringify({ url: OLD_PR, state: 'CLOSED', number: 5 }));
     await ensurePushable(ctx, { resume: 'red-tests', fresh: false });
     expect(ctx.branch).toBe('sdlc/foo_2');
-    expect(sh(repo, 'rev-parse', 'HEAD')).toBe(mine);
-    expect(fs.existsSync(path.join(repo, '.git', 'CHERRY_PICK_HEAD'))).toBe(false);
-    expect(checks()).toMatchObject([{ action: 'new-branch-here' }]);
-    expect(lines.join('\n')).toContain('made from where the run is');
+    // The local base is not touched and not used: the new branch is origin's base plus the run's own commit.
+    expect(sh(repo, 'rev-parse', 'main')).toBe(localMain);
+    expect(sh(repo, 'rev-parse', 'HEAD~1')).toBe(ahead);
+    expect(sh(repo, 'log', '-1', '--format=%s')).toBe('mine');
+    expect(sh(repo, 'rev-parse', 'sdlc/foo')).toBe(mine);
+    expect(sh(repo, 'rev-parse', 'refs/sdlc-backup/sdlc/foo/local')).toBe(mine);
+    expect(checks()).toMatchObject([{ finding: 'pr-closed', action: 'new-branch-from-base' }]);
+    expect(lines.join('\n')).toContain(`made from origin/main (${ahead.slice(0, 7)}) with this run's own commits`);
+  });
+
+  const closedPr = () => fs.writeFileSync(path.join(ghDir, 'view.json'), JSON.stringify({ url: OLD_PR, state: 'CLOSED', number: 5 }));
+  const stoppedHere = (head: string) => {
+    expect([sh(repo, 'symbolic-ref', '--short', 'HEAD'), sh(repo, 'rev-parse', 'HEAD'), sh(repo, 'branch', '--list', 'sdlc/foo_*')]).toEqual(['sdlc/foo', head, '']);
+    expect(sh(repo, 'rev-parse', 'refs/sdlc-backup/sdlc/foo/local')).toBe(head);
+    expect(fs.existsSync(path.join(repo, '.git', 'rebase-merge'))).toBe(false);
+    expect(spawnSync('git', ['-C', origin, 'rev-parse', '--verify', '-q', 'sdlc/foo_2']).status).not.toBe(0);
+    expect(checks().map(c => c.action)).toEqual(['new-branch-stopped']);
+  };
+  const errorsLog = () => fs.readFileSync(path.join(repo, `docs/backlog/${slug}/logs/errors.log`), 'utf8');
+
+  it('uncommitted changes that conflict with origin\'s base when put back: the run stops, the old branch gets them back, the stash is kept', async () => {
+    const ctx = setup('sdlc/');
+    const head = sh(repo, 'rev-parse', 'HEAD');
+    const rel = `${ctx.docs}/brief.md`;
+    const other = otherClone();
+    sh(other, 'checkout', '-q', 'main');
+    commitFile(other, rel, `---\npr: ${OLD_PR}\n---\n\n# ${slug} on the base\n`);
+    sh(other, 'push', '-q', 'origin', 'main');
+    const mine = `---\npr: ${OLD_PR}\n---\n\n# ${slug} edited here\n`;
+    fs.writeFileSync(path.join(repo, rel), mine);
+    closedPr();
+    await expect(ensurePushable(ctx, { resume: 'red-tests', fresh: true })).rejects.toThrow();
+    stoppedHere(head);
+    expect(fs.readFileSync(path.join(repo, rel), 'utf8')).toBe(mine);
+    expect(sh(repo, 'diff', '--name-only', '--diff-filter=U')).toBe('');
+    expect(sh(repo, 'stash', 'list')).not.toBe('');
+    const said = lines.join('\n');
+    expect(said).toContain(`your uncommitted changes conflict with origin/main in ${rel}`);
+    expect(said).toContain('Push check: your uncommitted changes are back in the working tree of sdlc/foo; a copy stays in the stash');
+    expect(errorsLog()).toContain(`your uncommitted changes conflict with origin/main in ${rel}`);
+  });
+
+  it('the rebase onto origin\'s base cannot start (an untracked file is in the way): the run stops and nothing moves', async () => {
+    const ctx = setup('sdlc/');
+    const head = sh(repo, 'rev-parse', 'HEAD');
+    const other = otherClone();
+    sh(other, 'checkout', '-q', 'main');
+    commitFile(other, 'new.txt', 'theirs\n');
+    sh(other, 'push', '-q', 'origin', 'main');
+    fs.writeFileSync(path.join(repo, 'new.txt'), 'mine, untracked\n');
+    closedPr();
+    await expect(ensurePushable(ctx, { resume: 'red-tests', fresh: true })).rejects.toThrow();
+    stoppedHere(head);
+    expect(fs.readFileSync(path.join(repo, 'new.txt'), 'utf8')).toBe('mine, untracked\n');
+    expect(lines.join('\n')).toContain('the rebase onto origin/main did not complete');
+    expect(errorsLog()).toMatch(/untracked working tree files would be overwritten/);
+  });
+
+  it('a branch that shares no commit with origin\'s base: the run stops instead of making a branch without its commits', async () => {
+    const ctx = setup('sdlc/');
+    // The same files, in a commit with no parent: nothing tells the run's own commits from the rest.
+    const unrelated = sh(repo, 'commit-tree', sh(repo, 'rev-parse', 'HEAD^{tree}'), '-m', 'unrelated');
+    sh(repo, 'reset', '-q', '--hard', unrelated);
+    closedPr();
+    await expect(ensurePushable(ctx, { resume: 'red-tests', fresh: true })).rejects.toThrow();
+    stoppedHere(unrelated);
+    expect(lines.join('\n')).toContain('sdlc/foo shares no commit with origin/main');
+    expect(lines.join('\n')).toContain(`refs/sdlc-backup/sdlc/foo/local is ${unrelated.slice(0, 7)}`);
+    expect(errorsLog()).toContain('found nothing');
+  });
+
+  it('origin\'s base cannot be fetched: the run does not move, and says why', async () => {
+    const ctx = setup('sdlc/');
+    // The base exists here only: a new branch would have to come from the local one, which is never used.
+    (ctx.config.git as { base: string }).base = 'trunk';
+    sh(repo, 'branch', 'trunk', 'main');
+    fs.writeFileSync(path.join(ghDir, 'view.json'), JSON.stringify({ url: OLD_PR, state: 'CLOSED', number: 5 }));
+    const head = sh(repo, 'rev-parse', 'HEAD');
+    await ensurePushable(ctx, { resume: 'red-tests', fresh: true });
+    expect([ctx.branch, sh(repo, 'symbolic-ref', '--short', 'HEAD'), sh(repo, 'rev-parse', 'HEAD'), sh(repo, 'branch', '--list', 'sdlc/foo_*')]).toEqual(['sdlc/foo', 'sdlc/foo', head, '']);
+    expect(ctx.movedFrom).toBeUndefined();
+    expect(checks()).toMatchObject([{ finding: 'pr-closed', action: 'no-base' }]);
+    expect(lines.join('\n')).toContain("a new branch is made only from origin's trunk, which could not be fetched (origin has no trunk): going on unchanged on sdlc/foo");
   });
 
   it('diverged with uncommitted tracked changes: no rebase, a new branch', async () => {
@@ -440,6 +534,13 @@ describe('pushFailureKind', () => {
     [' ! [rejected]        sdlc/foo -> sdlc/foo (non-fast-forward)', 'rejected'],
     [' ! [rejected]        sdlc/foo -> sdlc/foo (fetch first)', 'rejected'],
     ['error: something nobody has seen before', 'unknown'],
+    // Only git's words count: the command line before them names the branch.
+    ['git push --dry-run -q origin HEAD:refs/heads/sdlc/fix-403-handling failed: error: something nobody has seen before', 'unknown'],
+    ['git push --dry-run -q origin HEAD:refs/heads/item/401 failed: error: failed to push some refs to \'/x/origin.git\'', 'unknown'],
+    ['git push --dry-run -q origin HEAD:refs/heads/sdlc/timed-out failed: error: src refspec sdlc/timed-out does not match any', 'unknown'],
+    ['error: RPC failed; HTTP 403 curl 22 The requested URL returned error: 403', 'unreachable'],
+    // Another push moved the ref meanwhile: origin is ahead, the branch is not refused.
+    [' ! [remote rejected] sdlc/foo -> sdlc/foo (cannot lock ref \'refs/heads/sdlc/foo\': is at 1111111 but expected 2222222)', 'rejected'],
   ];
   for (const [message, kind] of cases) it(`${kind}: ${message.split('\n').pop()}`, () => { expect(pushFailureKind(message)).toBe(kind); });
 });

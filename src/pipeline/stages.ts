@@ -14,7 +14,8 @@ import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agen
 import { newTestFiles, repairTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass } from './gates.js';
 import { renderPrompt } from './prompts.js';
 import { resumeCommand, resumeHint } from './hints.js';
-import { finalise, getPrFromBrief, markPrReady } from './finalise.js';
+import { finalise, firstLine, getPrFromBrief, markPrReady } from './finalise.js';
+import { linkPrEverywhere } from './pr-link.js';
 import { installDeps } from './deps.js';
 import { appendRound, repeatedFailures } from './observe.js';
 import { keepError } from './errors.js';
@@ -30,7 +31,10 @@ export const repairPattern = (slug: string) => `^test(${slug}): repair invalid t
 
 /** Credits the files changed since the last mark to <stage> (<log>/stage-files.json, shown per stage in the pane). */
 export function markStage(ctx: Ctx, stage: string): void {
-  try { mark(at(ctx, `${ctx.log}/stage-files.json`), stage, { root: ctx.root, maxBytes: ctx.config.finalise.maxFileBytes }); } catch { /* best effort */ }
+  try { mark(at(ctx, `${ctx.log}/stage-files.json`), stage, { root: ctx.root, maxBytes: ctx.config.finalise.maxFileBytes }); } catch (e) {
+    keepError(ctx, `mark the files of ${stage}`, (e as Error).message);
+    ctx.out(`WARNING: could not record the files ${stage} changed (${ctx.log}/stage-files.json; see ${ctx.log}/errors.log)`);
+  }
 }
 
 /** Starts a stage: its header ("== 1/6 Spec"), the previous stage's files, and the status ("Spec"). */
@@ -248,8 +252,14 @@ function commitBriefLink(ctx: Ctx): void {
     if (!ctx.git.run('status', '--porcelain', '--', rel).trim()) return;
     ctx.git.run('add', '--', rel);
     ctx.git.run('commit', '-q', '-m', `chore(${ctx.slug}): link pull request`, '--', rel);
-    ctx.git.tryRun('push', 'origin', ctx.branch);
-  } catch (e) { keepError(ctx, 'link pull request', (e as Error).message); }
+    try { ctx.git.run('push', 'origin', ctx.branch); } catch (e) {
+      keepError(ctx, 'push of the pull request link', (e as Error).message);
+      ctx.out(`WARNING: could not push the pull request link on ${ctx.branch} (see ${ctx.log}/errors.log)`);
+    }
+  } catch (e) {
+    keepError(ctx, 'link pull request', (e as Error).message);
+    ctx.out(`WARNING: could not commit the pull request link in ${rel} (see ${ctx.log}/errors.log)`);
+  }
 }
 
 /** Whether the full suite runs in CI for this run: the setting is on and CI has not been given up on. */
@@ -458,7 +468,10 @@ const attemptsFile = (ctx: Ctx): string => at(ctx, `${ctx.log}/ci-attempts.json`
 
 /** Remembers how many Implement attempts were used before a pause, so a resume keeps the budget. */
 function saveAttempts(ctx: Ctx, attempts: number): void {
-  try { fs.writeFileSync(attemptsFile(ctx), `${JSON.stringify({ attempts })}\n`); } catch { /* best effort */ }
+  try { fs.writeFileSync(attemptsFile(ctx), `${JSON.stringify({ attempts })}\n`); } catch (e) {
+    keepError(ctx, 'save the Implement attempts', (e as Error).message);
+    ctx.out(`WARNING: could not save the Implement attempts used (${ctx.log}/ci-attempts.json): a resume starts the count again (see ${ctx.log}/errors.log)`);
+  }
 }
 
 /** The attempts saved by a pause (0 when none); the file is removed. */
@@ -520,7 +533,10 @@ function settleCi(ctx: Ctx, result: CiStepResult): 'green' | 'red' | 'fallback' 
   setCiStatus(ctx, { state: ciState(result), failingChecks: result.failingChecks || failingChecks, warnings: ciWarnings(result) });
   if (result.status === 'red') {
     ctx.ciSideEffectFiles = [...new Set([...(ctx.ciSideEffectFiles || []), ...result.testFiles])];
-    try { fs.writeFileSync(at(ctx, `${ctx.log}/tests.log`), ciFailureText(result, [...new Set([...targetTestFiles(ctx), ...ctx.ciSideEffectFiles])])); } catch { /* best effort */ }
+    try { fs.writeFileSync(at(ctx, `${ctx.log}/tests.log`), ciFailureText(result, [...new Set([...targetTestFiles(ctx), ...ctx.ciSideEffectFiles])])); } catch (e) {
+      keepError(ctx, 'write the CI failures to tests.log', (e as Error).message);
+      ctx.out(`WARNING: could not write CI's failures to ${ctx.log}/tests.log (see ${ctx.log}/errors.log)`);
+    }
     ctx.failLog = `${ctx.log}/tests.log`;
     return 'red';
   }
@@ -675,16 +691,20 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
     maxBytes: ctx.config.finalise.maxFileBytes, envExample: ctx.config.finalise.envExample,
     createPr, baseBranch: ctx.config.git.base || undefined,
     out: l => ctx.out(l), err: l => ctx.err(l),
+    keepError: (where, text) => keepError(ctx, where, text), linkPr: url => linkPrEverywhere(ctx, url),
   });
   // The full suite ran in CI: the PR opened as a draft after Red tests is now ready for review (never a second PR, no squashing).
   const draft = opened || null;
   if (draft) {
-    try { ctx.git.run('push', '-u', 'origin', ctx.branch); } catch (e) { ctx.err(`WARNING: git push to origin failed: ${(e as Error).message}`); }
-    if (markPrReady(ctx.root, draft, ctx.env)) {
+    try { ctx.git.run('push', '-u', 'origin', ctx.branch); } catch (e) {
+      keepError(ctx, 'finalise: push', (e as Error).message);
+      ctx.err(`WARNING: git push to origin failed: ${firstLine((e as Error).message)} (the whole message is in ${ctx.log}/errors.log)`);
+    }
+    if (markPrReady(ctx.root, draft, ctx.env, text => keepError(ctx, 'gh pr ready', text))) {
       ctx.out(`Pull request ready for review: ${draft}`);
       if (ctx.status.ci) { ctx.status.ci = { ...ctx.status.ci, prDraft: false }; ctx.status.write(); }
     }
-    else ctx.err(`WARNING: could not mark ${draft} ready for review (gh pr ready)`);
+    else ctx.err(`WARNING: could not mark ${draft} ready for review (gh pr ready; see ${ctx.log}/errors.log)`);
   }
   if (res.pr || draft) {
     ctx.out(`Review pull request: ${res.pr || draft}`);

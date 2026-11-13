@@ -4,7 +4,8 @@ import path from 'node:path';
 import { isRunBranch } from '../gitdir.js';
 import type { Ctx } from './context.js';
 import { keepError } from './errors.js';
-import { clearPrInBrief, createOrGetPr, getPrFromBrief, recordPrInBrief } from './finalise.js';
+import { clearPrInBrief, findOrCreatePr, firstLine, getPrFromBrief } from './finalise.js';
+import { linkPrEverywhere } from './pr-link.js';
 import { draftPrText } from './ci.js';
 import { appendRound } from './observe.js';
 import { moveReasonText } from './status.js';
@@ -60,9 +61,14 @@ const readBrief = (ctx: Ctx): string | null => { try { return fs.readFileSync(br
  * checks it out (default: from where the run is); the bookkeeping is the same whichever way it was made. Returns its name.
  */
 export function moveToNewBranch(ctx: Ctx, reason: MoveReason, create: (to: string) => void = to => { ctx.git.run('checkout', '-q', '-b', to); }): string {
-  const from = ctx.branch;
   const to = nextRunBranch(ctx.git, ctx.config.git.branchPrefix, ctx.slug);
   create(to);
+  return recordMove(ctx, to, reason);
+}
+
+/** The bookkeeping of a move once <to> is made and checked out (status, brief, attempts log): the run now goes on on <to>. */
+export function recordMove(ctx: Ctx, to: string, reason: MoveReason): string {
+  const from = ctx.branch;
   ctx.branch = to;
 
   let oldPr: string | null = null;
@@ -110,14 +116,14 @@ export async function openMovedPr(ctx: Ctx): Promise<string | null> {
   }
   // draftPrText names what the pull request replaces.
   const { title, body } = draftPrText(ctx);
-  const url = createOrGetPr(ctx.root, ctx.branch, title, body, ctx.config.git.base || undefined, { draft: true });
-  if (!url) {
-    keepError(ctx, 'gh pr create', 'no output available');
-    ctx.out(`   could not open a pull request for ${ctx.branch} (see ${ctx.log}/errors.log)`);
+  const opened = findOrCreatePr(ctx.root, ctx.branch, title, body, ctx.config.git.base || undefined, { draft: true });
+  if (opened.url === null) {
+    keepError(ctx, 'gh pr create', opened.error);
+    ctx.out(`   could not open a pull request for ${ctx.branch}: ${firstLine(opened.error)} (the whole message is in ${ctx.log}/errors.log)`);
     return null;
   }
-  const text = readBrief(ctx);
-  if (text !== null && getPrFromBrief(text) !== url) fs.writeFileSync(briefFile(ctx), recordPrInBrief(text, url));
+  const url = opened.url;
+  linkPrEverywhere(ctx, url);
   ctx.out(`   pull request: ${url}`);
   return url;
 }

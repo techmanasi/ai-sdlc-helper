@@ -6,6 +6,7 @@ import { spawnSync } from '../trace.js';
 import { backlogItems, parseBrief, parseIndex } from '../backlog/index.js';
 import { readRecord } from './records.js';
 import { liveBranch, liveBriefPr, pickBase, runWorktree, type RunContext } from './index.js';
+import { keepError } from '../pipeline/errors.js';
 import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, getPrStatusAsync, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
 
 export interface CompletedTask {
@@ -147,7 +148,10 @@ function completedTasks(ctx: RunContext, prOf: (key: string) => PrStatus | null)
       if (!runWorktree(ctx, slug)) try {
         const updated = recordPrInBrief(briefText, pr);
         fs.writeFileSync(briefFile, updated);
-      } catch { /* best effort */ }
+      } catch (e) {
+        // The list still shows the link; the brief that could not take it says why in the task's errors.log.
+        keepError({ root: ctx.root, log: path.join(ctx.backlogDir, slug, 'logs') }, 'completed tasks: link pull request in the brief', `${briefFile}: ${(e as Error).message}`);
+      }
     }
 
     const prState = prStatus ? prStatus.state : null;

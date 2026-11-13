@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { DOCS, LOG, SLUG, fixture, git, pipeline, read, statusOf, type Fixture } from './pipeline-fixture.js';
+import { write } from './helpers.js';
 import { getPrFromBrief } from '../src/pipeline/finalise.js';
 
 afterEach(() => new Promise<void>(resolve => { setImmediate(resolve); }));
@@ -176,6 +177,8 @@ describe('the push check after Plan', () => {
     expect(read(f.dir, `${DOCS}/questions.md`)).toBe('');
     expect(read(f.dir, `${LOG}/resolve-conflicts.md`)).not.toBe('');
     expect(statusOf(f.dir).stage).toBe('Plan');
+    // The run page resumes where the message says, not at Plan.
+    expect(statusOf(f.dir).resume_from).toBe('red-tests');
   });
 
   test('a refused start (the red-tests commit exists) makes no branch, no push and no pull request', async () => {
@@ -231,6 +234,127 @@ describe('a start at Resolve conflicts', () => {
     git(other, 'push', '-q', 'origin', BRANCH);
     await pipeline(f, {}, { from: 'resolve-conflicts' });
     expect(git(f.dir, 'branch', '--list', MOVED)).toBe('');
+  });
+});
+
+const OLD_PR = 'https://github.com/o/r/pull/5';
+
+/**
+ * The run in its own worktree, started from the fixture's checkout (the main checkout): the brief, committed with an older
+ * pull request link, is in both, and the run's record names the worktree and where it was started from.
+ */
+function inWorktree(f: Fixture): Fixture {
+  write(f.dir, `${DOCS}/brief.md`, `---\npr: ${OLD_PR}\n---\n\n# ${SLUG}\n\nAdd sum(a, b).\n`);
+  git(f.dir, 'commit', '-q', '-am', 'brief with an older pull request');
+  git(f.dir, 'push', '-q', 'origin', 'main');
+  const wt = path.join(path.dirname(f.dir), 'wt');
+  git(f.dir, 'worktree', 'add', '-q', '-b', BRANCH, wt);
+  write(path.join(f.dir, '.git', 'sdlc-runs'), `${SLUG}.json`, `${JSON.stringify({ slug: SLUG, worktree: wt, root: f.dir, pid: 0, started: '2026-11-14T10:00:00', interrupted: false, finished: '', message: '' })}\n`);
+  return { ...f, dir: wt };
+}
+
+describe('a new pull request is linked in the brief of the worktree and of the main checkout', () => {
+  test('Red tests opens the pull request in ci mode: both briefs hold the new link, not the older one', async () => {
+    const f = fixture();
+    fakeGh(f);
+    withOrigin(f);
+    const wt = inWorktree(f);
+    await pipeline(wt, { ...FAILS_AT_IMPLEMENT, SDLC_FULL_SUITE: 'ci' });
+    expect(read(f.fake, 'gh-create.log')).toContain(`--head ${BRANCH}`);
+    for (const dir of [wt.dir, f.dir]) {
+      const brief = read(dir, `${DOCS}/brief.md`);
+      expect(getPrFromBrief(brief), dir).toBe(NEW_PR);
+      expect(brief, dir).not.toContain(OLD_PR);
+    }
+  });
+
+  test('a moved run opens its new pull request: the main checkout\'s brief holds the new link, not the older one', async () => {
+    const f = fixture();
+    fakeGh(f);
+    const { other } = withOrigin(f);
+    const wt = inWorktree(f);
+    // The earlier run started from the main that holds the brief.
+    git(other, 'pull', '-q');
+    earlierRun(other);
+    const r = await pipeline(wt, FAILS_AT_IMPLEMENT);
+    expect(r.stdout).toContain('MOVED:');
+    expect(git(wt.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(MOVED);
+    const main = read(f.dir, `${DOCS}/brief.md`);
+    expect(getPrFromBrief(main)).toBe(NEW_PR);
+    expect(main).not.toContain(OLD_PR);
+    expect(getPrFromBrief(read(wt.dir, `${DOCS}/brief.md`))).toBe(NEW_PR);
+  });
+});
+
+const ONE = 'export const one = () => 1;\n';
+const RESOLVED = 'export const one = () => 1; // merged work, and the task\n';
+
+/**
+ * The run's branch holds a task commit to src/existing.mjs that was pushed and then rewritten here with another change of the same
+ * line (diverged, the rebase onto origin's branch conflicts: a new branch); origin's main changed that line too (so the task commit
+ * conflicts with it).
+ */
+function conflictingMove(f: Fixture): { origin: string; mine: string; theirs: string } {
+  const { origin, other } = withOrigin(f);
+  git(f.dir, 'checkout', '-q', '-b', BRANCH);
+  const theirs = commitIn(f.dir, 'src/existing.mjs', ONE.replace('1;', '1; // the task, first try'), 'the task');
+  git(f.dir, 'push', '-q', 'origin', BRANCH);
+  write(f.dir, 'src/existing.mjs', ONE.replace('1;', '1; // the task'));
+  git(f.dir, 'commit', '-q', '--amend', '-am', 'the task');
+  const mine = git(f.dir, 'rev-parse', 'HEAD');
+  commitIn(other, 'src/existing.mjs', ONE.replace('1;', '1; // merged work'), 'merged work');
+  git(other, 'push', '-q', 'origin', 'main');
+  return { origin, mine, theirs };
+}
+
+describe('the new branch is made from origin\'s base, conflicts resolved as Resolve conflicts resolves them', () => {
+  test('a conflicting commit that the resolver resolves: the new branch is origin\'s base with the resolved commit, and it is pushed', async () => {
+    const f = fixture({ other: `printf '${RESOLVED.trim()}\\n' > src/existing.mjs
+printf 'FILE: src/existing.mjs :: kept both comments\\nVERDICT: SAFE\\n' > "$FAKE_LOG/resolve-conflicts-report.md"` });
+    fakeGh(f);
+    const { origin, theirs } = conflictingMove(f);
+    const r = await pipeline(f, FAILS_AT_IMPLEMENT);
+    expect(r.calls.slice(0, 4)).toEqual(['spec', 'plan', 'other', 'red-tests']);
+    expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(MOVED);
+    expect(rows(f.dir, 'push-check')).toMatchObject([{ finding: 'diverged', action: 'new-branch-from-base' }]);
+    expect(r.stdout).toContain('conflicts resolved in src/existing.mjs');
+    // From origin's main, in a straight line, with the resolved change; pushed with its pull request.
+    expect(spawnSync('git', ['-C', origin, 'merge-base', '--is-ancestor', 'main', MOVED]).status).toBe(0);
+    expect(git(origin, 'rev-list', '--merges', `main..${MOVED}`)).toBe('');
+    expect(git(origin, 'show', `${MOVED}:src/existing.mjs`)).toBe(RESOLVED.trim());
+    expect(git(origin, 'log', '--format=%s', `main..${MOVED}`).split('\n')).toContain('the task');
+    expect(read(f.fake, 'gh-create.log')).toContain(`--head ${MOVED}`);
+    // The old branch, on origin, as it was.
+    expect(git(origin, 'rev-parse', BRANCH)).toBe(theirs);
+  });
+
+  test('the resolver doubts and the panel finds it unsafe: the run stops, nothing is pushed, the old branch is checked out again and no new branch is left', async () => {
+    const f = fixture({ other: `printf '${RESOLVED.trim()}\\n' > src/existing.mjs
+printf 'FILE: src/existing.mjs :: kept both comments\\nVERDICT: DOUBT\\nDOUBT: one() is commented two ways\\n' > "$FAKE_LOG/resolve-conflicts-report.md"` });
+    fakeGh(f);
+    write(f.fake, 'resolve-review.out', 'The two comments contradict.\nVERDICT: UNSAFE\n');
+    write(f.fake, 'resolve-judge.out', 'The reviewers agree the comments contradict.\n');
+    const { origin, mine, theirs } = conflictingMove(f);
+    const refs = git(origin, 'for-each-ref');
+    const r = await pipeline(f, FAILS_AT_IMPLEMENT);
+    expect(r.status).toBe(1);
+    expect(r.calls).toEqual(['spec', 'plan', 'other', 'resolve-review', 'resolve-review', 'resolve-review', 'resolve-judge']);
+    expect(git(origin, 'for-each-ref')).toBe(refs);
+    expect(git(origin, 'rev-parse', BRANCH)).toBe(theirs);
+    expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(BRANCH);
+    expect(git(f.dir, 'rev-parse', 'HEAD')).toBe(mine);
+    expect(git(f.dir, 'status', '--porcelain', '--untracked-files=no')).toBe('');
+    expect(git(f.dir, 'branch', '--list', `${BRANCH}_*`)).toBe('');
+    expect(git(f.dir, 'rev-parse', `refs/sdlc-backup/${BRANCH}/local`)).toBe(mine);
+    expect(fs.existsSync(path.join(f.dir, '.git', 'rebase-merge'))).toBe(false);
+    // Plan's work is still there.
+    expect(read(f.dir, `${DOCS}/plan-1.md`)).toBe('plan\n');
+    expect(r.stdout).toContain(`Nothing was pushed; ${BRANCH} is checked out again, unchanged (refs/sdlc-backup/${BRANCH}/local is ${mine.slice(0, 7)})`);
+    expect(r.stdout).toContain(`ai-sdlc-helper pipeline ${SLUG} --from red-tests`);
+    expect(read(f.dir, `${LOG}/errors.log`)).toContain('one() is commented two ways');
+    expect(rows(f.dir, 'push-check').map(x => x.action)).toEqual(['new-branch-stopped']);
+    expect(rows(f.dir, 'move')).toEqual([]);
+    expect(statusOf(f.dir).moved_from).toBeUndefined();
   });
 });
 

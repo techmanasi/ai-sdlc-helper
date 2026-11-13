@@ -139,6 +139,10 @@ describe('runView', () => {
     fs.rmSync(path.join(wt, 'Docs/backlog/add-tokens/logs/status.json'));
     git(wt, 'checkout', '-q', '-b', 'sdlc/add-tokens_2');
     expect(liveBranch(ctx, 'add-tokens')).toBe('sdlc/add-tokens_2');
+    // A status file naming a branch that is not this item's run branch is not trusted.
+    write(wt, 'Docs/backlog/add-tokens/logs/status.json', { state: 'running', branch: 'main' });
+    expect(liveBranch(ctx, 'add-tokens')).toBe('sdlc/add-tokens_2');
+    fs.rmSync(path.join(wt, 'Docs/backlog/add-tokens/logs/status.json'));
     // Another item's branch (add-tokens-2) is not this run's: the record's branch is used.
     git(wt, 'checkout', '-q', '-b', 'sdlc/add-tokens-2');
     expect(liveBranch(ctx, 'add-tokens')).toBe('sdlc/add-tokens');
@@ -155,6 +159,13 @@ describe('runView', () => {
     expect(v.resumeFrom).toBe('implement');
     expect(v.changes).toEqual(expect.objectContaining({ uncommitted: expect.any(Number), changed: expect.any(Number) }));
     expect(v.changes!.files.some(f => f.includes('status.json'))).toBe(true);
+  });
+
+  test('a stop that named where to resume: the run resumes there, not at the stage shown; without one, the stage decides', () => {
+    const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Plan', resume_from: 'red-tests' } });
+    expect(runView(ctx, 'add-tokens').resumeFrom).toBe('red-tests');
+    const plain = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Plan' } });
+    expect(runView(plain.ctx, 'add-tokens').resumeFrom).toBe('plan');
   });
 
   test('the state follows the record: done, refused, interrupted, and not started without one', () => {

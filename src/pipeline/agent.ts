@@ -8,6 +8,7 @@ import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from 
 import { modelEnvOf, modelFlags, providerEnv, stageModel } from './models.js';
 import { ciFailureInput, manualInput, mergeFailureInput, prCommentsInput, renderPrompt } from './prompts.js';
 import { resumeHint } from './hints.js';
+import { keepError } from './errors.js';
 import { agentFacts, appendRound, changedBetween, debugLeftovers, roundWarnings, snapshot } from './observe.js';
 import { DefaultHarnessRegistry } from './harness/registry.js';
 export { spawnAgentProcess, spawnClaude } from './agent-process.js';
@@ -395,7 +396,11 @@ function observeRound(ctx: Ctx, name: string, stage: AgentStage, base: string, r
       denied: facts.denied, filesChanged, warnings,
     });
     for (const w of warnings) ctx.out(`   !! observed in '${name}': ${w}`);
-  } catch { /* observability never stops a run */ }
+  } catch (e) {
+    // Observability never stops a run, but a round it could not record is said.
+    keepError(ctx, `record the round of '${name}'`, e instanceof Error ? (e.stack || e.message) : String(e));
+    ctx.out(`   WARNING: could not record what '${name}' did in ${ctx.log}/attempts.jsonl (see ${ctx.log}/errors.log)`);
+  }
 }
 
 /**

@@ -15,6 +15,7 @@ import {
   listCompletedTasks, getCompletedTaskDetail, isArchivedInIndex,
 } from '../src/runs/completed.js';
 import { runContext } from '../src/runs/index.js';
+import { linkPrEverywhere } from '../src/pipeline/pr-link.js';
 import { main } from '../src/cli/main.js';
 import { tmp } from './helpers.js';
 
@@ -113,6 +114,76 @@ Type: feature
     expect(indexText).toContain(`- [x] \`${slug}\``);
     // Skips file generated
     expect(fs.existsSync(path.join(repo, log, 'finalise-skipped.md'))).toBe(true);
+  });
+});
+
+describe('a failed gh pr create and the pull request link in both checkouts', () => {
+  test('Finalise with createPr: gh\'s message and exit code are kept whole, and one warning line names it and where the rest is', () => {
+    const root = tmp('finalise-gh-fails-');
+    fs.mkdirSync(path.join(root, 'repo'));
+    const repo = makeRepo(path.join(root, 'repo'));
+    gitCmd(root, 'init', '-q', '--bare', '-b', 'main', 'origin.git');
+    gitCmd(repo, 'remote', 'add', 'origin', path.join(root, 'origin.git'));
+    const bin = path.join(root, 'bin');
+    fs.mkdirSync(bin);
+    const said = 'pull request create failed: GraphQL: No commits between main and main (createPullRequest)';
+    fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nif [ "$1 $2" = "pr create" ]; then echo "${said}" >&2; exit 1; fi\nexit 1\n`, { mode: 0o755 });
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${bin}:${savedPath}`;
+    try {
+      const slug = 'task-one';
+      const docs = `Docs/backlog/${slug}`;
+      const log = `${docs}/logs`;
+      fs.mkdirSync(path.join(repo, log), { recursive: true });
+      snapshot(path.join(repo, log, 'baseline.json'), { root: repo });
+      fs.writeFileSync(path.join(repo, 'new-feature.js'), 'export const hello = 1;\n');
+      const kept: Array<[string, string]> = [];
+      let err = '';
+      const res = finalise({
+        git: new Git(repo), slug, docs, baseline: `${log}/baseline.json`, backlog: 'Docs/backlog/index.md', createPr: true,
+        out: () => {}, err: l => { err += `${l}\n`; }, keepError: (where, text) => { kept.push([where, text]); },
+      });
+      expect(res.pr).toBeNull();
+      expect(kept).toEqual([['finalise: gh pr create', `gh pr create exited with 1: ${said}`]]);
+      expect(err).toContain(`WARNING: could not create or detect a pull request for main: gh pr create exited with 1: ${said} (the whole message is in ${log}/errors.log)`);
+    } finally { process.env.PATH = savedPath; }
+  });
+
+  test('linkPrEverywhere replaces the older link in the run worktree\'s brief and the main checkout\'s; a brief it cannot write is logged and said, and the run goes on', () => {
+    const root = tmp('pr-link-');
+    fs.mkdirSync(path.join(root, 'main'));
+    const main = makeRepo(path.join(root, 'main'));
+    const slug = 'task-one';
+    const docs = `Docs/backlog/${slug}`;
+    const OLD = 'https://github.com/o/r/pull/5';
+    const NEW = 'https://github.com/o/r/pull/99';
+    fs.writeFileSync(path.join(main, docs, 'brief.md'), `---\npr: ${OLD}\n---\n\n# ${slug}\n`);
+    gitCmd(main, 'commit', '-q', '-am', 'old link');
+    const wt = path.join(root, 'wt');
+    gitCmd(main, 'worktree', 'add', '-q', '-b', `sdlc/${slug}`, wt);
+    fs.mkdirSync(path.join(main, '.git', 'sdlc-runs'), { recursive: true });
+    fs.writeFileSync(path.join(main, '.git', 'sdlc-runs', `${slug}.json`), JSON.stringify({ slug, worktree: wt, root: main }));
+    const lines: string[] = [];
+    const ctx = { root: wt, docs, log: `${docs}/logs`, env: process.env, out: (l: string) => { lines.push(l); } };
+    linkPrEverywhere(ctx, NEW);
+    for (const dir of [wt, main]) {
+      const text = fs.readFileSync(path.join(dir, docs, 'brief.md'), 'utf8');
+      expect(getPrFromBrief(text), dir).toBe(NEW);
+      expect(text, dir).not.toContain(OLD);
+    }
+    expect(lines).toEqual([]);
+
+    // The link is written whole (a temporary file renamed over the brief): a folder that takes no new file keeps the brief as it was.
+    const mainBrief = path.join(main, docs, 'brief.md');
+    fs.chmodSync(path.dirname(mainBrief), 0o555);
+    try {
+      linkPrEverywhere(ctx, 'https://github.com/o/r/pull/100');
+    } finally { fs.chmodSync(path.dirname(mainBrief), 0o755); }
+    expect(fs.readdirSync(path.dirname(mainBrief))).toEqual(['brief.md']);
+    expect(getPrFromBrief(fs.readFileSync(path.join(wt, docs, 'brief.md'), 'utf8'))).toBe('https://github.com/o/r/pull/100');
+    expect(getPrFromBrief(fs.readFileSync(mainBrief, 'utf8'))).toBe(NEW);
+    expect(lines).toEqual([`WARNING: could not write the pull request link into ${mainBrief} (see ${docs}/logs/errors.log)`]);
+    expect(fs.readFileSync(path.join(wt, docs, 'logs', 'errors.log'), 'utf8')).toContain(`${mainBrief}: EACCES`);
   });
 });
 
