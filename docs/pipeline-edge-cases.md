@@ -121,8 +121,8 @@ Entry format: **Symptom** (what the user sees), **How to tell** (where to look),
 - **Switches:** `SDLC_PUSH_CHECK=0` (or `no`, `off`) skips the whole check. `SDLC_MOVE_BRANCH=0` keeps the branch when the ladder ends at "new branch" (the fast-forward, lease push, rebase and Resolve conflicts still apply).
 - **What is never done:** a bare `git push --force`; deleting or closing the old branch or its pull request (a lease push replaces origin's commits only with the same changes, and the old tip is kept at `refs/sdlc-backup/<branch>/remote`; the local one before any rewrite at `refs/sdlc-backup/<branch>/local`).
 - **Gap:** the old pull request stays open for a person to close.
+- **Discard (and restart):** deletes only the branch the run is on now (read from its worktree before it is removed, so a run that moved deletes `<slug>_N`, not the first branch its record may still name), and prints how to get it back. By design no other branch is deleted, whatever its name: the old branch, its pull request and any branch that only looks like a run's are left for the user.
 - **Open:**
-  - Discard or restart after a move deletes only the new branch; the old one (and its pull request) stays.
   - The resolved new branch is not checked locally before it is pushed (Red tests and the later gates check it); Resolve conflicts checks its own result.
   - A pull request opened from the run page for a finished run (`createPrForCompleted`) links it on the run's branch only; the main checkout's brief is not edited there.
 - **Status:** handled (open points above).

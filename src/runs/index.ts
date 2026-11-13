@@ -500,13 +500,15 @@ export async function discardStage(ctx: RunContext, slug: string, opts: StageDis
 
 /**
  * Deletes what a run left behind: its worktree (the path in its record, even when the settings changed since), its
- * local branch and its record. The branch tip is saved first in <reg>/<slug>.discarded. Without --yes it only says what
+ * local branch (only the one the run is on now) and its record. The branch tip is saved first in <reg>/<slug>.discarded. Without --yes it only says what
  * would go (exit 6). A running pipeline is refused (exit 4) unless --stop stops it first; nothing there: exit 1.
  */
 export async function discard(ctx: RunContext, slug: string, opts: DiscardOptions = {}): Promise<Outcome> {
   const rec = readRecord(ctx.reg, slug);
   const wt = rec?.worktree || path.join(ctx.wtBase, slug);
-  const branch = branchOf(ctx, slug, rec);
+  // Only the branch the run is on now (read from its worktree before that goes): a run that moved is on <slug>_N while its
+  // record may still name the first branch. No other branch is deleted, whatever its name.
+  const branch = liveBranch(ctx, slug, rec);
   if (!opts.stop && isRunning(rec)) return fail(4, `${slug} is running: stop it first, or pass --stop`);
   const tip = branchExists(ctx, branch) ? git(ctx.root, ['rev-parse', branch], ctx.env).stdout.trim() : '';
   const hasWt = exists(path.join(wt, '.git'));
