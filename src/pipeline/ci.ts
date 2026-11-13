@@ -12,7 +12,8 @@ import { checkAllowedFailures, isRedTest, matchesAllowEntry } from './allow-fail
 import type { Ctx } from './context.js';
 import { keepError } from './errors.js';
 import { moveReasonText } from './status.js';
-import { clearPrCache, createOrGetPr, getPrStatus, getPrFromBrief, recordPrInBrief, type CheckRunStatus, type PrStatus } from './finalise.js';
+import { clearPrCache, findOrCreatePr, firstLine, getPrStatus, type CheckRunStatus, type PrStatus } from './finalise.js';
+import { linkPrEverywhere } from './pr-link.js';
 
 export type CiClassification = 'infrastructure' | 'pre-existing' | 'flaky' | 'allowed' | 'side-effect';
 export interface CiCheckResult { name: string; conclusion: string; detailsUrl?: string; log?: string }
@@ -112,24 +113,19 @@ export async function checkCiAvailability(ctx: Ctx): Promise<{ available: boolea
   let pr: PrStatus | null = getPrStatus(ctx.root, branch, ctx.env);
   if (!pr) {
     const { title, body } = draftPrText(ctx);
-    const url = createOrGetPr(ctx.root, branch, title, body, ctx.config.git.base || undefined, { draft: true });
-    if (!url) {
-      keepError(ctx, 'gh pr create', 'no output available');
-      return { available: false, reason: 'PR could not be created' };
+    const opened = findOrCreatePr(ctx.root, branch, title, body, ctx.config.git.base || undefined, { draft: true });
+    if (opened.url === null) {
+      keepError(ctx, 'gh pr create', opened.error);
+      return { available: false, reason: `PR could not be created: ${firstLine(opened.error)}; the whole message is in ${ctx.log}/errors.log` };
     }
+    const url = opened.url;
     clearPrCache();
     pr = getPrStatus(ctx.root, url, ctx.env) || { url, state: 'OPEN', isDraft: true };
   }
   if (pr.state === 'CLOSED') return { available: false, reason: 'PR is closed' };
   if (pr.state === 'MERGED') return { available: false, reason: 'PR is merged' };
 
-  const brief = path.join(ctx.root, ctx.docs, 'brief.md');
-  try {
-    if (fs.existsSync(brief)) {
-      const text = fs.readFileSync(brief, 'utf8');
-      if (getPrFromBrief(text) !== pr.url) fs.writeFileSync(brief, recordPrInBrief(text, pr.url));
-    }
-  } catch { /* the link in brief.md is a convenience */ }
+  linkPrEverywhere(ctx, pr.url);
   return { available: true, pr: pr.url, ...(typeof pr.isDraft === 'boolean' ? { prDraft: pr.isDraft } : {}) };
 }
 
@@ -419,7 +415,16 @@ async function classify(ctx: Ctx, failed: FailedCheck[], startTime: number, limi
   const jobConclusion = new Map<string, Map<string, string>>();
   if (rest.length || checkLevel.length) {
     for (const id of rerunRuns) {
-      try { spawnSync('gh', ['run', 'rerun', id, '--failed'], { cwd: ctx.root, encoding: 'utf8', env: ctx.env, timeout: 60_000 }); } catch { /* the failure stays */ }
+      // A rerun that gh refuses leaves the failure as it is; what gh said is kept.
+      let why = '';
+      try {
+        const r = spawnSync('gh', ['run', 'rerun', id, '--failed'], { cwd: ctx.root, encoding: 'utf8', env: ctx.env, timeout: 60_000 });
+        if (r.status !== 0) why = `exited with ${r.status ?? 'no code'}\n${`${String(r.stderr || '')}\n${String(r.stdout || '')}`.trim() || '(no output)'}`;
+      } catch (e) { why = `could not run: ${(e as Error).message}`; }
+      if (why) {
+        keepError(ctx, `gh run rerun ${id}`, `gh run rerun ${id} --failed ${why}`);
+        ctx.out(`WARNING: could not re-run the failed jobs of CI run ${id} (see ${ctx.log}/errors.log)`);
+      }
     }
     for (const id of rerunRuns) {
       const finished = await waitForRerun(ctx, id, startTime, limitMs);

@@ -17,6 +17,7 @@ import {
 } from './records.js';
 import { startSupervisor, type SetupStep } from './supervisor.js';
 import { identity } from './proc.js';
+import { keepError } from '../pipeline/errors.js';
 
 /** The controls' own environment variables: read here, never passed to the pipeline. */
 export const CONTROL_ENV = ['SDLC_BASE', 'SDLC_WT_BASE', 'SDLC_MAX_PARALLEL', 'SDLC_ALLOW_MERGED', 'FROM', 'AI_SDLC_HELPER_PIPELINE_CMD', 'WATCH_REPORT_DEPENDENCIES'];
@@ -403,7 +404,10 @@ function takeCheckpoint(ctx: RunContext, slug: string, wt: string, from: string 
     git(wt, ['update-ref', `refs/sdlc-checkpoints/${slug}`, snapshot], ctx.env);
     const cp: Checkpoint = { head, snapshot, from: from || 'where it stopped', at: now(), record: rec };
     fs.writeFileSync(regFile(ctx, slug, 'checkpoint'), `${JSON.stringify(cp)}\n`);
-  } catch { /* no checkpoint: nothing to undo */ }
+  } catch (e) {
+    // No checkpoint: nothing to undo. Never blocks the start, but the reason is kept in the task's errors.log.
+    keepError({ root: wt, log: path.join(ctx.backlogDir, slug, 'logs') }, 'start: checkpoint', (e as Error).message);
+  }
 }
 
 export function readCheckpoint(ctx: RunContext, slug: string): Checkpoint | null {

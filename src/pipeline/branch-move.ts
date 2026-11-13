@@ -4,7 +4,8 @@ import path from 'node:path';
 import { isRunBranch } from '../gitdir.js';
 import type { Ctx } from './context.js';
 import { keepError } from './errors.js';
-import { clearPrInBrief, createOrGetPr, getPrFromBrief, recordPrInBrief } from './finalise.js';
+import { clearPrInBrief, findOrCreatePr, firstLine, getPrFromBrief } from './finalise.js';
+import { linkPrEverywhere } from './pr-link.js';
 import { draftPrText } from './ci.js';
 import { appendRound } from './observe.js';
 import { moveReasonText } from './status.js';
@@ -110,14 +111,14 @@ export async function openMovedPr(ctx: Ctx): Promise<string | null> {
   }
   // draftPrText names what the pull request replaces.
   const { title, body } = draftPrText(ctx);
-  const url = createOrGetPr(ctx.root, ctx.branch, title, body, ctx.config.git.base || undefined, { draft: true });
-  if (!url) {
-    keepError(ctx, 'gh pr create', 'no output available');
-    ctx.out(`   could not open a pull request for ${ctx.branch} (see ${ctx.log}/errors.log)`);
+  const opened = findOrCreatePr(ctx.root, ctx.branch, title, body, ctx.config.git.base || undefined, { draft: true });
+  if (opened.url === null) {
+    keepError(ctx, 'gh pr create', opened.error);
+    ctx.out(`   could not open a pull request for ${ctx.branch}: ${firstLine(opened.error)} (the whole message is in ${ctx.log}/errors.log)`);
     return null;
   }
-  const text = readBrief(ctx);
-  if (text !== null && getPrFromBrief(text) !== url) fs.writeFileSync(briefFile(ctx), recordPrInBrief(text, url));
+  const url = opened.url;
+  linkPrEverywhere(ctx, url);
   ctx.out(`   pull request: ${url}`);
   return url;
 }

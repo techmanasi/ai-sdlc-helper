@@ -41,6 +41,7 @@ function setup(prefix: string, withBrief = `---\npr: ${OLD_PR}\n---\n\n# ${slug}
     'if [ "$1" = "--version" ]; then echo gh 1; exit 0; fi',
     'if [ "$1 $2" = "pr view" ]; then [ -f "$GHDIR/view.json" ] && { cat "$GHDIR/view.json"; exit 0; }; exit 1; fi',
     'if [ "$1 $2" = "pr list" ]; then exit 1; fi',
+    'if [ "$1 $2" = "pr create" ] && [ -f "$GHDIR/create-fails" ]; then cat "$GHDIR/create-fails" >&2; exit 1; fi',
     `if [ "$1 $2" = "pr create" ]; then echo "$@" >> "$GHDIR/create.log"; echo ${NEW_PR}; exit 0; fi`,
     'exit 1', '',
   ].join('\n'), { mode: 0o755 });
@@ -208,6 +209,19 @@ describe('openMovedPr', () => {
   it('does nothing for a run that did not move', async () => {
     const ctx = setup('sdlc/');
     expect(await openMovedPr(ctx)).toBeNull();
+  });
+  it('a failed gh pr create: gh\'s message and exit code are kept in errors.log, and one line names it and where the rest is', async () => {
+    const ctx = setup('sdlc/');
+    const said = 'pull request create failed: GraphQL: Head sha can\'t be blank (createPullRequest)';
+    fs.writeFileSync(path.join(ghDir, 'create-fails'), `${said}\n`);
+    moveToNewBranch(ctx, { kind: 'pr-merged', detail: OLD_PR });
+    fs.writeFileSync(path.join(repo, 'a.txt'), 'a');
+    sh(repo, 'add', '-A'); sh(repo, 'commit', '-q', '-m', 'work');
+    expect(await openMovedPr(ctx)).toBeNull();
+    const errors = fs.readFileSync(path.join(repo, ctx.log, 'errors.log'), 'utf8');
+    expect(errors).toContain(`gh pr create exited with 1: ${said}`);
+    expect(lines).toContain(`   could not open a pull request for sdlc/foo_2: gh pr create exited with 1: ${said} (the whole message is in ${ctx.log}/errors.log)`);
+    expect(getPrFromBrief(fs.readFileSync(path.join(repo, ctx.docs, 'brief.md'), 'utf8'))).toBeNull();
   });
 });
 

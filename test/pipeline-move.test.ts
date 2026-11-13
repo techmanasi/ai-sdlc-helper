@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { DOCS, LOG, SLUG, fixture, git, pipeline, read, statusOf, type Fixture } from './pipeline-fixture.js';
+import { write } from './helpers.js';
 import { getPrFromBrief } from '../src/pipeline/finalise.js';
 
 afterEach(() => new Promise<void>(resolve => { setImmediate(resolve); }));
@@ -231,6 +232,55 @@ describe('a start at Resolve conflicts', () => {
     git(other, 'push', '-q', 'origin', BRANCH);
     await pipeline(f, {}, { from: 'resolve-conflicts' });
     expect(git(f.dir, 'branch', '--list', MOVED)).toBe('');
+  });
+});
+
+const OLD_PR = 'https://github.com/o/r/pull/5';
+
+/**
+ * The run in its own worktree, started from the fixture's checkout (the main checkout): the brief, committed with an older
+ * pull request link, is in both, and the run's record names the worktree and where it was started from.
+ */
+function inWorktree(f: Fixture): Fixture {
+  write(f.dir, `${DOCS}/brief.md`, `---\npr: ${OLD_PR}\n---\n\n# ${SLUG}\n\nAdd sum(a, b).\n`);
+  git(f.dir, 'commit', '-q', '-am', 'brief with an older pull request');
+  git(f.dir, 'push', '-q', 'origin', 'main');
+  const wt = path.join(path.dirname(f.dir), 'wt');
+  git(f.dir, 'worktree', 'add', '-q', '-b', BRANCH, wt);
+  write(path.join(f.dir, '.git', 'sdlc-runs'), `${SLUG}.json`, `${JSON.stringify({ slug: SLUG, worktree: wt, root: f.dir, pid: 0, started: '2026-11-14T10:00:00', interrupted: false, finished: '', message: '' })}\n`);
+  return { ...f, dir: wt };
+}
+
+describe('a new pull request is linked in the brief of the worktree and of the main checkout', () => {
+  test('Red tests opens the pull request in ci mode: both briefs hold the new link, not the older one', async () => {
+    const f = fixture();
+    fakeGh(f);
+    withOrigin(f);
+    const wt = inWorktree(f);
+    await pipeline(wt, { ...FAILS_AT_IMPLEMENT, SDLC_FULL_SUITE: 'ci' });
+    expect(read(f.fake, 'gh-create.log')).toContain(`--head ${BRANCH}`);
+    for (const dir of [wt.dir, f.dir]) {
+      const brief = read(dir, `${DOCS}/brief.md`);
+      expect(getPrFromBrief(brief), dir).toBe(NEW_PR);
+      expect(brief, dir).not.toContain(OLD_PR);
+    }
+  });
+
+  test('a moved run opens its new pull request: the main checkout\'s brief holds the new link, not the older one', async () => {
+    const f = fixture();
+    fakeGh(f);
+    const { other } = withOrigin(f);
+    const wt = inWorktree(f);
+    // The earlier run started from the main that holds the brief.
+    git(other, 'pull', '-q');
+    earlierRun(other);
+    const r = await pipeline(wt, FAILS_AT_IMPLEMENT);
+    expect(r.stdout).toContain('MOVED:');
+    expect(git(wt.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(MOVED);
+    const main = read(f.dir, `${DOCS}/brief.md`);
+    expect(getPrFromBrief(main)).toBe(NEW_PR);
+    expect(main).not.toContain(OLD_PR);
+    expect(getPrFromBrief(read(wt.dir, `${DOCS}/brief.md`))).toBe(NEW_PR);
   });
 });
 

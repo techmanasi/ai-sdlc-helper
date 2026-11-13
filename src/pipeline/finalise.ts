@@ -24,6 +24,10 @@ export interface FinaliseOptions {
   baseBranch?: string;
   out(line: string): void;
   err(line: string): void;
+  /** Keeps the whole text of a failure (the pipeline's logs/errors.log); without it, only the one-line warning is printed. */
+  keepError?(where: string, text: string): void;
+  /** Records a new pull request's link wherever the brief is kept (the pipeline's linkPrEverywhere); without it, in the brief here. */
+  linkPr?(url: string): void;
 }
 
 export interface FinaliseResult {
@@ -70,51 +74,74 @@ export function clearPrInBrief(text: string): string {
   return out.replace(/^(?:PR|pr):\s*https?:\/\/\S+[ \t]*(?:\r?\n|$)/gim, '');
 }
 
-/** Finds or creates a GitHub PR for the branch. */
-export function createOrGetPr(cwd: string, branch: string, title: string, body: string, base?: string, opts: { draft?: boolean } = {}): string | null {
-  // Check if PR already exists
+/** What findOrCreatePr came to: the pull request's link, or why there is none (gh's own words and exit code). */
+export type PrOpened = { url: string; error?: undefined } | { url: null; error: string };
+
+/** gh's answer as one text for errors.log: the command, its exit code (or why it did not run), and what it printed. */
+function ghFailure(what: string, r: { status: number | null; stdout?: unknown; stderr?: unknown; error?: Error }): string {
+  const how = r.error ? `could not run: ${r.error.message}` : `exited with ${r.status === null ? 'no code (killed or timed out)' : r.status}`;
+  const printed = [String(r.stderr ?? '').trim(), String(r.stdout ?? '').trim()].filter(Boolean).join('\n');
+  return `${what} ${how}: ${printed || '(no output)'}`;
+}
+
+/** Finds or creates a GitHub PR for the branch; when there is none and gh cannot open one, says why in gh's own words. */
+export function findOrCreatePr(cwd: string, branch: string, title: string, body: string, base?: string, opts: { draft?: boolean } = {}): PrOpened {
+  // Is there one already? A failed view or list means "none found": the create below says what is wrong, if anything.
   try {
     const view = spawnSync('gh', ['pr', 'view', branch, '--json', 'url', '-q', '.url'], { cwd, encoding: 'utf8' });
     if (view.status === 0 && view.stdout.trim().startsWith('http')) {
-      return view.stdout.trim();
+      return { url: view.stdout.trim() };
     }
-  } catch { /* gh might not be installed or authenticated */ }
+  } catch { /* a probe: gh might not be installed or authenticated, and the create says so */ }
 
   try {
     const list = spawnSync('gh', ['pr', 'list', '--head', branch, '--json', 'url', '-q', '.[0].url'], { cwd, encoding: 'utf8' });
     if (list.status === 0 && list.stdout.trim().startsWith('http')) {
-      return list.stdout.trim();
+      return { url: list.stdout.trim() };
     }
-  } catch { /* best effort */ }
+  } catch { /* a probe, as above */ }
 
-  // Create PR
+  const args = ['pr', 'create', '--head', branch, '--title', title, '--body', body];
+  if (base) args.push('--base', base);
+  if (opts.draft) args.push('--draft');
   try {
-    const args = ['pr', 'create', '--head', branch, '--title', title, '--body', body];
-    if (base) args.push('--base', base);
-    if (opts.draft) args.push('--draft');
     const create = spawnSync('gh', args, { cwd, encoding: 'utf8' });
     if (create.status === 0) {
       const match = (create.stdout + '\n' + create.stderr).match(/https?:\/\/[^\s]+/);
       if (match) {
         clearPrCache();
-        return match[0].trim();
+        return { url: match[0].trim() };
       }
+      return { url: null, error: ghFailure('gh pr create printed no pull request link;', create) };
     }
-  } catch { /* best effort */ }
-
-  return null;
+    return { url: null, error: ghFailure('gh pr create', create) };
+  } catch (e) {
+    return { url: null, error: `gh pr create could not run: ${(e as Error).message}` };
+  }
 }
+
+/** Finds or creates a GitHub PR for the branch: its link, or null (findOrCreatePr also says why). */
+export function createOrGetPr(cwd: string, branch: string, title: string, body: string, base?: string, opts: { draft?: boolean } = {}): string | null {
+  return findOrCreatePr(cwd, branch, title, body, base, opts).url;
+}
+
+/** The first line of a failure text, for the one line of output that points at errors.log. */
+export const firstLine = (text: string): string => (String(text).trim().split('\n').find(l => l.trim()) || '').trim().slice(0, 200);
 
 /** The CI of a pull request: its checks are running, all passed, one failed, or it has none. */
 export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
 
 /** Marks a draft PR ready for review (`gh pr ready`); true when gh succeeded. */
-export function markPrReady(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv = process.env): boolean {
+export function markPrReady(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv = process.env, onError?: (text: string) => void): boolean {
   try {
     const r = spawnSync('gh', ['pr', 'ready', branchOrUrl], { cwd, encoding: 'utf8', env, timeout: 30_000 });
     clearPrCache();
+    if (r.status !== 0) onError?.(ghFailure('gh pr ready', r));
     return r.status === 0;
-  } catch { return false; }
+  } catch (e) {
+    onError?.(`gh pr ready could not run: ${(e as Error).message}`);
+    return false;
+  }
 }
 
 /** One check of a PR's status rollup: a check run (status, conclusion, detailsUrl) or a commit status (state). */
@@ -558,30 +585,40 @@ export function finalise(o: FinaliseOptions): FinaliseResult {
 
   if (o.createPr) {
     o.out('Pushing branch to origin and checking/creating PR...');
+    // Says what failed in one line and keeps the whole text.
+    const failed = (where: string, line: string, text: string): void => {
+      o.keepError?.(where, text);
+      o.err(`WARNING: ${line}: ${firstLine(text)}${o.keepError ? ` (the whole message is in ${log}/errors.log)` : ''}`);
+    };
     try {
       o.git.run('push', '-u', 'origin', branch);
     } catch (e) {
-      o.err(`WARNING: git push to origin failed: ${(e as Error).message}`);
+      failed('finalise: push', 'git push to origin failed', (e as Error).message);
     }
 
     if (!prUrl) {
       const title = `feat(${o.slug}): implement per ${o.docs}/specs-1.md`;
       const body = `Automated finalisation for \`${o.slug}\`.\n\nSpecs: \`${o.docs}/specs-1.md\``;
-      prUrl = createOrGetPr(root, branch, title, body, o.baseBranch);
+      const opened = findOrCreatePr(root, branch, title, body, o.baseBranch);
+      prUrl = opened.url;
+      if (opened.error) failed('finalise: gh pr create', `could not create or detect a pull request for ${branch}`, opened.error);
     }
 
     if (prUrl) {
       o.out(`Pull Request: ${prUrl}`);
       // Record PR in brief.md
       if (fs.existsSync(briefFile)) {
-        const updatedBrief = recordPrInBrief(fs.readFileSync(briefFile, 'utf8'), prUrl);
-        fs.writeFileSync(briefFile, updatedBrief);
+        if (o.linkPr) o.linkPr(prUrl);
+        else fs.writeFileSync(briefFile, recordPrInBrief(fs.readFileSync(briefFile, 'utf8'), prUrl));
         const briefRel = path.relative(root, briefFile);
-        try {
-          o.git.run('add', '--', briefRel);
-          o.git.run('commit', '-q', '-m', `chore(${o.slug}): link pull request`, '--', briefRel);
-          try { o.git.run('push', 'origin', branch); } catch { /* best effort */ }
-        } catch { /* if nothing to commit */ }
+        // An unchanged brief (the link was there already) has nothing to commit: that is not a failure.
+        if (o.git.run('status', '--porcelain', '--', briefRel).trim()) {
+          try {
+            o.git.run('add', '--', briefRel);
+            o.git.run('commit', '-q', '-m', `chore(${o.slug}): link pull request`, '--', briefRel);
+            try { o.git.run('push', 'origin', branch); } catch (e) { failed('finalise: push of the pull request link', 'git push of the pull request link failed', (e as Error).message); }
+          } catch (e) { failed('finalise: commit of the pull request link', 'could not commit the pull request link', (e as Error).message); }
+        }
       }
     } else {
       o.err('WARNING: could not create or detect PR (ensure gh is installed and authenticated)');

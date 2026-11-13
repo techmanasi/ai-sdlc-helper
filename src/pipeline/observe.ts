@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Git } from './git.js';
+import { keepError } from './errors.js';
 
 export type Snapshot = Map<string, string>;
 
@@ -163,7 +164,10 @@ export function appendRound(logDir: string, row: AgentRound | GateResult | Round
   try {
     fs.mkdirSync(logDir, { recursive: true });
     fs.appendFileSync(path.join(logDir, 'attempts.jsonl'), `${JSON.stringify(row)}\n`);
-  } catch { /* observability never stops a run */ }
+  } catch (e) {
+    // Observability never stops a run; the row that could not be written is kept beside it, in errors.log.
+    keepError({ root: logDir, log: '' }, 'write attempts.jsonl', `${(e as Error).message}\n${JSON.stringify(row)}`);
+  }
 }
 
 /** How many starts the item had before this one, and the last stage the latest of them reached (from its rows after its run line). */

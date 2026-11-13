@@ -9,6 +9,7 @@ import { testRunDefaults } from '../config/settings.js';
 import { spawnShell } from '../shell.js';
 import type { RunResult } from '../runners/types.js';
 import { at, tick, type Ctx } from './context.js';
+import { keepError } from './errors.js';
 import { checkAllowedFailures, isRedTest, type FailedTest } from './allow-failures.js';
 
 const firstLines = (s: string | null, n = 20) => String(s || '').trim().split('\n').slice(0, n).map(l => `      ${l}`).join('\n');
@@ -293,7 +294,11 @@ export function resultsAt(ctx: Ctx, sha: string, outRel: string, files: string[]
     }
     writeResults(ctx, wt, at(ctx, outRel), files.length > 0 ? files : undefined);
   } finally {
-    ctx.git.tryRun('worktree', 'remove', '--force', wt);
+    // A worktree left registered blocks the next one at the same commit and keeps its folder: said, not hidden.
+    try { ctx.git.run('worktree', 'remove', '--force', wt); } catch (e) {
+      keepError(ctx, 'remove the temporary worktree', (e as Error).message);
+      ctx.out(`WARNING: could not remove the temporary worktree ${wt} (see ${ctx.log}/errors.log; \`git worktree prune\` cleans it up)`);
+    }
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
