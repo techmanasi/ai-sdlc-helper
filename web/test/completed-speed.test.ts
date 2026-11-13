@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { eventually } from '../../test/wait.js';
 import { startServer, type RunningServer } from '../server/index.js';
 import { forgetPrStatuses, settleBriefCleanups } from 'ai-sdlc-helper';
 
@@ -42,7 +43,7 @@ setTimeout(() => {
   }
   if (a[0] === 'pr' && a[1] === 'list') { process.stdout.write(JSON.stringify(prs.map(full)) + '\\n'); process.exit(0); }
   process.stderr.write('fake gh: unknown command\\n'); process.exit(1);
-}, mode === 'slow' ? 5000 : 20);
+}, mode === 'slow' ? 5000 : mode === 'slowok' ? 2000 : 20);
 `;
 
 let base: string;
@@ -56,7 +57,8 @@ const get = (s: RunningServer, p: string): Promise<{ status: number; body: strin
     r.on('end', () => res({ status: r.statusCode || 0, body }));
   }).on('error', rej);
 });
-const ghCalls = () => fs.readFileSync(path.join(base, 'gh-calls.txt'), 'utf8').split('\n').filter(Boolean);
+// gh's PR calls (the warm-up's `gh --version`, which only says whether gh is there, is not one).
+const ghCalls = () => fs.readFileSync(path.join(base, 'gh-calls.txt'), 'utf8').split('\n').filter(l => l && l !== '--version');
 const brief = (slug: string, text: string) => { fs.mkdirSync(path.join(repo, 'Docs/backlog', slug), { recursive: true }); fs.writeFileSync(path.join(repo, 'Docs/backlog', slug, 'brief.md'), text); };
 const linked = (n: number, rest = '') => `---\npr: https://github.com/o/shop/pull/${n}\n---\n\n# Task\n${rest}`;
 
@@ -109,10 +111,10 @@ function seed() {
   fs.writeFileSync(path.join(base, 'gh-calls.txt'), '');
 }
 
-const envFor = (extra: Record<string, string> = {}) => ({ ...process.env, ...GIT_ENV, PATH: `${path.join(base, 'bin')}:${process.env.PATH}`, AI_SDLC_HELPER_CONFIG_DIR: path.join(base, 'config'), SDLC_TRACE: '0', FAKE_GH_DIR: base, ...extra });
-const start = (extra: Record<string, string> = {}) => startServer({ port: 0, env: envFor(extra), cwd: repo, uiDir: path.join(base, 'ui'), cli: ['/bin/sh', '-c', 'exit 3', 'sh'] });
-const completed = async (s: RunningServer) => {
-  const r = await get(s, '/api/projects/shop/completed');
+const envFor = (extra: Record<string, string> = {}) => ({ ...process.env, ...GIT_ENV, PATH: `${path.join(base, 'bin')}:${process.env.PATH}`, AI_SDLC_HELPER_CONFIG_DIR: path.join(base, 'config'), SDLC_TRACE: '0', SDLC_WARM_PR_CACHE: '0', FAKE_GH_DIR: base, ...extra });
+const start = (extra: Record<string, string> = {}, more: { warmPrDelayMs?: number } = {}) => startServer({ port: 0, env: envFor(extra), cwd: repo, uiDir: path.join(base, 'ui'), cli: ['/bin/sh', '-c', 'exit 3', 'sh'], ...more });
+const completed = async (s: RunningServer, query = '') => {
+  const r = await get(s, `/api/projects/shop/completed${query}`);
   expect(r.status).toBe(200);
   return JSON.parse(r.body);
 };
@@ -249,5 +251,83 @@ describe('the Completed list endpoint', () => {
     server = await start();
     expect(await completed(server)).toEqual(body);
     expect(ghCalls().length).toBe(calls);
+  });
+
+  test('rows first: every candidate row at once, before a slow gh answers; the settled list after it equals today\'s', async () => {
+    fs.writeFileSync(path.join(base, 'gh-mode'), 'slowok'); // gh answers, after 2 s
+    server = await start({ SDLC_PR_TIMEOUT_MS: '10000' });
+    const t0 = Date.now();
+    const rows = await completed(server, '?rows=first');
+    expect(Date.now() - t0).toBeLessThan(1500);
+    expect(rows.completed.map((t: { slug: string }) => t.slug).sort()).toEqual(['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf']);
+    expect(rows.completed.every((t: { prPending?: boolean }) => t.prPending === true)).toBe(true);
+    const settled = await completed(server);
+    expect(settled).toEqual(EXPECTED); // delta's PR is open: it drops out
+    // The settled list joined the calls rows first started: one list and the two branches, as a plain cold load makes.
+    expect(ghCalls().sort()).toEqual(['pr list --state', 'pr view sdlc/charlie', 'pr view sdlc/echo']);
+    // Once known, rows first is the settled list itself, with no gh call.
+    expect(await completed(server, '?rows=first')).toEqual(EXPECTED);
+    expect(ghCalls()).toHaveLength(3);
+  });
+
+  test('rows first with gh failing: the rows still come, the settled list shows the failures, and so do the next rows', async () => {
+    fs.writeFileSync(path.join(base, 'gh-mode'), 'fail');
+    server = await start();
+    const rows = await completed(server, '?rows=first');
+    expect(rows.completed).toHaveLength(7);
+    const settled = await completed(server);
+    expect(settled.prErrors).toHaveLength(7);
+    expect(settled.completed.find((t: { slug: string }) => t.slug === 'alpha').prError).toMatch(/HTTP 502: Bad Gateway/);
+    const next = await completed(server, '?rows=first');
+    expect(next.prErrors).toHaveLength(7);
+    expect(next.completed.find((t: { slug: string }) => t.slug === 'alpha')).toMatchObject({ prState: null, prError: expect.stringMatching(/HTTP 502/) });
+    expect(fs.readFileSync(path.join(repo, 'Docs/backlog/alpha/logs/errors.log'), 'utf8')).toContain('HTTP 502: Bad Gateway (https://api.github.com/graphql)\nTry again later.');
+  });
+});
+
+describe('the start-up warm-up of the PR statuses', () => {
+  const github = () => git(repo, ['remote', 'add', 'origin', 'https://github.com/o/shop.git']);
+
+  test('after it, the first Completed load makes no gh call', async () => {
+    github();
+    server = await start({ SDLC_WARM_PR_CACHE: '1' }, { warmPrDelayMs: 0 });
+    await server.prWarmup();
+    expect(ghCalls().sort()).toEqual(['pr list --state', 'pr view sdlc/charlie', 'pr view sdlc/echo']);
+    expect(await completed(server)).toEqual(EXPECTED);
+    expect(ghCalls()).toHaveLength(3);
+  });
+
+  test('a Completed load while it runs joins its gh calls instead of making its own', async () => {
+    github();
+    fs.writeFileSync(path.join(base, 'gh-mode'), 'slowok');
+    server = await start({ SDLC_WARM_PR_CACHE: '1', SDLC_PR_TIMEOUT_MS: '10000' }, { warmPrDelayMs: 0 });
+    await eventually(() => ghCalls().includes('pr list --state'));
+    expect(await completed(server)).toEqual(EXPECTED);
+    await server.prWarmup();
+    expect(ghCalls().sort()).toEqual(['pr list --state', 'pr view sdlc/charlie', 'pr view sdlc/echo']);
+  });
+
+  test('SDLC_WARM_PR_CACHE=0 turns it off, and a project without a GitHub origin is skipped', async () => {
+    github();
+    server = await start({ SDLC_WARM_PR_CACHE: '0' }, { warmPrDelayMs: 0 });
+    await server.prWarmup();
+    expect(ghCalls()).toEqual([]);
+    await server.close();
+    git(repo, ['remote', 'remove', 'origin']);
+    server = await start({ SDLC_WARM_PR_CACHE: '1' }, { warmPrDelayMs: 0 });
+    await server.prWarmup();
+    expect(ghCalls()).toEqual([]);
+  });
+
+  test('a failing gh: its whole message in the registry\'s errors.log, and the server still answers', async () => {
+    github();
+    fs.writeFileSync(path.join(base, 'gh-mode'), 'fail');
+    server = await start({ SDLC_WARM_PR_CACHE: '1' }, { warmPrDelayMs: 0 });
+    await server.prWarmup();
+    const log = fs.readFileSync(path.join(repo, '.git', 'sdlc-runs', 'errors.log'), 'utf8');
+    expect(log).toContain('web server start: warm the PR statuses of shop');
+    expect(log).toContain('HTTP 502: Bad Gateway (https://api.github.com/graphql)\nTry again later.');
+    expect((await get(server, '/api/projects')).status).toBe(200);
+    expect((await completed(server)).prErrors).toHaveLength(7);
   });
 });
