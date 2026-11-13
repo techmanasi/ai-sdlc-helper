@@ -329,7 +329,6 @@ plugin or the page shows in all three, and the server keeps only a cache it can 
 | The code | the run's worktree and branch |
 | Permission rules | `.claude/sdlc-permissions.json`; committed |
 | Projects, model providers | the user's config directory (`~/.config/ai-sdlc-helper/`); keys by variable name only |
-
 | Pull request statuses | `<git common dir>/sdlc-runs/pr-status.cache`, written whenever GitHub answers; a restarted server reads it back |
 
 Pull request statuses come from `gh`. The server's settings for them, all environment variables:

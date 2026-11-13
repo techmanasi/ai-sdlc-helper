@@ -237,7 +237,8 @@ export async function warmCompletedPrs(ctx: RunContext): Promise<PrWarmup> {
   const o = prPollOptions(ctx.env);
   if ([...slugsOf.keys()].every(k => { const r = peekPrStatus(ctx.root, k, o); return r && !r.stale; })) return { skipped: 'fresh' };
   const gh = await execFileAsync('gh', ['--version'], { env: ctx.env, timeout: 5000 });
-  if (gh.code === -1 && gh.error && typeof (gh.error as { code?: unknown }).code === 'string') return { skipped: 'no-gh' };
+  // Only a gh that is not installed is skipped; any other trouble shows in the calls below, logged.
+  if ((gh.error as { code?: unknown } | undefined)?.code === 'ENOENT') return { skipped: 'no-gh' };
   const known = new Map<string, PrKnown>();
   await askPrStatuses(ctx, slugsOf, known);
   const errors = [...known.values()].map(k => k.error).filter((e): e is string => Boolean(e));
