@@ -239,5 +239,15 @@ describe('the Completed list endpoint', () => {
     expect(fs.readFileSync(path.join(repo, 'Docs/backlog/alpha/brief.md'), 'utf8')).toBe('# Task\n');
     expect(fs.readFileSync(path.join(repo, 'Docs/backlog/bravo/brief.md'), 'utf8')).toBe('# Task\n');
     expect(git(repo, ['status', '--porcelain', '--', 'Docs/backlog/alpha', 'Docs/backlog/bravo'])).toBe('');
+    // Still asked for by the link the run's worktree brief holds, whose status is cached: no gh call, the same rows.
+    const calls = ghCalls().length;
+    const again = await completed(server);
+    expect(ghCalls().length).toBe(calls);
+    expect(again).toEqual(body);
+    await server.close();
+    forgetPrStatuses(); // a restart: the statuses come back from pr-status.cache, still under the links
+    server = await start();
+    expect(await completed(server)).toEqual(body);
+    expect(ghCalls().length).toBe(calls);
   });
 });

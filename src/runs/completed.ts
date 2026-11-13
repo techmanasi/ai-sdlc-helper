@@ -73,6 +73,19 @@ export function isArchivedInIndex(indexText: string, slug: string): boolean {
   return false;
 }
 
+/**
+ * The PR link of a completed task: its main-checkout brief's, else (a merged run whose link the #136 cleanup took out
+ * of the main checkout's brief, before a pull brings the committed one) its run worktree's. So such a task keeps being
+ * asked for by the same link, whose status is cached, and not by its branch.
+ */
+function briefLinkOf(ctx: RunContext, slug: string, mainText: string): string | null {
+  const own = getPrFromBrief(mainText);
+  if (own) return own;
+  const wt = runWorktree(ctx, slug);
+  if (!wt) return null;
+  try { return getPrFromBrief(fs.readFileSync(path.join(wt, ctx.backlogDir, slug, 'brief.md'), 'utf8')); } catch { return null; }
+}
+
 /** What the Completed list needs to know of a slug before it asks GitHub: the PR key is the brief's PR, else the branch. */
 function completedSlugsOf(ctx: RunContext) {
   const indexFile = path.join(ctx.root, ctx.backlogDir, 'index.md');
@@ -105,7 +118,7 @@ function completedPrKeys(ctx: RunContext): { keys: { slug: string; key: string }
   for (const slug of completedSlugs) {
     const rec = readRecord(ctx.reg, slug);
     const briefFile = path.join(ctx.root, ctx.backlogDir, slug, 'brief.md');
-    const pr = getPrFromBrief(fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '');
+    const pr = briefLinkOf(ctx, slug, fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '');
     const branch = (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
     keys.push({ slug, key: pr || branch });
     if (!(rec && (rec.finished || rec.started))) undated.push(branch);
@@ -275,7 +288,7 @@ function completedTasks(ctx: RunContext, prOf: (key: string) => PrKnown, facts: 
     const docsDir = path.join(ctx.root, ctx.backlogDir, slug);
     const briefFile = path.join(docsDir, 'brief.md');
     const briefText = fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '';
-    let pr = getPrFromBrief(briefText);
+    let pr = briefLinkOf(ctx, slug, briefText);
     const briefMeta = parseBrief({ root: ctx.root, backlogDir: ctx.backlogDir }, slug);
     const branch = (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
     const base = (rec && rec.base) || defaultBase;
@@ -352,7 +365,7 @@ export function getCompletedTaskDetail(ctx: RunContext, slug: string): Completed
 export async function getCompletedTaskDetailAsync(ctx: RunContext, slug: string): Promise<CompletedTaskDetail> {
   const rec = readRecord(ctx.reg, slug);
   const briefFile = path.join(ctx.root, ctx.backlogDir, slug, 'brief.md');
-  const pr = getPrFromBrief(fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '');
+  const pr = briefLinkOf(ctx, slug, fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '');
   const key = pr || (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
   const status = (await getPrStatusAsync(ctx.root, key, ctx.env, prPollOptions(ctx.env))).status;
   return completedDetail(ctx, slug, k => (k === key ? status : null));
@@ -367,7 +380,7 @@ function completedDetail(ctx: RunContext, slug: string, prOf: (key: string) => P
   const docsDir = path.join(ctx.root, ctx.backlogDir, slug);
   const briefFile = path.join(docsDir, 'brief.md');
   const briefText = fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '';
-  let pr = getPrFromBrief(briefText);
+  let pr = briefLinkOf(ctx, slug, briefText);
   const briefMeta = parseBrief({ root: ctx.root, backlogDir: ctx.backlogDir }, slug);
   const defaultBase = pickBase(ctx) || 'main';
   const branch = (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
