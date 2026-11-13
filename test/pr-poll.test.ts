@@ -23,7 +23,7 @@ const calls = (): number => { try { return fs.readFileSync(path.join(dir, 'gh.lo
 const until = async (f: () => boolean, ms = 5000) => { const t0 = Date.now(); while (!f()) { if (Date.now() - t0 > ms) throw new Error('timed out'); await new Promise(r => setTimeout(r, 20)); } };
 
 beforeEach(() => { forgetPrStatuses(); dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pr-poll-'))); clearPrCache(); answer('OPEN'); ghShim(); });
-afterEach(() => { vi.useRealTimers(); forgetPrStatuses(); fs.rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => { vi.useRealTimers(); forgetPrStatuses(); fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); });
 
 describe('PR status checked once an hour', () => {
   test('the web server reads with an hourly time; SDLC_PR_POLL_MS changes it', () => {
@@ -122,12 +122,15 @@ describe('PR status kept in a file beside the run records', () => {
     forgetPrStatuses();
     keepPrStatusIn(dir, statusFile());
     expect(getPrStatusCached(dir, 'b', env, o).pending).toBe(true);
+    // That read asks GitHub in the background: let it start before the folder is removed.
+    await until(() => calls() === 2);
   });
 
-  test('a file that cannot be read is ignored', () => {
+  test('a file that cannot be read is ignored', async () => {
     fs.mkdirSync(path.dirname(statusFile()), { recursive: true });
     fs.writeFileSync(statusFile(), 'not json');
     expect(() => keepPrStatusIn(dir, statusFile())).not.toThrow();
     expect(getPrStatusCached(dir, 'b', env, prPollOptions({})).pending).toBe(true);
+    await until(() => calls() === 1);
   });
 });
