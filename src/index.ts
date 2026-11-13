@@ -49,8 +49,8 @@ export {
   FINALISE_PERMISSIONS,
 } from './permissions/index.js';
 export {
-  listCompletedTasks, listCompletedTasksAsync, getCompletedTaskDetail, getCompletedTaskDetailAsync, createPrForCompleted, isArchivedInIndex, syncPrComments,
-  type CompletedTask, type CompletedTaskDetail, type CommitInfo, type FileChange,
+  listCompletedTasks, listCompletedTasksAsync, completedListAsync, getCompletedTaskDetail, getCompletedTaskDetailAsync, createPrForCompleted, isArchivedInIndex, syncPrComments,
+  type CompletedTask, type CompletedList, type CompletedTaskDetail, type CommitInfo, type FileChange,
 } from './runs/completed.js';
 export {
   archiveTask, unarchiveTask, archiveCompleted, type ArchiveOptions,

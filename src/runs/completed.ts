@@ -2,13 +2,13 @@
 // directly from git for resilience across machines where local run records do not exist.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from '../trace.js';
-import { backlogItems, parseBrief, parseIndex } from '../backlog/index.js';
+import { execFileAsync, spawnSync, trace } from '../trace.js';
+import { backlogItems, parseBrief, parseIndex, parseTitle } from '../backlog/index.js';
 import { readRecord, type RunRecord } from './records.js';
 import { cleanMainBrief } from '../pipeline/pr-link.js';
-import { liveBranch, liveBriefPr, pickBase, runWorktree, type RunContext } from './index.js';
+import { liveBranch, liveBriefPr, pickBase, pickBaseAsync, runWorktree, type RunContext } from './index.js';
 import { keepError } from '../pipeline/errors.js';
-import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, getPrStatusAsync, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
+import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, getPrStatusAsync, keepPrStatusIn, prefetchPrStatuses, PR_STATUS_FILE, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
 
 export interface CompletedTask {
   slug: string;
@@ -21,6 +21,15 @@ export interface CompletedTask {
   prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null;
   archived: boolean;
   date: string | null;
+  /** The last check of the PR failed: gh's message (the state, if any, is from an earlier check). Absent when it did not fail. */
+  prError?: string;
+}
+
+/** The Completed list as the web server answers it: the rows, and every PR whose check failed (also of tasks the list leaves out). */
+export interface CompletedList {
+  completed: CompletedTask[];
+  /** Absent when every check answered. */
+  prErrors?: { slug: string; pr: string; message: string }[];
 }
 
 export interface CommitInfo {
@@ -85,22 +94,74 @@ function completedSlugsOf(ctx: RunContext) {
   return { indexText, entries, completedSlugs };
 }
 
-/** The PR key of each completed slug (the brief's PR link, else the branch), for fetching all the statuses at once. */
-function completedPrKeys(ctx: RunContext): string[] {
+/**
+ * The PR key of each completed slug (the brief's PR link, else the branch), for fetching all the statuses at once,
+ * and the branches whose date must come from git (no run record has one).
+ */
+function completedPrKeys(ctx: RunContext): { keys: { slug: string; key: string }[]; undated: string[] } {
   const { completedSlugs } = completedSlugsOf(ctx);
-  const keys: string[] = [];
+  const keys: { slug: string; key: string }[] = [];
+  const undated: string[] = [];
   for (const slug of completedSlugs) {
     const rec = readRecord(ctx.reg, slug);
     const briefFile = path.join(ctx.root, ctx.backlogDir, slug, 'brief.md');
     const pr = getPrFromBrief(fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '');
-    keys.push(pr || (rec && rec.branch) || `${ctx.branchPrefix}${slug}`);
+    const branch = (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
+    keys.push({ slug, key: pr || branch });
+    if (!(rec && (rec.finished || rec.started))) undated.push(branch);
   }
-  return keys;
+  return { keys, undated };
 }
+
+/** What a row needs from git: the base of a task without a recorded one, and the date of a branch without a record. */
+interface GitFacts { defaultBase: string; dateOf(branch: string): string | null }
+
+/** What the list knows of a PR key: its status, and gh's message when the last check failed. */
+interface PrKnown { status: PrStatus | null; error?: string }
 
 /** Lists all completed tasks in the project (asks GitHub for each PR, one after another: for the CLI and tests). */
 export function listCompletedTasks(ctx: RunContext): CompletedTask[] {
-  return completedTasks(ctx, key => getPrStatus(ctx.root, key, ctx.env));
+  const facts: GitFacts = {
+    defaultBase: pickBase(ctx) || 'main',
+    dateOf: branch => { const r = git(ctx.root, ['log', '-1', '--format=%cI', branch], ctx.env); return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : null; },
+  };
+  return completedTasks(ctx, key => ({ status: getPrStatus(ctx.root, key, ctx.env) }), facts);
+}
+
+/** Where git looks for a name, in its order (gitrevisions(7)): after $GIT_DIR/<name>, which only pseudo-refs like HEAD use. */
+const refCandidates = (name: string) => [`refs/${name}`, `refs/tags/${name}`, `refs/heads/${name}`, `refs/remotes/${name}`, `refs/remotes/${name}/HEAD`];
+/** A name git could read as something other than a ref: an object id, a pseudo-ref, or revision syntax. Asked for with its own git log. */
+const notJustARef = (name: string) => /^[0-9a-f]{4,64}$/i.test(name) || /^[A-Z_]*HEAD$/.test(name) || /[~^@:{}\\\s]/.test(name);
+
+/**
+ * The date `git log -1 --format=%cI <branch>` gives for each branch, from one `git for-each-ref` instead of one git log
+ * each: the committer date of the commit the name resolves to (an annotated tag's commit), null when it resolves to
+ * nothing. Names that are not plain refs, and every name when for-each-ref fails, get their own asynchronous git log.
+ */
+async function branchDates(ctx: RunContext, branches: string[]): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  const names = [...new Set(branches)];
+  if (!names.length) return out;
+  const r = await execFileAsync('git', ['-C', ctx.root, 'for-each-ref', '--format=%(refname)%00%(objecttype)%00%(committerdate:iso-strict)%00%(*objecttype)%00%(*committerdate:iso-strict)'], { env: ctx.env });
+  const refs = new Map<string, string | null>();
+  if (r.code === 0) {
+    for (const line of r.stdout.split('\n')) {
+      const [ref, type, date, derefType, derefDate] = line.split('\0');
+      if (!ref) continue;
+      refs.set(ref, type === 'commit' ? date || null : type === 'tag' && derefType === 'commit' ? derefDate || null : null);
+    }
+  }
+  const asked: string[] = [];
+  for (const name of names) {
+    if (r.code !== 0 || notJustARef(name)) { asked.push(name); continue; }
+    const hit = refCandidates(name).find(c => refs.has(c));
+    out.set(name, hit ? refs.get(hit) ?? null : null);
+  }
+  await pooled(asked, 4, async name => {
+    const l = await execFileAsync('git', ['-C', ctx.root, 'log', '-1', '--format=%cI', name], { env: ctx.env });
+    out.set(name, l.code === 0 && l.stdout.trim() ? l.stdout.trim() : null);
+  });
+  return out;
 }
 
 /** Runs <fn> over <items> with at most <limit> at a time. */
@@ -110,14 +171,56 @@ async function pooled<T>(items: T[], limit: number, fn: (item: T) => Promise<unk
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
-/**
- * The web server's version of listCompletedTasks: the PR statuses come from the cache (stale-while-revalidate) or, for
- * the ones never read, from asynchronous gh calls, four at a time, so the event loop is never blocked.
- */
+/** The web server's version of listCompletedTasks (the rows only; completedListAsync also gives the failed checks). */
 export async function listCompletedTasksAsync(ctx: RunContext): Promise<CompletedTask[]> {
-  const known = new Map<string, PrStatus | null>();
-  await pooled([...new Set(completedPrKeys(ctx))], 4, async key => { known.set(key, (await getPrStatusAsync(ctx.root, key, ctx.env, prPollOptions(ctx.env))).status); });
-  return completedTasks(ctx, key => known.get(key) ?? null);
+  return (await completedListAsync(ctx)).completed;
+}
+
+/**
+ * The web server's Completed list, without blocking the event loop. The PR statuses come from the cache (kept in
+ * pr-status.cache, so a restarted server knows them; stale-while-revalidate), the ones never read from one `gh pr list`
+ * for all the links (prefetchPrStatuses), and what that leaves from asynchronous `gh pr view` calls, four at a time.
+ * The git facts (default base, branch dates) are read asynchronously at the same time. A failed check is kept in the
+ * task's errors.log with gh's whole message when it happens, and answered with the list (prError, prErrors).
+ */
+export async function completedListAsync(ctx: RunContext): Promise<CompletedList> {
+  const t0 = performance.now();
+  keepPrStatusIn(ctx.root, path.join(ctx.reg, PR_STATUS_FILE));
+  const { keys, undated } = completedPrKeys(ctx);
+  const slugsOf = new Map<string, string[]>();
+  for (const { slug, key } of keys) slugsOf.set(key, [...(slugsOf.get(key) || []), slug]);
+  const logFailure = (key: string, message: string) => {
+    for (const slug of slugsOf.get(key) || []) keepError({ root: ctx.root, log: path.join(ctx.backlogDir, slug, 'logs') }, `completed tasks: pull request status of ${key}`, message);
+  };
+  const tKeys = performance.now();
+  const known = new Map<string, PrKnown>();
+  const prs = (async () => {
+    const unique = [...slugsOf.keys()];
+    const o = prPollOptions(ctx.env);
+    const read = async (key: string) => {
+      const r = await getPrStatusAsync(ctx.root, key, ctx.env, { ...o, onError: message => logFailure(key, message) });
+      known.set(key, { status: r.status, ...(r.failed ? { error: r.error || 'the last check of this pull request failed' } : {}) });
+    };
+    // The links come from one list; the branches (gh's pick of a PR) are asked for each, while the list runs.
+    const isLink = (k: string) => /^https?:\/\//.test(k.trim());
+    await Promise.all([
+      prefetchPrStatuses(ctx.root, unique, ctx.env, logFailure).then(() => pooled(unique.filter(isLink), 4, read)),
+      pooled(unique.filter(k => !isLink(k)), 4, read),
+    ]);
+    return performance.now();
+  })();
+  const facts = (async () => {
+    const [base, dates] = await Promise.all([pickBaseAsync(ctx), branchDates(ctx, undated)]);
+    return { facts: { defaultBase: base || 'main', dateOf: (b: string) => dates.get(b) ?? null } as GitFacts, at: performance.now() };
+  })();
+  const [prsAt, git] = await Promise.all([prs, facts]);
+  const tBuild = performance.now();
+  const completed = completedTasks(ctx, key => known.get(key) ?? { status: null }, git.facts);
+  const prErrors: NonNullable<CompletedList['prErrors']> = [];
+  for (const [key, k] of known) if (k.error) for (const slug of slugsOf.get(key) || []) prErrors.push({ slug, pr: key, message: k.error });
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+  trace({ action: 'completed', why: 'list', ms: r3(performance.now() - t0), n: completed.length, phases: { keys: r3(tKeys - t0), prs: r3(prsAt - tKeys), git: r3(git.at - tKeys), build: r3(performance.now() - tBuild) } });
+  return prErrors.length ? { completed, prErrors } : { completed };
 }
 
 /**
@@ -138,16 +241,17 @@ export function cleanMergedRunBrief(ctx: RunContext, slug: string, rec: Partial<
   });
 }
 
-function completedTasks(ctx: RunContext, prOf: (key: string) => PrStatus | null): CompletedTask[] {
+function completedTasks(ctx: RunContext, prOf: (key: string) => PrKnown, facts: GitFacts): CompletedTask[] {
   const { indexText, entries, completedSlugs } = completedSlugsOf(ctx);
-  const items = backlogItems({ root: ctx.root, backlogDir: ctx.backlogDir, branchPrefix: ctx.branchPrefix });
-  const itemMap = new Map((items ? items.items : []).map(i => [i.slug, i]));
+  // The title and type backlogItems would give, without its branch lookup (git), which only the open items' status needs.
+  const lastEntry = new Map(entries.map(e => [e.slug, e]));
 
-  const defaultBase = pickBase(ctx) || 'main';
+  const defaultBase = facts.defaultBase;
   const out: CompletedTask[] = [];
 
   for (const slug of completedSlugs) {
-    const item = itemMap.get(slug);
+    const indexed = lastEntry.get(slug);
+    const item = indexed ? parseTitle(indexed.rest) : null;
     const entry = entries.find(e => e.slug === slug);
     const rec = readRecord(ctx.reg, slug);
     const docsDir = path.join(ctx.root, ctx.backlogDir, slug);
@@ -160,7 +264,8 @@ function completedTasks(ctx: RunContext, prOf: (key: string) => PrStatus | null)
     const archived = isArchivedInIndex(indexText, slug);
 
     // Query live PR status
-    const prStatus = prOf(pr || branch);
+    const known = prOf(pr || branch);
+    const prStatus = known.status;
     if (!pr && prStatus?.url) {
       pr = prStatus.url;
       // A run with a worktree gets its link on the PR branch (when the PR is created); the main checkout stays unedited.
@@ -188,23 +293,20 @@ function completedTasks(ctx: RunContext, prOf: (key: string) => PrStatus | null)
     }
 
     // Derive date
-    let date = (rec && (rec.finished || rec.started)) || null;
-    if (!date) {
-      const r = git(ctx.root, ['log', '-1', '--format=%cI', branch], ctx.env);
-      if (r.status === 0 && r.stdout.trim()) date = r.stdout.trim();
-    }
+    const date = (rec && (rec.finished || rec.started)) || facts.dateOf(branch);
 
     out.push({
       slug,
       title: item ? item.title : slug,
       type: (item && item.type) || briefMeta.type,
-      priority: (item && item.priority) || briefMeta.priority,
+      priority: briefMeta.priority,
       branch,
       base,
       pr,
       prState,
       archived,
       date,
+      ...(known.error ? { prError: known.error } : {}),
     });
   }
 

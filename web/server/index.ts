@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, prPollOptions, PR_POLL_MS, createPrForCompleted,
-  decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
+  decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, completedListAsync, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
@@ -427,7 +427,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     if (what === 'completed') {
       const ctx = contextFor(p);
       if (method === 'GET' && !parts[3]) {
-        return send(200, { completed: await listCompletedTasksAsync(ctx) });
+        return send(200, await completedListAsync(ctx));
       }
       if (parts[3]) {
         const slug = slugOf(parts[3]);

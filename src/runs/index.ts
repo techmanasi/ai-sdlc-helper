@@ -3,7 +3,7 @@
 // (records.ts); the pipeline itself is `ai-sdlc-helper pipeline <slug>`, run by a detached supervisor (supervisor.ts).
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from '../trace.js';
+import { execFileAsync, spawnSync } from '../trace.js';
 import { fileURLToPath } from 'node:url';
 import { CONFIG_FILE, exists, readSettings } from '../util.js';
 import { shellArgv } from '../shell.js';
@@ -100,6 +100,40 @@ export function pickBase(ctx: RunContext): string {
   // When sdlc.config.json exists, prefer a base candidate that actually has it committed
   if (exists(path.join(ctx.root, CONFIG_FILE))) {
     const withConfig = valid.find(r => committed(ctx, r, CONFIG_FILE));
+    if (withConfig) return withConfig;
+  }
+  return valid[0];
+}
+
+/**
+ * pickBase without blocking (for the web server): the same candidates and rules, asked asynchronously in two git calls
+ * run together. `git cat-file --batch-check` resolves each name as `rev-parse --verify` does ("missing" when it does not)
+ * and each <name>:<file> as `cat-file -e` does, all in one call.
+ */
+export async function pickBaseAsync(ctx: RunContext): Promise<string> {
+  if (ctx.base) return ctx.base;
+  const fixed = ['main', 'master', 'origin/main', 'origin/master', 'HEAD'];
+  const withFile = exists(path.join(ctx.root, CONFIG_FILE));
+  const ask = async (names: string[]): Promise<{ valid: Set<string>; hasFile: Set<string> } | null> => {
+    const lines = names.flatMap(n => (withFile ? [n, `${n}:${CONFIG_FILE}`] : [n]));
+    const r = await execFileAsync('git', ['-C', ctx.root, 'cat-file', '--batch-check=%(objectname)'], { env: ctx.env, input: `${lines.join('\n')}\n` });
+    if (r.code !== 0) return null;
+    const found = r.stdout.split('\n').map(l => /^[0-9a-f]{40,64}$/.test(l.trim()));
+    const valid = new Set<string>(); const hasFile = new Set<string>();
+    const step = withFile ? 2 : 1;
+    names.forEach((n, i) => { if (found[i * step]) valid.add(n); if (withFile && found[i * step + 1]) hasFile.add(n); });
+    return { valid, hasFile };
+  };
+  const [branch, known] = await Promise.all([execFileAsync('git', ['-C', ctx.root, 'branch', '--show-current'], { env: ctx.env }), ask(fixed)]);
+  const current = branch.stdout.trim();
+  const candidates = [...new Set([...(current ? [current] : []), ...fixed])];
+  const extra = current && !fixed.includes(current) ? await ask([current]) : null;
+  // A name the batch could not be asked about (git failed) is checked the blocking way's way: on its own.
+  if (!known || (current && !fixed.includes(current) && !extra)) return pickBase(ctx);
+  const valid = candidates.filter(r => known.valid.has(r) || Boolean(extra?.valid.has(r)));
+  if (!valid.length) return '';
+  if (withFile) {
+    const withConfig = valid.find(r => known.hasFile.has(r) || Boolean(extra?.hasFile.has(r)));
     if (withConfig) return withConfig;
   }
   return valid[0];
