@@ -10,7 +10,7 @@ import { backlogItems, type BacklogItem } from '../backlog/index.js';
 import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.js';
 import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { projectSlugs, readCheckpoint, runChanges, runWorktree, type RunContext } from './index.js';
-import { ciSummaryOf, getPrFromBrief, getPrStatusCached, prCommentsEmpty, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
+import { ciSummaryOf, getPrFromBrief, getPrStatusCached, keepPrStatusIn, PR_STATUS_FILE, prCommentsEmpty, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
 import { readRounds, type Round } from '../pipeline/observe.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
@@ -318,6 +318,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
   /** With cacheGit: read the git facts again when they are older than this, also for a run that is not running (the board). */
   gitMaxAgeMs?: number;
 } = {}): RunView {
+  keepPrStatusIn(ctx.root, path.join(ctx.reg, PR_STATUS_FILE));
   const want = (part: RunPart): boolean => !opts.parts || opts.parts.includes(part);
   const rec = readRecord(ctx.reg, slug);
   const worktree = runWorktree(ctx, slug);
@@ -516,7 +517,7 @@ export function boardInputs(ctx: RunContext): { folders: string[]; files: string
   const backlog = path.join(ctx.root, ctx.backlogDir);
   // The project's own folder is watched for one file only, its settings (see boardIgnores).
   const folders = new Set<string>([ctx.reg, backlog, ctx.root]);
-  const files = new Set<string>([ctx.reg, backlog, path.join(backlog, 'index.md'), path.join(ctx.root, 'sdlc.config.json')]);
+  const files = new Set<string>([ctx.reg, backlog, path.join(backlog, 'index.md'), path.join(ctx.root, 'sdlc.config.json'), path.join(ctx.reg, PR_STATUS_FILE)]);
   let items: string[] = [];
   try { items = fs.readdirSync(backlog, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name); } catch { /* no backlog */ }
   for (const item of items) { folders.add(path.join(backlog, item)); files.add(path.join(backlog, item, 'brief.md')); }
@@ -552,6 +553,7 @@ export const BOARD_GIT_MAX_AGE_MS = 60_000;
  * the cache the run page uses, so a board read of runs that did not move runs no git command for them.
  */
 export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): BoardView {
+  keepPrStatusIn(ctx.root, path.join(ctx.reg, PR_STATUS_FILE));
   const backlog = backlogItems({ root: ctx.root, backlogDir: ctx.backlogDir, branchPrefix: ctx.branchPrefix }, { keepBranches: true });
   const runs = projectSlugs(ctx, { keep: true }).map((slug): RunCard => {
     const v = runView(ctx, slug, { changes: opts.changes, tailLines: 0, checkPr: false, parts: ['live', 'git'], cacheGit: true, gitMaxAgeMs: BOARD_GIT_MAX_AGE_MS });

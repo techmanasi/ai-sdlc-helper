@@ -167,4 +167,20 @@ describe('the board feed', () => {
     await eventually(() => asked() >= first + 2, 15_000);
     one.close();
   });
+
+  test("a pull request's status reaches the page when GitHub answers, by the watcher", async () => {
+    fs.mkdirSync(path.join(repo, '.git/sdlc-runs'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.git/sdlc-runs/one.json'), JSON.stringify({ slug: 'one', worktree: '', pid: 0, started: '2026-11-13T10:00:00', state: 'exited', exit_code: '0', interrupted: false, finished: '2026-11-13T10:05:00', message: '', branch: 'sdlc/one', base: 'main', root: repo }));
+    const ghLog = path.join(base, 'gh-calls.txt');
+    fs.writeFileSync(path.join(base, 'bin', 'gh'), `#!/bin/sh\necho x >> "${ghLog}"\necho '{"url":"https://github.com/o/r/pull/7","state":"OPEN","number":7}'\n`, { mode: 0o755 });
+    const asked = (): number => { try { return fs.readFileSync(ghLog, 'utf8').split('\n').filter(Boolean).length; } catch { return 0; } };
+    const s = await start(60_000, { boardWatch: { silenceMs: 60_000 } });
+    const one = await page(s);
+    const statusFile = path.join(repo, '.git/sdlc-runs/pr-status.cache');
+    await eventually(() => fs.existsSync(statusFile));
+    const at = builds();
+    await eventually(() => builds() > at);
+    expect(asked()).toBe(1);
+    one.close();
+  });
 });

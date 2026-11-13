@@ -57,7 +57,7 @@ export {
 } from './backlog/archive.js';
 export {
   finalise, type FinaliseOptions, type FinaliseResult,
-  getPrFromBrief, recordPrInBrief, createOrGetPr, getPrStatus, getPrStatusCached, getPrStatusAsync, syncPrStatus, prPollOptions, PR_POLL_MS, onPrStatusChange, fetchPrComments, type PrStatus, type PrRead, type CiState, type PrComment,
+  getPrFromBrief, recordPrInBrief, createOrGetPr, getPrStatus, getPrStatusCached, getPrStatusAsync, syncPrStatus, prPollOptions, PR_POLL_MS, onPrStatusChange, keepPrStatusIn, forgetPrStatuses, PR_STATUS_FILE, fetchPrComments, type PrStatus, type PrRead, type CiState, type PrComment,
 } from './pipeline/finalise.js';
 export { STAGE_DEFAULTS, resolveProvider, stageModel, providerEnv, type Provider } from './pipeline/models.js';
 export { agentSources, mergeAgent, personalAgentOf, type AgentSources, type Source } from './config/personal.js';

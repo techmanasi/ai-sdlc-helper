@@ -373,6 +373,16 @@ describe('what the board is made from', () => {
       path.join(docs, 'questions.md'), path.join(docs, 'logs', 'status.json'), path.join(docs, 'logs', 'permissions.json'), path.join(docs, 'logs', 'tests.json'),
     ]));
     expect(got.files.some(f => f.endsWith('run.out'))).toBe(false);
+    expect(got.files).toContain(path.join(reg, 'pr-status.cache'));
+  });
+
+  test('the pull request status file is not taken for a run', () => {
+    const { root, ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '2' });
+    const before = boardView(ctx).runs.map(r => r.slug);
+    fs.writeFileSync(path.join(root, '.git/sdlc-runs/pr-status.cache'), JSON.stringify({ version: 1, entries: {} }));
+    const after = boardView(ctx).runs.map(r => r.slug);
+    expect(after).not.toContain('pr-status');
+    expect(after).toHaveLength(before.length);
   });
 
   test('a run\'s output, an agent\'s log, a temporary file and a heartbeat cannot change the board; a status and a record can', () => {
