@@ -27,7 +27,13 @@ export interface StatusLine {
   ci?: CiStatus;
   /** What the stage is doing now: step i of n, a plain-language label, when it began. Present only while a step runs. */
   step?: StepLine;
+  /** Which start of this item this run is (1 for the first), and how the one before ended; absent on old files. */
+  run_number?: number;
+  previous_run?: PreviousRun;
 }
+
+/** How the start before this one ended, as far as is known. */
+export interface PreviousRun { stage?: string; state?: string; at?: string }
 
 /** Where the full suite stands when it runs in CI, for the run page and `watch`. */
 export interface CiStatus {
@@ -59,6 +65,8 @@ export class Status {
   note = '';
   ci?: CiStatus;
   step: StepLine | null = null;
+  runNumber?: number;
+  previousRun?: PreviousRun;
   private stepId = '';
   readonly runStarted = stamp();
 
@@ -72,6 +80,8 @@ export class Status {
       ...(this.ci ? { ci: this.ci } : {}),
     };
     if (this.step) line.step = this.step;
+    if (this.runNumber) line.run_number = this.runNumber;
+    if (this.previousRun && Object.keys(this.previousRun).length) line.previous_run = this.previousRun;
     return line;
   }
 
@@ -111,6 +121,11 @@ export class Status {
 /** The stage a status file names ('' when there is none): a resume that stops before its first stage keeps the one it had. */
 export function previousStage(file: string): string {
   try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return typeof j.stage === 'string' ? j.stage : ''; } catch { return ''; }
+}
+
+/** The state a status file names ('' when there is none): read before this run overwrites it. */
+export function previousState(file: string): string {
+  try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return typeof j.state === 'string' ? j.state : ''; } catch { return ''; }
 }
 
 /** The final state for an exit code: done (0), paused for answers (2), failed (anything else). */

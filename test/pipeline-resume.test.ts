@@ -48,6 +48,28 @@ describe('resuming', () => {
   });
 });
 
+describe('a re-attempt', () => {
+  const runLines = (dir: string): Record<string, any>[] => read(dir, `${LOG}/attempts.jsonl`).split('\n').filter(Boolean).map(l => JSON.parse(l)).filter(r => r.kind === 'run');
+
+  test('the first start is number 1 with no previous; the second says how the first ended, in the log, status.json and the run line', async () => {
+    const f = fixture();
+    let r = await pipeline(f, { MAX_ATTEMPTS: '1', FAKE_NO_IMPL: '1' });
+    expect(r.status).toBe(1);
+    expect(r.stdout).not.toMatch(/Start \d+ of this item/);
+    expect(runLines(f.dir)).toMatchObject([{ n: 1, trigger: 'cli' }]);
+    expect(runLines(f.dir)[0].previous).toBeUndefined();
+    expect(statusOf(f.dir)).toMatchObject({ run_number: 1 });
+
+    r = await pipeline(f, { FROM: 'implement', SDLC_RUN_TRIGGER: 'ui' });
+    expect(r.stdout).toMatch(/Start 2 of this item, started from the web UI: the previous start ended failed at .*\(/);
+    expect(r.stdout.indexOf(`SDLC: ${SLUG} on branch`)).toBeLessThan(r.stdout.indexOf('Start 2 of this item'));
+    const second = runLines(f.dir)[1];
+    expect(second).toMatchObject({ n: 2, trigger: 'ui', previous: { state: 'failed' } });
+    expect(second.previous.stage).toBeTruthy();
+    expect(statusOf(f.dir)).toMatchObject({ run_number: 2, previous_run: { state: 'failed' } });
+  });
+});
+
 describe('Test repair', () => {
   // The red test expects sum(2, 3) to be 6; the Implement agent claims it contradicts the spec.
   const CLAIMING = { FAKE_EXPECT: '6', FAKE_CLAIM: '1', MAX_ATTEMPTS: '1' };

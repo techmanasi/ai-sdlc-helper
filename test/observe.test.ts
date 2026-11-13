@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { describe, expect, test } from 'vitest';
 import { Git } from '../src/pipeline/git.js';
 import {
-  agentFacts, appendRound, changedBetween, debugLeftovers, readRounds, repeatedFailures, roundWarnings, snapshot,
+  agentFacts, appendRound, changedBetween, debugLeftovers, priorStarts, readRounds, repeatedFailures, roundWarnings, snapshot,
   type AgentRound,
 } from '../src/pipeline/observe.js';
 import { tmp } from './helpers.js';
@@ -159,5 +159,19 @@ describe('the rounds file', () => {
     appendRound(dir, round({ agent: 'impl-1' }));
     expect(readRounds(dir).map(r => r.agent)).toEqual(['impl-1']);
     expect(readRounds(path.join(dir, 'missing'))).toEqual([]);
+  });
+});
+
+describe('the starts of an item', () => {
+  test('no file is no start; each run line is a start, and the last stage reached after the latest one is what the start ended at', () => {
+    const dir = tmp();
+    expect(priorStarts(dir)).toEqual({ count: 0 });
+    appendRound(dir, { kind: 'run', at: 't0', from: 'spec', n: 1 });
+    expect(priorStarts(dir)).toEqual({ count: 1 });
+    appendRound(dir, { kind: 'start', at: 't1', stage: 'implement', agent: 'impl-1' });
+    appendRound(dir, { kind: 'gate', at: 't2', agent: 'impl-1', failing: [], warnings: [] });
+    expect(priorStarts(dir)).toEqual({ count: 1, stage: 'implement', agent: 'impl-1', at: 't1' });
+    appendRound(dir, { kind: 'run', at: 't3', from: 'review', n: 2 });
+    expect(priorStarts(dir)).toEqual({ count: 2 });
   });
 });

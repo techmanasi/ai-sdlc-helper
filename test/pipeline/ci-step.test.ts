@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs/promises';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from '../../src/trace.js';
@@ -244,13 +245,73 @@ describe('real CI failure classification (spec 8)', () => {
     expect(spawnSync).toHaveBeenCalledWith('gh', expect.arrayContaining(['run', 'list', '--commit', 'b'.repeat(40)]), expect.anything());
     expect(result.report).toMatchObject({ tests: [expect.objectContaining({ file: 'test/old.test.ts', name: 'suite rejects input', status: 'failed' })] });
   });
-  it('I15 reports only the first push error line on initial fallback', async () => {
+  it('I15 reports the reason line of a push error on initial fallback, and keeps the whole message', async () => {
     const { checkCiAvailability } = await import('../../src/pipeline/ci.js');
     const ctx = context(); commandFixture('push');
     ctx.git.run.mockImplementation((...args) => {
       if (args.includes('push')) throw new Error('permission denied\nsecond line');
       return args[0] === 'remote' ? 'origin\n' : '';
     });
-    expect(await checkCiAvailability(ctx as unknown as Ctx)).toMatchObject({ available: false, reason: 'push failed: permission denied' });
+    expect(await checkCiAvailability(ctx as unknown as Ctx)).toMatchObject({ available: false, reason: 'push failed: permission denied; the whole message is in logs/errors.log' });
+    expect(await fs.readFile(path.join(root, 'logs/errors.log'), 'utf8')).toContain('permission denied\nsecond line');
+  });
+});
+
+const REJECTED_PUSH = [
+  'git push -u origin sdlc/x failed: To https://github.com/o/r.git',
+  ' ! [rejected]        sdlc/x -> sdlc/x (non-fast-forward)',
+  'error: failed to push some refs to \'https://github.com/o/r.git\'',
+  'hint: Updates were rejected because the tip of your current branch is behind',
+].join('\n');
+
+describe('what a failed push reports', () => {
+  it('I16 gitReason picks the rejected line, not the "To <url>" line that comes first', async () => {
+    const { gitReason } = await import('../../src/pipeline/ci.js');
+    const reason = gitReason(REJECTED_PUSH);
+    expect(reason).toContain('[rejected]');
+    expect(reason).toContain('non-fast-forward');
+    expect(reason.startsWith('To ')).toBe(false);
+  });
+  it('I17 a real rejected push is reported, flagged as rejected, and kept whole in errors.log', async () => {
+    const { checkCiAvailability } = await import('../../src/pipeline/ci.js');
+    const { Git } = await import('../../src/pipeline/git.js');
+    const sh = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe', encoding: 'utf8' });
+    const base = await fs.mkdtemp(path.join(os.tmpdir(), 'ci-push-'));
+    try {
+      const origin = path.join(base, 'origin.git');
+      const mine = path.join(base, 'mine');
+      const other = path.join(base, 'other');
+      sh(base, 'init', '-q', '--bare', '-b', 'main', origin);
+      for (const dir of [mine, other]) {
+        sh(base, 'clone', '-q', origin, dir);
+        sh(dir, 'config', 'user.email', 't@t'); sh(dir, 'config', 'user.name', 't'); sh(dir, 'config', 'commit.gpgsign', 'false');
+      }
+      writeFileSync(path.join(mine, 'a.txt'), 'a');
+      sh(mine, 'add', '-A'); sh(mine, 'commit', '-q', '-m', 'one'); sh(mine, 'push', '-q', '-u', 'origin', 'HEAD:main');
+      sh(mine, 'checkout', '-q', '-b', 'sdlc/x'); sh(mine, 'push', '-q', '-u', 'origin', 'sdlc/x');
+      // Someone else adds a commit to the branch that this checkout lacks.
+      sh(other, 'fetch', '-q', 'origin'); sh(other, 'checkout', '-q', '-b', 'sdlc/x', '--track', 'origin/sdlc/x');
+      writeFileSync(path.join(other, 'b.txt'), 'b');
+      sh(other, 'add', '-A'); sh(other, 'commit', '-q', '-m', 'theirs'); sh(other, 'push', '-q');
+      writeFileSync(path.join(mine, 'c.txt'), 'c');
+      sh(mine, 'add', '-A'); sh(mine, 'commit', '-q', '-m', 'mine');
+      mkdirSync(path.join(mine, 'logs'));
+
+      commandFixture();
+      const ctx = { ...context(), root: mine, branch: 'sdlc/x', git: new Git(mine) };
+      const r = await checkCiAvailability(ctx as unknown as Ctx);
+      expect(r).toMatchObject({ available: false, rejected: true, reason: expect.stringContaining('rejected') });
+      expect(r.reason).not.toMatch(/^push failed: To /);
+      const kept = await fs.readFile(path.join(mine, 'logs/errors.log'), 'utf8');
+      expect(kept).toContain('error: failed to push some refs');
+      expect(kept).toContain('[rejected]');
+    } finally { await fs.rm(base, { recursive: true, force: true }); }
+  });
+  it('I18 keepError never throws when its folder cannot be made', async () => {
+    const { keepError } = await import('../../src/pipeline/errors.js');
+    await fs.writeFile(path.join(root, 'file'), 'x');
+    expect(() => keepError({ root: path.join(root, 'file'), log: 'logs' }, 'push', 'boom')).not.toThrow();
+    keepError({ root, log: 'new/logs' }, 'push', ' boom \n');
+    expect(await fs.readFile(path.join(root, 'new/logs/errors.log'), 'utf8')).toMatch(/^=== \S+ push\nboom\n\n$/);
   });
 });
