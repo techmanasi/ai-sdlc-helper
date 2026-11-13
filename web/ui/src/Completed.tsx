@@ -2,6 +2,7 @@
 // directly from git (resilient across machines), PR link or "Create PR" button, and task archiving controls.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, type CompletedTask, type CompletedTaskDetail, type PrCheckErrors } from './api';
+import { loadCompleted } from './completed-load';
 import { ErrorBox, Markdown, Panel, Spinner, useApp } from './ui';
 
 export function Completed() {
@@ -15,22 +16,45 @@ export function Completed() {
   const [error, setError] = useState('');
   const [prErrors, setPrErrors] = useState<PrCheckErrors>([]);
   const marked = useRef(false);
+  const settledMarked = useRef(false);
+  const loadId = useRef(0);
+  const [settling, setSettling] = useState(false);
+  const [removed, setRemoved] = useState<string[]>([]);
   const [filter, setFilter] = useState<'all' | 'active' | 'archived'>('all');
   const [query, setQuery] = useState('');
 
+  // The rows at once, then (only when some PR is still being asked for) the settled list; a newer load drops an older one.
   const loadTasks = async () => {
+    const id = ++loadId.current;
     setLoading(true);
+    setSettling(false);
     setPrErrors([]);
+    setRemoved([]);
     setError('');
-    try {
-      const res = await api.completed(project);
-      setTasks(res.completed);
-      setPrErrors(res.prErrors || []);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
+    await loadCompleted({ rows: api.completedRows, settled: api.completed }, project, {
+      rows: (rows, errs) => {
+        setTasks(rows);
+        setPrErrors(errs);
+        setLoading(false);
+        setSettling(rows.some(t => t.prPending));
+      },
+      settled: (rows, errs, gone) => {
+        setTasks(rows);
+        setPrErrors(errs);
+        setRemoved(gone);
+        setLoading(false);
+        setSettling(false);
+        if (!settledMarked.current) {
+          settledMarked.current = true;
+          requestAnimationFrame(() => { try { performance.mark('completed:pr-states', { detail: { rows: rows.length, removed: gone.length } }); } catch { /* marks are for measuring only */ } });
+        }
+      },
+      error: (message, phase) => {
+        setLoading(false);
+        setSettling(false);
+        setError(phase === 'rows' ? message : `The pull request states could not be loaded, so the list may still hold tasks whose PR is not merged: ${message}`);
+      },
+    }, () => id === loadId.current);
   };
 
   const loadDetail = async (slug: string) => {
@@ -48,17 +72,17 @@ export function Completed() {
 
   useEffect(() => {
     marked.current = false;
+    settledMarked.current = false;
     loadTasks();
   }, [project]);
 
-  // The page's first load, for measuring it: when the rows are painted, and when every row's PR state is shown (the
-  // list answers both at once, so the marks are one frame apart at most).
+  // The page's first load, for measuring it: when the rows are painted ('completed:pr-states' is marked when settled).
   useEffect(() => {
     // Only a load that showed rows: a failed one has nothing to measure.
     if (loading || marked.current || error) return;
     marked.current = true;
     requestAnimationFrame(() => {
-      try { performance.mark('completed:first-row', { detail: { rows: tasks.length } }); performance.mark('completed:pr-states'); } catch { /* marks are for measuring only */ }
+      try { performance.mark('completed:first-row', { detail: { rows: tasks.length } }); } catch { /* marks are for measuring only */ }
     });
   }, [loading]);
 
@@ -184,6 +208,13 @@ export function Completed() {
       </div>
 
       <ErrorBox error={error} />
+      {settling && <p class="muted small" role="status"><Spinner /> Checking pull requests on GitHub…</p>}
+      {removed.length > 0 && (
+        <div class="row muted small" role="status" style={{ gap: '8px', alignItems: 'center' }}>
+          <span>{removed.length} task{removed.length === 1 ? '' : 's'} removed: PR not merged ({removed.join(', ')})</span>
+          <button class="btn btn-xs" type="button" onClick={() => setRemoved([])}>Dismiss</button>
+        </div>
+      )}
       {prErrors.length > 0 && (
         <div class="error" role="alert">
           GitHub could not be asked about {prErrors.length} pull request{prErrors.length === 1 ? '' : 's'}; their state may be missing or old (the whole message is in each task's logs/errors.log): {prErrors[0].message.split('\n')[0]}
@@ -246,7 +277,9 @@ export function Completed() {
                   <div class="row" style={{ gap: '4px' }}>
                     {t.archived && <span class="tag muted">Archived</span>}
                     {t.prError && <span class="tag s-failed" title={t.prError}>PR check failed</span>}
-                    {t.pr ? (
+                    {t.prPending ? (
+                      <span class="tag muted mono" title="Asking GitHub for this pull request">{t.pr ? 'PR ↗ (checking…)' : 'checking PR…'}</span>
+                    ) : t.pr ? (
                       <a
                         href={t.pr}
                         target="_blank"
