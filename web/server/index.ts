@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, onPrStatusChange, prPollOptions, PR_POLL_MS, createPrForCompleted,
+  AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, prPollOptions, PR_POLL_MS, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, listCompletedTasksAsync, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
@@ -491,8 +491,9 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     };
     // The board is rebuilt when a file it reads changes (board-watch.ts), not on a clock. Two things no file tells:
     // a run whose process died without a word, which is looked for whenever the watcher finds everything quiet
-    // (`quiet`, once per silence period, and only with a run going); and a pull request's status, which is asked
-    // for again once an hour (also from `quiet`) and shown when GitHub answers (see onPrStatusChange below).
+    // (`quiet`, once per silence period, and only with a run going); and a pull request's status. A pull request's
+    // status is written to `pr-status.cache` in the folder of run records when GitHub answers, so the watcher
+    // reports it; it is asked for again once an hour from `quiet`.
     const inputs = () => boardInputs(contextFor(p));
     const feed: BoardFeed = {
       clients: new Set(), last: '', ticks: 0, busy: false, running: 0, hasPr: false, builtAt: 0,
@@ -534,9 +535,6 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       feeds.delete(p.name);
     });
   }
-
-  // A pull request's status comes from GitHub in the background: no file changes, so the boards are told here.
-  const offPr = onPrStatusChange(() => { for (const f of feeds.values()) f.build('pr'); });
 
   const runStreams = createRunStreams(opts.stream);
 
@@ -644,6 +642,6 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     url, port, token,
     openUrl: `${url}/?t=${token}`,
     streamStats: () => runStreams.stats(),
-    close: () => new Promise(res => { offPr(); for (const f of feeds.values()) { clearInterval(f.ping); f.watch.close(); } feeds.clear(); runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
+    close: () => new Promise(res => { for (const f of feeds.values()) { clearInterval(f.ping); f.watch.close(); } feeds.clear(); runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
   };
 }

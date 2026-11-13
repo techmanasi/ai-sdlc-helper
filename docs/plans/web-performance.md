@@ -669,9 +669,7 @@ The code and its header comment are in `web/server/board-watch.ts`; this is the 
   does (`onPrStatusChange`). That is a notification, not a timer. The status is asked for again once an hour
   (`SDLC_PR_POLL_MS`), and only a board build asks; a board that nothing changes is never built, so the same quiet
   moment builds it when a finished run has a pull request and the last build is older than that hour.
-- **Follow-up, not in this change.** Write the pull request's status to a file beside the run's record. The watcher
-  would then catch it like any other change, the special case above would go, and the status would survive a
-  restart.
+- **Done since (pull request status in a file).** The status is written to `pr-status.cache` beside the run records when GitHub answers. The watcher reports it like any other change, so the board no longer listens for it separately, and a restarted server reads it back instead of asking GitHub again for every pull request. The hourly ask still starts from the quiet moment.
 
 The 2 s board rebuild is gone, and so is the `pollMs` server option's effect.
 
@@ -700,7 +698,6 @@ audit is there to catch), and Windows is untested.
 ### Future enhancements
 
 - Tune `silenceMs` (30 s today; 2 minutes was the first proposal) once the trace shows how often an audit finds a missed change.
-- Write a pull request's status to a file beside the run's record so the watcher catches it and it survives a restart.
 - Cache the cards of finished runs, keyed on their files' fingerprint.
 - A line in the trace report summarising audits, misses and time spent in fallback.
 - Back-off between failures, if real faults turn out to come in bursts.

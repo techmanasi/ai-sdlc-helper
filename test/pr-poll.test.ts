@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { PR_POLL_MS, clearPrCache, getPrStatusAsync, getPrStatusCached, prPollOptions, syncPrStatus } from '../src/pipeline/finalise.js';
+import { PR_POLL_MS, PR_STATUS_FILE, clearPrCache, forgetPrStatuses, getPrStatusAsync, getPrStatusCached, keepPrStatusIn, prPollOptions, syncPrStatus } from '../src/pipeline/finalise.js';
 
 let dir: string;
 let env: NodeJS.ProcessEnv;
@@ -22,8 +22,8 @@ const answer = (state: string) => fs.writeFileSync(path.join(dir, 'out.json'), J
 const calls = (): number => { try { return fs.readFileSync(path.join(dir, 'gh.log'), 'utf8').split('\n').filter(l => l === '+').length; } catch { return 0; } };
 const until = async (f: () => boolean, ms = 5000) => { const t0 = Date.now(); while (!f()) { if (Date.now() - t0 > ms) throw new Error('timed out'); await new Promise(r => setTimeout(r, 20)); } };
 
-beforeEach(() => { dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pr-poll-'))); clearPrCache(); answer('OPEN'); ghShim(); });
-afterEach(() => { vi.useRealTimers(); fs.rmSync(dir, { recursive: true, force: true }); });
+beforeEach(() => { forgetPrStatuses(); dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pr-poll-'))); clearPrCache(); answer('OPEN'); ghShim(); });
+afterEach(() => { vi.useRealTimers(); forgetPrStatuses(); fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); });
 
 describe('PR status checked once an hour', () => {
   test('the web server reads with an hourly time; SDLC_PR_POLL_MS changes it', () => {
@@ -87,5 +87,50 @@ describe('PR status checked once an hour', () => {
     expect(calls()).toBe(2);
     expect(r.status).toMatchObject({ state: 'MERGED', number: 7 });
     expect(r.ageMs).toBeLessThan(5000);
+  });
+});
+
+describe('PR status kept in a file beside the run records', () => {
+  const statusFile = (): string => path.join(dir, 'runs', PR_STATUS_FILE);
+
+  test('a status is written beside the run records when GitHub answers', async () => {
+    keepPrStatusIn(dir, statusFile());
+    await getPrStatusAsync(dir, 'b', env, prPollOptions({}));
+    expect(JSON.parse(fs.readFileSync(statusFile(), 'utf8'))).toMatchObject({ version: 1, entries: { b: { val: { state: 'OPEN' } } } });
+    expect(fs.readdirSync(path.dirname(statusFile())).filter(n => n.endsWith('.tmp'))).toEqual([]);
+  });
+
+  test('a restart reads the statuses back and does not ask GitHub while they are fresh', async () => {
+    const o = prPollOptions({});
+    keepPrStatusIn(dir, statusFile());
+    await getPrStatusAsync(dir, 'b', env, o);
+    expect(calls()).toBe(1);
+    forgetPrStatuses();
+    keepPrStatusIn(dir, statusFile());
+    expect(getPrStatusCached(dir, 'b', env, o)).toMatchObject({ pending: false, status: { state: 'OPEN' } });
+    await new Promise(r => setTimeout(r, 200));
+    expect(calls()).toBe(1);
+  });
+
+  test('a cleared cache does not come back from the file', async () => {
+    const o = prPollOptions({});
+    keepPrStatusIn(dir, statusFile());
+    await getPrStatusAsync(dir, 'b', env, o);
+    expect(fs.existsSync(statusFile())).toBe(true);
+    clearPrCache();
+    expect(fs.existsSync(statusFile())).toBe(false);
+    forgetPrStatuses();
+    keepPrStatusIn(dir, statusFile());
+    expect(getPrStatusCached(dir, 'b', env, o).pending).toBe(true);
+    // That read asks GitHub in the background: let it start before the folder is removed.
+    await until(() => calls() === 2);
+  });
+
+  test('a file that cannot be read is ignored', async () => {
+    fs.mkdirSync(path.dirname(statusFile()), { recursive: true });
+    fs.writeFileSync(statusFile(), 'not json');
+    expect(() => keepPrStatusIn(dir, statusFile())).not.toThrow();
+    expect(getPrStatusCached(dir, 'b', env, prPollOptions({})).pending).toBe(true);
+    await until(() => calls() === 1);
   });
 });

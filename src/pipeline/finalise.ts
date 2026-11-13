@@ -182,7 +182,49 @@ export function prPollOptions(env: NodeJS.ProcessEnv = process.env): PrReadOptio
 
 /** Clears the in-memory PR cache (e.g. after creating or updating a PR). */
 export function clearPrCache(): void {
+  // A cleared cache must not come back from the file at the next start.
+  for (const f of prFiles.values()) { try { fs.rmSync(f, { force: true }); } catch { /* best effort */ } }
   prCache.clear();
+}
+
+/** The file of statuses beside the run records. Not *.json: every *.json there is a run record. */
+export const PR_STATUS_FILE = 'pr-status.cache';
+const prFiles = new Map<string, string>();
+
+/** What a process restart does to the statuses: the memory is gone, the files stay. For tests. */
+export function forgetPrStatuses(): void {
+  prCache.clear();
+  inflight.clear();
+  prFiles.clear();
+}
+
+/** Keeps the statuses of <cwd> in <file> too: read once now (what a restart finds), written after every answer from GitHub. */
+export function keepPrStatusIn(cwd: string, file: string): void {
+  if (prFiles.get(cwd) === file) return;
+  prFiles.set(cwd, file);
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8')) as { version?: unknown; entries?: unknown };
+    if (!data || data.version !== 1 || !data.entries || typeof data.entries !== 'object') return;
+    for (const [key, e] of Object.entries(data.entries as Record<string, PrEntry>)) {
+      if (!e || typeof e.time !== 'number' || (e.val !== null && typeof e.val !== 'object')) continue;
+      const k = prKey(cwd, key);
+      if (!prCache.has(k)) prCache.set(k, { time: e.time, val: e.val, ...(e.failed ? { failed: true } : {}) });
+    }
+  } catch { /* a missing or broken file is the same as no file */ }
+}
+
+function savePrStatuses(cwd: string): void {
+  const file = prFiles.get(cwd);
+  if (!file) return;
+  try {
+    const prefix = `${cwd}::`;
+    const entries: Record<string, PrEntry> = {};
+    for (const [k, e] of prCache) if (k.startsWith(prefix)) entries[k.slice(prefix.length)] = e;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ version: 1, entries }));
+    fs.renameSync(tmp, file);
+  } catch { /* a status that cannot be saved must not break a refresh */ }
 }
 
 const prKey = (cwd: string, branchOrUrl: string): string => `${cwd}::${branchOrUrl.trim()}`;
@@ -283,6 +325,7 @@ function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEn
         // The same PR asked for by its link (a brief that now records it) is the same answer.
         if (status) prCache.set(prKey(cwd, status.url), entry);
       }
+      savePrStatuses(cwd);
       inflight.delete(key);
       if ((!err || none) && (!before || JSON.stringify(before.val) !== JSON.stringify(status))) {
         for (const fn of prListeners) { try { fn({ cwd, branchOrUrl, status }); } catch { /* a listener must not break the refresh */ } }
