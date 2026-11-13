@@ -9,7 +9,7 @@ import { at, stop, type Ctx } from './context.js';
 import { Git } from './git.js';
 import { keepError } from './errors.js';
 import { clearPrCache, getPrFromBrief, getPrStatus } from './finalise.js';
-import { gitReason, isRejectedPush } from './ci.js';
+import { gitReason, gitSaid, isRejectedPush } from './ci.js';
 import { appendRound } from './observe.js';
 import { moveSkipped, nextRunBranch, openMovedPr, recordMove, type MoveReason } from './branch-move.js';
 import { abortAll, leasePush, resolveConflictsStage, resolveRebaseStops, resolverFor, trialMerge, type FileResolution } from './resolve-conflicts.js';
@@ -40,9 +40,13 @@ export interface PushFinding {
  * same way); or something else.
  */
 export function pushFailureKind(message: string): 'unreachable' | 'branch-refused' | 'rejected' | 'unknown' {
-  if (/remote rejected|pre-receive hook declined|protected branch|\bGH006\b|\bGH013\b/i.test(message)) return 'branch-refused';
-  if (isRejectedPush(message)) return 'rejected';
-  if (/could not resolve host|unable to access|connection (refused|timed out|reset)|timed out|ETIMEDOUT|authentication failed|permission denied|could not read username|terminal prompts disabled|\b(401|403)\b|repository not found|does not appear to be a git repository|could not read from remote repository/i.test(message)) return 'unreachable';
+  // Only git's own words: the command line before them names the branch, which may hold "403" or "timed-out".
+  const said = gitSaid(message);
+  // A ref that moved under the push (another push won the race) is origin being ahead, not a refusal of the branch.
+  if (/cannot lock ref/i.test(said)) return 'rejected';
+  if (/remote rejected|pre-receive hook declined|protected branch|\bGH006\b|\bGH013\b/i.test(said)) return 'branch-refused';
+  if (isRejectedPush(said)) return 'rejected';
+  if (/could not resolve host|unable to access|connection (refused|timed out|reset)|timed out|ETIMEDOUT|authentication failed|permission denied|could not read username|terminal prompts disabled|returned error:\s*(401|403)\b|\bHTTP\/?[\d.]*\s+(401|403)\b|repository not found|does not appear to be a git repository|could not read from remote repository/i.test(said)) return 'unreachable';
   return 'unknown';
 }
 
@@ -90,7 +94,7 @@ function ownCommits(git: Git, local: string, base: string | null): string[] {
  * Why the run's branch can or cannot be pushed, and which fix applies. Changes nothing but the remote-tracking refs (a
  * fetch). <fresh>: the run started at Spec or Plan, so a branch whose work is all on origin holds an earlier run's work.
  */
-export function diagnosePush(ctx: Ctx, opts: { fresh: boolean }): PushFinding {
+export function diagnosePush(ctx: Ctx, opts: { fresh: boolean; retried?: boolean }): PushFinding {
   const git = ctx.git;
   const branch = ctx.branch;
   const local = git.head();
@@ -135,7 +139,11 @@ export function diagnosePush(ctx: Ctx, opts: { fresh: boolean }): PushFinding {
     keepError(ctx, 'push check: dry run', message);
     const why = `${gitReason(message)}; see ${ctx.log}/errors.log`;
     switch (pushFailureKind(message)) {
-      case 'rejected': if (remote) return diverged(); break;
+      // Origin's branch moved after the fetch (another push won the race): asked once more, with what origin holds now.
+      case 'rejected':
+        if (!opts.retried) return diagnosePush(ctx, { ...opts, retried: true });
+        if (remote) return diverged();
+        break;
       // A new branch would fail the same way: the run keeps its branch.
       case 'unreachable': return found('unreachable', 'push-unreachable', `origin cannot be reached or does not accept this user for a push of ${branch} (${why})`, ctxOf);
       case 'branch-refused': return found('new-branch', 'branch-refused', `origin refuses pushes to ${branch} (${why})`, ctxOf);

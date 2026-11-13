@@ -473,6 +473,13 @@ describe('pushFailureKind', () => {
     [' ! [rejected]        sdlc/foo -> sdlc/foo (non-fast-forward)', 'rejected'],
     [' ! [rejected]        sdlc/foo -> sdlc/foo (fetch first)', 'rejected'],
     ['error: something nobody has seen before', 'unknown'],
+    // Only git's words count: the command line before them names the branch.
+    ['git push --dry-run -q origin HEAD:refs/heads/sdlc/fix-403-handling failed: error: something nobody has seen before', 'unknown'],
+    ['git push --dry-run -q origin HEAD:refs/heads/item/401 failed: error: failed to push some refs to \'/x/origin.git\'', 'unknown'],
+    ['git push --dry-run -q origin HEAD:refs/heads/sdlc/timed-out failed: error: src refspec sdlc/timed-out does not match any', 'unknown'],
+    ['error: RPC failed; HTTP 403 curl 22 The requested URL returned error: 403', 'unreachable'],
+    // Another push moved the ref meanwhile: origin is ahead, the branch is not refused.
+    [' ! [remote rejected] sdlc/foo -> sdlc/foo (cannot lock ref \'refs/heads/sdlc/foo\': is at 1111111 but expected 2222222)', 'rejected'],
   ];
   for (const [message, kind] of cases) it(`${kind}: ${message.split('\n').pop()}`, () => { expect(pushFailureKind(message)).toBe(kind); });
 });

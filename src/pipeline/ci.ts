@@ -54,8 +54,11 @@ const sleep = (ms: number): Promise<void> => new Promise(resolve => { setTimeout
  * The line of a failed git command that says why. A rejected push starts with "To <url>", and the reason (the
  * [rejected] line, error:, hint:) comes after it, so the first line alone is useless.
  */
+/** What git itself said in a GitError's message, without the "git <args> failed:" prefix (the arguments hold branch names). */
+export const gitSaid = (message: string): string => String(message).replace(/^\s*git .*? failed:\s*/, '');
+
 export function gitReason(message: string): string {
-  const lines = String(message).replace(/^\s*git .*? failed:\s*/, '').split('\n').map(l => l.trim()).filter(Boolean);
+  const lines = gitSaid(message).split('\n').map(l => l.trim()).filter(Boolean);
   const pick = lines.find(l => /\[rejected\]|\[remote rejected\]/.test(l))
     || lines.find(l => /^(?:error:|fatal:|remote:)/.test(l))
     || lines.find(l => !l.startsWith('To '))
