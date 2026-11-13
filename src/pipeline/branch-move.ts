@@ -61,9 +61,14 @@ const readBrief = (ctx: Ctx): string | null => { try { return fs.readFileSync(br
  * checks it out (default: from where the run is); the bookkeeping is the same whichever way it was made. Returns its name.
  */
 export function moveToNewBranch(ctx: Ctx, reason: MoveReason, create: (to: string) => void = to => { ctx.git.run('checkout', '-q', '-b', to); }): string {
-  const from = ctx.branch;
   const to = nextRunBranch(ctx.git, ctx.config.git.branchPrefix, ctx.slug);
   create(to);
+  return recordMove(ctx, to, reason);
+}
+
+/** The bookkeeping of a move once <to> is made and checked out (status, brief, attempts log): the run now goes on on <to>. */
+export function recordMove(ctx: Ctx, to: string, reason: MoveReason): string {
+  const from = ctx.branch;
   ctx.branch = to;
 
   let oldPr: string | null = null;

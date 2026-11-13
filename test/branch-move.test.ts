@@ -350,20 +350,39 @@ describe('ensurePushable', () => {
     expect(ctx.status.movedFrom).toMatchObject({ branch: 'sdlc/foo', reason: 'diverged' });
   });
 
-  it('a pick that conflicts with the base puts everything back and makes the branch where the run is', async () => {
+  it('a new branch starts from origin\'s base, fetched just now, also when the local base is behind it', async () => {
     const ctx = setup('sdlc/');
-    const mine = commitFile(repo, 'c.txt', 'mine\n', 'mine');
-    theyPush('c.txt', 'theirs\n');
+    const mine = commitFile(repo, 'mine.txt', 'mine\n', 'mine');
+    const localMain = sh(repo, 'rev-parse', 'main');
     const other = otherClone();
     sh(other, 'checkout', '-q', 'main');
-    commitFile(other, 'c.txt', 'base\n');
+    const ahead = commitFile(other, 'base.txt', 'base\n');
     sh(other, 'push', '-q', 'origin', 'main');
+    fs.writeFileSync(path.join(ghDir, 'view.json'), JSON.stringify({ url: OLD_PR, state: 'CLOSED', number: 5 }));
     await ensurePushable(ctx, { resume: 'red-tests', fresh: false });
     expect(ctx.branch).toBe('sdlc/foo_2');
-    expect(sh(repo, 'rev-parse', 'HEAD')).toBe(mine);
-    expect(fs.existsSync(path.join(repo, '.git', 'CHERRY_PICK_HEAD'))).toBe(false);
-    expect(checks()).toMatchObject([{ action: 'new-branch-here' }]);
-    expect(lines.join('\n')).toContain('made from where the run is');
+    // The local base is not touched and not used: the new branch is origin's base plus the run's own commit.
+    expect(sh(repo, 'rev-parse', 'main')).toBe(localMain);
+    expect(sh(repo, 'rev-parse', 'HEAD~1')).toBe(ahead);
+    expect(sh(repo, 'log', '-1', '--format=%s')).toBe('mine');
+    expect(sh(repo, 'rev-parse', 'sdlc/foo')).toBe(mine);
+    expect(sh(repo, 'rev-parse', 'refs/sdlc-backup/sdlc/foo/local')).toBe(mine);
+    expect(checks()).toMatchObject([{ finding: 'pr-closed', action: 'new-branch-from-base' }]);
+    expect(lines.join('\n')).toContain(`made from origin/main (${ahead.slice(0, 7)}) with this run's own commits`);
+  });
+
+  it('origin\'s base cannot be fetched: the run does not move, and says why', async () => {
+    const ctx = setup('sdlc/');
+    // The base exists here only: a new branch would have to come from the local one, which is never used.
+    (ctx.config.git as { base: string }).base = 'trunk';
+    sh(repo, 'branch', 'trunk', 'main');
+    fs.writeFileSync(path.join(ghDir, 'view.json'), JSON.stringify({ url: OLD_PR, state: 'CLOSED', number: 5 }));
+    const head = sh(repo, 'rev-parse', 'HEAD');
+    await ensurePushable(ctx, { resume: 'red-tests', fresh: true });
+    expect([ctx.branch, sh(repo, 'symbolic-ref', '--short', 'HEAD'), sh(repo, 'rev-parse', 'HEAD'), sh(repo, 'branch', '--list', 'sdlc/foo_*')]).toEqual(['sdlc/foo', 'sdlc/foo', head, '']);
+    expect(ctx.movedFrom).toBeUndefined();
+    expect(checks()).toMatchObject([{ finding: 'pr-closed', action: 'no-base' }]);
+    expect(lines.join('\n')).toContain("a new branch is made only from origin's trunk, which could not be fetched (origin has no trunk): going on unchanged on sdlc/foo");
   });
 
   it('diverged with uncommitted tracked changes: no rebase, a new branch', async () => {

@@ -11,8 +11,9 @@ import { keepError } from './errors.js';
 import { clearPrCache, getPrFromBrief, getPrStatus } from './finalise.js';
 import { gitReason, isRejectedPush } from './ci.js';
 import { appendRound } from './observe.js';
-import { moveSkipped, moveToNewBranch, openMovedPr, type MoveReason } from './branch-move.js';
-import { leasePush, resolveConflictsStage, trialMerge } from './resolve-conflicts.js';
+import { moveSkipped, nextRunBranch, openMovedPr, recordMove, type MoveReason } from './branch-move.js';
+import { abortAll, leasePush, resolveConflictsStage, resolveRebaseStops, resolverFor, trialMerge, type FileResolution } from './resolve-conflicts.js';
+import { resumeCommand } from './hints.js';
 import { redPattern, repairPattern } from './stages.js';
 
 /** SDLC_PUSH_CHECK=0 (or no, off) skips the whole check: the run keeps its branch and pushes as before. */
@@ -155,10 +156,6 @@ const inRebase = (git: Git): boolean => ['rebase-merge', 'rebase-apply'].some(n 
   const p = (git.tryRun('rev-parse', '--git-path', n) || '').trim();
   return !!p && fs.existsSync(path.isAbsolute(p) ? p : path.join(git.root, p));
 });
-const inCherryPick = (git: Git): boolean => {
-  const p = (git.tryRun('rev-parse', '--git-path', 'CHERRY_PICK_HEAD') || '').trim();
-  return !!p && fs.existsSync(path.isAbsolute(p) ? p : path.join(git.root, p));
-};
 
 /** Tracked files with uncommitted changes (a rebase refuses to start with them). */
 const trackedChanges = (git: Git): string[] => (git.tryRun('status', '--porcelain', '--untracked-files=no') || '').split('\n').filter(Boolean);
@@ -178,34 +175,59 @@ function relock(ctx: Ctx): void {
 }
 
 /**
- * Makes <to> from the base with the run's own commits picked onto it; when that cannot be done cleanly, everything is put
- * back and <to> starts where the run is (as a move did before). Uncommitted and untracked files carry over either way.
+ * Makes <to> from origin's base (<upstream>, fetched just now) with the run's own commits: <to> starts where the run is and is
+ * rebased onto <upstream>, each conflicting commit resolved as Resolve conflicts resolves it (documentation keeps both sides, code
+ * goes to the resolver agent and a doubt to the reviewer panel). Uncommitted changes to tracked files are stashed for the rebase
+ * and put back; untracked files stay. When that cannot be done safely the run stops: nothing is pushed, <to> is removed (it was
+ * made here and never pushed), the old branch is checked out again as it was, and refs/sdlc-backup/<branch>/local names it.
  */
-function branchFromBase(ctx: Ctx, to: string, f: PushFinding): 'base' | 'here' {
+async function branchFromOriginBase(ctx: Ctx, to: string, upstream: string, resume: string): Promise<{ resolved: FileResolution[] }> {
   const git = ctx.git;
   const from = ctx.branch;
-  const own = ownCommits(git, f.local, f.base);
-  if (!shaOf(git, `refs/sdlc-backup/${from}/local`)) git.run('update-ref', `refs/sdlc-backup/${from}/local`, f.local);
-  if (f.base && git.tryRun('checkout', '-q', '-b', to, f.base) !== null) {
-    let ok = true;
-    for (const c of own) {
-      if (git.tryRun('cherry-pick', c) !== null) continue;
-      // A commit already in the base is empty here: it is left out. A conflict ends the attempt.
-      if (!git.lines('diff', '--name-only', '--diff-filter=U').length && git.tryRun('cherry-pick', '--skip') !== null) continue;
-      ok = false;
-      break;
-    }
-    if (ok) return 'base';
-    if (inCherryPick(git)) git.tryRun('cherry-pick', '--abort');
-    // Nothing is thrown away by force: when the old branch cannot be checked out again, the run stops and says where things are.
-    if (git.tryRun('checkout', '-q', from) === null) {
-      stop(ctx, `ERROR: the push check could not go back from ${to} to ${from} after putting this run's commits on ${f.base?.slice(0, 7)} failed. Nothing was discarded: ${from} is at refs/sdlc-backup/${from}/local (${f.local.slice(0, 7)}); check out ${from} by hand, then resume.`);
-    }
-    git.tryRun('branch', '-q', '-D', to);
-    if (git.head() !== f.local) git.run('reset', '-q', '--hard', f.local);
-  }
+  const local = git.head();
+  const baseName = ctx.config.git.base || 'main';
+  git.run('update-ref', `refs/sdlc-backup/${from}/local`, local);
   git.run('checkout', '-q', '-b', to);
-  return 'here';
+  const oldBase = (git.tryRun('merge-base', local, upstream) || '').trim();
+  const resolved: FileResolution[] = [];
+  const keep = (where: string, text: string): void => keepError(ctx, where, text);
+  let reason = '';
+  let detail = '';
+  try {
+    let started = '';
+    // Without a common commit there is nothing of the run's own to carry: the branch is the base.
+    const args = oldBase ? [upstream] : ['--onto', upstream, local];
+    try { git.run('-c', 'core.editor=true', 'rebase', '--autostash', '-q', ...args); } catch (e) { started = (e as Error).message; }
+    const r = await resolveRebaseStops({ git, upstream, oldBase: oldBase || local, docDirs: [ctx.config.backlogDir], resolveCode: resolverFor(ctx), resolved, out: l => ctx.out(l) });
+    if (r.kind === 'stopped') {
+      reason = r.reason;
+      detail = [r.reason, r.conflict ? `commit ${r.conflict.commit.sha.slice(0, 7)} ${r.conflict.commit.subject}: ${r.conflict.doubt}` : '', started].filter(Boolean).join('\n');
+    } else if (!isAncestor(git, upstream, 'HEAD')) {
+      reason = `the rebase onto origin/${baseName} did not complete`;
+      detail = `${reason}\n${started || '(git said nothing)'}`;
+    }
+  } catch (e) {
+    reason = `the rebase onto origin/${baseName} failed`;
+    detail = `${reason}\n${(e as Error).stack || (e as Error).message}`;
+  }
+  if (!reason) return { resolved };
+
+  // Put everything back: no rebase left, the old branch checked out as it was, and the half-made new branch gone.
+  keep('push check: new branch from the base', detail);
+  abortAll(git, keep);
+  let back = true;
+  try { git.run('checkout', '-q', from); } catch (e) { keep(`push check: check out ${from} again`, (e as Error).message); back = false; }
+  if (back && git.head() !== local) {
+    try { git.run('reset', '-q', '--keep', local); } catch (e) { keep(`push check: put ${from} back`, (e as Error).message); back = false; }
+  }
+  if (back) {
+    try { git.run('branch', '-q', '-D', to); } catch (e) { keep(`push check: remove ${to}`, (e as Error).message); }
+  }
+  appendRound(at(ctx, ctx.log), { kind: 'push-check', at: new Date().toISOString(), branch: from, finding: 'new-branch', action: 'new-branch-stopped', detail: reason });
+  const where = back
+    ? `${from} is checked out again, unchanged`
+    : `${from} could not be checked out again, so nothing was discarded: ${to} is left as it is (never pushed); check out ${from} by hand (git rebase --abort first if a rebase is still going on)`;
+  return stop(ctx, `ERROR: the push check could not make ${to} from origin/${baseName} with this run's commits: ${reason}. Nothing was pushed; ${where} (refs/sdlc-backup/${from}/local is ${local.slice(0, 7)}). The details are in ${ctx.log}/errors.log${resolved.length || reason.includes('conflict') ? ` and ${ctx.log}/resolve-conflicts-context.md` : ''}. Rebase ${from} onto origin/${baseName} by hand (or fix what the details name), then resume: ${resumeCommand(ctx.slug, resume)}`, 1);
 }
 
 /** One line of output and one row in the attempts log for every outcome. */
@@ -254,7 +276,10 @@ export async function ensurePushable(ctx: Ctx, opts: { resume: string; fresh: bo
       backup(git, branch, f.local, f.remote);
       const p = leasePush(netGit(ctx), 'origin', branch, f.remote as string);
       if (p.ok) {
-        git.tryRun('branch', '-q', `--set-upstream-to=origin/${branch}`);
+        try { git.run('branch', '-q', `--set-upstream-to=origin/${branch}`); } catch (e) {
+          keepError(ctx, 'push check: set upstream', (e as Error).message);
+          ctx.out(`Push check: could not set origin/${branch} as the upstream of ${branch} (see ${ctx.log}/errors.log)`);
+        }
         report(ctx, f, 'lease-push', `${f.text}: pushed with a lease (origin had ${short(f.remote)}, now ${short(f.local)})`);
       } else {
         keepError(ctx, 'push check: lease push', p.message);
@@ -270,7 +295,7 @@ export async function ensurePushable(ctx: Ctx, opts: { resume: string; fresh: bo
       backup(git, branch, f.local, f.remote);
       const clean = git.tryRun('-c', 'core.editor=true', 'rebase', '-q', f.remote as string) !== null && !inRebase(git);
       if (!clean) {
-        if (inRebase(git)) git.tryRun('rebase', '--abort');
+        abortAll(git, (where, text) => keepError(ctx, `push check: ${where}`, text));
         if (git.head() !== f.local) git.run('reset', '-q', '--hard', f.local);
         unknown = { kind: 'diverged', why: `${f.text}, and a rebase onto it stops on a conflict` };
         break;
@@ -297,13 +322,24 @@ export async function ensurePushable(ctx: Ctx, opts: { resume: string; fresh: bo
       report(ctx, f, 'kept', `${unknown.why}; SDLC_MOVE_BRANCH=${ctx.env.SDLC_MOVE_BRANCH} keeps the run on ${branch}`);
       return;
     }
-    const made = { from: 'here' as 'base' | 'here' };
-    const reason: MoveReason = { kind: unknown.kind, detail: f.pr || unknown.why };
-    const to = moveToNewBranch(ctx, reason, name => { made.from = branchFromBase(ctx, name, f); });
-    relock(ctx);
+    // A new branch comes only from origin's base, fetched now: when it cannot be fetched, the run does not move.
     const baseName = ctx.config.git.base || 'main';
-    report(ctx, f, made.from === 'base' ? 'new-branch-from-base' : 'new-branch-here',
-      `${unknown.why}: the run goes on on ${to}, ${made.from === 'base' ? `made from ${baseName} with this run's own commits` : `made from where the run is (its commits could not be put on ${baseName} cleanly)`}`);
+    const fetched = fetchBranch(ctx, baseName);
+    const upstream = fetched === 'ok' ? shaOf(git, `refs/remotes/origin/${baseName}`) : null;
+    if (!upstream) {
+      const why = typeof fetched === 'object' ? `${gitReason(fetched.error)}; see ${ctx.log}/errors.log` : `origin has no ${baseName}`;
+      if (typeof fetched === 'object') keepError(ctx, `push check: fetch ${baseName}`, fetched.error);
+      report(ctx, f, 'no-base', `${unknown.why}; a new branch is made only from origin's ${baseName}, which could not be fetched (${why}): going on unchanged on ${branch}`);
+      return;
+    }
+    const reason: MoveReason = { kind: unknown.kind, detail: f.pr || unknown.why };
+    const to = nextRunBranch(git, ctx.config.git.branchPrefix, ctx.slug);
+    const made = await branchFromOriginBase(ctx, to, upstream, opts.resume);
+    recordMove(ctx, to, reason);
+    relock(ctx);
+    const files = [...new Set(made.resolved.map(r => r.file))];
+    report(ctx, f, 'new-branch-from-base',
+      `${unknown.why}: the run goes on on ${to}, made from origin/${baseName} (${short(upstream)}) with this run's own commits${files.length ? ` (conflicts resolved in ${files.join(', ')})` : ''}`);
     await openMovedPr(ctx);
     return;
   }

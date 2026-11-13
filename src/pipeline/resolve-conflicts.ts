@@ -11,6 +11,7 @@ import { parseQuestions } from '../runs/view.js';
 import { projectRoot } from '../runs/records.js';
 import { withAnswerLines } from './questions.js';
 import { at, setAside, stamp, stop, tick, type Ctx } from './context.js';
+import { keepError } from './errors.js';
 import { getPrFromBrief, getPrStatus } from './finalise.js';
 import { runAgent, stageModelKey } from './agent.js';
 import { REVIEWERS, reviewPanel, reviewerCount, reviewSkipped, sharedReviewersText } from './review-panel.js';
@@ -99,6 +100,28 @@ export interface ResolveOptions {
    * <remoteSha>: no rebase, no "diverged" stop; the check runs and the result is pushed with the lease.
    */
   adopted?: { remoteSha: string };
+  /** Keeps the whole text of a git failure the outcome names in one line (the pipeline's errors.log). */
+  onError?: (where: string, text: string) => void;
+  out(line: string): void;
+}
+
+/** What working through a rebase's stops came to: it finished, or it stopped (the rebase is left as it is, for the caller to put back). */
+export type RebaseStops =
+  | { kind: 'done'; codeResolved: boolean }
+  | { kind: 'stopped'; reason: string; offer: boolean; conflict?: ConflictReport };
+
+export interface RebaseStopsOptions {
+  git: Git;
+  /** The base the branch is being rebased onto, and where the branch had started from it. */
+  upstream: string;
+  oldBase: string;
+  /** Folders whose files count as documentation, besides docs/ and Markdown (the backlog folder). */
+  docDirs?: string[];
+  /** Resolves a stop on code or test files, and on documentation both sides edited the same lines of; without one, a code stop ends it. */
+  resolveCode?: (c: CodeConflict) => Promise<CodeResolution>;
+  onStep?: (key: string, detail?: string) => void;
+  /** Every file resolved is added here, as it is resolved. */
+  resolved: FileResolution[];
   out(line: string): void;
 }
 
@@ -203,7 +226,7 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
   const resolved: FileResolution[] = [];
 
   if (git.tryRun('remote', 'get-url', remote) === null) return { kind: 'skipped', reason: `no ${remote} remote: nothing to bring up to date` };
-  if (git.tryRun('fetch', '-q', remote) === null) return { kind: 'stopped', reason: `git fetch ${remote} failed`, offer: false, resolved };
+  if (!fetchOk(o, remote, 'resolve conflicts: fetch')) return { kind: 'stopped', reason: `git fetch ${remote} failed`, offer: false, resolved };
   const merged = o.mergedReason?.();
   if (merged) return { kind: 'skipped', reason: merged };
   const remoteRef = `refs/remotes/${remote}/${branch}`;
@@ -245,8 +268,7 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
   out(`   rebasing ${branch} (${before.slice(0, 7)}) onto ${remote}/${base} (${upstream.slice(0, 7)}); recovery refs refs/sdlc-backup/${branch}/{local,remote}`);
 
   const restore = (): string | undefined => {
-    if (inRebase(git)) git.tryRun('rebase', '--abort');
-    if (inCherryPick(git)) git.tryRun('cherry-pick', '--abort');
+    abortAll(git, o.onError);
     const now = git.head();
     if (now === before) return undefined;
     git.run('update-ref', `refs/sdlc-attempt/${branch}`, now);
@@ -258,66 +280,17 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
 
   let codeResolved = false;
   try {
-    // A rebase that stops on a conflict "fails"; the loop below works through each stop.
+    // A rebase that stops on a conflict "fails"; resolveRebaseStops works through each stop.
     o.onStep?.('rebase');
-    git.tryRun('-c', 'core.editor=true', 'rebase', upstream);
-    let round = 0;
-    while (inRebase(git)) {
-      const files = conflicted(git);
-      const head = sha(git, 'REBASE_HEAD');
-      const commit = { sha: head, subject: head ? git.run('log', '-1', '--format=%s', head).trim() : '' };
-      // Past <commit>: the rebase finished, or stopped at a later commit (whose conflicts the next round takes).
-      const moved = () => !inRebase(git) || sha(git, 'REBASE_HEAD') !== commit.sha;
-      // --continue; a commit the resolution made empty (its change is already in the base) is skipped.
-      const advance = (): boolean => {
-        git.tryRun('-c', 'core.editor=true', 'rebase', '--continue');
-        if (moved()) return true;
-        if (conflicted(git).length) return false;
-        git.tryRun('rebase', '--skip');
-        return moved();
-      };
-      if (!files.length) {
-        if (!advance()) return stopped(`the rebase stopped at ${commit.sha.slice(0, 7)} without a conflict and could not continue`, false);
-        continue;
-      }
-      // Documentation: two sides that only added lines keep both; the same lines changed on both sides go to the resolver, which
-      // keeps each document's meaning, structure and formatting (without a resolver, both sides are kept as before).
-      const docFiles = files.filter(f => isDocFile(f, docDirs));
-      const judged = o.resolveCode ? docFiles.filter(f => needsJudgment(git, f)) : [];
-      const docs = docFiles.filter(f => !judged.includes(f));
-      const code = [...files.filter(f => !isDocFile(f, docDirs)), ...judged];
-      for (const f of docs) {
-        keepBoth(git, f);
-        resolved.push({ file: f, commit: commit.sha, kind: 'docs', why: 'documentation: kept both sides\' content' });
-        out(`   resolved ${f} (documentation, kept both sides)`);
-      }
-      if (code.length) {
-        round += 1;
-        const sides = code.map(f => ({
-          file: f,
-          base: clip(git.tryRun('diff', oldBase, upstream, '--', f) || ''),
-          task: clip(git.tryRun('show', '--format=', commit.sha, '--', f) || ''),
-        }));
-        const report = (doubt: string): ConflictReport => ({ commit, files: code, doubt, sides });
-        if (!o.resolveCode) return stopped(`code conflict in ${code.join(', ')}`, true, report('no resolver for code conflicts'));
-        o.onStep?.('resolve');
-        const r = await o.resolveCode({ round, commit, files: code, docs, upstream, oldBase });
-        if (!inRebase(git) || sha(git, 'REBASE_HEAD') !== commit.sha) {
-          return stopped('the resolver changed the rebase itself (it must only edit the conflicted files)', true, report('the rebase was moved by the resolver'));
-        }
-        if (!r.safe) return stopped(`the conflict in ${code.join(', ')} could break this task or the merged work`, true, report(r.doubt || 'the resolver was not sure'));
-        const left = code.filter(f => fs.existsSync(path.join(git.root, f)) && MARKERS.test(fs.readFileSync(path.join(git.root, f), 'utf8')));
-        if (left.length) return stopped(`conflict markers left in ${left.join(', ')}`, true, report('the resolution left conflict markers'));
-        for (const f of code) {
-          if (fs.existsSync(path.join(git.root, f))) git.run('add', '--', f);
-          else git.run('rm', '-q', '--cached', '--ignore-unmatch', '--', f);
-          const why = r.files.find(x => x.file === f)?.why || 'resolved by the agent (no reason given)';
-          resolved.push({ file: f, commit: commit.sha, kind: isDocFile(f, docDirs) ? 'docs' : 'code', why });
-          out(`   resolved ${f}: ${why}`);
-        }
-        codeResolved = true;
-      }
-      if (!advance()) return stopped(`git rebase --continue failed at ${commit.sha.slice(0, 7)}`, false);
+    let started = '';
+    try { git.run('-c', 'core.editor=true', 'rebase', upstream); } catch (e) { started = (e as Error).message; }
+    const r = await resolveRebaseStops({ git, upstream, oldBase, docDirs, resolveCode: o.resolveCode, onStep: o.onStep, resolved, out });
+    if (r.kind === 'stopped') return stopped(r.reason, r.offer, r.conflict);
+    codeResolved = r.codeResolved;
+    // A rebase that never started (an untracked file in the way, say) leaves the branch where it was: never pushed as if rebased.
+    if (!isAncestor(git, upstream, 'HEAD')) {
+      o.onError?.('resolve conflicts: rebase', started || 'the rebase ended without the base in the branch');
+      return stopped(`the rebase onto ${remote}/${base} did not complete`, false);
     }
 
     if (o.verify && !(await o.verify({ codeResolved }))) {
@@ -331,9 +304,9 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
       o.onStep?.('push');
       const p = leasePush(git, remote, branch, remoteSha);
       if (p.ok) return { kind: 'pushed', resolved, head: git.head(), before, remoteBefore: record.remoteSha, pushes, arrived };
-      if (!p.stale) return stopped(`git push failed: ${p.message}`, false);
+      if (!p.stale) { o.onError?.('resolve conflicts: push', p.message); return stopped(`git push failed: ${p.message}`, false); }
       if (pushes >= maxPushes) return stopped(`the lease failed ${pushes} times: ${remote}/${branch} keeps moving`, false);
-      if (git.tryRun('fetch', '-q', remote) === null) return stopped(`git fetch ${remote} failed after the lease failed`, false);
+      if (!fetchOk(o, remote, 'resolve conflicts: fetch after the lease failed')) return stopped(`git fetch ${remote} failed after the lease failed`, false);
       const now = sha(git, remoteRef);
       if (!now) return stopped(`${remote}/${branch} was deleted meanwhile`, false);
       if (!isAncestor(git, remoteSha, now)) return stopped(`${remote}/${branch} was rewritten by someone else meanwhile`, false);
@@ -356,6 +329,94 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
   } catch (e) {
     restore();
     throw e;
+  }
+}
+
+/**
+ * Works through the stops of a rebase in progress (started by the caller), commit by commit: documentation that both sides only
+ * added to keeps both; code, tests and documentation both sides changed the same lines of go to <resolveCode>. Stops at the first
+ * stop it cannot resolve safely and leaves the rebase as it is there: putting things back is the caller's.
+ */
+export async function resolveRebaseStops(o: RebaseStopsOptions): Promise<RebaseStops> {
+  const { git, upstream, oldBase, resolved, out } = o;
+  const docDirs = o.docDirs || [];
+  const stopped = (reason: string, offer: boolean, conflict?: ConflictReport): RebaseStops => ({ kind: 'stopped', reason, offer, conflict });
+  let codeResolved = false;
+  let round = 0;
+  while (inRebase(git)) {
+    const files = conflicted(git);
+    const head = sha(git, 'REBASE_HEAD');
+    const commit = { sha: head, subject: head ? git.run('log', '-1', '--format=%s', head).trim() : '' };
+    // Past <commit>: the rebase finished, or stopped at a later commit (whose conflicts the next round takes).
+    const moved = () => !inRebase(git) || sha(git, 'REBASE_HEAD') !== commit.sha;
+    // --continue; a commit the resolution made empty (its change is already in the base) is skipped.
+    const advance = (): boolean => {
+      git.tryRun('-c', 'core.editor=true', 'rebase', '--continue');
+      if (moved()) return true;
+      if (conflicted(git).length) return false;
+      git.tryRun('rebase', '--skip');
+      return moved();
+    };
+    if (!files.length) {
+      if (!advance()) return stopped(`the rebase stopped at ${commit.sha.slice(0, 7)} without a conflict and could not continue`, false);
+      continue;
+    }
+    // Documentation: two sides that only added lines keep both; the same lines changed on both sides go to the resolver, which
+    // keeps each document's meaning, structure and formatting (without a resolver, both sides are kept as before).
+    const docFiles = files.filter(f => isDocFile(f, docDirs));
+    const judged = o.resolveCode ? docFiles.filter(f => needsJudgment(git, f)) : [];
+    const docs = docFiles.filter(f => !judged.includes(f));
+    const code = [...files.filter(f => !isDocFile(f, docDirs)), ...judged];
+    for (const f of docs) {
+      keepBoth(git, f);
+      resolved.push({ file: f, commit: commit.sha, kind: 'docs', why: 'documentation: kept both sides\' content' });
+      out(`   resolved ${f} (documentation, kept both sides)`);
+    }
+    if (code.length) {
+      round += 1;
+      const sides = code.map(f => ({
+        file: f,
+        base: clip(git.tryRun('diff', oldBase, upstream, '--', f) || ''),
+        task: clip(git.tryRun('show', '--format=', commit.sha, '--', f) || ''),
+      }));
+      const report = (doubt: string): ConflictReport => ({ commit, files: code, doubt, sides });
+      if (!o.resolveCode) return stopped(`code conflict in ${code.join(', ')}`, true, report('no resolver for code conflicts'));
+      o.onStep?.('resolve');
+      const r = await o.resolveCode({ round, commit, files: code, docs, upstream, oldBase });
+      if (!inRebase(git) || sha(git, 'REBASE_HEAD') !== commit.sha) {
+        return stopped('the resolver changed the rebase itself (it must only edit the conflicted files)', true, report('the rebase was moved by the resolver'));
+      }
+      if (!r.safe) return stopped(`the conflict in ${code.join(', ')} could break this task or the merged work`, true, report(r.doubt || 'the resolver was not sure'));
+      const left = code.filter(f => fs.existsSync(path.join(git.root, f)) && MARKERS.test(fs.readFileSync(path.join(git.root, f), 'utf8')));
+      if (left.length) return stopped(`conflict markers left in ${left.join(', ')}`, true, report('the resolution left conflict markers'));
+      for (const f of code) {
+        if (fs.existsSync(path.join(git.root, f))) git.run('add', '--', f);
+        else git.run('rm', '-q', '--cached', '--ignore-unmatch', '--', f);
+        const why = r.files.find(x => x.file === f)?.why || 'resolved by the agent (no reason given)';
+        resolved.push({ file: f, commit: commit.sha, kind: isDocFile(f, docDirs) ? 'docs' : 'code', why });
+        out(`   resolved ${f}: ${why}`);
+      }
+      codeResolved = true;
+    }
+    if (!advance()) return stopped(`git rebase --continue failed at ${commit.sha.slice(0, 7)}`, false);
+  }
+
+  return { kind: 'done', codeResolved };
+}
+
+/** Aborts a rebase or cherry-pick in progress; an abort git refuses is kept (the caller's reset then says the rest). */
+export function abortAll(git: Git, onError?: (where: string, text: string) => void): void {
+  for (const [busy, cmd] of [[inRebase, 'rebase'], [inCherryPick, 'cherry-pick']] as const) {
+    if (!busy(git)) continue;
+    try { git.run(cmd, '--abort'); } catch (e) { onError?.(`${cmd} --abort`, (e as Error).message); }
+  }
+}
+
+/** git fetch <remote>; a failure is kept in full (the outcome names it in one line). */
+function fetchOk(o: Pick<ResolveOptions, 'git' | 'onError'>, remote: string, where: string): boolean {
+  try { o.git.run('fetch', '-q', remote); return true; } catch (e) {
+    o.onError?.(where, (e as Error).message);
+    return false;
   }
 }
 
@@ -705,6 +766,23 @@ async function reviewDoubt(ctx: Ctx, c: CodeConflict, r: CodeResolution): Promis
   return { ...r, safe: false, doubt: `${r.doubt || 'the resolver was not sure'} Independent review: ${p.safeCount} of ${count} reviewers found it safe.${p.conclusion ? ` ${p.conclusion.replace(/\s*\n\s*/g, ' ')}` : ''}` };
 }
 
+/**
+ * The pipeline's resolver of one conflicted stop: the agent resolves the files and reports (<log>/resolve-conflicts-report.md);
+ * a doubt it states goes to the reviewer panel. Resolve conflicts and the push check's new branch both use it.
+ */
+export function resolverFor(ctx: Ctx): (c: CodeConflict) => Promise<CodeResolution> {
+  return async c => {
+    writeContext(ctx, c);
+    const report = at(ctx, `${ctx.log}/resolve-conflicts-report.md`);
+    fs.rmSync(report, { force: true });
+    await runAgent(ctx, `resolve-conflicts-${c.round}`, 'resolve-conflicts');
+    const text = fs.existsSync(report) ? fs.readFileSync(report, 'utf8') : '';
+    const r = parseResolverReport(text);
+    // Only a stated doubt is reviewed: a missing report or verdict means the agent did not finish.
+    return !r.safe && /^\s*VERDICT:\s*DOUBT/im.test(text) && !reviewSkipped(ctx.env) ? reviewDoubt(ctx, c, r) : r;
+  };
+}
+
 /** Writes what the agent needs for one stop: the commit, the files, both sides, the task's and the merged tasks' documents. */
 function writeContext(ctx: Ctx, c: CodeConflict): void {
   const g = ctx.git;
@@ -866,16 +944,8 @@ export async function resolveConflictsStage(ctx: Ctx, opts: { inline?: InlineRes
     mergedReason: () => mergedReason(ctx, base),
     onStart: () => { stage(ctx, RESOLVE_STAGE); ctx.status.attempt = '1/1'; ctx.status.write(); },
     onStep: (k, d) => ctx.status?.beginStep?.(k, d),
-    resolveCode: async c => {
-      writeContext(ctx, c);
-      const report = at(ctx, `${ctx.log}/resolve-conflicts-report.md`);
-      fs.rmSync(report, { force: true });
-      await runAgent(ctx, `resolve-conflicts-${c.round}`, 'resolve-conflicts');
-      const text = fs.existsSync(report) ? fs.readFileSync(report, 'utf8') : '';
-      const r = parseResolverReport(text);
-      // Only a stated doubt is reviewed: a missing report or verdict means the agent did not finish.
-      return !r.safe && /^\s*VERDICT:\s*DOUBT/im.test(text) && !reviewSkipped(ctx.env) ? reviewDoubt(ctx, c, r) : r;
-    },
+    resolveCode: resolverFor(ctx),
+    onError: (where, text) => keepError(ctx, where, text),
     verify: async () => {
       // Before Red tests there are no task tests: the check would be the whole suite here, which CI runs on the push.
       if (inline && ciOnly && !targetTestFiles(ctx).length) {
