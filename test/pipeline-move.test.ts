@@ -177,6 +177,8 @@ describe('the push check after Plan', () => {
     expect(read(f.dir, `${DOCS}/questions.md`)).toBe('');
     expect(read(f.dir, `${LOG}/resolve-conflicts.md`)).not.toBe('');
     expect(statusOf(f.dir).stage).toBe('Plan');
+    // The run page resumes where the message says, not at Plan.
+    expect(statusOf(f.dir).resume_from).toBe('red-tests');
   });
 
   test('a refused start (the red-tests commit exists) makes no branch, no push and no pull request', async () => {

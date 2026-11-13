@@ -157,6 +157,13 @@ describe('runView', () => {
     expect(v.changes!.files.some(f => f.includes('status.json'))).toBe(true);
   });
 
+  test('a stop that named where to resume: the run resumes there, not at the stage shown; without one, the stage decides', () => {
+    const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Plan', resume_from: 'red-tests' } });
+    expect(runView(ctx, 'add-tokens').resumeFrom).toBe('red-tests');
+    const plain = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Plan' } });
+    expect(runView(plain.ctx, 'add-tokens').resumeFrom).toBe('plan');
+  });
+
   test('the state follows the record: done, refused, interrupted, and not started without one', () => {
     expect(runView(repoWithRun('a', { state: 'exited', exit_code: '0' }).ctx, 'a', { changes: false }).state).toBe('done');
     expect(runView(repoWithRun('a', { state: 'exited', exit_code: '3', worktree: '', message: 'at most 2 pipelines' }).ctx, 'a', { changes: false }))

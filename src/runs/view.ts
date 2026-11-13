@@ -407,7 +407,8 @@ export function runView(ctx: RunContext, slug: string, opts: {
     discarded,
     redCommit,
     gitAgeMs,
-    resumeFrom: resumeStage(stage, exists(path.join(docsDir, 'test-issues.md'))),
+    // Where the stop said the run resumes, when it named one; else from the stage it stopped at.
+    resumeFrom: typeof s.resume_from === 'string' && s.resume_from && s.state !== 'running' ? s.resume_from : resumeStage(stage, exists(path.join(docsDir, 'test-issues.md'))),
     testIssues: exists(path.join(docsDir, 'test-issues.md')) ? readText(path.join(docsDir, 'test-issues.md')) : null,
     createPr: (() => {
       const optFile = path.join(logs, 'finalise-options.json');
