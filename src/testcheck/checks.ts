@@ -142,7 +142,13 @@ export function resumecheck(k: Keys, redSha: string, issuesFile: string, slug: s
   if (sha) {
     const esc = slug.replace(/[.*^$[\]\\]/g, '\\$&');
     const repaired = (tryGit(cwd, 'log', '--format=%h', '-1', `--grep=^test(${esc}): repair invalid tests`, `${sha}..HEAD`) || '').trim();
-    if (repaired) errs.push(`test repair was already accepted in commit ${repaired}: use FROM=review`);
+    // A repair is only "done" for the claims it was accepted with. New claims written after it (Implement found another
+    // defect in the locked tests) need another repair.
+    if (repaired) {
+      const accepted = tryGit(cwd, 'show', `${repaired}:${path.relative(cwd, claimFile).split(path.sep).join('/')}`);
+      const current = fs.existsSync(claimFile) ? fs.readFileSync(claimFile, 'utf8') : '';
+      if (accepted === null || accepted.trim() === current.trim()) errs.push(`test repair was already accepted in commit ${repaired} for these claims: use FROM=review`);
+    }
     const untracked = lines(tryGit(cwd, 'ls-files', '--others', '--exclude-standard'));
     const tests = [...new Set([...lines(tryGit(cwd, 'diff', '--name-only', lock, '--', ...specs)),
       ...lines(tryGit(cwd, 'ls-files', '--others', '--exclude-standard', '--', ...specs))])];
