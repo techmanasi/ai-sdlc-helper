@@ -386,7 +386,7 @@ function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEn
   const p = new Promise<PrStatus | null>(resolve => {
     execFile('gh', ['pr', 'view', branchOrUrl, '--json', PR_FIELDS], { cwd, env, encoding: 'utf8', timeout: prTimeout(env) }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as unknown as { code: number }).code : -1) : 0;
-      trace({ action: 'spawn:gh', why: 'pr', ms: Math.round((performance.now() - t0) * 1000) / 1000, code });
+      trace({ action: 'spawn:gh', why: 'async pr', ms: Math.round((performance.now() - t0) * 1000) / 1000, code });
       const before = prCache.get(key);
       let status: PrStatus | null;
       let error: string | null = null;

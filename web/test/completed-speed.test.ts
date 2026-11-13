@@ -205,7 +205,7 @@ describe('the Completed list endpoint', () => {
     expect(await completed(server)).toEqual(EXPECTED);
     await new Promise(r => setTimeout(r, 200));
     const during = traceLines().filter(e => e.t >= from);
-    const blocking = during.filter(e => e.action.startsWith('spawn:') && !(e.why || '').startsWith('async') && !(e.action === 'spawn:gh' && e.why === 'pr'));
+    const blocking = during.filter(e => e.action.startsWith('spawn:') && !(e.why || '').startsWith('async'));
     expect(blocking).toEqual([]);
     expect(during.find(e => e.action === 'completed')?.phases).toMatchObject({ keys: expect.any(Number), prs: expect.any(Number), git: expect.any(Number), build: expect.any(Number) });
   });

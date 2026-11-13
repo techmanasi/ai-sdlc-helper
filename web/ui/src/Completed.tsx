@@ -20,6 +20,7 @@ export function Completed() {
 
   const loadTasks = async () => {
     setLoading(true);
+    setPrErrors([]);
     setError('');
     try {
       const res = await api.completed(project);
@@ -46,13 +47,15 @@ export function Completed() {
   };
 
   useEffect(() => {
+    marked.current = false;
     loadTasks();
   }, [project]);
 
   // The page's first load, for measuring it: when the rows are painted, and when every row's PR state is shown (the
   // list answers both at once, so the marks are one frame apart at most).
   useEffect(() => {
-    if (loading || marked.current) return;
+    // Only a load that showed rows: a failed one has nothing to measure.
+    if (loading || marked.current || error) return;
     marked.current = true;
     requestAnimationFrame(() => {
       try { performance.mark('completed:first-row', { detail: { rows: tasks.length } }); performance.mark('completed:pr-states'); } catch { /* marks are for measuring only */ }
