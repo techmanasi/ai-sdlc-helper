@@ -777,6 +777,13 @@ Where the time went, and what changed (`src/runs/completed.ts`):
   happens, on the row (`prError`) and for every task in `prErrors`. `SDLC_PR_TIMEOUT_MS` sets gh's timeout (3 s;
   the list gets 2 + 2 per 100 PRs times that).
 
+- **Off the request path.** The cleanup #136 added for merged runs' briefs (`cleanMergedRunBrief`, from this list
+  and from the board) now runs after the answer, with asynchronous git, one brief after another per repository (two
+  checkouts at once fight over git's index lock); `settleBriefCleanups` waits for it. A project's context, when it
+  must be built, has its three `git rev-parse` calls (about 150 ms) asked asynchronously first (`primeRepoPaths`).
+  With 20 merged tasks in worktrees whose briefs need cleaning, the longest synchronous stretch during a load is 34 ms;
+  the only longer ones are at the server's start (`gitTop`, triage's `recover`), not during a load.
+
 Section 10 asked for "no `gh` on the request path" for this page. A load with anything cached keeps to that; a cold
 load still waits for the one list, because whether a task is in the list depends on its PR being merged. Showing
 rows first and their state later would change the list's rows after they are shown; not built, see the PR.
