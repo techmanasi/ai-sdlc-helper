@@ -54,10 +54,28 @@ export function branchNameInputs(commonDir: string, prefix: string): string[] {
   return out;
 }
 
-/** True for <prefix><slug> and <prefix><slug>-<n>: a branch that is this item's run, first or moved. */
+/**
+ * True for exactly <prefix><slug> and <prefix><slug>_<n> (n a number from 2, no leading zero): this item's run, first
+ * or moved. A slug cannot hold an underscore, so no other item's branch (sdlc/foo-2 for an item foo-2) matches.
+ */
 export function isRunBranch(branch: string, prefix: string, slug: string): boolean {
   const base = `${prefix}${slug}`;
   if (!branch.startsWith(base)) return false;
   const rest = branch.slice(base.length);
-  return rest === '' || /^-\d+$/.test(rest);
+  return rest === '' || /^_[1-9]\d*$/.test(rest) && Number(rest.slice(1)) >= 2;
+}
+
+/** The branch checked out at <root> (a main checkout or a worktree), read from its HEAD file with no git call; '' when detached or unknown. */
+export function headBranchOf(root: string): string {
+  const dot = path.join(root, '.git');
+  try {
+    let gitDir = dot;
+    if (!fs.statSync(dot).isDirectory()) {
+      const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dot, 'utf8'));
+      if (!m) return '';
+      gitDir = path.resolve(root, m[1].trim());
+    }
+    const m = /^ref:\s*refs\/heads\/(.+)$/m.exec(fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf8'));
+    return m ? m[1].trim() : '';
+  } catch { return ''; }
 }

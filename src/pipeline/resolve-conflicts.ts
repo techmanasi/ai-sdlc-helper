@@ -10,14 +10,14 @@ import { addBacklogItem, parseIndex } from '../backlog/index.js';
 import { parseQuestions } from '../runs/view.js';
 import { projectRoot } from '../runs/records.js';
 import { withAnswerLines } from './questions.js';
-import { at, setAside, stamp, stop, tick, type AgentStage, type Ctx } from './context.js';
+import { at, setAside, stamp, stop, tick, type Ctx } from './context.js';
 import { getPrFromBrief, getPrStatus } from './finalise.js';
-import { promptValues, runAgent, runAudit, stageFlags, stageModelKey, stageNotes } from './agent.js';
-import { renderPrompt } from './prompts.js';
+import { runAgent, stageModelKey } from './agent.js';
+import { REVIEWERS, reviewPanel, reviewerCount, reviewSkipped, sharedReviewersText } from './review-panel.js';
 import { runSuites } from '../runners/run.js';
 import { integrationPass, targetTestFiles, testsPass } from './gates.js';
 import { resumeCommand } from './hints.js';
-import { redPattern, repairPattern, stage } from './stages.js';
+import { markStage, redPattern, repairPattern, stage } from './stages.js';
 import type { Git } from './git.js';
 
 /** The stage's name, as the status file, the run page and the recovery hints show it. */
@@ -181,14 +181,13 @@ export function leasePush(git: Git, remote: string, branch: string, lease: strin
   }
 }
 
-/** 'clean' or 'conflicts' from a merge of <theirs> into <ours> that touches no checkout; 'unknown' when git cannot say. */
-function trialMerge(git: Git, ours: string, theirs: string): 'clean' | 'conflicts' | 'unknown' {
-  try {
-    git.run('merge-tree', '--write-tree', ours, theirs);
-    return 'clean';
-  } catch (e) {
-    return (e as { status?: number }).status === 1 ? 'conflicts' : 'unknown';
-  }
+/**
+ * 'clean' or 'conflicts' from a merge of <theirs> into <ours> that touches no checkout; 'unknown' when git cannot say (a git
+ * without merge-tree --write-tree). Git's exit status is read directly: 1 means conflicts.
+ */
+export function trialMerge(git: Git, ours: string, theirs: string): 'clean' | 'conflicts' | 'unknown' {
+  const r = spawnSync('git', ['merge-tree', '--write-tree', ours, theirs], { cwd: git.root, env: git.env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return r.status === 0 ? 'clean' : r.status === 1 ? 'conflicts' : 'unknown';
 }
 
 /**
@@ -679,107 +678,31 @@ export function mergeFailureText(o: {
 
 // ---- Independent review of a resolution the agent doubts ----
 
-/** The reviewers, each with its own agent and model (so their mistakes differ). The first SDLC_RESOLVE_REVIEWERS of them review (3 by default). */
-export const REVIEWERS = ['resolve-review-1', 'resolve-review-2', 'resolve-review-3', 'resolve-review-4', 'resolve-review-5'] as const;
-export const DEFAULT_REVIEWERS = 3;
-
-/** How many reviewers judge a doubt: SDLC_RESOLVE_REVIEWERS, 0 to 5 (3 when unset or not a number). 0 leaves a doubt to the developer. */
-export function reviewerCount(env: NodeJS.ProcessEnv): number {
-  const v = (env.SDLC_RESOLVE_REVIEWERS || '').trim();
-  if (!/^\d+$/.test(v)) return DEFAULT_REVIEWERS;
-  return Math.min(REVIEWERS.length, Number(v));
-}
-
-/** SDLC_RESOLVE_REVIEW=0 (or false/off/no/skip), or no reviewers, leaves a doubt to the developer, as before the reviewers existed. */
-export const reviewSkipped = (env: NodeJS.ProcessEnv): boolean => /^(0|false|off|no|skip)$/i.test(env.SDLC_RESOLVE_REVIEW || '') || reviewerCount(env) === 0;
-
-/** The reviewers (1-based) that share an agent and model, by "<agent>:<model>": independent opinions need different ones. */
-export function sharedReviewers(keys: string[]): Array<{ model: string; reviewers: number[] }> {
-  const by = new Map<string, number[]>();
-  keys.forEach((k, i) => by.set(k, [...(by.get(k) || []), i + 1]));
-  return [...by].filter(([, n]) => n.length > 1).map(([model, reviewers]) => ({ model, reviewers }));
-}
-
-/** The same, in words for the output and the report; empty when every reviewer has its own agent and model. */
-export function sharedReviewersText(keys: string[]): string {
-  return sharedReviewers(keys).map(g => `reviewers ${g.reviewers.join(' and ')} use the same model (${g.model})`).join('; ');
-}
-
-/** A reviewer's last "VERDICT: SAFE" or "VERDICT: UNSAFE" line; anything else (no verdict, a failed agent) counts as UNSAFE. */
-export function reviewVerdict(text: string): 'SAFE' | 'UNSAFE' {
-  const last = [...text.matchAll(/^\s*VERDICT:\s*(SAFE|UNSAFE)\b/gim)].pop();
-  return last && last[1].toUpperCase() === 'SAFE' ? 'SAFE' : 'UNSAFE';
-}
-
-/** The rule: the doubt is overridden only when all <count> reviewers say SAFE. */
-export const unanimouslySafe = (verdicts: string[], count: number): boolean => count > 0 && verdicts.length === count && verdicts.every(v => v === 'SAFE');
+export { DEFAULT_REVIEWERS, REVIEWERS, reviewerCount, reviewSkipped, reviewVerdict, sharedReviewers, sharedReviewersText, unanimouslySafe } from './review-panel.js';
 
 /**
- * The agent doubted its resolution: the reviewers (read-only, 3 by default) judge it independently (in parallel, none sees another's answer).
+ * The agent doubted its resolution: the reviewer panel (read-only, 3 by default) judges it independently (in parallel, none sees another's answer).
  * All of them SAFE: the resolution goes on to the full check and the push. Otherwise the judge agent writes one plain conclusion
  * and the doubt stays, now with the opinions, for the developer. The opinions are kept in <log>/resolve-review.md.
  */
 async function reviewDoubt(ctx: Ctx, c: CodeConflict, r: CodeResolution): Promise<CodeResolution> {
   const count = reviewerCount(ctx.env);
-  const panel = REVIEWERS.slice(0, count);
-  ctx.status?.beginStep?.('review', 'Panel check in progress');
-  const shared = sharedReviewersText(panel.map(st => stageModelKey(ctx, st)));
-  if (shared) {
-    // Reviewers on the same model make the same mistakes: their agreement would prove little, so none is asked.
-    const msg = `Independent review was not run: ${shared}. Give each reviewer its own agent or model, or lower the number of reviewers.`;
-    ctx.out(`   ${msg}`);
-    fs.writeFileSync(at(ctx, `${ctx.log}/resolve-review.md`), `# Independent review of the resolution of ${c.files.join(', ')} (${stamp()})\n\n${msg}\n`);
-    return { ...r, safe: false, doubt: `${r.doubt || 'the resolver was not sure'} ${msg}` };
-  }
-  ctx.out(`   the agent is not sure: ${plural(count, 'independent reviewer')} judge${count === 1 ? 's' : ''} the resolution`);
-  ctx.status?.beginStep?.('review', `${count}/${count} reviewers started`);
-  ctx.status.agent = 'resolve-review';
-  ctx.status.agentStarted = stamp();
-  ctx.status.write();
-  const run = async (stage: AgentStage, name: string, promptName: string): Promise<{ rc: number; text: string }> => {
-    const prompt = renderPrompt(promptName, promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, stage));
-    const rc = await runAudit(ctx, prompt, stageFlags(ctx, stage), { stage, name });
-    const file = at(ctx, `${ctx.log}/${name}.log`);
-    return { rc, text: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '' };
-  };
-  let finished = 0;
-  const opinions = await Promise.all(panel.map(async (stage, i) => {
-    const o = await run(stage, `${stage}-${c.round}`, 'resolve-review');
-    ctx.status?.beginStep?.('review', `${++finished}/${count} reviewers finished`);
-    const verdict = o.rc === 0 ? reviewVerdict(o.text) : 'UNSAFE';
-    ctx.out(`   reviewer ${i + 1} (${stage}): ${o.rc === 0 ? verdict : `UNSAFE (the agent failed, exit ${o.rc})`}`);
-    return { stage, verdict, text: o.rc === 0 ? o.text.trim() : `(the reviewer failed with exit ${o.rc})` };
-  }));
-  const verdicts = opinions.map(o => o.verdict);
-  const safeCount = verdicts.filter(v => v === 'SAFE').length;
-  const all = unanimouslySafe(verdicts, count);
-
-  let conclusion = '';
-  if (!all) {
-    fs.writeFileSync(at(ctx, `${ctx.log}/resolve-review-input.md`), [
-      `# The reviewers' opinions on the resolution of ${c.files.join(', ')}`, '',
-      `The agent's doubt: ${r.doubt || '(none given)'}`, '',
-      ...opinions.flatMap((o, i) => [`## Reviewer ${i + 1} (${o.stage}): ${o.verdict}`, '', o.text, '']),
-    ].join('\n'));
-    ctx.status?.beginStep?.('review', 'Started verdict reviewer');
-    const j = await run('resolve-judge', `resolve-judge-${c.round}`, 'resolve-judge');
-    conclusion = j.rc === 0 ? j.text.trim().slice(0, 1500) : '';
-    ctx.status?.beginStep?.('review', 'Verdict finished');
-  }
-  fs.writeFileSync(at(ctx, `${ctx.log}/resolve-review.md`), [
-    `# Independent review of the resolution of ${c.files.join(', ')} (${stamp()})`, '',
-    `The agent's doubt: ${r.doubt || '(none given)'}`, '',
-    `Result: ${safeCount} of ${count} reviewers found it safe. ${all ? 'The doubt is overridden: the check and the push go on.' : 'The doubt stays: nothing is pushed.'}`, '',
-    ...(conclusion ? ['## Conclusion', '', conclusion, ''] : []),
-    ...opinions.flatMap((o, i) => [`## Reviewer ${i + 1} (${o.stage}): ${o.verdict}`, '', o.text, '']),
-  ].join('\n'));
-  if (all) {
+  const p = await reviewPanel(ctx, {
+    name: String(c.round), reviewPrompt: 'resolve-review', judgePrompt: 'resolve-judge',
+    title: `Independent review of the resolution of ${c.files.join(', ')}`,
+    inputTitle: `The reviewers' opinions on the resolution of ${c.files.join(', ')}`,
+    doubt: r.doubt, logFile: `${ctx.log}/resolve-review.md`, inputFile: `${ctx.log}/resolve-review-input.md`,
+    intro: `the agent is not sure: ${plural(count, 'independent reviewer')} judge${count === 1 ? 's' : ''} the resolution`,
+    verdictText: { safe: 'The doubt is overridden: the check and the push go on.', unsafe: 'The doubt stays: nothing is pushed.' },
+  });
+  if (!p.ran) return { ...r, safe: false, doubt: `${r.doubt || 'the resolver was not sure'} ${p.notRun}` };
+  if (p.safe) {
     ctx.out(`   ${count === 1 ? 'the reviewer' : `all ${count} reviewers`} found it safe: the doubt is overridden (${ctx.log}/resolve-review.md)`);
     const note = `the agent doubted this; ${count === 1 ? 'the independent reviewer' : `all ${count} independent reviewers`} found it safe`;
     return { safe: true, files: c.files.map(f => ({ file: f, why: `${r.files.find(x => x.file === f)?.why || 'resolved by the agent'} (${note})` })) };
   }
-  ctx.out(`   ${safeCount} of ${count} reviewers found it safe: the doubt stays (${ctx.log}/resolve-review.md)`);
-  return { ...r, safe: false, doubt: `${r.doubt || 'the resolver was not sure'} Independent review: ${safeCount} of ${count} reviewers found it safe.${conclusion ? ` ${conclusion.replace(/\s*\n\s*/g, ' ')}` : ''}` };
+  ctx.out(`   ${p.safeCount} of ${count} reviewers found it safe: the doubt stays (${ctx.log}/resolve-review.md)`);
+  return { ...r, safe: false, doubt: `${r.doubt || 'the resolver was not sure'} Independent review: ${p.safeCount} of ${count} reviewers found it safe.${p.conclusion ? ` ${p.conclusion.replace(/\s*\n\s*/g, ' ')}` : ''}` };
 }
 
 /** Writes what the agent needs for one stop: the commit, the files, both sides, the task's and the merged tasks' documents. */
@@ -891,26 +814,51 @@ export function adoptKeptAttempt(ctx: Ctx): void {
   ctx.out(`   the kept merged result is now ${ctx.branch} (${a.attempt.slice(0, 7)}; the old tip stays at refs/sdlc-backup/${ctx.branch}/local): Implement repairs it with ${ctx.docs}/merge-failure.md`);
 }
 
+/** What a call of the stage came to (today's callers at the end of the run ignore it). */
+export type ResolveStageResult = 'pushed' | 'up-to-date' | 'skipped' | 'stopped';
+
+/** A call of the stage from inside another stage (the push check after Plan): who called it, and where a stopped run resumes. */
+export interface InlineResolve { resume: string; caller: string }
+
 /**
  * Resolve conflicts: after Finalise (or started by hand on a finished run), brings the PR branch up to date with the base.
  * Skipped without a stage of its own when there is no remote branch, or with SDLC_RESOLVE_CONFLICTS=0.
+ *
+ * With opts.inline it can be called at any point of the run: the run page shows Resolve conflicts while it works and the
+ * caller's stage again when it returns; no follow-up question is asked (questions.md belongs to the caller's stage), and a
+ * stop ends the run (exit 1) with the caller's resume command. With tests.fullSuite "ci" and no task tests yet, the local
+ * check is skipped: it would be the whole suite, and CI checks the pushed result.
  */
-export async function resolveConflictsStage(ctx: Ctx): Promise<void> {
+export async function resolveConflictsStage(ctx: Ctx, opts: { inline?: InlineResolve } = {}): Promise<ResolveStageResult> {
+  const inline = opts.inline;
   if (resolveSkipped(ctx.env)) {
-    if (!ctx.status.stage) ctx.status.stage = ctx.priorStage || '';
+    if (!inline && !ctx.status.stage) ctx.status.stage = ctx.priorStage || '';
     ctx.out(`${RESOLVE_STAGE}: skipped (SDLC_RESOLVE_CONFLICTS=${ctx.env.SDLC_RESOLVE_CONFLICTS})`);
-    return;
+    return 'skipped';
   }
   if (!reviewSkipped(ctx.env)) {
     const shared = sharedReviewersText(REVIEWERS.slice(0, reviewerCount(ctx.env)).map(st => stageModelKey(ctx, st)));
     if (shared) ctx.out(`   WARNING: ${shared}; if the agent doubts a resolution, no reviewer will be asked. Give each its own agent or model.`);
   }
   const questions = at(ctx, `${ctx.docs}/questions.md`);
-  if (ctx.from === 'resolve-conflicts' && fs.existsSync(at(ctx, `${ctx.log}/${FOLLOW_UP}`)) && fs.existsSync(questions)) {
+  if (!inline && ctx.from === 'resolve-conflicts' && fs.existsSync(at(ctx, `${ctx.log}/${FOLLOW_UP}`)) && fs.existsSync(questions)) {
     stage(ctx, RESOLVE_STAGE);
     answerFollowUp(ctx);
-    return;
+    return 'skipped';
   }
+  const caller = { attempt: ctx.status.attempt };
+  // Inline: the caller's stage is shown again once the stage is done (or stopped), with this stage's files credited to it.
+  const backToCaller = (): void => {
+    if (!inline || ctx.status.stage !== RESOLVE_STAGE) return;
+    markStage(ctx, RESOLVE_STAGE);
+    ctx.status.stage = inline.caller;
+    ctx.status.agent = '';
+    ctx.status.attempt = caller.attempt;
+    ctx.status.step = null;
+    ctx.status.write();
+    ctx.out(`   back to ${inline.caller || 'the run'}`);
+  };
+  const ciOnly = (ctx.config.tests as { fullSuite?: string } | undefined)?.fullSuite === 'ci';
   const base = ctx.config.git.base || 'main';
   const recordFile = at(ctx, `${ctx.log}/resolve-conflicts.json`);
   const result = await resolveConflicts({
@@ -929,6 +877,11 @@ export async function resolveConflictsStage(ctx: Ctx): Promise<void> {
       return !r.safe && /^\s*VERDICT:\s*DOUBT/im.test(text) && !reviewSkipped(ctx.env) ? reviewDoubt(ctx, c, r) : r;
     },
     verify: async () => {
+      // Before Red tests there are no task tests: the check would be the whole suite here, which CI runs on the push.
+      if (inline && ciOnly && !targetTestFiles(ctx).length) {
+        ctx.out('   tests.fullSuite is "ci" and the task has no tests yet: the local check is skipped, CI checks the pushed branch');
+        return true;
+      }
       const ok = await fullCheck(ctx);
       if (!ok) baselineCheck(ctx, base, ctx.branch);
       return ok;
@@ -939,9 +892,9 @@ export async function resolveConflictsStage(ctx: Ctx): Promise<void> {
   const lines = outcomeLines(result, 'origin', ctx.branch, check);
   if (result.kind === 'skipped') {
     // No stage ran: a run started here stays at the stage it had (Finalise).
-    if (!ctx.status.stage) ctx.status.stage = ctx.priorStage || '';
+    if (!inline && !ctx.status.stage) ctx.status.stage = ctx.priorStage || '';
     ctx.out(`${RESOLVE_STAGE}: ${lines[0]}`);
-    return;
+    return 'skipped';
   }
   fs.writeFileSync(at(ctx, `${ctx.log}/resolve-conflicts.md`), `# ${RESOLVE_STAGE} (${stamp()})\n\n${lines.join('\n')}\n`);
   for (const l of lines) ctx.out(l);
@@ -953,7 +906,11 @@ export async function resolveConflictsStage(ctx: Ctx): Promise<void> {
     ctx.lockSha = ctx.git.head();
     if (ctx.redSha) ctx.out(`   tests commit is now ${ctx.redSha.slice(0, 7)}`);
   }
-  if (result.kind !== 'stopped') return;
+  if (result.kind !== 'stopped') { backToCaller(); return result.kind; }
+  if (inline) {
+    backToCaller();
+    stop(ctx, `${RESOLVE_STAGE} stopped, nothing pushed: ${result.reason} (see ${ctx.log}/resolve-conflicts.md). Resume when fixed: ${resumeCommand(ctx.slug, inline.resume)}`, 1);
+  }
   if (!result.offer) {
     const next = result.checkFailed ? 'Press Resolve conflicts to try again' : 'Resume when fixed';
     stop(ctx, `${RESOLVE_STAGE} stopped, nothing pushed: ${result.reason}. ${next}: ${resumeCommand(ctx.slug, 'resolve-conflicts')}`, 1);
@@ -964,5 +921,5 @@ export async function resolveConflictsStage(ctx: Ctx): Promise<void> {
   const newSlug = nextFollowUpSlug([projectRoot(ctx.root, ctx.env), ctx.root], ctx.config.backlogDir, ctx.slug);
   fs.writeFileSync(at(ctx, `${ctx.log}/${FOLLOW_UP}`), followUpBrief({ slug: ctx.slug, newSlug, docs: ctx.docs, base, reason: result.reason, conflict: result.conflict, merged, record }));
   askFollowUp(ctx, newSlug);
-  stop(ctx, `PAUSED: ${RESOLVE_STAGE} did not push (${result.reason}). Answer yes in ${ctx.docs}/questions.md to add the follow-up item ${newSlug}, then resume: ${resumeCommand(ctx.slug, 'resolve-conflicts')}`, 2);
+  return stop(ctx, `PAUSED: ${RESOLVE_STAGE} did not push (${result.reason}). Answer yes in ${ctx.docs}/questions.md to add the follow-up item ${newSlug}, then resume: ${resumeCommand(ctx.slug, 'resolve-conflicts')}`, 2);
 }

@@ -92,12 +92,33 @@ Entry format: **Symptom** (what the user sees), **How to tell** (where to look),
 - **Gap:** a task can need Test repair twice (after a rebase, or after a lint rule changes). Entry 1 tells the user to resume at Test repair; this check can then refuse it.
 - **Status:** open (seen on `ci-full-suite-gate`, 2026-11-11). Proposed: allow the resume when the lint or test check still reports defects in locked test files, and say so in the message.
 
-## 10. The run's branch on origin has commits this run does not have, or its pull request is closed or merged
+## 10. The run's branch cannot be pushed: the push check
 
-- **Symptom:** `run.out` shows `MOVED` lines at the start of a Spec or Plan, and the run page shows `moved from <old branch>: <reason>` and a branch ending in `-2` (or `-3`, and so on).
-- **How to tell:** `status.json` holds `branch` and `moved_from` (old branch, reason, old pull request); `attempts.jsonl` has a `move` row; the brief's `pr:` line points at the new draft pull request.
-- **Cause:** a push of `<prefix><slug>` cannot work: origin's branch has commits the run does not have, or its pull request is closed or merged. The same happens when a later push is refused.
-- **What happens:** the work goes on on `<prefix><slug>-N` with a new draft pull request, and the brief points at it. The old branch and its pull request are left alone. `SDLC_MOVE_BRANCH=0` turns this off.
-- **What is not done:** the old pull request is not closed; the brief in the main checkout is not edited; a start at Resolve conflicts (or Review) never moves.
+- **Symptom:** `run.out` shows a `Push check:` line after Plan (and after a refused push later). Sometimes `MOVED:` lines follow, and the run page shows `moved from <old branch>: <reason in words>` and a branch ending in `_2` (or `_3`, and so on).
+- **How to tell:** `attempts.jsonl` has a `push-check` row (`finding`, `action`) for every check and a `move` row for a move; `status.json` holds `branch` and `moved_from` (old branch, `reason`, `reason_text`, old pull request); the brief's `pr:` line points at the new draft pull request once Red tests has pushed. Anything git said in full is in `errors.log`.
+- **When it runs:** after Plan and before Red tests, for a start at Spec, Plan or Red tests (after the check that refuses a start whose red-tests commit exists, so a refused start changes nothing). Again when origin refuses a push at the start of CI (Red tests, a resumed Implement, Test repair or Review in `tests.fullSuite: "ci"` mode) or Implement's own push. Never in Resolve conflicts, and never on a kept attempt (`SDLC_ON_ATTEMPT=1`, "Fix with Implement"): that branch is rebased on purpose and keeps its pull request.
+- **The ladder** (L is the run's HEAD, R origin's branch, B origin's base, else the local base). The first row that applies decides:
+
+  | Finding | What is done |
+  | --- | --- |
+  | No `origin` remote | nothing |
+  | Origin cannot be asked (the fetch fails, not "no such branch") | nothing; one `errors.log` entry |
+  | The pull request (brief link, else by branch) is closed or merged | new branch |
+  | R is absent, or L contains R, and a trial push (`--dry-run`) works | nothing: the branch can be pushed |
+  | L is behind R, the run started at Spec or Plan and has no commits of its own | new branch (R is an earlier run's work) |
+  | L is behind R otherwise | fast-forward to R |
+  | Diverged, and every commit of R has the same change in L | push with `--force-with-lease=<branch>:<R>` |
+  | Diverged otherwise, clean tree, rebase onto R is clean | rebase onto R and push |
+  | Diverged, the rebase stops on a conflict (it is aborted), or tracked files have uncommitted changes | new branch |
+  | Any other trial-push failure, a stale lease, or a failed push after the fix | new branch |
+
+  After a fix, when the branch is on origin and a trial merge (`git merge-tree --write-tree`) of L and B conflicts, Resolve conflicts runs at once, inside the run: the run page shows Resolve conflicts and then the calling stage again; it asks no follow-up question, and a stop ends the run with the calling stage's resume command. With `tests.fullSuite: "ci"` and no task tests yet, its local check is skipped (it would be the whole suite) and CI checks the pushed branch.
+- **New branch:** `<prefix><slug>_N`, N from 2, skipping every name that exists as a local branch, a remote-tracking branch, or on origin now. A slug has no underscore, so the name is never another item's branch (`<slug>-2`, `<slug>-resolve-conflict-1`). It is made from B with the run's own commits picked onto it; when a pick conflicts, everything is put back and the branch starts at L instead (the output says which). Its draft pull request says what it replaces and why; when nothing is committed yet, Red tests pushes it, opens the pull request and commits the link (`chore(<slug>): link pull request`). If that push fails too, the run goes on as for any failed push (in `ci` mode, the full suite runs locally); it never tries again in a loop.
+- **Switches:** `SDLC_PUSH_CHECK=0` (or `no`, `off`) skips the whole check. `SDLC_MOVE_BRANCH=0` keeps the branch when the ladder ends at "new branch" (the fast-forward, lease push, rebase and Resolve conflicts still apply).
+- **What is never done:** a bare `git push --force`; deleting or closing the old branch or its pull request (a lease push replaces origin's commits only with the same changes, and the old tip is kept at `refs/sdlc-backup/<branch>/remote`; the local one before any rewrite at `refs/sdlc-backup/<branch>/local`).
 - **Gap:** the old pull request stays open for a person to close.
-- **Status:** handled.
+- **Open:**
+  - Discard or restart after a move deletes only the new branch; the old one (and its pull request) stays.
+  - The main checkout's brief keeps the old pull request link until Finalise.
+  - A failed `gh pr create` logs no stderr (`errors.log` says "no output available").
+- **Status:** handled (open points above).

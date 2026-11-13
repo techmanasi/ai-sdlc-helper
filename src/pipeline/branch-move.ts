@@ -1,21 +1,23 @@
 // A run whose branch cannot be pushed goes on on a new branch with its own pull request, so no one's work is rewritten.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from '../trace.js';
 import { isRunBranch } from '../gitdir.js';
 import type { Ctx } from './context.js';
 import { keepError } from './errors.js';
-import { clearPrCache, clearPrInBrief, createOrGetPr, getPrFromBrief, getPrStatus, recordPrInBrief } from './finalise.js';
+import { clearPrInBrief, createOrGetPr, getPrFromBrief, recordPrInBrief } from './finalise.js';
 import { draftPrText } from './ci.js';
 import { appendRound } from './observe.js';
-import type { Git } from './git.js';
+import { moveReasonText } from './status.js';
+import { Git } from './git.js';
 
-export { isRunBranch };
+export { isRunBranch, moveReasonText };
 
-/** Why a run cannot go on on its branch. */
-export type MoveReason =
-  | { kind: 'remote-ahead'; detail: string }
-  | { kind: 'pr-closed' | 'pr-merged'; detail: string };
+/** Why a run goes on on a new branch: a code (moved_from.reason) and the details for the output. */
+export interface MoveReason {
+  /** pr-closed, pr-merged, earlier-run, diverged, push-refused (remote-ahead in status files from before the push check). */
+  kind: string;
+  detail: string;
+}
 
 /**
  * True when the developer turned the move off (SDLC_MOVE_BRANCH=0, no or off): the run then keeps its branch and a
@@ -25,62 +27,42 @@ export const moveSkipped = (env: NodeJS.ProcessEnv): boolean => ['0', 'no', 'off
 
 const exists = (git: Git, ref: string): boolean => git.tryRun('rev-parse', '--verify', '--quiet', ref) !== null;
 
-/** The first free <prefix><slug>-N (N from 2, or one past the branch the run is on now), checking here and on origin. */
+/** The branches named <base>_* on origin, asked now (a ref fetched earlier may be stale); empty when origin cannot be asked. */
+function remoteMoved(git: Git, base: string): Set<string> {
+  if (git.tryRun('remote', 'get-url', 'origin') === null) return new Set();
+  try {
+    const out = new Git(git.root, { ...git.env, GIT_TERMINAL_PROMPT: '0' }).runTimeout(30_000, 'ls-remote', '--heads', 'origin', `${base}_*`);
+    return new Set(out.split('\n').map(l => /\trefs\/heads\/(.+)$/.exec(l)?.[1]).filter((n): n is string => !!n));
+  } catch { return new Set(); }
+}
+
+/**
+ * The first free <prefix><slug>_N (N from 2, or one past the branch the run is on now): not a local branch (shared by every
+ * worktree of the repository), not a remote-tracking branch, and not on origin now. A slug holds no underscore, so the
+ * name is never another backlog item's branch (<slug>-2, or a follow-up item <slug>-resolve-conflict-N).
+ */
 export function nextRunBranch(git: Git, prefix: string, slug: string): string {
   const base = `${prefix}${slug}`;
   const current = (git.tryRun('symbolic-ref', '--short', '-q', 'HEAD') || '').trim();
-  const m = current.startsWith(`${base}-`) ? /^-(\d+)$/.exec(current.slice(base.length)) : null;
+  const m = current.startsWith(`${base}_`) ? /^_(\d+)$/.exec(current.slice(base.length)) : null;
   let n = m ? Number(m[1]) + 1 : 2;
-  while (exists(git, `refs/heads/${base}-${n}`) || exists(git, `refs/remotes/origin/${base}-${n}`)) n++;
-  return `${base}-${n}`;
+  const remote = remoteMoved(git, base);
+  const taken = (name: string): boolean => exists(git, `refs/heads/${name}`) || exists(git, `refs/remotes/origin/${name}`) || remote.has(name);
+  while (taken(`${base}_${n}`)) n++;
+  return `${base}_${n}`;
 }
 
 const briefFile = (ctx: Ctx): string => path.join(ctx.root, ctx.docs, 'brief.md');
 const readBrief = (ctx: Ctx): string | null => { try { return fs.readFileSync(briefFile(ctx), 'utf8'); } catch { return null; } };
 
 /**
- * Why the run should not push to its branch: origin's branch has commits the run does not have, or its pull request is
- * closed or merged. Null when it can (or when origin or gh cannot be asked: the run goes on as it did).
+ * Switches the run to a new branch and records the move (status, brief, attempts log). <create> makes the branch and
+ * checks it out (default: from where the run is); the bookkeeping is the same whichever way it was made. Returns its name.
  */
-export function whyMove(ctx: Ctx): MoveReason | null {
-  const remotes = (ctx.git.tryRun('remote') || '').split('\n').map(s => s.trim());
-  if (!remotes.includes('origin')) return null;
-  const branch = ctx.branch;
-  let remoteBranch = true;
-  try { ctx.git.runTimeout(30_000, 'fetch', '-q', 'origin', branch); } catch (e) {
-    const message = (e as Error).message;
-    if (/couldn't find remote ref/.test(message)) remoteBranch = false;
-    else {
-      keepError(ctx, 'fetch', message);
-      ctx.out(`   could not ask origin about ${branch} (see ${ctx.log}/errors.log): going on with it`);
-      return null;
-    }
-  }
-  const ref = `refs/remotes/origin/${branch}`;
-  if (remoteBranch && exists(ctx.git, ref) && ctx.git.tryRun('merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD') === null) {
-    const n = (ctx.git.tryRun('rev-list', '--count', `HEAD..origin/${branch}`) || '').trim() || 'some';
-    return { kind: 'remote-ahead', detail: `${n} commits on origin/${branch} are not in this run` };
-  }
-  const gh = spawnSync('gh', ['--version'], { cwd: ctx.root, encoding: 'utf8', env: ctx.env, timeout: 30_000 });
-  if (!gh || gh.status !== 0) return null;
-  const text = readBrief(ctx);
-  const briefPr = text ? getPrFromBrief(text) : null;
-  clearPrCache();
-  const pr = getPrStatus(ctx.root, briefPr || branch, ctx.env);
-  if (pr?.state === 'CLOSED') return { kind: 'pr-closed', detail: pr.url };
-  if (pr?.state === 'MERGED') return { kind: 'pr-merged', detail: pr.url };
-  return null;
-}
-
-const sentence = (r: MoveReason): string =>
-  r.kind === 'remote-ahead' ? `${r.detail}, so a push would be refused`
-    : r.kind === 'pr-closed' ? `its pull request is closed (${r.detail})` : `its pull request is merged (${r.detail})`;
-
-/** Switches the run to a new branch from where it is, and records the move (status, brief, attempts log). */
-export function moveToNewBranch(ctx: Ctx, reason: MoveReason): void {
+export function moveToNewBranch(ctx: Ctx, reason: MoveReason, create: (to: string) => void = to => { ctx.git.run('checkout', '-q', '-b', to); }): string {
   const from = ctx.branch;
   const to = nextRunBranch(ctx.git, ctx.config.git.branchPrefix, ctx.slug);
-  ctx.git.run('checkout', '-q', '-b', to);
+  create(to);
   ctx.branch = to;
 
   let oldPr: string | null = null;
@@ -90,21 +72,22 @@ export function moveToNewBranch(ctx: Ctx, reason: MoveReason): void {
     const cleared = clearPrInBrief(text);
     if (cleared !== text) fs.writeFileSync(briefFile(ctx), cleared);
   }
-  if (!oldPr && reason.kind !== 'remote-ahead') oldPr = reason.detail;
+  if (!oldPr && (reason.kind === 'pr-closed' || reason.kind === 'pr-merged')) oldPr = reason.detail;
   if (!oldPr && ctx.status.ci?.pr) oldPr = ctx.status.ci.pr;
 
   const at = new Date().toISOString();
   ctx.status.branch = to;
-  ctx.status.movedFrom = { branch: from, reason: reason.kind, ...(oldPr ? { pr: oldPr } : {}), at };
+  ctx.status.movedFrom = { branch: from, reason: reason.kind, reason_text: moveReasonText(reason.kind), ...(oldPr ? { pr: oldPr } : {}), at };
   // The old pull request's CI state is not this run's now.
   if (ctx.status.ci && (!ctx.status.ci.pr || ctx.status.ci.pr === oldPr)) ctx.status.ci = undefined;
   ctx.status.write();
   ctx.movedFrom = { branch: from, pr: oldPr, reason: reason.kind };
 
   ctx.out(`MOVED: this run continues on branch ${to}`);
-  ctx.out(`   why: ${sentence(reason)}`);
+  ctx.out(`   why: ${moveReasonText(reason.kind)}${reason.detail ? ` (${reason.detail})` : ''}`);
   ctx.out(`   ${from} and its pull request are left as they are; a new pull request is opened for ${to}`);
   appendRound(path.join(ctx.root, ctx.log), { kind: 'move', at, from, to, reason: reason.kind });
+  return to;
 }
 
 /**
@@ -125,9 +108,9 @@ export async function openMovedPr(ctx: Ctx): Promise<string | null> {
     ctx.out(`   could not push ${ctx.branch} (see ${ctx.log}/errors.log): its pull request is not opened yet`);
     return null;
   }
+  // draftPrText names what the pull request replaces.
   const { title, body } = draftPrText(ctx);
-  const old = ctx.movedFrom.pr || `branch ${ctx.movedFrom.branch}`;
-  const url = createOrGetPr(ctx.root, ctx.branch, title, `${body}\n\nReplaces ${old} (${ctx.movedFrom.reason || 'moved'}).`, ctx.config.git.base || undefined, { draft: true });
+  const url = createOrGetPr(ctx.root, ctx.branch, title, body, ctx.config.git.base || undefined, { draft: true });
   if (!url) {
     keepError(ctx, 'gh pr create', 'no output available');
     ctx.out(`   could not open a pull request for ${ctx.branch} (see ${ctx.log}/errors.log)`);

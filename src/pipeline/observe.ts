@@ -156,7 +156,10 @@ export function repeatedFailures(previous: string[] | null, now: string[]): bool
 /** Written when a run moves to a new branch (readRounds ignores it). */
 export interface MoveMark { kind: 'move'; at: string; from: string; to: string; reason: string }
 
-export function appendRound(logDir: string, row: AgentRound | GateResult | RoundStart | RunMark | MoveMark): void {
+/** Written by the push check (push-check.ts): what it found and what it did (readRounds ignores it). */
+export interface PushCheckMark { kind: 'push-check'; at: string; branch: string; finding: string; action: string; detail?: string }
+
+export function appendRound(logDir: string, row: AgentRound | GateResult | RoundStart | RunMark | MoveMark | PushCheckMark): void {
   try {
     fs.mkdirSync(logDir, { recursive: true });
     fs.appendFileSync(path.join(logDir, 'attempts.jsonl'), `${JSON.stringify(row)}\n`);

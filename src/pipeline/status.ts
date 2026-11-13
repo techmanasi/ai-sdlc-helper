@@ -36,7 +36,21 @@ export interface StatusLine {
 }
 
 /** Where a run came from when it moved to a new branch, and why. */
-export interface MovedFrom { branch: string; reason: string; pr?: string | null; at: string }
+/** reason is a code (see moveReasonText in branch-move.ts); reason_text says it in words for the run page. */
+export interface MovedFrom { branch: string; reason: string; reason_text?: string; pr?: string | null; at: string }
+
+/** A move's reason in words, for the run page and the pull request. */
+export function moveReasonText(kind: string): string {
+  switch (kind) {
+    case 'pr-closed': return 'its pull request is closed';
+    case 'pr-merged': return 'its pull request is merged';
+    case 'earlier-run': return "origin's branch holds an earlier run's work";
+    case 'diverged': return "origin's branch has other commits that do not combine with this run's without a conflict";
+    case 'push-refused': return 'origin refused the push for a reason the push check does not know';
+    case 'remote-ahead': return "origin's branch has commits this run does not have";
+    default: return kind || 'moved';
+  }
+}
 
 /** How the start before this one ended, as far as is known. */
 export interface PreviousRun { stage?: string; state?: string; at?: string }

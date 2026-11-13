@@ -17,7 +17,8 @@ import { Git } from './git.js';
 import { envModels, modelEnvOf, registryFile, stageModels } from './models.js';
 import { PROMPTS_DIR } from './prompts.js';
 import { Status, finalState, previousBranch, previousStage, previousState } from './status.js';
-import { isRunBranch, moveSkipped, moveToNewBranch, openMovedPr, whyMove } from './branch-move.js';
+import { isRunBranch } from './branch-move.js';
+import { ensurePushable } from './push-check.js';
 import { formatRecoveryCli, stageRecoveryHint } from './hints.js';
 import { appendRound, priorStarts } from './observe.js';
 import { redCommitTestFiles, resultsAt } from './gates.js';
@@ -200,7 +201,7 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
   status.runNumber = runNumber;
   status.previousRun = previousRun;
   const git = new Git(root, env);
-  // A run that moved to <prefix><slug>-N stays there on a resume: the worktree's branch is the run's branch.
+  // A run that moved to <prefix><slug>_N stays there on a resume: the worktree's branch is the run's branch.
   const defaultBranch = `${config.git.branchPrefix}${slug}`;
   const current = (git.tryRun('symbolic-ref', '--short', '-q', 'HEAD') || '').trim();
   const branch = current && isRunBranch(current, config.git.branchPrefix, slug) ? current : defaultBranch;
@@ -226,12 +227,6 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
 async function stages(ctx: Ctx): Promise<void> {
   const { git, fromN } = ctx;
   git.checkoutBranch(ctx.branch);
-  // A start at Spec or Plan on a branch origin has moved on from, or whose pull request is closed or merged, goes on
-  // a new branch (a later start never moves: Resolve conflicts works on the pull request's own branch).
-  if ((ctx.from === 'spec' || ctx.from === 'plan') && !moveSkipped(ctx.env)) {
-    const why = whyMove(ctx);
-    if (why) { moveToNewBranch(ctx, why); await openMovedPr(ctx); }
-  }
   // "Fix with Implement": the kept merged result becomes the branch before anything else touches the logs it ended with.
   if (ctx.env.SDLC_ON_ATTEMPT === '1') adoptKeptAttempt(ctx);
   await tick();
@@ -262,6 +257,9 @@ async function stages(ctx: Ctx): Promise<void> {
 
   if (fromN <= 1) await specStage(ctx);
   if (fromN <= 2) await planStage(ctx);
+  // The push check: before Red tests commits and pushes anything, the branch is made pushable (or the run moves to a new
+  // branch). After refuseRedone, so a refused start changes nothing; not on a kept attempt, which keeps its pull request.
+  if (fromN <= 3 && ctx.env.SDLC_ON_ATTEMPT !== '1') await ensurePushable(ctx, { resume: 'red-tests', fresh: ctx.from === 'spec' || ctx.from === 'plan' });
   if (fromN <= 3) await redTestsStage(ctx);
   else resumeAtTests(ctx);
   ctx.origRedSha = ctx.redSha;

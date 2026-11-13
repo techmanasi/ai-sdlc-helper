@@ -27,6 +27,8 @@ export interface Job {
   /** Deleted once every setup step passed, so a failed setup runs again on the next start. */
   setupMarker: string;
   record: RunRecord;
+  /** The branch prefix (sdlc/): a moved run's branch is <prefix><slug>_<n>. */
+  prefix: string;
 }
 
 const SOURCE = String.raw`
@@ -56,8 +58,8 @@ function finish(rc, message) {
   try {
     const r = spawnSync('git', ['-C', job.record.worktree, 'symbolic-ref', '--short', '-q', 'HEAD'], { encoding: 'utf8' });
     const b = String(r.stdout || '').trim();
-    const stem = b.replace(/-[0-9]+$/, '');
-    if (r.status === 0 && b && (stem === job.slug || stem.endsWith('/' + job.slug))) branch = b;
+    const own = job.prefix + job.slug;
+    if (r.status === 0 && (b === own || (b.startsWith(own + '_') && /^[1-9][0-9]*$/.test(b.slice(own.length + 1)) && Number(b.slice(own.length + 1)) >= 2))) branch = b;
   } catch (e) { /* keep the old one */ }
   const rec = Object.assign({}, job.record, branch ? { branch } : {}, {
     pid: process.pid, state: 'exited', exit_code: String(rc), interrupted: fs.existsSync(job.interruptFile), finished: now(), message: message || '',

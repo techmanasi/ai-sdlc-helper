@@ -3,8 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ciFailureReport, getPrFromBrief, type CiState } from '../pipeline/finalise.js';
-import { readRecord } from './records.js';
-import { runWorktree, type RunContext } from './index.js';
+import { liveBranch, liveBriefPr, runWorktree, type RunContext } from './index.js';
 import { syncPrComments } from './completed.js';
 import { syncRunPr, type PrCard } from './view.js';
 
@@ -29,11 +28,8 @@ function docsDirs(ctx: RunContext, slug: string): string[] {
   return dirs;
 }
 
-const targetOf = (ctx: RunContext, slug: string): string => {
-  const brief = path.join(ctx.root, ctx.backlogDir, slug, 'brief.md');
-  const pr = getPrFromBrief(fs.existsSync(brief) ? fs.readFileSync(brief, 'utf8') : '');
-  return pr || readRecord(ctx.reg, slug)?.branch || `${ctx.branchPrefix}${slug}`;
-};
+/** The pull request to ask about: the brief's link (the worktree's first: a moved run's new one is there), else the run's branch now. */
+const targetOf = (ctx: RunContext, slug: string): string => liveBriefPr(ctx, slug, getPrFromBrief) || liveBranch(ctx, slug);
 
 /** Writes (or, when the CI is not failing, removes) ci-failure.md for <slug>; answers what GitHub said. */
 export function writeCiFailure(ctx: RunContext, slug: string): { ok: boolean; ci: CiState; failing: string[]; summary: string[]; err?: string[] } {
