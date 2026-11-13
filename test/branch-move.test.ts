@@ -46,7 +46,7 @@ function setup(prefix: string, withBrief = `---\npr: ${OLD_PR}\n---\n\n# ${slug}
   ].join('\n'), { mode: 0o755 });
   process.env.PATH = `${bin}:${saved.PATH}`;
   process.env.GHDIR = ghDir;
-  spawnSync('git', ['init', '-q', '--bare', origin]);
+  spawnSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
   spawnSync('git', ['init', '-q', '-b', 'main', repo]);
   sh(repo, 'config', 'user.email', 't@example.com');
   sh(repo, 'config', 'user.name', 'T');
@@ -111,7 +111,7 @@ describe('nextRunBranch', () => {
     sh(repo, 'branch', 'sdlc/foo_2');
     const other = path.join(root, 'other');
     spawnSync('git', ['clone', '-q', origin, other]);
-    sh(other, 'push', '-q', 'origin', 'HEAD:refs/heads/sdlc/foo_3');
+    sh(other, 'push', '-q', 'origin', 'origin/main:refs/heads/sdlc/foo_3');
     expect(sh(repo, 'branch', '-r', '--list', 'origin/sdlc/foo_3')).toBe('');
     expect(nextRunBranch(ctx.git, 'sdlc/', slug)).toBe('sdlc/foo_4');
     // _4 only as a remote-tracking ref (deleted on origin since).
@@ -462,7 +462,12 @@ describe('ensurePushable, when origin takes no push or gh is missing', () => {
 
   it('says once that gh is not available when it is not on PATH', async () => {
     const ctx = setup('sdlc/');
-    ctx.env = { ...ctx.env, PATH: '/usr/bin:/bin' };
+    // A PATH with git and nothing else (a system folder may hold gh: GitHub's runners have it in /usr/bin).
+    const only = path.join(root, 'only-git');
+    fs.mkdirSync(only);
+    const realGit = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+    fs.symlinkSync(realGit, path.join(only, 'git'));
+    ctx.env = { ...ctx.env, PATH: only };
     await ensurePushable(ctx, { resume: 'red-tests', fresh: true });
     expect(lines.filter(l => l === "Push check: gh is not available, so the pull request's state was not checked")).toHaveLength(1);
     expect(ctx.branch).toBe('sdlc/foo');

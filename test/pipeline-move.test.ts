@@ -33,7 +33,7 @@ function fakeGh(f: Fixture): void {
 /** A bare origin holding main, and a second clone of it. */
 function withOrigin(f: Fixture): { origin: string; other: string } {
   const origin = path.join(path.dirname(f.dir), 'origin.git');
-  spawnSync('git', ['init', '-q', '--bare', origin]);
+  spawnSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
   git(f.dir, 'remote', 'add', 'origin', origin);
   git(f.dir, 'push', '-q', 'origin', 'main');
   const other = path.join(path.dirname(f.dir), 'other');
