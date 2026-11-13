@@ -371,6 +371,67 @@ describe('ensurePushable', () => {
     expect(lines.join('\n')).toContain(`made from origin/main (${ahead.slice(0, 7)}) with this run's own commits`);
   });
 
+  const closedPr = () => fs.writeFileSync(path.join(ghDir, 'view.json'), JSON.stringify({ url: OLD_PR, state: 'CLOSED', number: 5 }));
+  const stoppedHere = (head: string) => {
+    expect([sh(repo, 'symbolic-ref', '--short', 'HEAD'), sh(repo, 'rev-parse', 'HEAD'), sh(repo, 'branch', '--list', 'sdlc/foo_*')]).toEqual(['sdlc/foo', head, '']);
+    expect(sh(repo, 'rev-parse', 'refs/sdlc-backup/sdlc/foo/local')).toBe(head);
+    expect(fs.existsSync(path.join(repo, '.git', 'rebase-merge'))).toBe(false);
+    expect(spawnSync('git', ['-C', origin, 'rev-parse', '--verify', '-q', 'sdlc/foo_2']).status).not.toBe(0);
+    expect(checks().map(c => c.action)).toEqual(['new-branch-stopped']);
+  };
+  const errorsLog = () => fs.readFileSync(path.join(repo, `docs/backlog/${slug}/logs/errors.log`), 'utf8');
+
+  it('uncommitted changes that conflict with origin\'s base when put back: the run stops, the old branch gets them back, the stash is kept', async () => {
+    const ctx = setup('sdlc/');
+    const head = sh(repo, 'rev-parse', 'HEAD');
+    const rel = `${ctx.docs}/brief.md`;
+    const other = otherClone();
+    sh(other, 'checkout', '-q', 'main');
+    commitFile(other, rel, `---\npr: ${OLD_PR}\n---\n\n# ${slug} on the base\n`);
+    sh(other, 'push', '-q', 'origin', 'main');
+    const mine = `---\npr: ${OLD_PR}\n---\n\n# ${slug} edited here\n`;
+    fs.writeFileSync(path.join(repo, rel), mine);
+    closedPr();
+    await expect(ensurePushable(ctx, { resume: 'red-tests', fresh: true })).rejects.toThrow();
+    stoppedHere(head);
+    expect(fs.readFileSync(path.join(repo, rel), 'utf8')).toBe(mine);
+    expect(sh(repo, 'diff', '--name-only', '--diff-filter=U')).toBe('');
+    expect(sh(repo, 'stash', 'list')).not.toBe('');
+    const said = lines.join('\n');
+    expect(said).toContain(`your uncommitted changes conflict with origin/main in ${rel}`);
+    expect(said).toContain('Push check: your uncommitted changes are back in the working tree of sdlc/foo; a copy stays in the stash');
+    expect(errorsLog()).toContain(`your uncommitted changes conflict with origin/main in ${rel}`);
+  });
+
+  it('the rebase onto origin\'s base cannot start (an untracked file is in the way): the run stops and nothing moves', async () => {
+    const ctx = setup('sdlc/');
+    const head = sh(repo, 'rev-parse', 'HEAD');
+    const other = otherClone();
+    sh(other, 'checkout', '-q', 'main');
+    commitFile(other, 'new.txt', 'theirs\n');
+    sh(other, 'push', '-q', 'origin', 'main');
+    fs.writeFileSync(path.join(repo, 'new.txt'), 'mine, untracked\n');
+    closedPr();
+    await expect(ensurePushable(ctx, { resume: 'red-tests', fresh: true })).rejects.toThrow();
+    stoppedHere(head);
+    expect(fs.readFileSync(path.join(repo, 'new.txt'), 'utf8')).toBe('mine, untracked\n');
+    expect(lines.join('\n')).toContain('the rebase onto origin/main did not complete');
+    expect(errorsLog()).toMatch(/untracked working tree files would be overwritten/);
+  });
+
+  it('a branch that shares no commit with origin\'s base: the run stops instead of making a branch without its commits', async () => {
+    const ctx = setup('sdlc/');
+    // The same files, in a commit with no parent: nothing tells the run's own commits from the rest.
+    const unrelated = sh(repo, 'commit-tree', sh(repo, 'rev-parse', 'HEAD^{tree}'), '-m', 'unrelated');
+    sh(repo, 'reset', '-q', '--hard', unrelated);
+    closedPr();
+    await expect(ensurePushable(ctx, { resume: 'red-tests', fresh: true })).rejects.toThrow();
+    stoppedHere(unrelated);
+    expect(lines.join('\n')).toContain('sdlc/foo shares no commit with origin/main');
+    expect(lines.join('\n')).toContain(`refs/sdlc-backup/sdlc/foo/local is ${unrelated.slice(0, 7)}`);
+    expect(errorsLog()).toContain('found nothing');
+  });
+
   it('origin\'s base cannot be fetched: the run does not move, and says why', async () => {
     const ctx = setup('sdlc/');
     // The base exists here only: a new branch would have to come from the local one, which is never used.

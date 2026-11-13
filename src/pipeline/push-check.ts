@@ -201,18 +201,30 @@ async function branchFromOriginBase(ctx: Ctx, to: string, upstream: string, resu
   const keep = (where: string, text: string): void => keepError(ctx, where, text);
   let reason = '';
   let detail = '';
-  try {
+  // The autostash git leaves behind when putting the uncommitted changes back conflicts (the rebase still exits 0).
+  let leftStash = '';
+  let resolverRan = false;
+  // Without a common commit, the run's own commits cannot be told from the rest: the run stops rather than leave them out.
+  if (!oldBase) {
+    reason = `${from} shares no commit with origin/${baseName}, so this run's own commits cannot be told apart`;
+    detail = `${reason}\ngit merge-base ${local} ${upstream} found nothing`;
+  } else try {
+    const before = stashes(git);
     let started = '';
-    // Without a common commit there is nothing of the run's own to carry: the branch is the base.
-    const args = oldBase ? [upstream] : ['--onto', upstream, local];
-    try { git.run('-c', 'core.editor=true', 'rebase', '--autostash', '-q', ...args); } catch (e) { started = (e as Error).message; }
-    const r = await resolveRebaseStops({ git, upstream, oldBase: oldBase || local, docDirs: [ctx.config.backlogDir], resolveCode: resolverFor(ctx), resolved, out: l => ctx.out(l) });
+    try { git.run('-c', 'core.editor=true', 'rebase', '--autostash', '-q', upstream); } catch (e) { started = (e as Error).message; }
+    const r = await resolveRebaseStops({ git, upstream, oldBase, docDirs: [ctx.config.backlogDir], resolveCode: resolverFor(ctx), resolved, out: l => ctx.out(l) });
+    const unmerged = r.kind === 'done' ? git.lines('diff', '--name-only', '--diff-filter=U') : [];
+    leftStash = r.kind === 'done' ? (stashes(git).find(x => !before.includes(x)) || '') : '';
+    resolverRan = resolved.some(x => x.kind === 'code') || !!(r.kind === 'stopped' && r.conflict);
     if (r.kind === 'stopped') {
       reason = r.reason;
       detail = [r.reason, r.conflict ? `commit ${r.conflict.commit.sha.slice(0, 7)} ${r.conflict.commit.subject}: ${r.conflict.doubt}` : '', started].filter(Boolean).join('\n');
     } else if (!isAncestor(git, upstream, 'HEAD')) {
       reason = `the rebase onto origin/${baseName} did not complete`;
       detail = `${reason}\n${started || '(git said nothing)'}`;
+    } else if (unmerged.length || leftStash) {
+      reason = `your uncommitted changes conflict with origin/${baseName}${unmerged.length ? ` in ${unmerged.join(', ')}` : ''}`;
+      detail = `${reason}\n${started || '(git said nothing)'}\n${git.tryRun('status', '--short') || ''}`;
     }
   } catch (e) {
     reason = `the rebase onto origin/${baseName} failed`;
@@ -223,6 +235,10 @@ async function branchFromOriginBase(ctx: Ctx, to: string, upstream: string, resu
   // Put everything back: no rebase left, the old branch checked out as it was, and the half-made new branch gone.
   keep('push check: new branch from the base', detail);
   abortAll(git, keep);
+  // The half-applied changes go: they are whole in the stash git left, and go back onto the old branch below.
+  if (leftStash) {
+    try { git.run('reset', '-q', '--hard', 'HEAD'); } catch (e) { keep(`push check: clear the conflicted changes on ${to}`, (e as Error).message); }
+  }
   let back = true;
   try { git.run('checkout', '-q', from); } catch (e) { keep(`push check: check out ${from} again`, (e as Error).message); back = false; }
   if (back && git.head() !== local) {
@@ -231,12 +247,26 @@ async function branchFromOriginBase(ctx: Ctx, to: string, upstream: string, resu
   if (back) {
     try { git.run('branch', '-q', '-D', to); } catch (e) { keep(`push check: remove ${to}`, (e as Error).message); }
   }
+  // The stash is never dropped: the changes go back into the working tree, and a copy stays until the user drops it.
+  if (leftStash) {
+    const name = leftStash.slice(0, 7);
+    let applied = false;
+    if (back) {
+      try { git.run('stash', 'apply', leftStash); applied = true; } catch (e) { keep(`push check: git stash apply ${name}`, (e as Error).message); }
+    }
+    ctx.out(applied
+      ? `Push check: your uncommitted changes are back in the working tree of ${from}; a copy stays in the stash (${name}): drop it with git stash drop once you have checked them`
+      : `Push check: your uncommitted changes could not be put back cleanly: they are safe in the stash (${name}); get them with git stash apply ${name} (see ${ctx.log}/errors.log)`);
+  }
   appendRound(at(ctx, ctx.log), { kind: 'push-check', at: new Date().toISOString(), branch: from, finding: 'new-branch', action: 'new-branch-stopped', detail: reason });
   const where = back
     ? `${from} is checked out again, unchanged`
     : `${from} could not be checked out again, so nothing was discarded: ${to} is left as it is (never pushed); check out ${from} by hand (git rebase --abort first if a rebase is still going on)`;
-  return stop(ctx, `ERROR: the push check could not make ${to} from origin/${baseName} with this run's commits: ${reason}. Nothing was pushed; ${where} (refs/sdlc-backup/${from}/local is ${local.slice(0, 7)}). The details are in ${ctx.log}/errors.log${resolved.length || reason.includes('conflict') ? ` and ${ctx.log}/resolve-conflicts-context.md` : ''}. Rebase ${from} onto origin/${baseName} by hand (or fix what the details name), then resume: ${resumeCommand(ctx.slug, resume)}`, 1);
+  return stop(ctx, `ERROR: the push check could not make ${to} from origin/${baseName} with this run's commits: ${reason}. Nothing was pushed; ${where} (refs/sdlc-backup/${from}/local is ${local.slice(0, 7)}). The details are in ${ctx.log}/errors.log${resolverRan ? ` and ${ctx.log}/resolve-conflicts-context.md` : ''}. Rebase ${from} onto origin/${baseName} by hand (or fix what the details name), then resume: ${resumeCommand(ctx.slug, resume)}`, 1);
 }
+
+/** The stash entries, newest first, by commit. */
+const stashes = (git: Git): string[] => (git.tryRun('stash', 'list', '--format=%H') || '').split('\n').map(l => l.trim()).filter(Boolean);
 
 /** One line of output and one row in the attempts log for every outcome. */
 function report(ctx: Ctx, f: PushFinding, action: string, line: string): void {

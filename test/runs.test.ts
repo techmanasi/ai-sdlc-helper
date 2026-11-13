@@ -427,6 +427,17 @@ describe('discard and restart', () => {
     expect(r.stdout).toContain(`To get the branch back: git branch sdlc/alpha_2 ${moved}`);
   });
 
+  test('discard with a worktree that names no branch: it says the name is the record\'s, and deletes that one branch only', async () => {
+    const { wt, tip } = await finishedRunWithWork();
+    git(repo, 'branch', 'sdlc/alpha_2', tip);
+    git(wt, 'checkout', '-q', '--detach');
+    const r = await cli(['discard', 'alpha', '--yes']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("The branch to delete, sdlc/alpha, is the run record's: the run's worktree does not say which branch it is on.");
+    expect(git(repo, 'branch', '--list', 'sdlc/alpha')).toBe('');
+    expect(git(repo, 'rev-parse', 'sdlc/alpha_2')).toBe(tip);
+  });
+
   // What the pipeline records after each stage (logs/stage-files.json): the files credited to it, and the tree at the last mark.
   const credit = (wt: string, stages: Record<string, string[]>) => fs.writeFileSync(
     path.join(wt, 'Docs/backlog/alpha/logs/stage-files.json'), JSON.stringify({ marker: { files: {}, head: git(wt, 'rev-parse', 'HEAD') }, stages }));

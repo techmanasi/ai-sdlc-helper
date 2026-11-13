@@ -27,7 +27,13 @@ export function linkPrEverywhere(ctx: Pick<Ctx, 'root' | 'docs' | 'log' | 'env' 
     // A checkout without this brief has nothing to link.
     try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
     if (getPrFromBrief(text) === url) continue;
-    try { fs.writeFileSync(file, recordPrInBrief(text, url)); } catch (e) {
+    // Whole or not at all: a temporary file beside it, renamed over it (an editor or the user may have the main checkout's open).
+    const tmp = `${file}.${process.pid}.tmp`;
+    try {
+      fs.writeFileSync(tmp, recordPrInBrief(text, url), { mode: fs.statSync(file).mode & 0o777 });
+      fs.renameSync(tmp, file);
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* nothing was left to remove */ }
       keepError(ctx, 'link pull request in the brief', `${file}: ${(e as Error).message}`);
       ctx.out(`WARNING: could not write the pull request link into ${file} (see ${ctx.log}/errors.log)`);
     }

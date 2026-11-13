@@ -139,6 +139,10 @@ describe('runView', () => {
     fs.rmSync(path.join(wt, 'Docs/backlog/add-tokens/logs/status.json'));
     git(wt, 'checkout', '-q', '-b', 'sdlc/add-tokens_2');
     expect(liveBranch(ctx, 'add-tokens')).toBe('sdlc/add-tokens_2');
+    // A status file naming a branch that is not this item's run branch is not trusted.
+    write(wt, 'Docs/backlog/add-tokens/logs/status.json', { state: 'running', branch: 'main' });
+    expect(liveBranch(ctx, 'add-tokens')).toBe('sdlc/add-tokens_2');
+    fs.rmSync(path.join(wt, 'Docs/backlog/add-tokens/logs/status.json'));
     // Another item's branch (add-tokens-2) is not this run's: the record's branch is used.
     git(wt, 'checkout', '-q', '-b', 'sdlc/add-tokens-2');
     expect(liveBranch(ctx, 'add-tokens')).toBe('sdlc/add-tokens');

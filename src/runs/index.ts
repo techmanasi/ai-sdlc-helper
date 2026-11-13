@@ -127,23 +127,32 @@ export function runWorktree(ctx: RunContext, slug: string): string | null {
   return isDir(wt) ? wt : null;
 }
 
+/** Where liveBranchOf found the branch: the run's status file or worktree (the run is on it now), or only the record or the default name. */
+export type BranchSource = 'status' | 'worktree' | 'record' | 'default';
+
 /**
- * The branch a run is on now, also while it is going: status.json's (a run that moved to <prefix><slug>_N names it there),
- * else its worktree's when that is this item's run branch, else the record's, else <prefix><slug>.
+ * The branch a run is on now, also while it is going, and where that came from: status.json's when it is this item's run branch
+ * (a run that moved to <prefix><slug>_N names it there), else its worktree's when that is, else the record's, else <prefix><slug>.
  */
-export function liveBranch(ctx: RunContext, slug: string, rec: Partial<RunRecord> | null = readRecord(ctx.reg, slug)): string {
+export function liveBranchOf(ctx: RunContext, slug: string, rec: Partial<RunRecord> | null = readRecord(ctx.reg, slug)): { branch: string; from: BranchSource } {
   const wt = runWorktree(ctx, slug);
   for (const dir of [wt, ctx.root]) {
     if (!dir) continue;
     try {
       const s = JSON.parse(fs.readFileSync(path.join(dir, ctx.backlogDir, slug, 'logs', 'status.json'), 'utf8')) as { branch?: unknown };
-      if (typeof s.branch === 'string' && s.branch) return s.branch;
+      // A name that is not this item's run branch (a stale or edited file) is not trusted.
+      if (typeof s.branch === 'string' && s.branch && isRunBranch(s.branch, ctx.branchPrefix, slug)) return { branch: s.branch, from: 'status' };
     } catch { /* no status here */ }
   }
   // Read from the HEAD file: the board asks this for every card, so no git call.
   const current = wt ? headBranchOf(wt) : '';
-  if (current && isRunBranch(current, ctx.branchPrefix, slug)) return current;
-  return rec?.branch || `${ctx.branchPrefix}${slug}`;
+  if (current && isRunBranch(current, ctx.branchPrefix, slug)) return { branch: current, from: 'worktree' };
+  return rec?.branch ? { branch: rec.branch, from: 'record' } : { branch: `${ctx.branchPrefix}${slug}`, from: 'default' };
+}
+
+/** The branch a run is on now (see liveBranchOf). */
+export function liveBranch(ctx: RunContext, slug: string, rec: Partial<RunRecord> | null = readRecord(ctx.reg, slug)): string {
+  return liveBranchOf(ctx, slug, rec).branch;
 }
 
 /** The pull request link of a run's brief: the worktree's first (a moved run's new link is there), else the main checkout's. */
@@ -508,7 +517,8 @@ export async function discard(ctx: RunContext, slug: string, opts: DiscardOption
   const wt = rec?.worktree || path.join(ctx.wtBase, slug);
   // Only the branch the run is on now (read from its worktree before that goes): a run that moved is on <slug>_N while its
   // record may still name the first branch. No other branch is deleted, whatever its name.
-  const branch = liveBranch(ctx, slug, rec);
+  const live = liveBranchOf(ctx, slug, rec);
+  const branch = live.branch;
   if (!opts.stop && isRunning(rec)) return fail(4, `${slug} is running: stop it first, or pass --stop`);
   const tip = branchExists(ctx, branch) ? git(ctx.root, ['rev-parse', branch], ctx.env).stdout.trim() : '';
   const hasWt = exists(path.join(wt, '.git'));
@@ -518,6 +528,10 @@ export async function discard(ctx: RunContext, slug: string, opts: DiscardOption
   // --no-optional-locks: a status read must not take index.lock while the pipeline may be committing in this worktree.
   const dirty = hasWt ? git(wt, ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=all'], ctx.env).stdout.split('\n').filter(Boolean).length : 0;
   const out = [`Discard ${slug}: worktree ${wt}, branch ${branch} (${ahead} commit(s) not in ${base || 'the base'}, ${dirty} uncommitted file(s)), run record`];
+  // Not read from the run itself: say which branch goes and where its name came from (still that one branch only).
+  if (tip && (live.from === 'record' || live.from === 'default')) {
+    out.push(`The branch to delete, ${branch}, is ${live.from === 'record' ? "the run record's" : `the default name (${ctx.branchPrefix}${slug})`}: the run's worktree does not say which branch it is on.`);
+  }
   if (!opts.yes) return { code: 6, out: [...out, 'Nothing deleted. Run again with --yes to discard it.'], err: [] };
   if (opts.stop && isRunning(rec) && !await stopRun(ctx, slug, rec!)) return fail(1, `could not stop ${slug} (pid ${rec!.pid})`);
   if (exists(wt) && !gitOk(ctx.root, ['worktree', 'remove', '--force', wt], ctx.env)) fs.rmSync(wt, { recursive: true, force: true });

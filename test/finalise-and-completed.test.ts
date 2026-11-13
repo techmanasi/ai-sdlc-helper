@@ -173,11 +173,13 @@ describe('a failed gh pr create and the pull request link in both checkouts', ()
     }
     expect(lines).toEqual([]);
 
+    // The link is written whole (a temporary file renamed over the brief): a folder that takes no new file keeps the brief as it was.
     const mainBrief = path.join(main, docs, 'brief.md');
-    fs.chmodSync(mainBrief, 0o444);
+    fs.chmodSync(path.dirname(mainBrief), 0o555);
     try {
       linkPrEverywhere(ctx, 'https://github.com/o/r/pull/100');
-    } finally { fs.chmodSync(mainBrief, 0o644); }
+    } finally { fs.chmodSync(path.dirname(mainBrief), 0o755); }
+    expect(fs.readdirSync(path.dirname(mainBrief))).toEqual(['brief.md']);
     expect(getPrFromBrief(fs.readFileSync(path.join(wt, docs, 'brief.md'), 'utf8'))).toBe('https://github.com/o/r/pull/100');
     expect(getPrFromBrief(fs.readFileSync(mainBrief, 'utf8'))).toBe(NEW);
     expect(lines).toEqual([`WARNING: could not write the pull request link into ${mainBrief} (see ${docs}/logs/errors.log)`]);
