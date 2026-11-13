@@ -514,7 +514,8 @@ const BOARD_ITEM_FILES = ['brief.md', 'questions.md', 'test-issues.md', 'pr-comm
  */
 export function boardInputs(ctx: RunContext): { folders: string[]; files: string[] } {
   const backlog = path.join(ctx.root, ctx.backlogDir);
-  const folders = new Set<string>([ctx.reg, backlog]);
+  // The project's own folder is watched for one file only, its settings (see boardIgnores).
+  const folders = new Set<string>([ctx.reg, backlog, ctx.root]);
   const files = new Set<string>([ctx.reg, backlog, path.join(backlog, 'index.md'), path.join(ctx.root, 'sdlc.config.json')]);
   let items: string[] = [];
   try { items = fs.readdirSync(backlog, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name); } catch { /* no backlog */ }
@@ -537,8 +538,9 @@ export function boardInputs(ctx: RunContext): { folders: string[]; files: string
 }
 
 /** Whether a change to <file> in <dir> cannot change the board: temporary and heartbeat files, and in a logs folder anything a card does not read. */
-export function boardIgnores(dir: string, file: string): boolean {
+export function boardIgnores(dir: string, file: string, root?: string): boolean {
   if (file.endsWith('.tmp') || file.endsWith('.live.json')) return true;
+  if (root && dir === root) return file !== 'sdlc.config.json';
   return path.basename(dir) === 'logs' && !BOARD_LOG_FILES.includes(file);
 }
 

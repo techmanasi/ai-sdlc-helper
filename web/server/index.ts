@@ -17,6 +17,12 @@ import { triageRoutes } from './triage.js';
 import { createRunStreams, type RunSource, type StreamTimings } from './watch.js';
 import { BOARD_WATCH_TIMINGS, createBoardWatch, type BoardWatch, type BoardWatchTimings } from './board-watch.js';
 
+/** SDLC_BOARD_SILENCE_MS: how long the board's watcher may be silent before its files are checked (ms; default 30 s, at least 1 s). */
+function silenceFrom(env: NodeJS.ProcessEnv): Partial<BoardWatchTimings> {
+  const ms = Number(env.SDLC_BOARD_SILENCE_MS);
+  return Number.isFinite(ms) && ms >= 1000 ? { silenceMs: ms } : {};
+}
+
 export interface ServerOptions {
   /** The port to listen on; an explicitly requested port is fixed. The default tries the next 20 ports. 0: any free port. */
   port?: number;
@@ -29,7 +35,6 @@ export interface ServerOptions {
   uiDir?: string;
   /** How to run the command for the command palette; default this Node and dist/bin.js. */
   cli?: string[];
-  /** How often the live board is read, in ms (default 2000). */
   /** No longer used: the board is rebuilt when a file changes (board-watch.ts), not on a clock. Kept so callers that pass it still compile. */
   pollMs?: number;
   /** The board watcher's timings (see board-watch.ts); tests shorten them. */
@@ -495,7 +500,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       watch: createBoardWatch({
         folders: () => inputs().folders,
         fingerprint: () => fingerprintOf(inputs().files),
-        ignore: boardIgnores,
+        ignore: (dir, file) => boardIgnores(dir, file, contextFor(p).root),
         rebuild: tick,
         quiet: () => {
           if (feed.running > 0) return feed.build('liveness');
@@ -504,7 +509,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
           if (feed.hasPr && Date.now() - feed.builtAt >= (prPollOptions(env).ttlMs ?? PR_POLL_MS)) feed.build('pr-poll');
         },
         trace: e => trace({ ...e, run: p.name }),
-      }, { ...BOARD_WATCH_TIMINGS, ...opts.boardWatch }),
+      }, { ...BOARD_WATCH_TIMINGS, ...silenceFrom(env), ...opts.boardWatch }),
       ping: setInterval(() => { all('event: ping\ndata: {}\n\n'); trace({ action: 'sse:ping', run: p.name }); }, 15000),
     };
     feeds.set(p.name, feed);

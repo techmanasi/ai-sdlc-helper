@@ -662,6 +662,7 @@ The code and its header comment are in `web/server/board-watch.ts`; this is the 
   counted as a failure. With it: 212 ms.
 - **Failure.** A missed change, a watcher error, or a watcher that cannot be attached. The board is rebuilt and
   every watcher attached again. Silence alone is never a failure.
+- **Cannot attach.** A watcher that cannot be attached is tried again every 5 s, comparing the fingerprint each time; each failed try is one failure, so the fallback is reached after about 50 s, not at once.
 - **Fallback.** After 10 failures in a row: no watcher, the fingerprint compared every 5 s, until the process
   restarts. Every start begins with the watcher.
 - **Not from a file.** A pull request's status arrives from GitHub in the background; the board is rebuilt when it
@@ -683,17 +684,27 @@ The 2 s board rebuild is gone, and so is the `pollMs` server option's effect.
 | 50 changes at once | 50 events |
 | A watched folder removed and made again | no error is raised; on macOS the old watcher still sees the new folder |
 | One audit of this repository's board (169 files, 29 folders) | 1.1 ms median, 2.1 ms worst |
-| `git` calls in 60 s, one idle board open (6 finished runs, headless Chrome) | 26 on `main`, 0 with the watcher |
+| `git` calls in 60 s, one idle board open (6 finished runs, headless Chrome) | 26 on `main`; 0 with the watcher in a 60 s window (the kept main-tree answer lasts a minute, so about one `git worktree list` a minute is expected over longer periods) |
 | A project's first run appears on an open board, no reload | 212 ms |
 | How long real runs go without changing a file the board reads | 4 to 16 s at the median, 2 to 33 minutes at the 90th percentile |
 
 Why 30 s and not the 2 minutes first proposed: silence says nothing about the watcher's health (runs are quiet for
 minutes), so the period is only the bound on how long a deaf watcher, or a run that died silently, can go unseen. An
-audit costs about 1 ms, so a shorter bound is nearly free. 30 s is also the run page's own safety tick. To confirm
-with the user; it is one constant (`silenceMs`).
+audit costs about 1 ms, so a shorter bound is nearly free. 30 s is also the run page's own safety tick. Confirmed by
+the user on 2026-11-13 as a setting to tune after monitoring: `SDLC_BOARD_SILENCE_MS` (ms, at least 1000) or the
+`silenceMs` constant.
 
 Not reachable from here: Linux is only exercised in CI (where a removed folder kills its watcher silently, which the
 audit is there to catch), and Windows is untested.
+
+### Future enhancements
+
+- Tune `silenceMs` (30 s today; 2 minutes was the first proposal) once the trace shows how often an audit finds a missed change.
+- Write a pull request's status to a file beside the run's record so the watcher catches it and it survives a restart.
+- Cache the cards of finished runs, keyed on their files' fingerprint.
+- A line in the trace report summarising audits, misses and time spent in fallback.
+- Back-off between failures, if real faults turn out to come in bursts.
+- Linux and Windows measurements with `scripts/watch-probe.mjs`.
 
 ## Appendix: mapping from the two superseded plans
 

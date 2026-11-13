@@ -363,6 +363,7 @@ describe('what the board is made from', () => {
     const reg = path.join(root, '.git/sdlc-runs');
     const docs = path.join(wt, 'Docs/backlog/add-tokens');
     expect(got.folders).toEqual(expect.arrayContaining([reg, path.join(root, 'Docs/backlog'), path.join(root, 'Docs/backlog/add-tokens'), docs, path.join(docs, 'logs')]));
+    expect(got.folders).toContain(root);
     // A folder that is not there yet is named too, so that the watcher can wait for it.
     const later = path.join(root, 'Docs/backlog/add-tokens/logs');
     expect(fs.existsSync(later)).toBe(false);
@@ -383,6 +384,9 @@ describe('what the board is made from', () => {
     expect(boardIgnores('/repo/.git/sdlc-runs', 'tok.json.123.0.tmp')).toBe(true);
     expect(boardIgnores('/repo/.git/sdlc-runs', 'tok.live.json')).toBe(true);
     expect(boardIgnores('/wt/Docs/backlog/tok', 'questions.md')).toBe(false);
+    expect(boardIgnores('/repo', 'README.md', '/repo')).toBe(true);
+    expect(boardIgnores('/repo', 'sdlc.config.json', '/repo')).toBe(false);
+    expect(boardIgnores('/repo/.git/sdlc-runs', 'tok.json', '/repo')).toBe(false);
   });
 });
 

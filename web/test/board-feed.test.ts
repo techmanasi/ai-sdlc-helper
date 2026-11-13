@@ -108,6 +108,16 @@ describe('the board feed', () => {
     for (const p of pages) p.close();
   });
 
+  test('a change to the project\'s settings file reaches the page by the watcher', async () => {
+    const s = await start(60_000, { boardWatch: { silenceMs: 60_000 } });
+    const one = await page(s);
+    await settle();
+    const before = builds();
+    fs.writeFileSync(path.join(repo, 'sdlc.config.json'), JSON.stringify({ suites: [{ name: 'app', dir: '.', runner: 'node-test', testCmd: 'npm test', testGlobs: ['test/**/*.test.js'] }], agent: { codeSearch: 'none' }, backlogDir: 'Docs/backlog' }));
+    await eventually(() => builds() > before);
+    one.close();
+  });
+
   test('a board nobody changes is not built again: no clock rebuilds it', async () => {
     const s = await start(50); // the liveness tick is fast, but no run is going, so it builds nothing
     const one = await page(s);

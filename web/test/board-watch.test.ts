@@ -15,6 +15,7 @@ function rig(opts: { deaf?: boolean; refuse?: () => boolean } = {}) {
   const trace: string[] = [];
   let quiets = 0;
   let fingerprints = 0;
+  let building: (() => void) | null = null;
   const live: { dir: string; onEvent: (file?: string) => void; onError: () => void }[] = [];
   const watch: WatchFn = (dir, onEvent, onError) => {
     if (opts.refuse?.()) throw Object.assign(new Error('too many open files'), { code: 'EMFILE' });
@@ -26,7 +27,7 @@ function rig(opts: { deaf?: boolean; refuse?: () => boolean } = {}) {
     folders: () => folders,
     fingerprint: () => { fingerprints++; return String(version); },
     ignore: (_dir, file) => file === 'run.out',
-    rebuild: why => { rebuilds.push(why); },
+    rebuild: why => { rebuilds.push(why); const f = building; building = null; f?.(); },
     quiet: () => { quiets++; },
     trace: e => { trace.push(`${e.action}${e.why ? `:${e.why}` : ''}`); },
     watch,
@@ -42,6 +43,8 @@ function rig(opts: { deaf?: boolean; refuse?: () => boolean } = {}) {
     event: (file?: string) => live[0]?.onEvent(file),
     error: () => live[0]?.onError(),
     setFolders: (f: string[]) => { folders = f; },
+    /** Something that happens while the board is next built. */
+    duringBuild: (f: (() => void) | null) => { building = f; },
   };
 }
 
@@ -183,11 +186,67 @@ describe('the board watcher, when the watcher fails', () => {
 
   test('a watcher that cannot be attached counts as failures, down to the fallback', () => {
     const r = rig({ refuse: () => true });
-    expect(r.w.state()).toBe('fallback');
-    expect(r.w.stats().attached).toBe(0);
+    // Not all at once: one try now, then one every fallbackMs, so a fault that lasts a moment does not end the watching.
+    expect(r.w.state()).toBe('watching');
+    expect(r.w.stats()).toMatchObject({ failures: 1, attached: 0 });
+    // Meanwhile a change is not hidden: each try compares the fingerprint first.
     r.missed();
     vi.advanceTimersByTime(T.fallbackMs);
-    expect(r.rebuilds).toEqual(['fallback']);
+    expect(r.rebuilds).toEqual(['retry']);
+    expect(r.w.stats().failures).toBe(2);
+    vi.advanceTimersByTime(T.fallbackMs * (T.failureLimit - 3));
+    expect(r.w.state()).toBe('watching');
+    vi.advanceTimersByTime(T.fallbackMs);
+    expect(r.w.state()).toBe('fallback');
+    r.missed();
+    vi.advanceTimersByTime(T.fallbackMs);
+    expect(r.rebuilds).toEqual(['retry', 'fallback']);
+  });
+
+  test('a watcher that cannot be attached for a moment is attached at the next try, and watching goes on', () => {
+    let broken = true;
+    const r = rig({ refuse: () => broken });
+    expect(r.w.stats().attached).toBe(0);
+    broken = false;
+    vi.advanceTimersByTime(T.fallbackMs);
+    expect(r.w.state()).toBe('watching');
+    expect(r.w.stats().attached).toBe(2);
+    r.change();
+    vi.advanceTimersByTime(T.debounceMs);
+    expect(r.rebuilds).toEqual(['watch']);
+    vi.advanceTimersByTime(T.silenceMs);
+    expect(r.w.stats().failures).toBe(0);
+  });
+
+  test('a change made while the board is being built is not lost: the fingerprint is the one from before the build', () => {
+    const r = rig();
+    r.duringBuild(() => r.missed());
+    r.change();
+    vi.advanceTimersByTime(T.debounceMs);
+    expect(r.rebuilds).toEqual(['watch']);
+    vi.advanceTimersByTime(T.silenceMs);
+    expect(r.rebuilds).toEqual(['watch', 'audit']);
+  });
+
+  test('a board built for another reason is the new baseline: the next audit finds nothing', () => {
+    const r = rig();
+    r.missed();
+    r.w.baseline();
+    vi.advanceTimersByTime(T.silenceMs);
+    expect(r.rebuilds).toEqual([]);
+    expect(r.w.stats()).toMatchObject({ audits: 1, failures: 0 });
+  });
+
+  test('a host that throws does not end the process or the watching: the next audit still comes', () => {
+    const r = rig();
+    r.duringBuild(() => { throw new Error('settings unreadable'); });
+    r.change();
+    expect(() => vi.advanceTimersByTime(T.debounceMs)).not.toThrow();
+    expect(r.trace).toContain('board-watch:error:settings unreadable');
+    r.duringBuild(null);
+    vi.advanceTimersByTime(T.silenceMs);
+    expect(r.w.stats().audits).toBe(1);
+    expect(r.w.state()).toBe('watching');
   });
 
   test('every start begins with the watcher, whatever the last one ended in', () => {
@@ -226,11 +285,12 @@ describe('the board watcher on real folders', () => {
     const file = path.join(reg, 'tok.json');
     fs.writeFileSync(file, '{"state":"running"}\n');
     const rebuilds: string[] = [];
-    w = createBoardWatch({ folders: () => [reg], fingerprint: () => stamp([file]), rebuild: why => { rebuilds.push(why); } }, quick);
+    // A silence too long to help: only the watcher can report it in time.
+    w = createBoardWatch({ folders: () => [reg], fingerprint: () => stamp([file]), rebuild: why => { rebuilds.push(why); } }, { ...quick, silenceMs: 60_000 });
     fs.writeFileSync(`${file}.1.tmp`, '{"state":"exited","exit_code":"0"}\n');
     fs.renameSync(`${file}.1.tmp`, file);
     await eventually(() => rebuilds.length >= 1);
-    expect(['watch', 'audit']).toContain(rebuilds[0]);
+    expect(rebuilds[0]).toBe('watch');
   });
 
   test('a watched folder that is removed and made again: a later write is still seen', async () => {
@@ -243,8 +303,7 @@ describe('the board watcher on real folders', () => {
     fs.rmSync(logs, { recursive: true });
     await eventually(() => rebuilds.length >= 1);
     fs.mkdirSync(logs);
-    // Give the watcher time to notice the folder is back (an event, or the audit after the silence).
-    await new Promise(r => setTimeout(r, quick.silenceMs * 3));
+    // Seen by an event where the old watcher still works, by the audit where it died with the folder.
     const seen = rebuilds.length;
     fs.writeFileSync(file, '{"stage":"Plan","more":true}\n');
     await eventually(() => rebuilds.length > seen);
