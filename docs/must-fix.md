@@ -16,4 +16,4 @@ Each item is a case where the tool tells the user something untrue, or calls wor
 ## Not yet confirmed
 - The done page shows a red "not signed in" banner while it still loads data, and a "1 failed" count in the top bar. The cause is not investigated yet.
 
-The full list of observations, including UI and speed issues that are not must-fix, is in the run notes from this session.
+The remaining findings are in [good-to-have.md](good-to-have.md).
