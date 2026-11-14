@@ -12,7 +12,7 @@ import { checkAllowedFailures, isRedTest, matchesAllowEntry } from './allow-fail
 import type { Ctx } from './context.js';
 import { keepError } from './errors.js';
 import { moveReasonText } from './status.js';
-import { clearPrCache, findOrCreatePr, firstLine, getPrStatus, type CheckRunStatus, type PrStatus } from './finalise.js';
+import { findOrCreatePr, forgetPrStatus, firstLine, getPrStatus, type CheckRunStatus, type PrStatus } from './finalise.js';
 import { linkPrEverywhere } from './pr-link.js';
 
 export type CiClassification = 'infrastructure' | 'pre-existing' | 'flaky' | 'allowed' | 'side-effect';
@@ -112,7 +112,7 @@ export async function checkCiAvailability(ctx: Ctx): Promise<{ available: boolea
     };
   }
 
-  clearPrCache();
+  forgetPrStatus(ctx.root, branch);
   let pr: PrStatus | null = getPrStatus(ctx.root, branch, ctx.env);
   if (!pr) {
     const { title, body } = draftPrText(ctx);
@@ -122,7 +122,7 @@ export async function checkCiAvailability(ctx: Ctx): Promise<{ available: boolea
       return { available: false, reason: `PR could not be created: ${firstLine(opened.error)}; the whole message is in ${ctx.log}/errors.log` };
     }
     const url = opened.url;
-    clearPrCache();
+    forgetPrStatus(ctx.root, branch, url);
     pr = getPrStatus(ctx.root, url, ctx.env) || { url, state: 'OPEN', isDraft: true };
   }
   if (pr.state === 'CLOSED') return { available: false, reason: 'PR is closed' };
@@ -308,7 +308,7 @@ export async function waitForCiAndClassify(ctx: Ctx, headSha: string, options: {
   let queryFailures = 0;
   let checks: Check[] = [];
   for (;;) {
-    clearPrCache();
+    forgetPrStatus(ctx.root, options.prUrl);
     const pr = getPrStatus(ctx.root, options.prUrl, ctx.env);
     const elapsed = Date.now() - options.startTime;
     if (!pr) {

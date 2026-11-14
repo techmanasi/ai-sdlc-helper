@@ -17,7 +17,7 @@ const git = (cwd: string, args: string[], env: Record<string, string> = {}) => {
   return r.stdout;
 };
 
-// The PRs the fake gh knows: by link for `pr view <url>`, by branch for `pr view <branch>`, all of them for `pr list`.
+// The PRs the fake gh knows: by link for `pr view <url>`, by branch for `pr view <branch>`, all of them on the one page of `api graphql`.
 const PRS = [
   { url: 'https://github.com/o/shop/pull/1', number: 1, state: 'MERGED', branch: 'sdlc/alpha' },
   { url: 'https://github.com/o/shop/pull/2', number: 2, state: 'MERGED', branch: 'sdlc/bravo' },
@@ -41,7 +41,12 @@ setTimeout(() => {
     if (p) { process.stdout.write(JSON.stringify(full(p)) + '\\n'); process.exit(0); }
     process.stderr.write('no pull requests found for branch "' + a[2] + '"\\n'); process.exit(1);
   }
-  if (a[0] === 'pr' && a[1] === 'list') { process.stdout.write(JSON.stringify(prs.map(full)) + '\\n'); process.exit(0); }
+  if (a[0] === 'api' && a[1] === 'graphql') {
+    // The one page of the list, as GitHub's GraphQL gives it (the code reads it the way gh pr list prints it).
+    const node = p => ({ url: p.url, state: p.state, number: p.number, isDraft: false, headRefOid: 'a'.repeat(40), mergeable: p.state === 'OPEN' ? 'MERGEABLE' : 'UNKNOWN', commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [{ __typename: 'CheckRun', name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }] } } } }] } });
+    const nodes = prs.slice().sort((x, y) => y.number - x.number).map(node);
+    process.stdout.write(JSON.stringify({ data: { repository: { url: 'https://github.com/o/shop', pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } }) + '\\n'); process.exit(0);
+  }
   process.stderr.write('fake gh: unknown command\\n'); process.exit(1);
 }, mode === 'slow' ? 5000 : mode === 'slowok' ? 2000 : 20);
 `;
@@ -153,7 +158,7 @@ describe('the Completed list endpoint', () => {
     expect(await completed(server)).toEqual(EXPECTED);
     expect(fs.readFileSync(path.join(repo, 'Docs/backlog/charlie/brief.md'), 'utf8')).toContain('pr: https://github.com/o/shop/pull/3');
     // The links are asked for in one list; only the branches without a link (charlie, echo) get their own call.
-    expect(ghCalls().sort()).toEqual(['pr list --state', 'pr view sdlc/charlie', 'pr view sdlc/echo']);
+    expect(ghCalls().sort()).toEqual(['api graphql -F', 'pr view sdlc/charlie', 'pr view sdlc/echo']);
   });
 
   test('makes no gh call while the statuses are fresh, also after a restart that finds pr-status.cache', async () => {
@@ -195,7 +200,7 @@ describe('the Completed list endpoint', () => {
     expect(Date.now() - t0).toBeLessThan(4500); // the fake gh takes 5 s; the list's own limit is 4 x 300 ms
     const echo = body.completed.find((t: { slug: string }) => t.slug === 'echo');
     expect(echo.prError).toMatch(/gh pr view sdlc\/echo .*stopped after 300 ms/s);
-    expect(body.prErrors.find((e: { slug: string }) => e.slug === 'alpha').message).toMatch(/gh pr list .*stopped after 1200 ms/s);
+    expect(body.prErrors.find((e: { slug: string }) => e.slug === 'alpha').message).toMatch(/gh api graphql \(pull requests, page 1\) .*stopped after 1200 ms/s);
     expect(fs.readFileSync(path.join(repo, 'Docs/backlog/echo/logs/errors.log'), 'utf8')).toMatch(/stopped after 300 ms/);
   });
 
@@ -266,7 +271,7 @@ describe('the Completed list endpoint', () => {
     const settled = await completed(server);
     expect(settled).toEqual(EXPECTED); // delta's PR is open: it drops out
     // The settled list joined the calls rows first started: one list and the two branches, as a plain cold load makes.
-    expect(ghCalls().sort()).toEqual(['pr list --state', 'pr view sdlc/charlie', 'pr view sdlc/echo']);
+    expect(ghCalls().sort()).toEqual(['api graphql -F', 'pr view sdlc/charlie', 'pr view sdlc/echo']);
     // Once known, rows first is the settled list itself, with no gh call.
     expect(await completed(server, '?rows=first')).toEqual(EXPECTED);
     expect(ghCalls()).toHaveLength(3);
@@ -294,7 +299,7 @@ describe('the start-up warm-up of the PR statuses', () => {
     github();
     server = await start({ SDLC_WARM_PR_CACHE: '1' }, { warmPrDelayMs: 0 });
     await server.prWarmup();
-    expect(ghCalls().sort()).toEqual(['pr list --state', 'pr view sdlc/charlie', 'pr view sdlc/echo']);
+    expect(ghCalls().sort()).toEqual(['api graphql -F', 'pr view sdlc/charlie', 'pr view sdlc/echo']);
     expect(await completed(server)).toEqual(EXPECTED);
     expect(ghCalls()).toHaveLength(3);
   });
@@ -303,10 +308,10 @@ describe('the start-up warm-up of the PR statuses', () => {
     github();
     fs.writeFileSync(path.join(base, 'gh-mode'), 'slowok');
     server = await start({ SDLC_WARM_PR_CACHE: '1', SDLC_PR_TIMEOUT_MS: '10000' }, { warmPrDelayMs: 0 });
-    await eventually(() => ghCalls().includes('pr list --state'));
+    await eventually(() => ghCalls().includes('api graphql -F'));
     expect(await completed(server)).toEqual(EXPECTED);
     await server.prWarmup();
-    expect(ghCalls().sort()).toEqual(['pr list --state', 'pr view sdlc/charlie', 'pr view sdlc/echo']);
+    expect(ghCalls().sort()).toEqual(['api graphql -F', 'pr view sdlc/charlie', 'pr view sdlc/echo']);
   });
 
   test('SDLC_WARM_PR_CACHE=0 turns it off, and a project without a GitHub origin is skipped', async () => {
