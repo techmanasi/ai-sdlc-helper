@@ -11,6 +11,7 @@ import {
   AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, prPollOptions, PR_POLL_MS, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, completedListAsync, primeRepoPaths, warmCompletedPrs, keepError, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
+  closeGoneRuns,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -45,6 +46,8 @@ export interface ServerOptions {
   stream?: Partial<StreamTimings>;
   /** How long after the start the PR statuses of the Completed lists are warmed (default 3000 ms; tests shorten it). */
   warmPrDelayMs?: number;
+  /** How often runs whose supervisor is gone are closed (default 30000 ms; tests shorten it). */
+  goneSweepMs?: number;
   /** The claude command triage runs spawn (tests); default 'claude'. */
   claude?: string;
 }
@@ -678,6 +681,16 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   const url = `http://127.0.0.1:${port}`;
   await triage.recover();
 
+  // A run whose supervisor was killed from outside leaves its record running: close it at start and every 30 s.
+  const sweepGone = async (): Promise<void> => {
+    for (const p of await projects()) {
+      try { closeGoneRuns(contextFor(p)); } catch (e) { process.stderr.write(`WARNING: could not close the stopped runs of ${p.name}: ${(e as Error).message}\n`); }
+    }
+  };
+  await sweepGone().catch(() => {});
+  const goneTimer = setInterval(() => { void sweepGone().catch(() => {}); }, opts.goneSweepMs ?? 30_000);
+  goneTimer.unref();
+
   // The PR statuses of every project's Completed list, asked a few seconds after the start (never awaited by it or by a
   // request), one project at a time, so the first list finds them cached. A list asked for meanwhile joins these calls.
   let closed = false;
@@ -721,6 +734,6 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     url, port, token,
     openUrl: `${url}/?t=${token}`,
     streamStats: () => runStreams.stats(),
-    close: () => new Promise(res => { closed = true; if (warmTimer) { clearTimeout(warmTimer); warmTimer = null; warmDone(); } for (const f of feeds.values()) { clearInterval(f.ping); f.watch.close(); } feeds.clear(); runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
+    close: () => new Promise(res => { closed = true; clearInterval(goneTimer); if (warmTimer) { clearTimeout(warmTimer); warmTimer = null; warmDone(); } for (const f of feeds.values()) { clearInterval(f.ping); f.watch.close(); } feeds.clear(); runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
   };
 }

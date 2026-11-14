@@ -366,13 +366,15 @@ describe('stop and status', () => {
     expect((await cli(['status', 'extra'])).status).toBe(2);
   });
 
-  test('a supervisor that died without finishing shows as stopped', async () => {
+  test('a supervisor that died without finishing is closed as interrupted by the readers', async () => {
     await cli(['start', 'slow-one']);
     await sleeping('slow-one');
     killTree(record('slow-one').pid, 'SIGKILL');
     await until(() => !alive(record('slow-one').pid));
-    expect((await cli(['status'])).stdout).toMatch(/^stopped\s+slow-one/m);
-    expect((await cli(['watch', 'slow-one'])).stdout).toContain('run: process has gone (stopped without finishing)');
+    expect((await cli(['status'])).stdout).toMatch(/^interrupted\s+slow-one/m);
+    expect(record('slow-one')).toMatchObject({ state: 'exited', interrupted: true });
+    expect(record('slow-one').message).toMatch(/^supervisor \d+ is gone \(killed or crashed\) during /);
+    expect((await cli(['watch', 'slow-one'])).stdout).toContain('run: interrupted');
   });
 });
 

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
+import { processTree } from '../runs/records.js';
 
 export interface AgentRequest {
   command?: string;
@@ -51,8 +52,14 @@ export const spawnAgentProcess: AgentSpawn = req => new Promise(resolve => {
     if (!child || done) return;
     if (forcedCode !== undefined) return;
     forcedCode = 1;
-    try { child.kill('SIGTERM'); } catch { /* already exited */ }
-    forceTimer = setTimeout(() => { try { child?.kill('SIGKILL'); } catch { /* already exited */ } }, 1000);
+    // The agent's own children (tools, test runs) go with it: listed now, while they still hang below it.
+    const tree = child.pid ? processTree(child.pid) : [];
+    const send = (sig: NodeJS.Signals) => {
+      for (const p of tree) { try { process.kill(p, sig); } catch { /* already exited */ } }
+      try { child?.kill(sig); } catch { /* already exited */ }
+    };
+    send('SIGTERM');
+    forceTimer = setTimeout(() => send('SIGKILL'), 1000);
     forceTimer.unref?.();
   };
   try {

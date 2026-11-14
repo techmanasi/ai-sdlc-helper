@@ -36,7 +36,7 @@ export { Keys, testLayout, layoutFromEnv, type TestLayout } from './testcheck/ke
 export * as testcheck from './testcheck/checks.js';
 export {
   runContext, start, stop, restart, discard, discardStage, undoLast, statusLines, statusRecords, watchFrame, runChanges, allChanges, runWorktree, pickBase,
-  pipelineArgv, pipelineEnv, type RunContext, type Outcome,
+  pipelineArgv, pipelineEnv, closeGoneRuns, closeIfGone, type RunContext, type Outcome,
 } from './runs/index.js';
 export { keepError } from './pipeline/errors.js';
 export { addNotice, recentNotices, clearNotices, type Notice } from './runs/notices.js';

@@ -97,7 +97,7 @@ const codeOf = (code, signal) => (code !== null ? code : 128 + ((signal && os.co
 function runStep(argv, opts) {
   return new Promise(resolve => {
     const verbatim = process.platform === 'win32' && /^(?:.*\\)?cmd(?:\.exe)?$/i.test(argv[0]);
-    child = spawn(argv[0], argv.slice(1), Object.assign({ stdio: ['ignore', out, out], windowsVerbatimArguments: verbatim, windowsHide: true }, opts));
+    child = spawn(argv[0], argv.slice(1), Object.assign({ stdio: ['ignore', out, out], windowsVerbatimArguments: verbatim, windowsHide: true, env: Object.assign({}, process.env, { SDLC_SUPERVISOR_PID: String(process.pid) }) }, opts));
     child.on('error', e => resolve({ code: 127, error: e.message }));
     child.on('exit', (code, signal) => resolve({ code: codeOf(code, signal) }));
   });
