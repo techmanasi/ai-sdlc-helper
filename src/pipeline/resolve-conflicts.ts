@@ -10,7 +10,7 @@ import { addBacklogItem, parseIndex } from '../backlog/index.js';
 import { parseQuestions } from '../runs/view.js';
 import { projectRoot } from '../runs/records.js';
 import { withAnswerLines } from './questions.js';
-import { at, setAside, stamp, stop, tick, type Ctx } from './context.js';
+import { at, setAside, stamp, stop, tick, type Ctx, type From } from './context.js';
 import { keepError } from './errors.js';
 import { getPrFromBrief, getPrStatus } from './finalise.js';
 import { runAgent, stageModelKey } from './agent.js';
@@ -832,13 +832,13 @@ function answerFollowUp(ctx: Ctx): void {
   const qFile = at(ctx, `${ctx.docs}/questions.md`);
   const draft = at(ctx, `${ctx.log}/${FOLLOW_UP}`);
   const q = parseQuestions(withAnswerLines(fs.readFileSync(qFile, 'utf8')))[0];
-  if (!q || !q.answer.trim()) stop(ctx, `PAUSED: answer the follow-up question in ${ctx.docs}/questions.md (yes adds the item), then resume: ${resumeCommand(ctx.slug, 'resolve-conflicts')}`, 2);
+  if (!q || !q.answer.trim()) stop(ctx, `PAUSED: answer the follow-up question in ${ctx.docs}/questions.md (yes adds the item), then resume: ${resumeCommand(ctx.slug, 'resolve-conflicts')}`, 2, 'resolve-conflicts');
   fs.rmSync(qFile);
   if (!/^(yes|y|add)\b/i.test(q.answer.trim())) {
     fs.rmSync(draft, { force: true });
     // Say again what the last attempt found: the answer alone ("no") leaves the user with nothing to go on.
     for (const l of lastReportHeadline(ctx)) ctx.out(l);
-    stop(ctx, `You answered no, so no follow-up task was added. Your pull request and branch are unchanged. Press Resolve conflicts to try again (it starts from the latest ${ctx.config.git.base || 'main'}), or fix the conflict by hand: ${resumeCommand(ctx.slug, 'resolve-conflicts')}`, 2);
+    stop(ctx, `You answered no, so no follow-up task was added. Your pull request and branch are unchanged. Press Resolve conflicts to try again (it starts from the latest ${ctx.config.git.base || 'main'}), or fix the conflict by hand: ${resumeCommand(ctx.slug, 'resolve-conflicts')}`, 2, 'resolve-conflicts');
   }
   const main = projectRoot(ctx.root, ctx.env);
   const newSlug = nextFollowUpSlug([main, ctx.root], ctx.config.backlogDir, ctx.slug);
@@ -896,7 +896,7 @@ export function adoptKeptAttempt(ctx: Ctx): void {
 export type ResolveStageResult = 'pushed' | 'up-to-date' | 'skipped' | 'stopped';
 
 /** A call of the stage from inside another stage (the push check after Plan): who called it, and where a stopped run resumes. */
-export interface InlineResolve { resume: string; caller: string }
+export interface InlineResolve { resume: From; caller: string }
 
 /**
  * Resolve conflicts: after Finalise (or started by hand on a finished run), brings the PR branch up to date with the base.
@@ -979,11 +979,11 @@ export async function resolveConflictsStage(ctx: Ctx, opts: { inline?: InlineRes
   if (result.kind !== 'stopped') { backToCaller(); return result.kind; }
   if (inline) {
     backToCaller();
-    stop(ctx, `${RESOLVE_STAGE} stopped, nothing pushed: ${result.reason} (see ${ctx.log}/resolve-conflicts.md). Resume when fixed: ${resumeCommand(ctx.slug, inline.resume)}`, 1);
+    stop(ctx, `${RESOLVE_STAGE} stopped, nothing pushed: ${result.reason} (see ${ctx.log}/resolve-conflicts.md). Resume when fixed: ${resumeCommand(ctx.slug, inline.resume)}`, 1, inline.resume);
   }
   if (!result.offer) {
     const next = result.checkFailed ? 'Press Resolve conflicts to try again' : 'Resume when fixed';
-    stop(ctx, `${RESOLVE_STAGE} stopped, nothing pushed: ${result.reason}. ${next}: ${resumeCommand(ctx.slug, 'resolve-conflicts')}`, 1);
+    stop(ctx, `${RESOLVE_STAGE} stopped, nothing pushed: ${result.reason}. ${next}: ${resumeCommand(ctx.slug, 'resolve-conflicts')}`, 1, 'resolve-conflicts');
   }
   let record: { before: string; remoteSha: string; oldBase?: string; upstream?: string } | undefined;
   try { record = JSON.parse(fs.readFileSync(recordFile, 'utf8')); } catch { record = undefined; }
@@ -991,5 +991,5 @@ export async function resolveConflictsStage(ctx: Ctx, opts: { inline?: InlineRes
   const newSlug = nextFollowUpSlug([projectRoot(ctx.root, ctx.env), ctx.root], ctx.config.backlogDir, ctx.slug);
   fs.writeFileSync(at(ctx, `${ctx.log}/${FOLLOW_UP}`), followUpBrief({ slug: ctx.slug, newSlug, docs: ctx.docs, base, reason: result.reason, conflict: result.conflict, merged, record }));
   askFollowUp(ctx, newSlug);
-  return stop(ctx, `PAUSED: ${RESOLVE_STAGE} did not push (${result.reason}). Answer yes in ${ctx.docs}/questions.md to add the follow-up item ${newSlug}, then resume: ${resumeCommand(ctx.slug, 'resolve-conflicts')}`, 2);
+  return stop(ctx, `PAUSED: ${RESOLVE_STAGE} did not push (${result.reason}). Answer yes in ${ctx.docs}/questions.md to add the follow-up item ${newSlug}, then resume: ${resumeCommand(ctx.slug, 'resolve-conflicts')}`, 2, 'resolve-conflicts');
 }
