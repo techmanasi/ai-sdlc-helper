@@ -46,16 +46,6 @@ Global npm package + Claude Code plugin running an AI SDLC pipeline (Spec, Plan,
 Red tests, Implement, Review, Ship) on any project. TypeScript ESM, Vitest,
 ESLint. Plan: `docs/PLAN.md`.
 
-## Layout
-- `src/` — CLI entry (`src/bin.ts`, `src/cli/`), pipeline engine
-  (`src/pipeline/`: stages, agent, gates, prompts, finalise, resolve-conflicts),
-  test runners (`src/runners/`), run records/status (`src/runs/`), project
-  registry, backlog, permissions, harness adapters.
-- `web/` — Preact UI (`web/ui/`) and its local server (`web/server/`).
-- `test/` — Vitest suites; `e2e/` end-to-end runs; `assets/` user-facing
-  prompts and skills; `docs/` plan, backlog, investigations.
-- `graft/` is the generated context graph (gitignored, rebuild with `graft build`).
-
 ## Commands
 - `npm run check`: lint, typecheck, test. The **full suite runs in GitHub Actions
   CI, not locally** (2026-11-12): run only the targeted tests for the files you
@@ -64,12 +54,8 @@ ESLint. Plan: `docs/PLAN.md`.
   `npm run check > /tmp/sdlc-$(basename $PWD).log 2>&1; echo exit=$?`.
   Exit 0: skip the log unless the task needs something in it (e.g. timings,
   warnings, coverage). Failure: grep/tail only the failing parts.
-- `npm run build`: compile `src/` to `dist/`.
 - Markdown-only changes: run `npm run lint` only. CI skips the test matrix and
   e2e for Markdown-only PRs; `lint.yml` still runs so docs PRs get a check.
-- `node dist/bin.js <command>`: run the built CLI.
-- `npm run e2e`, `npm run ui`, `npm run dev` for the pipeline e2e run and the
-  web UI.
 
 ## Rules
 - Node 18+ only: no newer Node APIs (`@types/node` pinned to 18). Target
