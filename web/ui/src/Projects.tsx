@@ -98,6 +98,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
   const [stages, setStages] = useState<Record<string, Pick>>({});
   const [base, setBase] = useState('');
   const [parallel, setParallel] = useState('');
+  const [silence, setSilence] = useState('');
   const [preliminary, setPreliminary] = useState<'scoped' | 'full'>('scoped');
   const [errors, setErrors] = useState<string[]>([]);
   const [warn, setWarn] = useState('');
@@ -115,6 +116,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
     fill(d, sc);
     setBase(d.overrides.worktreeBase || '');
     setParallel(d.overrides.maxParallel ? String(d.overrides.maxParallel) : '');
+    setSilence(d.overrides.boardSilenceSeconds ? String(d.overrides.boardSilenceSeconds) : '');
   }).catch(e => setErrors([(e as Error).message]));
   useEffect(() => { setData(null); load(scope); }, [name]);
 
@@ -125,6 +127,15 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
 
   const save = async () => {
     setBusy(true); setErrors([]); setWarn('');
+    const s = silence.trim();
+    const secs = s ? Number(s) : null;
+    if (data.registered && data.boardSilenceEnvSeconds == null && s) {
+      if (!(Number.isInteger(secs) && (secs as number) >= 1)) {
+        setErrors(['Board quiet time must be a whole number of seconds, at least 1']);
+        setBusy(false);
+        return;
+      }
+    }
     try {
       let activeRuns: string[] = [];
       if (scope === 'project') {
@@ -157,7 +168,12 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
         activeRuns = data.activeRuns;
       }
       if (data.registered) {
-        const o = await api.editOverrides(name, { worktreeBase: base.trim() || null, maxParallel: parallel.trim() ? Number(parallel) : null });
+        const patch: Record<string, any> = {
+          worktreeBase: base.trim() || null,
+          maxParallel: parallel.trim() ? Number(parallel) : null,
+        };
+        if (data.boardSilenceEnvSeconds == null) patch.boardSilenceSeconds = secs;
+        const o = await api.editOverrides(name, patch);
         if (!o.ok) { setErrors(o.errors); setBusy(false); return; }
       }
       if (activeRuns.length) setWarn(`Saved. ${activeRuns.join(', ')} ${activeRuns.length > 1 ? 'are' : 'is'} running or paused and keep${activeRuns.length > 1 ? '' : 's'} the old setup until restarted.`);
@@ -255,6 +271,23 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
           <input id={`wb-${name}`} class="inp mono" value={base} placeholder="../{repo}-sdlc" onInput={e => setBase((e.target as HTMLInputElement).value)} />
           <label class="lbl" for={`mp-${name}`}>Runs in parallel (personal)</label>
           <input id={`mp-${name}`} class="inp mono" type="number" min="1" value={parallel} onInput={e => setParallel((e.target as HTMLInputElement).value)} />
+          <label class="lbl" for={`bs-${name}`}>Board quiet time in seconds (personal)</label>
+          <input
+            id={`bs-${name}`}
+            class="inp mono"
+            type="number"
+            min="1"
+            step="1"
+            placeholder="30"
+            value={data.boardSilenceEnvSeconds != null ? String(data.boardSilenceEnvSeconds) : silence}
+            disabled={data.boardSilenceEnvSeconds != null}
+            onInput={e => setSilence((e.target as HTMLInputElement).value)}
+          />
+          {data.boardSilenceEnvSeconds != null && (
+            <p class="small muted" style={{ margin: 0 }}>
+              Set by SDLC_BOARD_SILENCE_MS in server environment (overrides config)
+            </p>
+          )}
         </>
       )}
       <p class="small muted" style={{ margin: 0 }}>

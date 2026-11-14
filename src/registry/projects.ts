@@ -7,6 +7,8 @@ import { configDir } from '../configDir.js';
 export interface ProjectOverrides {
   worktreeBase?: string;
   maxParallel?: number;
+  /** Seconds of quiet before the board watcher checks its files. */
+  boardSilenceSeconds?: number;
   /** Where the full test suite runs: here ('local') or in GitHub Actions ('ci'). */
   fullSuite?: 'local' | 'ci';
   /** Minutes to wait for the CI run of a pushed commit. */
