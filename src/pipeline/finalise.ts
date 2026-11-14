@@ -119,8 +119,9 @@ export function findOrCreatePr(cwd: string, branch: string, title: string, body:
     if (create.status === 0) {
       const match = (create.stdout + '\n' + create.stderr).match(/https?:\/\/[^\s]+/);
       if (match) {
-        clearPrCache();
-        return { url: match[0].trim() };
+        const url = match[0].trim();
+        forgetPrStatus(cwd, branch, url);
+        return { url };
       }
       return { url: null, error: ghFailure('gh pr create printed no pull request link;', create) };
     }
@@ -145,7 +146,7 @@ export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
 export function markPrReady(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEnv = process.env, onError?: (text: string) => void): boolean {
   try {
     const r = spawnSync('gh', ['pr', 'ready', branchOrUrl], { cwd, encoding: 'utf8', env, timeout: 30_000 });
-    clearPrCache();
+    forgetPrStatus(cwd, branchOrUrl);
     if (r.status !== 0) onError?.(ghFailure('gh pr ready', r));
     return r.status === 0;
   } catch (e) {
@@ -217,7 +218,7 @@ const prCache = new Map<string, PrEntry>();
 const inflight = new Map<string, Promise<PrStatus | null>>();
 const PR_CACHE_TTL_MS = 60_000;
 const PR_TIMEOUT_MS = 3000;
-/** How long one gh call may take: SDLC_PR_TIMEOUT_MS, else 3 s. A `gh pr list` of many PRs gets more (see prefetchPrStatuses). */
+/** How long one gh call may take: SDLC_PR_TIMEOUT_MS, else 3 s. A page of the PR list gets more (see prefetchPrStatuses). */
 const prTimeout = (env: NodeJS.ProcessEnv): number => { const ms = Number(env.SDLC_PR_TIMEOUT_MS); return Number.isFinite(ms) && ms > 0 ? ms : PR_TIMEOUT_MS; };
 /** How often the web server asks GitHub again for a PR it already knows: once an hour (SDLC_PR_POLL_MS changes it). */
 export const PR_POLL_MS = 3_600_000;
@@ -234,7 +235,7 @@ export function prPollOptions(env: NodeJS.ProcessEnv = process.env): PrReadOptio
   return { ttlMs: Number.isFinite(ms) && ms > 0 ? ms : PR_POLL_MS, retryFailed: false };
 }
 
-/** Clears the in-memory PR cache (e.g. after creating or updating a PR). */
+/** Clears every PR status, in memory and in the status files. For tests: a change to one PR forgets only it (forgetPrStatus). */
 export function clearPrCache(): void {
   // A cleared cache must not come back from the file at the next start.
   for (const f of prFiles.values()) { try { fs.rmSync(f, { force: true }); } catch { /* best effort */ } }
@@ -267,6 +268,14 @@ export function keepPrStatusIn(cwd: string, file: string): void {
   } catch { /* a missing or broken file is the same as no file */ }
 }
 
+/** Writes the statuses file at once (a temporary file renamed over it), so a reader never sees half of it. */
+function writePrStatusFile(file: string, entries: Record<string, PrEntry>): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ version: 1, entries }));
+  fs.renameSync(tmp, file);
+}
+
 function savePrStatuses(cwd: string): void {
   const file = prFiles.get(cwd);
   if (!file) return;
@@ -274,11 +283,35 @@ function savePrStatuses(cwd: string): void {
     const prefix = `${cwd}::`;
     const entries: Record<string, PrEntry> = {};
     for (const [k, e] of prCache) if (k.startsWith(prefix)) entries[k.slice(prefix.length)] = e;
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ version: 1, entries }));
-    fs.renameSync(tmp, file);
+    writePrStatusFile(file, entries);
   } catch { /* a status that cannot be saved must not break a refresh */ }
+}
+
+/**
+ * Forgets one PR after it changed (created, marked ready) or before it is read fresh: the given branch and link keys,
+ * and every other key that held the same PR (its link, or the branch that answered with it), in memory, among the
+ * running refreshes and in the status file. Every other PR's status stays, so the next Completed load asks GitHub
+ * only about this one.
+ */
+export function forgetPrStatus(cwd: string, ...branchOrUrls: Array<string | null | undefined>): void {
+  const given = new Set(branchOrUrls.filter((k): k is string => typeof k === 'string' && Boolean(k.trim())).map(k => k.trim()));
+  if (!given.size) return;
+  const urls = new Set([...given].filter(k => /^https?:\/\//.test(k)));
+  for (const k of given) { const url = prCache.get(prKey(cwd, k))?.val?.url; if (url) urls.add(url); }
+  const drop = (name: string, e: PrEntry | undefined): boolean => given.has(name) || Boolean(e?.val && urls.has(e.val.url));
+  const prefix = `${cwd}::`;
+  for (const [k, e] of [...prCache]) if (k.startsWith(prefix) && drop(k.slice(prefix.length), e)) prCache.delete(k);
+  for (const k of given) inflight.delete(prKey(cwd, k));
+  const file = prFiles.get(cwd);
+  if (!file) return;
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8')) as { version?: unknown; entries?: unknown };
+    if (!data || data.version !== 1 || !data.entries || typeof data.entries !== 'object') return;
+    const kept: Record<string, PrEntry> = {};
+    let dropped = false;
+    for (const [name, e] of Object.entries(data.entries as Record<string, PrEntry>)) { if (drop(name, e)) dropped = true; else kept[name] = e; }
+    if (dropped) writePrStatusFile(file, kept);
+  } catch { /* no file, or a broken one, holds nothing to forget; one that cannot be written is read again at the next start */ }
 }
 
 const prKey = (cwd: string, branchOrUrl: string): string => `${cwd}::${branchOrUrl.trim()}`;
@@ -451,52 +484,133 @@ export async function getPrStatusAsync(cwd: string, branchOrUrl: string, env: No
 
 /** Below this many unknown links, one `gh pr view` each is as quick as one list. */
 const PREFETCH_MIN = 3;
+/** PRs per page of the list: the most GitHub gives in one page, and what `gh pr list` asks for. */
+const PR_PAGE_SIZE = 100;
+/**
+ * What one page of 100 PRs costs in rounds of four `gh pr view` calls: measured against a live repository, a page took
+ * 3.4-3.9 s and one view 0.73-0.79 s, so a page is worth reading only for at least 16 links it could hold.
+ */
+const PAGE_COST_IN_VIEW_ROUNDS = 4;
 
 /**
- * Fills the cache for many PR links at once with one `gh pr list --state all` (the same fields `gh pr view` gives, so
- * an entry is the same whichever call made it), instead of one gh call per link: for a list of many completed tasks
- * when nothing is known about them yet (a first load, or after the cache was cleared). Only links are asked for, not
- * branches (a branch's PR is gh's own pick among several), and only those neither cached nor being fetched. A link
- * the list does not hold (an older PR past its limit, another repository) is left for its own `gh pr view`. A failed
- * list marks each of them failed with gh's message, which <onError> also gets once per link. Returns the links filled.
+ * One page of the repository's PRs, newest first (numbers go up with creation, so numbers go down page by page), with
+ * the fields of PR_FIELDS as `gh pr list` asks GitHub for them: the check runs and commit statuses of the head commit.
+ */
+const PR_PAGE_QUERY = `query($owner: String!, $repo: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    url
+    pullRequests(first: $first, after: $after, orderBy: {field: CREATED_AT, direction: DESC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        url state number isDraft headRefOid mergeable
+        commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+          __typename
+          ... on CheckRun { name status conclusion startedAt completedAt detailsUrl checkSuite { workflowRun { workflow { name } } } }
+          ... on StatusContext { context state targetUrl createdAt }
+        } } } } } }
+      }
+    }
+  }
+}`;
+
+/** What gh prints for a value GitHub left out: Go's empty text and zero time (a running check has no conclusion or end). */
+const ghText = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
+const ghTime = (v: unknown): string => (v === null || v === undefined ? '0001-01-01T00:00:00Z' : String(v));
+
+type Node = Record<string, unknown> | null | undefined;
+const field = (o: Node, k: string): Node => (o && typeof o === 'object' ? o[k] as Node : undefined);
+
+/**
+ * One PR of a page as `gh pr list --json PR_FIELDS` prints it (gh's api/export_pr.go: keys in its order, a check run's
+ * workflow name, a commit status's creation time as startedAt), so prOfData makes the same status from either.
+ */
+function prListItemOf(node: Record<string, unknown>): Record<string, unknown> {
+  const commits = field(field(node, 'commits'), 'nodes') as unknown;
+  const head = Array.isArray(commits) && commits.length ? commits[0] as Node : null;
+  const contexts = field(field(field(field(head, 'commit'), 'statusCheckRollup'), 'contexts'), 'nodes') as unknown;
+  const rollup = head ? (Array.isArray(contexts) ? contexts as Array<Record<string, unknown>> : []).map(c => c.__typename === 'CheckRun'
+    ? { __typename: c.__typename, completedAt: ghTime(c.completedAt), conclusion: ghText(c.conclusion), detailsUrl: ghText(c.detailsUrl), name: ghText(c.name), startedAt: ghTime(c.startedAt), status: ghText(c.status), workflowName: ghText(field(field(field(c, 'checkSuite'), 'workflowRun'), 'workflow')?.name) }
+    : { __typename: c.__typename, context: ghText(c.context), startedAt: ghTime(c.createdAt), state: ghText(c.state), targetUrl: ghText(c.targetUrl) }) : null;
+  return { headRefOid: node.headRefOid, isDraft: node.isDraft, mergeable: node.mergeable, number: node.number, state: node.state, statusCheckRollup: rollup, url: node.url };
+}
+
+/** One page of the list: its PRs (as `gh pr list` items), the repository's link, and the cursor of the next page (null at the end). */
+type PrPage = { items: Array<Record<string, unknown>>; repoUrl: string; next: string | null } | { error: string };
+
+async function prListPage(cwd: string, env: NodeJS.ProcessEnv, page: number, after: string | null, timeoutMs: number): Promise<PrPage> {
+  const args = ['api', 'graphql', '-F', 'owner={owner}', '-F', 'repo={repo}', '-F', `first=${PR_PAGE_SIZE}`, ...(after ? ['-f', `after=${after}`] : []), '-f', `query=${PR_PAGE_QUERY}`];
+  const what = `gh api graphql (pull requests, page ${page})`;
+  const r = await execFileAsync('gh', args, { cwd, env, timeout: timeoutMs });
+  if (r.code !== 0) return { error: r.error ? ghError(what, r.error, r.stdout, r.stderr, timeoutMs) : ghFailure(what, { status: r.code, stdout: r.stdout, stderr: r.stderr }) };
+  let repo: Node = null;
+  try { repo = field(field(JSON.parse(r.stdout) as Node, 'data'), 'repository'); } catch { /* reported below */ }
+  const list = field(repo, 'pullRequests');
+  const nodes = field(list, 'nodes') as unknown;
+  if (!Array.isArray(nodes)) return { error: ghFailure(`${what} printed no list;`, { status: r.code, stdout: r.stdout, stderr: r.stderr }) };
+  const info = field(list, 'pageInfo');
+  const next = info && info.hasNextPage === true && typeof info.endCursor === 'string' ? info.endCursor : null;
+  return { items: nodes.filter(n => n && typeof n === 'object').map(n => prListItemOf(n as Record<string, unknown>)), repoUrl: ghText(field(repo, 'url') as unknown).replace(/\/+$/, ''), next };
+}
+
+/** The number of a PR link (https://github.com/o/r/pull/12 -> 12); null for anything else. */
+const prNumberOf = (link: string): number | null => { const m = /\/pull\/(\d+)\/?(?:[?#].*)?$/.exec(link); return m ? Number(m[1]) : null; };
+
+/**
+ * Fills the cache for many PR links at once from the repository's PR list (the same fields `gh pr view` gives, so an
+ * entry is the same whichever call made it), instead of one gh call per link: for a list of many completed tasks when
+ * nothing is known about them yet (a first load, or a new server). Only links are asked for, not branches (a branch's
+ * PR is gh's own pick among several), and only those neither cached nor being fetched.
+ *
+ * The list is read page by page, newest first, and stops as soon as every link is found, when there is no next page,
+ * or when the links still missing cannot come any more: a link of this repository whose number is above the last page's
+ * smallest would have been on a page already, and one of another repository is never on it. It also stops when the
+ * pages still to read would take longer than one `gh pr view` per link they could find (PAGE_COST_IN_VIEW_ROUNDS). A link the list did not fill is
+ * left for its own `gh pr view`. A failed page marks each link not yet found failed with gh's message, which <onError>
+ * also gets once per link; what the earlier pages found stays. Returns the links filled.
  */
 export async function prefetchPrStatuses(cwd: string, links: string[], env: NodeJS.ProcessEnv = process.env, onError?: (link: string, message: string) => void): Promise<number> {
   const cold = [...new Set(links.map(k => k.trim()))].filter(k => /^https?:\/\//.test(k) && !prCache.has(prKey(cwd, k)) && !inflight.has(prKey(cwd, k)));
   if (cold.length < PREFETCH_MIN) return 0;
-  const limit = Math.min(1000, Math.max(100, cold.length + 50));
-  // gh asks GitHub for 100 PRs a page; each page gets the time of two single calls.
-  const timeoutMs = prTimeout(env) * (2 + 2 * Math.ceil(limit / 100));
+  // A page of 100 PRs gets the time of four single calls (what one `gh pr list --limit 100` had).
+  const timeoutMs = prTimeout(env) * 4;
   let release: () => void = () => {};
   const done = new Promise<void>(r => { release = r; });
   // Readers that ask for one of these links meanwhile wait for the list instead of starting their own call.
   for (const k of cold) inflight.set(prKey(cwd, k), done.then(() => prCache.get(prKey(cwd, k))?.val ?? null));
+  const missing = new Set(cold);
   let filled = 0;
   try {
-    const r = await execFileAsync('gh', ['pr', 'list', '--state', 'all', '--limit', String(limit), '--json', PR_FIELDS], { cwd, env, timeout: timeoutMs });
-    let list: unknown = null;
-    if (r.code === 0) { try { list = JSON.parse(r.stdout.trim() || '[]'); } catch { /* reported below */ } }
-    if (!Array.isArray(list)) {
-      const what = `gh pr list --state all --limit ${limit}`;
-      const error = r.code !== 0 && r.error ? ghError(what, r.error, r.stdout, r.stderr, timeoutMs) : ghFailure(`${what} printed no list;`, { status: r.code, stdout: r.stdout, stderr: r.stderr });
-      const now = Date.now();
-      for (const k of cold) {
-        prCache.set(prKey(cwd, k), { time: now, val: null, failed: true, error });
-        reportFailure(prKey(cwd, k), error);
-        if (onError) { try { onError(k, error); } catch { /* the reader's problem */ } }
+    let after: string | null = null;
+    for (let page = 1; ; page++) {
+      const r = await prListPage(cwd, env, page, after, timeoutMs);
+      if ('error' in r) {
+        const now = Date.now();
+        for (const k of missing) {
+          prCache.set(prKey(cwd, k), { time: now, val: null, failed: true, error: r.error });
+          reportFailure(prKey(cwd, k), r.error);
+          if (onError) { try { onError(k, r.error); } catch { /* the reader's problem */ } }
+        }
+        return filled;
       }
-      return 0;
+      const now = Date.now();
+      let lowest = Infinity;
+      for (const item of r.items) {
+        const status = prOfData(item);
+        if (typeof status?.number === 'number') lowest = Math.min(lowest, status.number);
+        if (!status || !missing.has(status.url)) continue;
+        prCache.set(prKey(cwd, status.url), { time: now, val: status });
+        failureWaiters.delete(prKey(cwd, status.url));
+        missing.delete(status.url);
+        filled++;
+      }
+      if (!missing.size || !r.next || !r.items.length) return filled;
+      const own = `${r.repoUrl}/pull/`;
+      const below = [...missing].filter(k => k.startsWith(own)).map(prNumberOf).filter((n): n is number => n !== null && n < lowest);
+      if (!below.length) return filled;
+      // A page costs about four rounds of `gh pr view` (four at a time); past that, asking for each link is quicker.
+      if (below.length < Math.ceil((lowest - Math.min(...below)) / PR_PAGE_SIZE) * PAGE_COST_IN_VIEW_ROUNDS * 4) return filled;
+      after = r.next;
     }
-    const byUrl = new Map<string, PrStatus>();
-    for (const item of list) { const s = prOfData(item as Record<string, unknown>); if (s) byUrl.set(s.url, s); }
-    const now = Date.now();
-    for (const k of cold) {
-      const status = byUrl.get(k);
-      if (!status) continue;
-      prCache.set(prKey(cwd, k), { time: now, val: status });
-      failureWaiters.delete(prKey(cwd, k));
-      filled++;
-    }
-    return filled;
   } finally {
     savePrStatuses(cwd);
     for (const k of cold) inflight.delete(prKey(cwd, k));

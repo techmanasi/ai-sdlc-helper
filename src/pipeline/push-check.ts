@@ -8,7 +8,7 @@ import { spawnSync } from '../trace.js';
 import { at, stop, type Ctx, type From } from './context.js';
 import { Git } from './git.js';
 import { keepError } from './errors.js';
-import { clearPrCache, getPrFromBrief, getPrStatus } from './finalise.js';
+import { forgetPrStatus, getPrFromBrief, getPrStatus } from './finalise.js';
 import { gitReason, gitSaid, isRejectedPush } from './ci.js';
 import { appendRound } from './observe.js';
 import { moveSkipped, nextRunBranchOrStop, openMovedPr, recordMove, type MoveReason } from './branch-move.js';
@@ -78,7 +78,7 @@ function endedPr(ctx: Ctx): { state: 'CLOSED' | 'MERGED'; url: string } | null {
   }
   let briefPr: string | null = null;
   try { briefPr = getPrFromBrief(fs.readFileSync(at(ctx, `${ctx.docs}/brief.md`), 'utf8')); } catch { /* no brief */ }
-  clearPrCache();
+  forgetPrStatus(ctx.root, briefPr, ctx.branch);
   const pr = getPrStatus(ctx.root, briefPr || ctx.branch, ctx.env);
   return pr && (pr.state === 'CLOSED' || pr.state === 'MERGED') ? { state: pr.state, url: pr.url } : null;
 }
