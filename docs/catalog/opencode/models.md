@@ -1,0 +1,327 @@
+# OpenCode Model Catalog (`opencode-go` & `opencode`)
+
+- **Benchmark Basis (from `553` real assistant steps in this repository):**
+  - `97.5%` of input tokens are Cache Reads (`~87.6k` cached tokens re-read per step vs `~2.2k` uncached input tokens).
+  - `52%` of generated tokens are hidden reasoning when running `high` effort (`~600` output + reasoning tokens per step).
+  - **100-Step Coding Session Benchmark:** `0.22M` uncached input + `8.76M` cache read + `0.08M` cache write + `0.06M` output (including reasoning).
+  - Models below are sorted **most cost-effective first** (capability-adjusted cost per 100-step coding session).
+
+---
+
+## Free
+
+- **`opencode/minimax-m3.1-flash-free` — MiniMax M3.1 Flash Free (`$0.00` / 100 steps)**
+  - **Billing & Provider:** OpenCode Free (`$0` input, `$0` output, `$0` cache read/write)
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Top free agentic coding model; fast multi-file TypeScript/JavaScript editing, reliable structured tool calls, and strong long-context retention.
+  - **Recommended SDLC Stages:** `spec`, `implement`, `red-tests`, `test-repair`, `resolve-conflicts`
+- **`opencode-go/beam-free` — Beam Free (`$0.00` / 100 steps)**
+  - **Billing & Provider:** OpenCode Go (`$0` input, `$0` output, `$0` cache read/write — zero 5-hour Go quota burn)
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Full-spectrum reasoning model exposed directly under `opencode-go` at `$0`; strong multi-step planning, code synthesis, and architectural review without consuming your $10 Go window.
+  - **Recommended SDLC Stages:** `plan`, `review`, `test-audit`, `implement`
+- **`opencode/beam-free` — Beam Free (`$0.00` / 100 steps)**
+  - **Billing & Provider:** OpenCode Free (`$0` input, `$0` output, `$0` cache read/write)
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Identical reasoning and coding capabilities to `opencode-go/beam-free` under the `opencode` provider namespace.
+  - **Recommended SDLC Stages:** `plan`, `review`, `test-audit`, `implement`
+- **`opencode/flint-40b-free` — Flint 40B Free (`$0.00` / 100 steps)**
+  - **Billing & Provider:** OpenCode Free (`$0` input, `$0` output, `$0` cache read/write)
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Dense 40B model with full effort control; proven in this repository's own session history (`33` steps, `1.83M` cached tokens, `0` errors) for architectural plan review and code analysis.
+  - **Recommended SDLC Stages:** `plan`, `review`, `spec`, `test-repair`
+- **`opencode/nemotron-3.5-super-vl-free` — Nemotron 3.5 Super VL Free (`$0.00` / 100 steps)**
+  - **Billing & Provider:** OpenCode Free (`$0` input, `$0` output, `$0` cache read/write)
+  - **Effort Variants:** `none`, `minimal`, `low`, `medium`, `high`, `xhigh`
+  - **Capabilities:** Multimodal vision-language and reasoning model; supports `none`/`minimal` to turn off thinking tokens for fast low-latency tool execution.
+  - **Recommended SDLC Stages:** UI/screenshot inspection, `spec`, `review`
+- **`opencode/inkling-2-small-free` — Inkling 2 Small Free (`$0.00` / 100 steps)**
+  - **Billing & Provider:** OpenCode Free (`$0` input, `$0` output, `$0` cache read/write)
+  - **Effort Variants:** `none`, `minimal`, `low`, `medium`, `high`, `max`
+  - **Capabilities:** Compact, high-speed model with fine-grained reasoning effort control (`none` through `max`).
+  - **Recommended SDLC Stages:** Subagent codebase search, triage, `spec`, small single-file fixes
+- **`opencode/mimo-v2.6-flash-free` — MiMo-V2.6-Flash Free (`$0.00` / 100 steps)**
+  - **Billing & Provider:** OpenCode Free (`$0` input, `$0` output, `$0` cache read/write)
+  - **Effort Variants:** fixed (`default`)
+  - **Capabilities:** Fast non-thinking completion model for direct code edits without reasoning latency.
+  - **Recommended SDLC Stages:** Quick mechanical edits, formatting, `resolve-conflicts`
+- **`opencode-go/longcat-2.5-free` — LongCat 2.5 Free (`$0.00` / 100 steps)**
+  - **Billing & Provider:** OpenCode Go (`$0` input, `$0` output, `$0` cache read/write — zero 5-hour Go quota burn)
+  - **Effort Variants:** fixed (`default`)
+  - **Capabilities:** Lightweight zero-cost fallback model inside the `opencode-go` namespace for fast text and code edits.
+  - **Recommended SDLC Stages:** Lightweight fallback when 5-hour Go quota is exhausted
+- **`opencode/longcat-2.5-free` — LongCat 2.5 Free (`$0.00` / 100 steps)**
+  - **Billing & Provider:** OpenCode Free (`$0` input, `$0` output, `$0` cache read/write)
+  - **Effort Variants:** fixed (`default`)
+  - **Capabilities:** Same lightweight non-thinking model under the `opencode` provider namespace.
+  - **Recommended SDLC Stages:** Summarization, simple file edits, fallback
+- **`opencode-go/iceman-contributor-free` — Iceman Contributor Free (`$0.00` / 100 steps)**
+  - **Billing & Provider:** OpenCode Go (`$0` input, `$0` output, `$0` cache read/write — zero 5-hour Go quota burn)
+  - **Effort Variants:** fixed (`default`)
+  - **Capabilities:** General-purpose free contributor model inside `opencode-go`.
+  - **Recommended SDLC Stages:** General fallback when 5-hour Go quota is exhausted
+- **`opencode/iceman-free` — Iceman Free (`$0.00` / 100 steps)**
+  - **Billing & Provider:** OpenCode Free (`$0` input, `$0` output, `$0` cache read/write)
+  - **Effort Variants:** fixed (`default`)
+  - **Capabilities:** General-purpose free completion model for simple code edits and Q&A.
+  - **Recommended SDLC Stages:** Simple edits and fallback
+- **`opencode/big-pickle` — Big Pickle (`$0.00` / 100 steps)**
+  - **Billing & Provider:** OpenCode Free (`$0` input, `$0` output, `$0` cache read/write)
+  - **Effort Variants:** fixed (`default`)
+  - **Capabilities:** Basic free completion model for lightweight experimentation.
+  - **Recommended SDLC Stages:** Basic fallback / experimentation
+
+---
+
+## Paid
+
+- **`opencode-go/deepseek-v4.1-flash` — DeepSeek V4.1 Flash 1017 (`$0.10` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.15/M` input, `$0.60/M` output, `$0.003/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `low`, `high`, `max`
+  - **Capabilities:** **#1 overall value model on OpenCode Go.** Ultra-low `$0.003/M` cache read and `$0` cache write make long multi-file coding sessions nearly free (`71%` of all steps in this repo ran on this model). Run at `low` effort for routine coding to avoid hidden thinking overhead, and `high` for tricky logic.
+  - **Recommended SDLC Stages:** `spec`, `implement`, `test-repair`, `resolve-conflicts`
+- **`opencode-go/gpt-6-luna` — GPT-6 Luna (`$0.15` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.10/M` input, `$0.50/M` output, `$0.010/M` cache read, `$0.125/M` cache write (`>272k` ctx: `$0.20/M` in, `$0.75/M` out, `$0.020/M` cache read)
+  - **Effort Variants:** `none`, `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** **#1 low-token workhorse on OpenCode Go.** Flat pricing up to `272k` context, full effort control (`none` to `max`), and concise tool calling with minimal reasoning-token bloat at `medium` effort.
+  - **Recommended SDLC Stages:** All stages (`spec`, `red-tests`, `implement`, `test-repair`, `test-audit`, `resolve-conflicts`)
+- **`opencode-go/claude-haiku-5-5` — Claude Haiku 5.5 (`$0.15` / 100 steps under 100k ctx)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.10/M` input, `$0.50/M` output, `$0.010/M` cache read, `$0.125/M` cache write (`>100k` ctx: `$0.50/M` in, `$2.50/M` out, `$0.050/M` cache read)
+  - **Effort Variants:** `none`, `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** **#1 fast Anthropic model on OpenCode Go.** Strict instruction and tool-schema adherence with `none`–`max` effort control. Keep sessions under `100k` context where pricing is `5×` cheaper.
+  - **Recommended SDLC Stages:** `spec`, `test-repair`, `resolve-conflicts`, and short-lived subagents
+- **`opencode-go/deepseek-v4-pro` — DeepSeek V4 Pro (`$0.46` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.66/M` input, `$1.98/M` output, `$0.022/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `high`, `max`
+  - **Capabilities:** **#1 heavy reasoning & architecture model on OpenCode Go.** Frontier-class planning, code review, and deep debugging at `$0.022/M` cache read and `$0` cache write (`4×–6.5×` cheaper than `gemini-4-argon` or `kimi-k3.1-pro`).
+  - **Recommended SDLC Stages:** `plan`, `review`, `test-audit`
+- **`opencode-go/muse-spark-1.3-contributor` — Muse Spark 1.3 Contributor (`$0.05` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.10/M` input, `$0.20/M` output, `$0.002/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `minimal`, `low`, `medium`, `high`, `xhigh`
+  - **Capabilities:** Lowest-cost paid reasoning model in the catalog (`$0.002/M` cache read); ideal for high-volume subagent searches and small edits.
+  - **Recommended SDLC Stages:** Subagent exploration, `spec`, routine edits
+- **`opencode-go/mimo-v2.6-flash` — MiMo-V2.6-Flash (`$0.07` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.14/M` input, `$0.28/M` output, `$0.0028/M` cache read, `$0/M` cache write
+  - **Effort Variants:** fixed (`default`)
+  - **Capabilities:** Ultra-low-burn non-thinking coder; zero tokens spent on internal reasoning chains.
+  - **Recommended SDLC Stages:** Mechanical refactors, formatting, `resolve-conflicts`
+- **`opencode-go/mimo-v2.5` — MiMo V2.5 (`$0.07` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.14/M` input, `$0.28/M` output, `$0.0028/M` cache read, `$0/M` cache write
+  - **Effort Variants:** fixed (`default`)
+  - **Capabilities:** Fast non-thinking direct-output model with near-zero cache read cost.
+  - **Recommended SDLC Stages:** Mechanical coding and boilerplate generation
+- **`opencode/muse-ember-1.0` — Muse Ember 1.0 (`$0.09` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$0.10/M` input, `$0.50/M` output, `$0.004/M` cache read, `$0/M` cache write (`>200k` ctx: `$0.30/M` in, `$1.50/M` out, `$0.012/M` cache read)
+  - **Effort Variants:** `minimal`, `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Most cost-effective Pay-As-You-Go reasoning model on the `opencode` provider, with `minimal` through `max` effort.
+  - **Recommended SDLC Stages:** `spec`, `implement`, subagents (when using wallet credits)
+- **`opencode/gpt-6-luna` — GPT-6 Luna (`$0.15` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$0.10/M` input, `$0.50/M` output, `$0.010/M` cache read, `$0.125/M` cache write (`>272k` ctx: `$0.20/M` in, `$0.75/M` out)
+  - **Effort Variants:** `none`, `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Pay-As-You-Go wallet equivalent of `opencode-go/gpt-6-luna`.
+  - **Recommended SDLC Stages:** All stages when running on `opencode` wallet credits
+- **`opencode/claude-haiku-5-5` — Claude Haiku 5.5 (`$0.15` / 100 steps under 100k ctx)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$0.10/M` input, `$0.50/M` output, `$0.010/M` cache read, `$0.125/M` cache write (`>100k` ctx: `$0.50/M` in, `$2.50/M` out)
+  - **Effort Variants:** `none`, `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Pay-As-You-Go wallet equivalent of `opencode-go/claude-haiku-5-5`.
+  - **Recommended SDLC Stages:** `spec`, `test-repair`, `resolve-conflicts` (<100k ctx)
+- **`opencode-go/mimo-v2.5-pro` — MiMo V2.5 Pro (`$0.18` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.435/M` input, `$0.87/M` output, `$0.003625/M` cache read, `$0/M` cache write
+  - **Effort Variants:** fixed (`default`)
+  - **Capabilities:** Stronger Pro variant of MiMo V2.5 with ultra-low `$0.0036/M` cache read and zero thinking-token overhead.
+  - **Recommended SDLC Stages:** `implement`, `test-repair`
+- **`opencode/deepseek-v4.1-flash` — DeepSeek V4.1 Flash 1017 (`$0.19` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$0.30/M` input, `$1.20/M` output, `$0.006/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `low`, `high`, `max`
+  - **Capabilities:** Pay-As-You-Go version of DeepSeek V4.1 Flash (`2×` the price of `opencode-go/deepseek-v4.1-flash`; prefer the `opencode-go` ID).
+  - **Recommended SDLC Stages:** `implement`, `spec`, `test-repair`
+- **`opencode-go/minimax-m3.1-flash` — MiniMax M3.1 Flash (`$0.20` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.15/M` input, `$0.60/M` output, `$0.015/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Fast agentic coding model with `$0` cache write and full effort control (`opencode/minimax-m3.1-flash-free` provides the same family at `$0`).
+  - **Recommended SDLC Stages:** `implement`, `red-tests`, `test-repair`
+- **`opencode-go/qwen3.8-flash` — Qwen3.8 Flash (`$0.22` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.15/M` input, `$0.47/M` output, `$0.016/M` cache read, `$0.20/M` cache write
+  - **Effort Variants:** `none`, `low`, `medium`, `xhigh`
+  - **Capabilities:** Fast polyglot coder with `none` variant to disable reasoning tokens on simple steps.
+  - **Recommended SDLC Stages:** `implement`, `spec`, `test-repair`
+- **`opencode/qwen3.8-flash` — Qwen3.8 Flash (`$0.22` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$0.15/M` input, `$0.47/M` output, `$0.016/M` cache read, `$0.20/M` cache write
+  - **Effort Variants:** `none`, `low`, `medium`, `xhigh`
+  - **Capabilities:** Pay-As-You-Go wallet equivalent of `opencode-go/qwen3.8-flash`.
+  - **Recommended SDLC Stages:** `implement`, `spec`
+- **`opencode/gpt-5.4-nano` — GPT-5.4 Nano (`$0.29` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$0.20/M` input, `$1.25/M` output, `$0.020/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `none`, `low`, `medium`, `high`, `xhigh`
+  - **Capabilities:** Lightweight OpenAI nano model; superseded by the smarter and `2×` cheaper `gpt-6-luna`.
+  - **Recommended SDLC Stages:** Legacy lightweight tasks
+- **`opencode-go/glm-5.3-flash` — GLM-5.3-Flash (`$0.33` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.15/M` input, `$0.50/M` output, `$0.030/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `low`, `high`, `max`
+  - **Capabilities:** Fast Zhipu agentic coding model with `$0` cache write.
+  - **Recommended SDLC Stages:** `spec`, `implement`, `test-repair`
+- **`opencode/glm-5.3-flash` — GLM-5.3-Flash (`$0.33` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$0.15/M` input, `$0.50/M` output, `$0.030/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `low`, `high`, `max`
+  - **Capabilities:** Pay-As-You-Go wallet equivalent of `opencode-go/glm-5.3-flash`.
+  - **Recommended SDLC Stages:** `spec`, `implement`
+- **`opencode/gemini-3.5-flash-lite` — Gemini 3.5 Flash Lite (`$0.48` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$0.30/M` input, `$2.50/M` output, `$0.030/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `minimal`, `low`, `medium`, `high`
+  - **Capabilities:** Lightweight long-context Gemini reader with `minimal` thinking option.
+  - **Recommended SDLC Stages:** Fast codebase reading and `spec`
+- **`opencode-go/qwen3.7-plus` — Qwen3.7 Plus (`$0.57` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.40/M` input, `$1.60/M` output, `$0.040/M` cache read, `$0.50/M` cache write (`>256k` ctx: `$1.20/M` in, `$4.80/M` out)
+  - **Effort Variants:** `none`, `high`, `max`
+  - **Capabilities:** Balanced mid-tier reasoning and coding model with `256k` tier-1 context window and `none` effort toggle.
+  - **Recommended SDLC Stages:** `implement`, `red-tests`, `plan`
+- **`opencode-go/minimax-m3` — MiniMax-M3 (`$0.66` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.30/M` input, `$1.20/M` output, `$0.060/M` cache read, `$0/M` cache write (`>512k` ctx: `$0.60/M` in, `$2.40/M` out)
+  - **Effort Variants:** `none`, `thinking`
+  - **Capabilities:** Ultra-large **`512k` tier-1 context window** before any price step-up, with `$0` cache write and toggleable `none`/`thinking` modes.
+  - **Recommended SDLC Stages:** Whole-repo audits and very long sessions (`>272k` tokens)
+- **`opencode-go/hy4` — Hy4 (`$0.70` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.834/M` input, `$2.501/M` output, `$0.042/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `none`, `high`
+  - **Capabilities:** Strong mid-tier reasoning and architecture model with `$0` cache write and `none`/`high` effort toggle.
+  - **Recommended SDLC Stages:** `plan`, `review`, `test-audit`
+- **`opencode/mistral-large-4` — Mistral Large 4 (`$0.89` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$0.68/M` input, `$2.09/M` output, `$0.070/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `none`, `high`
+  - **Capabilities:** Mid-tier European flagship for multilingual and code tasks with `none`/`high` effort control.
+  - **Recommended SDLC Stages:** `plan`, `implement`, `review`
+- **`opencode/gemini-3.8-flash` — Gemini 3.8 Flash (`$1.05` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$0.75/M` input, `$3.75/M` output, `$0.075/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `low`, `medium`, `high`
+  - **Capabilities:** Fast multimodal and coding model on `opencode` wallet (already covered natively if you run the `agy` harness).
+  - **Recommended SDLC Stages:** `spec`, `implement`
+- **`opencode/gpt-5.4-mini` — GPT-5.4 Mini (`$1.09` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$0.75/M` input, `$4.50/M` output, `$0.075/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `none`, `low`, `medium`, `high`, `xhigh`
+  - **Capabilities:** Legacy OpenAI mini model; superseded by `gpt-6-luna` at `7×` lower cost.
+  - **Recommended SDLC Stages:** Superseded by `gpt-6-luna`
+- **`opencode-go/step-5-preview` — Step 5 Preview (`$1.26` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$1.00/M` input, `$2.70/M` output, `$0.100/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `low`, `medium`, `high`
+  - **Capabilities:** StepFun reasoning preview model with `$0` cache write.
+  - **Recommended SDLC Stages:** `plan`, `review`
+- **`opencode/deepseek-v4-pro` — DeepSeek V4 Pro (`$1.86` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$1.74/M` input, `$3.48/M` output, `$0.145/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `high`, `max`
+  - **Capabilities:** Pay-As-You-Go version of DeepSeek V4 Pro (`4×` more expensive than `opencode-go/deepseek-v4-pro`; always prefer the `opencode-go` ID).
+  - **Recommended SDLC Stages:** `plan`, `review` (prefer `opencode-go/deepseek-v4-pro`)
+- **`opencode-go/gemini-4-argon` — Gemini 4 Argon (`$1.92` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$2.00/M` input, `$10.00/M` output, `$0.100/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `low`, `medium`, `high`
+  - **Capabilities:** Frontier Gemini 4 model on `$10` OpenCode Go; strong multimodal/architectural reasoning and `$0` cache write, but `$10/M` output burns quota `13×` faster than `gpt-6-luna`.
+  - **Recommended SDLC Stages:** Interactive architecture at `low`/`medium` effort or single-pass `review`
+- **`opencode/gemini-4-carbon` — Gemini 4 Carbon (`$1.92` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$2.00/M` input, `$10.00/M` output, `$0.100/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `low`, `medium`, `high`
+  - **Capabilities:** Frontier Gemini 4 model billed against `opencode` wallet balance.
+  - **Recommended SDLC Stages:** Single-pass `plan` or `review`
+- **`opencode/grok-build-0.1` — Grok Build 0.1 (`$2.09` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$1.00/M` input, `$2.00/M` output, `$0.200/M` cache read, `$0/M` cache write
+  - **Effort Variants:** fixed (`default`)
+  - **Capabilities:** Specialized xAI build agent, but `$0.20/M` cache read makes multi-step loops expensive.
+  - **Recommended SDLC Stages:** Short build/fix tasks
+- **`opencode/claude-sonnet-5-5` — Claude Sonnet 5.5 (`$2.11` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$2.00/M` input, `$10.00/M` output, `$0.100/M` cache read, `$2.50/M` cache write
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Frontier Anthropic coding model on `opencode` wallet (already covered natively if you run the `claude` harness).
+  - **Recommended SDLC Stages:** `plan`, `review`, `test-repair`
+- **`opencode/gpt-6.1-sol` — GPT-6.1 Sol (`$2.11` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$2.00/M` input, `$10.00/M` output, `$0.100/M` cache read, `$2.50/M` cache write (`>272k` ctx: `$4.00/M` in, `$15.00/M` out)
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Frontier OpenAI coding flagship on `opencode` wallet (already covered natively if you run the `codex` harness).
+  - **Recommended SDLC Stages:** `red-tests`, `test-audit`, `review`
+- **`opencode-go/kimi-k2.7-code` — Kimi K2.7 Code (`$2.11` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$0.95/M` input, `$4.00/M` output, `$0.190/M` cache read, `$0/M` cache write
+  - **Effort Variants:** fixed (`default`)
+  - **Capabilities:** Moonshot coding model; superseded on `$10 Go` by `opencode-go/deepseek-v4-pro` at `4.5×` lower session cost.
+  - **Recommended SDLC Stages:** Superseded by `opencode-go/deepseek-v4-pro`
+- **`opencode/kimi-k2.7-code` — Kimi K2.7 Code (`$2.11` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$0.95/M` input, `$4.00/M` output, `$0.190/M` cache read, `$0/M` cache write
+  - **Effort Variants:** fixed (`default`)
+  - **Capabilities:** Pay-As-You-Go wallet equivalent of `opencode-go/kimi-k2.7-code`.
+  - **Recommended SDLC Stages:** Superseded by `opencode-go/deepseek-v4-pro`
+- **`opencode/gpt-5.3-codex` — GPT-5.3 Codex (`$2.76` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$1.75/M` input, `$14.00/M` output, `$0.175/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `none`, `low`, `medium`, `high`, `xhigh`
+  - **Capabilities:** Specialized OpenAI Codex agent; superseded by cheaper and newer `gpt-6.1-sol` and `gpt-6-luna`.
+  - **Recommended SDLC Stages:** Superseded by `gpt-6-luna` / `gpt-6.1-sol`
+- **`opencode/gpt-5.3-codex-spark` — GPT-5.3 Codex Spark (`$2.76` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$1.75/M` input, `$14.00/M` output, `$0.175/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`
+  - **Capabilities:** Fast Codex variant; superseded by `gpt-6-luna`.
+  - **Recommended SDLC Stages:** Superseded by `gpt-6-luna`
+- **`opencode-go/glm-5.3` — GLM-5.3 (`$2.85` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$1.40/M` input, `$4.40/M` output, `$0.260/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `low`, `high`, `max`
+  - **Capabilities:** Full-size Zhipu flagship on `$10 Go`, but `$0.26/M` cache read burns `6×` more quota than `deepseek-v4-pro`.
+  - **Recommended SDLC Stages:** Single-pass `plan` or `review` only
+- **`opencode/glm-5.3` — GLM-5.3 (`$2.85` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$1.40/M` input, `$4.40/M` output, `$0.260/M` cache read, `$0/M` cache write
+  - **Effort Variants:** `low`, `high`, `max`
+  - **Capabilities:** Pay-As-You-Go wallet equivalent of `opencode-go/glm-5.3`.
+  - **Recommended SDLC Stages:** Single-pass `plan` or `review` only
+- **`opencode/gemini-3.1-pro` — Gemini 3.1 Pro Preview (`$2.91` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$2.00/M` input, `$12.00/M` output, `$0.200/M` cache read, `$0/M` cache write (`>200k` ctx: `$4.00/M` in, `$18.00/M` out)
+  - **Effort Variants:** `low`, `medium`, `high`
+  - **Capabilities:** Legacy Gemini Pro preview; superseded by `gemini-4-argon` and `gemini-4-carbon`.
+  - **Recommended SDLC Stages:** Superseded by `gemini-4-argon`
+- **`opencode-go/kimi-k3.1-pro` — Kimi K3.1 Pro (`$2.95` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$2.00/M` input, `$10.00/M` output, `$0.200/M` cache read, **`$2.00/M` cache write**
+  - **Effort Variants:** `low`, `high`, `max`
+  - **Capabilities:** Top-tier Moonshot reasoning & coding flagship on `$10 Go`, but `$0.20/M` cache read + `$2.00/M` cache write exhausts the 5-hour OpenCode Go cap in `~55` steps. Avoid on multi-step `implement` loops.
+  - **Recommended SDLC Stages:** Single-shot `plan` or `review` at `low` effort only
+- **`opencode/gpt-5.6-terra` — GPT-5.6 Terra (`$3.10` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$2.00/M` input, `$12.00/M` output, `$0.200/M` cache read, `$2.50/M` cache write (`>272k` ctx: `$4.00/M` in, `$18.00/M` out)
+  - **Effort Variants:** `none`, `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Previous-gen OpenAI flagship; superseded by `gpt-6.1-sol`.
+  - **Recommended SDLC Stages:** Superseded by `gpt-6.1-sol`
+- **`opencode-go/qwen3.8-max` — Qwen3.8 Max (`$3.18` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$2.00/M` input, `$6.00/M` output, `$0.250/M` cache read, **`$2.50/M` cache write**
+  - **Effort Variants:** `none`, `low`, `medium`, `xhigh`
+  - **Capabilities:** Maximum-scale Qwen flagship on `$10 Go`, but `$0.25/M` cache read and `$2.50/M` cache write quickly drain the 5-hour Go window.
+  - **Recommended SDLC Stages:** Single-shot `plan` or `review` only
+- **`opencode/claude-opus-5-5` — Claude Opus 5.5 (`$4.22` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$4.00/M` input, `$20.00/M` output, `$0.200/M` cache read, `$5.00/M` cache write
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Frontier Anthropic Opus model on `opencode` wallet for deep architectural synthesis and final code review.
+  - **Recommended SDLC Stages:** Single-shot `review` or complex `plan`
+- **`opencode/kimi-k3` — Kimi K3 (`$4.42` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$3.00/M` input, `$15.00/M` output, `$0.300/M` cache read, `$3.00/M` cache write
+  - **Effort Variants:** `low`, `high`, `max`
+  - **Capabilities:** Previous Kimi K3 release; superseded by cheaper and newer `opencode-go/kimi-k3.1-pro`.
+  - **Recommended SDLC Stages:** Superseded by `opencode-go/kimi-k3.1-pro`
+- **`opencode-go/grok-4.7` — Grok 4.7 (`$5.18` / 100 steps)**
+  - **Billing & Pricing:** `$10/mo OpenCode Go` — `$2.00/M` input, `$6.00/M` output, **`$0.500/M` cache read**, `$0/M` cache write (`>200k` ctx: `$4.00/M` in, `$12.00/M` out, `$1.00/M` cache read)
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`
+  - **Capabilities:** xAI flagship on `$10 Go`, but its `$0.50/M` cache read is `166×` higher than `deepseek-v4.1-flash` and rapidly exhausts the 5-hour Go limit in multi-turn sessions.
+  - **Recommended SDLC Stages:** Single-turn `plan` or `review` only
+- **`opencode/grok-4.7` — Grok 4.7 (`$5.18` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$2.00/M` input, `$6.00/M` output, `$0.500/M` cache read, `$0/M` cache write (`>200k` ctx: `$4.00/M` in, `$12.00/M` out)
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`
+  - **Capabilities:** Pay-As-You-Go wallet equivalent of `opencode-go/grok-4.7`.
+  - **Recommended SDLC Stages:** Single-turn `plan` or `review` only
+- **`opencode/claude-fable-5-2` — Claude Fable 5.2 (`$6.68` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$8.00/M` input, `$40.00/M` output, `$0.200/M` cache read, `$10.00/M` cache write
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Ultra-premium Anthropic model on `opencode` wallet; unsuitable for iterative coding loops due to `$40/M` output and `$10/M` cache write.
+  - **Recommended SDLC Stages:** One-shot critical specification or design only
+- **`opencode/gpt-5.5` — GPT-5.5 (`$7.28` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$5.00/M` input, `$30.00/M` output, `$0.500/M` cache read, `$0/M` cache write (`>272k` ctx: `$10.00/M` in, `$45.00/M` out)
+  - **Effort Variants:** `none`, `low`, `medium`, `high`, `xhigh`
+  - **Capabilities:** Legacy high-cost OpenAI model; superseded by `gpt-6.1-sol` and `gpt-6-luna`.
+  - **Recommended SDLC Stages:** Superseded by `gpt-6.1-sol`
+- **`opencode/gpt-6-astra` — GPT-6 Astra (`$14.92` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$10.00/M` input, `$50.00/M` output, `$1.000/M` cache read, `$12.50/M` cache write (`>272k` ctx: `$20.00/M` in, `$75.00/M` out)
+  - **Effort Variants:** `low`, `medium`, `high`, `xhigh`, `max`
+  - **Capabilities:** Heavy frontier research model on `opencode` wallet; too expensive for multi-step agent loops.
+  - **Recommended SDLC Stages:** One-shot deep architecture research only
+- **`opencode/gpt-5.5-pro` — GPT-5.5 Pro (`$280.17` / 100 steps)**
+  - **Billing & Pricing:** `OpenCode Wallet` — `$30.00/M` input, `$180.00/M` output, **`$30.00/M` cache read**, `$0/M` cache write
+  - **Effort Variants:** `medium`, `high`, `xhigh`
+  - **Capabilities:** Extreme-cost deep research model (`$30/M` cache read means no prompt-cache discount). Never use in coding agent loops.
+  - **Recommended SDLC Stages:** Do not use in SDLC pipeline
