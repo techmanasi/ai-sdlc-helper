@@ -23,6 +23,7 @@ Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 - [ ] `backend-driven-pipeline` - Feature: the pipeline's follow-up work (brief cleanup after a merge, a run's questions) is driven by the server, not by someone opening the board
 - [ ] `github-enterprise-support` - Feature: recognise GitHub Enterprise remotes, so a company GitHub on another domain gets the start-up PR fill
 - [ ] `board-quiet-time-setting` - Improvement: set the board watcher's quiet time (30 s, now only `SDLC_BOARD_SILENCE_MS`) from the web UI's Config
-- [ ] `ci-after-review-changes` - Bug: a run says done while CI on Review's last commit is still pending; wait for CI when Review changes source
+- [x] `ci-after-review-changes` - Bug: a run says done while CI on Review's last commit is still pending; wait for CI when Review changes source
 - [ ] `review-findings-acted-on` - Improvement: Review's blockers and missing-test findings send the run back to Implement or Red tests, or stop it, instead of sitting unread in review-1.md
-- [ ] `pr-link-committed-not-main` - Bug: commit and push the PR link on the run's branch whenever a PR opens or is replaced, and stop writing it into the main checkout
+- [ ] `review-loop-limit-ui-setting` - Feature: set the Review loop limit (default 2) in the web UI
+- [x] `pr-link-committed-not-main` - Bug: commit and push the PR link on the run's branch whenever a PR opens or is replaced, and stop writing it into the main checkout
