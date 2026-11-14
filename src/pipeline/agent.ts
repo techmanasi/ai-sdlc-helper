@@ -6,7 +6,9 @@ import { toolNotes } from '../config/toolNotes.js';
 import { agentFor, harnessFor, testDir, testFramework } from '../config/settings.js';
 import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from './context.js';
 import { modelEnvOf, modelFlags, providerEnv, stageModel } from './models.js';
-import { ciFailureInput, manualInput, mergeFailureInput, prCommentsInput, renderPrompt } from './prompts.js';
+import { ciFailureInput, existingRedTestsInput, manualInput, mergeFailureInput, prCommentsInput, renderPrompt } from './prompts.js';
+import { redCommitTestFiles } from './gates.js';
+import { redPattern, repairPattern } from './git.js';
 import { resumeHint } from './hints.js';
 import { keepError } from './errors.js';
 import { agentFacts, appendRound, changedBetween, debugLeftovers, roundWarnings, snapshot } from './observe.js';
@@ -221,7 +223,7 @@ export const lintTestsNote = (ctx: Ctx): string => ctx.config.lint
 export function promptValues(ctx: Ctx): Record<string, string> {
   return {
     DOCS: ctx.docs, LOG: ctx.log, TEST_DIR: testDir(ctx.config.suites[0]), TEST_CMD: ctx.layout.testCmd, TEST_FILE_CMD: ctx.testFileCmd, FETCH_CMD: ctx.fetchCmd,
-    LINT_NOTE: lintNote(ctx), LINT_TESTS_NOTE: lintTestsNote(ctx), RED_SHA: ctx.redSha, SLUG: ctx.slug, TEST_FRAMEWORK: testFramework(ctx.config), TEST_FILES: ctx.layout.testFiles || `${testDir(ctx.config.suites[0])}/`,
+    LINT_NOTE: lintNote(ctx), LINT_TESTS_NOTE: lintTestsNote(ctx), RED_SHA: ctx.origRedSha || ctx.redSha, SLUG: ctx.slug, TEST_FRAMEWORK: testFramework(ctx.config), TEST_FILES: ctx.layout.testFiles || `${testDir(ctx.config.suites[0])}/`,
   };
 }
 
@@ -283,6 +285,10 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     prompt += manualInput(at(ctx, ctx.docs), stage, testDir(ctx.config.suites[0]));
     prompt += prCommentsInput(at(ctx, ctx.docs));
     if (stage === 'implement') prompt += ciFailureInput(at(ctx, ctx.docs)) + mergeFailureInput(at(ctx, ctx.docs), promptValues(ctx), ctx.promptsDir);
+    if (stage === 'red-tests' && ctx.git?.findCommits) {
+      const existingShas = ctx.git.findCommits([redPattern(ctx.slug), repairPattern(ctx.slug)]);
+      if (existingShas.length) prompt += existingRedTestsInput(ctx.docs, existingShas, redCommitTestFiles(ctx));
+    }
   }
   ctx.out(`   -> agent: ${name}`);
   appendRound(at(ctx, ctx.log), { kind: 'start', at: stamp(), stage, agent: name });

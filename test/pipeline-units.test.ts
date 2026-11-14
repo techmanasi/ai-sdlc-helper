@@ -258,7 +258,7 @@ describe('Finalise', () => {
     put(dir, 'README.md', 'changed\n');
     put(dir, 'server/a.js');
     const r = doFinalise(dir);
-    expect(log(dir).slice(0, 2)).toEqual(['chore(backlog): mark alpha done', 'feat(alpha): implement per Docs/backlog/alpha/specs-1.md']);
+    expect(log(dir).slice(0, 2)).toEqual(['chore(backlog): mark alpha done', '[finalise] feat(alpha): implement per Docs/backlog/alpha/specs-1.md']);
     const body = sh(dir, 'log', '-2', '--format=%b').stdout;
     for (const f of ['scripts/new.sh', 'README.md', 'server/a.js']) expect(body).toContain(f);
     expect(sh(dir, 'status', '--porcelain').stdout).toBe('');

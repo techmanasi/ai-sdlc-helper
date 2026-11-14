@@ -55,7 +55,7 @@ const commitIn = (dir: string, file: string, text: string, msg: string): string 
 /** Origin's run branch holds an earlier run's commit; this checkout has no such branch (a fresh start). */
 function earlierRun(other: string): string {
   git(other, 'checkout', '-q', '-b', BRANCH);
-  const sha = commitIn(other, 'earlier.txt', 'earlier run\n', `test(${SLUG}): add failing tests and spec/plan docs`);
+  const sha = commitIn(other, 'earlier.txt', 'earlier run\n', `[red-tests] test(${SLUG}): add failing tests and spec/plan docs`);
   git(other, 'push', '-q', 'origin', BRANCH);
   git(other, 'checkout', '-q', 'main');
   return sha;
@@ -181,7 +181,7 @@ describe('the push check after Plan', () => {
     expect(statusOf(f.dir).resume_from).toBe('red-tests');
   });
 
-  test('a refused start (the red-tests commit exists) makes no branch, no push and no pull request', async () => {
+  test('a resume from Plan that finds the red-tests commit reuses it: no new branch, no push and no pull request', async () => {
     const f = fixture();
     fakeGh(f);
     let r = await pipeline(f, FAILS_AT_IMPLEMENT);
@@ -193,14 +193,16 @@ describe('the push check after Plan', () => {
     commitIn(other, 'theirs.txt', 'theirs\n', 'theirs');
     git(other, 'push', '-q', 'origin', BRANCH);
     const refs = git(origin, 'for-each-ref');
-    const checksBefore = rows(f.dir, 'push-check').length;
     r = await pipeline(f, FAILS_AT_IMPLEMENT, { from: 'plan' });
-    expect(r.status).toBe(1);
-    expect(r.stdout).toContain('already exists');
+    expect(r.status).toBe(1); // Implement still fails: the stand-in changes nothing
+    expect(r.calls).toEqual(['plan', 'red-tests', 'implement']);
+    // Plan and Red tests run again: the existing red tests are kept (the stage says so and makes no new commit).
+    expect(r.stdout).toMatch(/existing red tests in [0-9a-f]{7} are sufficient; no new test commit needed/);
+    // The run stays on its branch (fast-forwarded by the push check): no _2 branch, no push, no pull request.
+    expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(BRANCH);
     expect(git(f.dir, 'branch', '--list', `${BRANCH}_*`)).toBe('');
     expect(git(origin, 'for-each-ref')).toBe(refs);
     expect(read(f.fake, 'gh-create.log')).toBe('');
-    expect(rows(f.dir, 'push-check')).toHaveLength(checksBefore);
   });
 
   test('a start at Review does not run the check (local mode)', async () => {

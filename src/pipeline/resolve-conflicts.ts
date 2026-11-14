@@ -857,7 +857,7 @@ function mergedReason(ctx: Ctx, base: string): string | null {
   const pr = getPrStatus(ctx.root, url || ctx.branch, ctx.env);
   if (pr?.state === 'MERGED') return `the pull request is already merged (${pr.url}): nothing to resolve`;
   for (const ref of [`origin/${base}`, base]) {
-    if (ctx.git.tryRun('log', ref, '-1', '--format=%h', `--grep=^test(${ctx.slug}): add failing tests`)?.trim()) {
+    if (ctx.git.tryRun('log', ref, '-1', '--format=%h', `--grep=${redPattern(ctx.slug)}`)?.trim()) {
       return `${ctx.slug} is already merged into ${base}: nothing to resolve`;
     }
   }
@@ -971,7 +971,7 @@ export async function resolveConflictsStage(ctx: Ctx, opts: { inline?: InlineRes
   if (result.kind === 'pushed') {
     setAside(ctx, [`${ctx.log}/merge-fix.json`]);
     // The rebase rewrote the red-tests commit (and the Test repair one): later resumes find them by their messages.
-    ctx.origRedSha = ctx.git.findCommit([redPattern(ctx.slug)]);
+    ctx.origRedSha = (ctx.git.findCommits ? ctx.git.findCommits([redPattern(ctx.slug)])[0] : '') || ctx.git.findCommit([redPattern(ctx.slug)]);
     ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug), repairPattern(ctx.slug)]) || ctx.origRedSha;
     ctx.lockSha = ctx.git.head();
     if (ctx.redSha) ctx.out(`   tests commit is now ${ctx.redSha.slice(0, 7)}`);

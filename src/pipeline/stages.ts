@@ -11,7 +11,10 @@ import { answerQuestions, parseQuestions } from '../runs/view.js';
 import { agentFor } from '../config/settings.js';
 import { at, setAside, stamp, stop, stopIfAborted, tick, type Ctx } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agent.js';
-import { newTestFiles, repairTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass } from './gates.js';
+import {
+  newTestFiles, redCommitTestFiles, repairTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass, testsPassAt,
+} from './gates.js';
+import { finalisePattern, implementPattern, redPattern, repairPattern } from './git.js';
 import { renderPrompt } from './prompts.js';
 import { resumeCommand, resumeHint } from './hints.js';
 import { finalise, firstLine, getPrFromBrief, markPrReady } from './finalise.js';
@@ -26,8 +29,7 @@ import { checkCiAvailability, isRejectedPush, waitForCiAndClassify, type CiStepR
 import { ciFailureText, ciState, ciStatusLine, ciWarnings, duration, localCounts, setCiStatus } from './ci-rounds.js';
 
 const short = (sha: string) => sha.slice(0, 7);
-export const redPattern = (slug: string) => `^test(${slug}): add failing tests`;
-export const repairPattern = (slug: string) => `^test(${slug}): repair invalid tests`;
+export { finalisePattern, implementPattern, redPattern, repairPattern };
 
 /** Credits the files changed since the last mark to <stage> (<log>/stage-files.json, shown per stage in the pane). */
 export function markStage(ctx: Ctx, stage: string): void {
@@ -216,29 +218,72 @@ export async function planStage(ctx: Ctx): Promise<void> {
   if (!exists(at(ctx, `${ctx.docs}/plan-1.md`))) stop(ctx, 'Plan not produced');
 }
 
+function hasImplSince(ctx: Ctx, firstRedSha: string): boolean {
+  if (!firstRedSha || !ctx.git?.findCommits) return false;
+  if (ctx.git.findCommits([implementPattern(ctx.slug), finalisePattern(ctx.slug)]).length > 0) return true;
+  const specs = ctx.layout?.testPathspecs || [];
+  const testFiles = new Set([
+    ...ctx.git.lines('diff', '--name-only', firstRedSha, '--', ...specs),
+    ...ctx.git.lines('ls-files', '--others', '--exclude-standard', '--', ...specs),
+  ].map(f => f.trim()).filter(Boolean));
+  const changedFiles = [
+    ...ctx.git.lines('diff', '--name-only', firstRedSha),
+    ...ctx.git.lines('ls-files', '--others', '--exclude-standard'),
+  ].map(f => f.trim()).filter(Boolean);
+  return changedFiles.some(f =>
+    !testFiles.has(f)
+    && f !== ctx.backlog
+    && !f.startsWith(`${ctx.docs}/`)
+    && !f.startsWith(`${ctx.log}/`));
+}
+
 /** Red tests: the agent writes failing tests; they must fail (red gate), then they are committed and locked. */
 export async function redTestsStage(ctx: Ctx): Promise<void> {
   stage(ctx, '3/6 Red tests (red gate)');
   await tick();
   if (!exists(at(ctx, `${ctx.docs}/plan-1.md`))) stop(ctx, `FROM=${ctx.from} but ${ctx.docs}/plan-1.md is missing: run Plan first`);
+  setAside(ctx, [`${ctx.log}/red.json`]);
+  const existingRedShas = ctx.git.findCommits ? ctx.git.findCommits([redPattern(ctx.slug), repairPattern(ctx.slug)]) : [];
+  const firstRedSha = (ctx.git.findCommits ? ctx.git.findCommits([redPattern(ctx.slug)])[0] : '') || existingRedShas[0] || '';
+  if (existingRedShas.length) {
+    ctx.redSha = existingRedShas[existingRedShas.length - 1];
+    ctx.origRedSha = firstRedSha;
+  }
+  const existingTests = firstRedSha ? redCommitTestFiles(ctx) : [];
+  const srcBefore = ctx.git.sourceHash ? ctx.git.sourceHash(ctx.layout.sourceDirs || [], ctx.layout.testPathspecs || [], ctx.config.backlogDir || '') : undefined;
   ctx.status.attempt = '1/1';
   ctx.status.write();
   ctx.status?.beginStep?.('agent');
   await runAgent(ctx, 'tests', 'red-tests');
   await tick();
   ctx.status?.beginStep?.('gate');
-  // Only the tests this task added or changed are run: the rest of the suite is slow, and an unrelated failure there
-  // must not make a new test that passes look red.
+  if (srcBefore !== undefined && ctx.git.sourceHash!(ctx.layout.sourceDirs || [], ctx.layout.testPathspecs || [], ctx.config.backlogDir || '') !== srcBefore) {
+    stop(ctx, 'GUARD FAILED: source files were modified during Red tests');
+  }
+  // Only the tests this task added or changed (or existing red tests on a resumed run) are run: the rest of the suite is
+  // slow, and an unrelated failure there must not make a new test that passes look red.
   const added = newTestFiles(ctx);
-  if (added.length === 0) stop(ctx, `RED GATE FAILED: the Red tests agent added or changed no test file. See ${ctx.log}/tests.log`);
-  if (testsPass(ctx, { targetFiles: added, onlyTargets: true, noAllowFailures: true })) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
+  const allTaskTests = [...new Set([...existingTests, ...added])];
+  if (allTaskTests.length === 0) stop(ctx, `RED GATE FAILED: the Red tests agent added or changed no test file. See ${ctx.log}/tests.log`);
+  const gateFiles = added.length > 0 ? added : existingTests;
+  const redPassed = hasImplSince(ctx, firstRedSha)
+    ? testsPassAt(ctx, firstRedSha, allTaskTests, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true })
+    : testsPass(ctx, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true });
+  if (redPassed) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
   await tick();
   ctx.status?.beginStep?.('commit');
   ctx.git.run('add', '-A', '--', ctx.docs);
   ctx.git.addTests(ctx.layout.testPathspecs);
-  ctx.git.run('commit', '-q', '-m', `test(${ctx.slug}): add failing tests and spec/plan docs`);
-  ctx.redSha = ctx.git.head();
-  ctx.lockSha = ctx.redSha;
+  const hasStaged = !firstRedSha || !ctx.git.findCommits || ctx.git.lines('diff', '--cached', '--name-only').some(f => f.trim() !== '');
+  if (hasStaged) {
+    ctx.git.run('commit', '-q', '-m', `[red-tests] test(${ctx.slug}): add failing tests and spec/plan docs`);
+    ctx.redSha = ctx.git.head();
+  } else {
+    ctx.redSha = existingRedShas[existingRedShas.length - 1] || ctx.git.head();
+    ctx.out(` existing red tests in ${short(ctx.redSha)} are sufficient; no new test commit needed`);
+  }
+  ctx.origRedSha = firstRedSha || ctx.redSha;
+  ctx.lockSha = ctx.git.head();
   // The full suite in CI: the tests are locked, so push and open the draft PR now (a failed red gate never gets here).
   if (ctx.config.tests.fullSuite === 'ci') await openCi(ctx);
   else if (ctx.movedFrom) await openMovedPr(ctx);
@@ -322,6 +367,7 @@ async function openCi(ctx: Ctx): Promise<void> {
  */
 export function resumeAtTests(ctx: Ctx): void {
   ctx.lockSha = ctx.git.head();
+  const firstRed = (ctx.git.findCommits ? ctx.git.findCommits([redPattern(ctx.slug)])[0] : '') || '';
   if (ctx.from === 'test-repair') {
     stage(ctx, '4b Test repair (only because the Implement agent claimed test defects)');
     ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug)]);
@@ -332,6 +378,7 @@ export function resumeAtTests(ctx: Ctx): void {
     ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug), ...(ctx.from === 'review' || ctx.from === 'finalise' || ctx.from === 'resolve-conflicts' ? [repairPattern(ctx.slug)] : [])]);
     if (!ctx.redSha) stop(ctx, `FROM=${ctx.from} but no red-tests commit found for ${ctx.slug}`);
   }
+  ctx.origRedSha = firstRed || ctx.redSha;
   ctx.out(`Resuming at ${ctx.from} from tests commit ${short(ctx.redSha)}`);
 }
 
@@ -496,7 +543,7 @@ function commitAttempt(ctx: Ctx, attempt: number): boolean {
   try { include = changed(at(ctx, `${ctx.log}/baseline.json`), { root: ctx.root, maxBytes: ctx.config.finalise.maxFileBytes }).include; } catch { include = []; }
   if (!include.length) return false;
   ctx.git.run('add', '-A', '--', ...include);
-  ctx.git.run('commit', '-q', '-m', `feat(${ctx.slug}): implement (attempt ${attempt})`, '-m', include.slice(0, 50).join('\n'), '--', ...include);
+  ctx.git.run('commit', '-q', '-m', `[implement] feat(${ctx.slug}): implement (attempt ${attempt})`, '-m', include.slice(0, 50).join('\n'), '--', ...include);
   return true;
 }
 
@@ -644,7 +691,7 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   ctx.status?.beginStep?.('commit');
   ctx.git.run('add', '-A', '--', ctx.docs);
   ctx.git.addTests(specs);
-  ctx.git.run('commit', '-q', '-m', `test(${ctx.slug}): repair invalid tests (mechanically checked and audited)`);
+  ctx.git.run('commit', '-q', '-m', `[test-repair] test(${ctx.slug}): repair invalid tests (mechanically checked and audited)`);
   ctx.redSha = ctx.git.head();
   ctx.lockSha = ctx.redSha;
   ctx.out(` test repair accepted; tests locked again at ${short(ctx.redSha)}`);
@@ -712,14 +759,5 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
     ctx.out(`Review pull request: ${res.pr || draft}`);
   } else {
     ctx.out(`Review with: git log --oneline ${ctx.redSha}~1..HEAD ; then open a PR.`);
-  }
-}
-
-/** Plan and Red tests refuse to run again once the red-tests commit exists. */
-export function refuseRedone(ctx: Ctx): void {
-  const existing = ctx.git.findCommit([redPattern(ctx.slug)], '%h');
-  if (existing) {
-    ctx.status.stage = ctx.priorStage || ''; // no stage ran: the run stays where it was
-    stop(ctx, `FROM=${ctx.from} but the red-tests commit ${existing} already exists: use FROM=implement, FROM=test-repair or FROM=review, or restart the run to redo this stage`);
   }
 }

@@ -133,7 +133,7 @@ export function resumecheck(k: Keys, redSha: string, issuesFile: string, slug: s
   const errs: string[] = [];
   let sha = redSha || '';
   const lock = lockSha || sha;
-  if (!sha) errs.push(`no red-tests commit found for ${slug} (expected a commit with subject "test(${slug}): add failing tests")`);
+  if (!sha) errs.push(`no red-tests commit found for ${slug} (expected a commit with subject "[red-tests] test(${slug}): add failing tests")`);
   else if (tryGit(cwd, 'rev-parse', '--verify', '--quiet', `${sha}^{commit}`) === null) { errs.push(`red-tests commit ${sha} is not a known commit`); sha = ''; }
   const claimFile = path.resolve(cwd, issuesFile);
   if (!fs.existsSync(claimFile)) errs.push(`claim file is missing: ${issuesFile}`);
@@ -141,7 +141,7 @@ export function resumecheck(k: Keys, redSha: string, issuesFile: string, slug: s
   else if (!k.claims(issuesFile).length) errs.push(`claim file has no valid "<file> :: <test name> :: <reason>" lines: ${issuesFile}`);
   if (sha) {
     const esc = slug.replace(/[.*^$[\]\\]/g, '\\$&');
-    const repaired = (tryGit(cwd, 'log', '--format=%h', '-1', `--grep=^test(${esc}): repair invalid tests`, `${sha}..HEAD`) || '').trim();
+    const repaired = (tryGit(cwd, 'log', '--format=%h', '-1', `--grep=^\\[test-repair\\] test(${esc}): repair invalid tests`, `${sha}..HEAD`) || '').trim();
     // A repair is only "done" for the claims it was accepted with. New claims written after it (Implement found another
     // defect in the locked tests) need another repair.
     if (repaired) {

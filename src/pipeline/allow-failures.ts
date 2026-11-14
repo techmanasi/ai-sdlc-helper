@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import { globToRegex } from '../config/globs.js';
 import { at, type Ctx } from './context.js';
+import { redPattern, repairPattern } from './git.js';
 
 export interface AllowEntry { filePattern: string; testName: string | null }
 export interface FailedTest { file: string; name?: string }
@@ -23,13 +24,20 @@ export function matchesAllowEntry(entry: string, file: string, testName?: string
   return wanted === null || (testName !== undefined && testName !== null && testName === wanted);
 }
 
-/** Whether <file> (and <testName>) belongs to the task's red tests: changed in the red commit, or failing in red.json. */
+/** Whether <file> (and <testName>) belongs to the task's red tests: changed in any red/repair commit, or failing in red.json. */
 export function isRedTest(ctx: Ctx, file: string, _testName?: string | null): boolean {
-  if (ctx.redSha && ctx.git) {
-    try {
-      const changed = ctx.git.lines('diff', '--name-only', `${ctx.redSha}^`, ctx.redSha, '--', ...(ctx.layout?.testPathspecs || []));
-      if (changed.some(f => f.trim() === file)) return true;
-    } catch { /* no parent or git error: fall through to red.json */ }
+  if (ctx.git) {
+    const shas: string[] = [];
+    if (ctx.slug && ctx.git.findCommits) {
+      try { shas.push(...ctx.git.findCommits([redPattern(ctx.slug), repairPattern(ctx.slug)])); } catch { /* ignore */ }
+    }
+    if (ctx.redSha && !shas.includes(ctx.redSha)) shas.push(ctx.redSha);
+    for (const sha of shas) {
+      try {
+        const changed = ctx.git.lines('diff', '--name-only', `${sha}^`, sha, '--', ...(ctx.layout?.testPathspecs || []));
+        if (changed.some(f => f.trim() === file)) return true;
+      } catch { /* no parent or git error: fall through */ }
+    }
   }
   const redPath = at(ctx, `${ctx.log}/red.json`);
   if (fs.existsSync(redPath)) {

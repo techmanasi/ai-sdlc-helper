@@ -25,14 +25,19 @@ export const RESUME_STAGES = [
   { name: 'Finalise', key: 'finalise' }, { name: 'Resolve conflicts', key: 'resolve-conflicts' },
 ];
 
+/** Whether resuming at <key> requires an explicit confirmation dialog in the UI (any stage at or before Red tests). */
+export const needsResumeConfirm = (key: string): boolean => key === 'spec' || key === 'plan' || key === 'red-tests';
+
 /** The stages with whether a branch-keeping resume at each of them works. */
 export function resumeOptions(f: ResumeFacts): ResumeOption[] {
   return RESUME_STAGES.map(({ key, name }) => {
     const suggested = key === f.resumeFrom;
     const off = (note: string): ResumeOption => ({ key, name, enabled: false, note, suggested });
-    if (key === 'spec') return off('runs again from the start of the run; use Restart');
-    if (key === 'plan' || key === 'red-tests') {
-      return f.redCommit ? off(`refused: the red-tests commit ${f.redCommit} exists`) : { key, name, enabled: true, note: '', suggested };
+    if (needsResumeConfirm(key)) {
+      const note = f.redCommit
+        ? `${suggested ? 'suggested · ' : ''}keeps existing red tests (${f.redCommit}) and reviews coverage`
+        : suggested ? 'suggested' : '';
+      return { key, name, enabled: true, note, suggested };
     }
     if (!f.redCommit) return off('needs the red-tests commit, which does not exist yet');
     if (key === 'test-repair' && !f.hasTestIssues) return off('needs test-issues.md');
@@ -40,9 +45,14 @@ export function resumeOptions(f: ResumeFacts): ResumeOption[] {
   });
 }
 
-/** The stage to preselect in the picker: the suggested one if it works, else the first that does. */
+/** The stage to preselect in the picker: the suggested one if it works, else Implement (when red-tests exist) or Plan. */
 export function defaultPick(opts: ResumeOption[]): string {
-  return (opts.find(o => o.suggested && o.enabled) || opts.find(o => o.enabled))?.key || '';
+  return (
+    opts.find(o => o.suggested && o.enabled)
+    || opts.find(o => o.key === 'implement' && o.enabled)
+    || opts.find(o => o.key === 'plan' && o.enabled)
+    || opts.find(o => o.enabled)
+  )?.key || '';
 }
 
 /** The CLI line the picker's Go button runs. */

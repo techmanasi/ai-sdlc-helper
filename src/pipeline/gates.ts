@@ -11,6 +11,7 @@ import type { RunResult } from '../runners/types.js';
 import { at, tick, type Ctx } from './context.js';
 import { keepError } from './errors.js';
 import { checkAllowedFailures, isRedTest, type FailedTest } from './allow-failures.js';
+import { redPattern, repairPattern } from './git.js';
 
 const firstLines = (s: string | null, n = 20) => String(s || '').trim().split('\n').slice(0, n).map(l => `      ${l}`).join('\n');
 
@@ -43,11 +44,20 @@ function recordResults(ctx: Ctx, r: RunAll, logFile: string): void {
   }
 }
 
+function redShasOf(ctx: Ctx): string[] {
+  const shas: string[] = [];
+  if (ctx.slug && ctx.git?.findCommits) {
+    try { shas.push(...ctx.git.findCommits([redPattern(ctx.slug), repairPattern(ctx.slug)])); } catch { /* ignore */ }
+  }
+  if (ctx.redSha && !shas.includes(ctx.redSha)) shas.push(ctx.redSha);
+  return shas;
+}
+
 /**
  * Test files that are known to fail or were introduced/modified for this feature:
  * 1. Failing tests or suite errors recorded in <log>/red.json.
  * 2. Failing tests or suite errors recorded in the previous attempt's <log>/tests.json.
- * 3. Test files modified or added in ctx.redSha.
+ * 3. Test files modified or added in the task's red-tests / test-repair commits (or ctx.redSha).
  */
 export function targetTestFiles(ctx: Ctx): string[] {
   const files = new Set<string>();
@@ -78,13 +88,15 @@ export function targetTestFiles(ctx: Ctx): string[] {
     } catch { /* ignore corrupted */ }
   }
 
-  if (ctx.redSha && ctx.git) {
-    try {
-      const changed = ctx.git.lines('diff', '--name-only', `${ctx.redSha}^`, ctx.redSha, '--', ...(ctx.layout?.testPathspecs || []));
-      for (const f of changed) {
-        if (f.trim()) files.add(f.trim());
-      }
-    } catch { /* if redSha has no parent or git error, ignore */ }
+  if (ctx.git) {
+    for (const sha of redShasOf(ctx)) {
+      try {
+        const changed = ctx.git.lines('diff', '--name-only', `${sha}^`, sha, '--', ...(ctx.layout?.testPathspecs || []));
+        for (const f of changed) {
+          if (f.trim()) files.add(f.trim());
+        }
+      } catch { /* if sha has no parent or git error, ignore */ }
+    }
   }
 
   return [...files].filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f)));
@@ -97,16 +109,21 @@ export function newTestFiles(ctx: Ctx): string[] {
     .filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f)));
 }
 
-/** The test files added or modified in the task's red commit (ctx.redSha). */
+/** The test files added or modified across all of the task's red-tests / test-repair commits (and ctx.redSha). */
 export function redCommitTestFiles(ctx: Ctx): string[] {
-  if (!ctx.redSha || !ctx.git) return [];
-  try {
-    const changed = ctx.git.lines('diff', '--name-only', `${ctx.redSha}^`, ctx.redSha, '--', ...(ctx.layout?.testPathspecs || []));
-    return [...new Set(changed.map(f => f.trim()).filter(Boolean))]
-      .filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f)));
-  } catch {
-    return [];
+  if (!ctx.git) return [];
+  const shas = redShasOf(ctx);
+  if (!shas.length) return [];
+  const files = new Set<string>();
+  for (const sha of shas) {
+    try {
+      const changed = ctx.git.lines('diff', '--name-only', `${sha}^`, sha, '--', ...(ctx.layout?.testPathspecs || []));
+      for (const f of changed) {
+        if (f.trim()) files.add(f.trim());
+      }
+    } catch { /* ignore */ }
   }
+  return [...files].filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f)));
 }
 
 /**
@@ -120,7 +137,8 @@ export function redCommitTestFiles(ctx: Ctx): string[] {
  * immediately without running the full test suite. Only when target tests pass (or if all suites were covered)
  * does it proceed to run the full suite for zero-trust verification (unless opts.onlyTargets is true).
  */
-export function testsPass(ctx: Ctx, opts: { targetFiles?: string[]; onlyTargets?: boolean; noAllowFailures?: boolean } = {}): boolean {
+export function testsPass(ctx: Ctx, opts: { targetFiles?: string[]; onlyTargets?: boolean; noAllowFailures?: boolean; root?: string } = {}): boolean {
+  const runRoot = opts.root || ctx.root;
   const logFile = at(ctx, `${ctx.log}/tests.log`);
   // The red gate (noAllowFailures) wants the new tests to fail: an allow entry must not turn their failure into a pass.
   const passes = (merged: RunResult): boolean => (opts.noAllowFailures ? merged.ok : passesWithAllowed(ctx, merged));
@@ -132,9 +150,9 @@ export function testsPass(ctx: Ctx, opts: { targetFiles?: string[]; onlyTargets?
   const targets = [...new Set(wanted)].filter(f => ctx.config.suites.some(s => holds(s, f)));
 
   if (targets.length > 0) {
-    const fast = runSuites(ctx.config, { root: ctx.root, ...testRuns(ctx), files: targets, env: ctx.env });
+    const fast = runSuites(ctx.config, { root: runRoot, ...testRuns(ctx), files: targets, env: ctx.env });
     if ('error' in fast) { fs.writeFileSync(logFile, `ERROR: ${fast.error}\n`); return false; }
-    const allFiles = ctx.config.suites.flatMap(s => suiteFiles(ctx.root, s));
+    const allFiles = ctx.config.suites.flatMap(s => suiteFiles(runRoot, s));
     const final = scoped || opts.onlyTargets || (allFiles.length > 0 && allFiles.every(f => targets.includes(f)));
     if (!fast.merged.ok || final) {
       recordResults(ctx, fast, logFile);
@@ -150,7 +168,7 @@ export function testsPass(ctx: Ctx, opts: { targetFiles?: string[]; onlyTargets?
     ctx.out('tests.fullSuite is "ci": no test files in scope here, so the full suite runs in CI only');
     return true;
   }
-  const r = runSuites(ctx.config, { root: ctx.root, ...testRuns(ctx), env: ctx.env });
+  const r = runSuites(ctx.config, { root: runRoot, ...testRuns(ctx), env: ctx.env });
   if ('error' in r) { fs.writeFileSync(logFile, `ERROR: ${r.error}\n`); return false; }
   recordResults(ctx, r, logFile);
   return passes(r.merged);
@@ -273,16 +291,12 @@ export function repairTestFiles(ctx: Ctx, locked: string, claimsFile: string): s
   return [...files].filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f))).sort();
 }
 
-/**
- * The test results on <sha>'s source, with <files> copied from the working tree, in <outRel>. The commit is checked out
- * in a temporary worktree that shares the settings' worktree links (node_modules and the like).
- */
-export function resultsAt(ctx: Ctx, sha: string, outRel: string, files: string[] = []): void {
+function withWorktreeAt<T>(ctx: Ctx, sha: string, files: string[], fn: (wt: string) => T): T {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-at-'));
   const wt = path.join(tmp, 'wt');
   ctx.git.run('worktree', 'add', '-q', '--detach', wt, sha);
   try {
-    for (const p of ctx.config.worktree.link) {
+    for (const p of ctx.config.worktree?.link || []) {
       if (fs.existsSync(at(ctx, p)) && !fs.existsSync(path.join(wt, p))) {
         fs.mkdirSync(path.dirname(path.join(wt, p)), { recursive: true });
         fs.symlinkSync(at(ctx, p), path.join(wt, p));
@@ -292,7 +306,7 @@ export function resultsAt(ctx: Ctx, sha: string, outRel: string, files: string[]
       fs.mkdirSync(path.dirname(path.join(wt, f)), { recursive: true });
       fs.copyFileSync(at(ctx, f), path.join(wt, f));
     }
-    writeResults(ctx, wt, at(ctx, outRel), files.length > 0 ? files : undefined);
+    return fn(wt);
   } finally {
     // A worktree left registered blocks the next one at the same commit and keeps its folder: said, not hidden.
     try { ctx.git.run('worktree', 'remove', '--force', wt); } catch (e) {
@@ -301,4 +315,28 @@ export function resultsAt(ctx: Ctx, sha: string, outRel: string, files: string[]
     }
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+/**
+ * The test results on <sha>'s source, with <files> copied from the working tree, in <outRel>. The commit is checked out
+ * in a temporary worktree that shares the settings' worktree links (node_modules and the like).
+ */
+export function resultsAt(ctx: Ctx, sha: string, outRel: string, files: string[] = []): void {
+  withWorktreeAt(ctx, sha, files, wt => {
+    writeResults(ctx, wt, at(ctx, outRel), files.length > 0 ? files : undefined);
+  });
+}
+
+/**
+ * Runs testsPass against <sha>'s source (in a temporary detached worktree with <copyFiles> copied from the working tree),
+ * writing <log>/tests.log and <log>/tests.json in the main worktree. Used by the red gate when prior implementation
+ * commits exist on the branch so red tests are verified with implementation commits removed.
+ */
+export function testsPassAt(
+  ctx: Ctx,
+  sha: string,
+  copyFiles: string[],
+  opts: { targetFiles?: string[]; onlyTargets?: boolean; noAllowFailures?: boolean } = {},
+): boolean {
+  return withWorktreeAt(ctx, sha, copyFiles, wt => testsPass(ctx, { ...opts, root: wt }));
 }

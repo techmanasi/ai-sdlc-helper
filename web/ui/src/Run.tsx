@@ -6,7 +6,7 @@ import { ModelSelect } from './ModelSelect';
 import { elapsedText, linkPaths, showTestIssues, stepBanner } from './stages';
 import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
-import { defaultPick, resumeCommand, resumeOptions } from './resume';
+import { defaultPick, needsResumeConfirm, resumeCommand, resumeOptions } from './resume';
 import { isMarkdownPath } from './markdown';
 import { usePoll } from './usePoll';
 import { useSyncLabel } from './useSyncLabel';
@@ -279,6 +279,7 @@ export function Run({ slug }: { slug: string }) {
   useEffect(() => { api.settings(project).then(setCatalog).catch(() => setCatalog(null)); }, [project]);
   const [picking, setPicking] = useState(false);
   const [pick, setPick] = useState('');
+  const [resumeAsk, setResumeAsk] = useState<{ key: string; name: string } | null>(null);
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
   const [fileView, setFileView] = useState<'rendered' | 'source'>('rendered');
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
@@ -588,7 +589,12 @@ export function Run({ slug }: { slug: string }) {
               </label>
             ))}
             <div class="row" style={{ alignItems: 'center' }}>
-              <button class="btn btn-p" type="button" disabled={!pick || !!busy || running} onClick={() => { const key = pick; const name = STAGES.find(s => s.key === key)?.name || key; act(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj); setPicking(false); return o; }); }}>{busy.startsWith('Resume at') ? <><Spinner /> Resuming…</> : 'Go'}</button>
+              <button class="btn btn-p" type="button" disabled={!pick || !!busy || running} onClick={() => {
+                const key = pick;
+                const name = STAGES.find(s => s.key === key)?.name || key;
+                if (needsResumeConfirm(key)) { setResumeAsk({ key, name }); return; }
+                act(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj); setPicking(false); return o; });
+              }}>{busy.startsWith('Resume at') ? <><Spinner /> Resuming…</> : 'Go'}</button>
               <button class="btn" type="button" onClick={() => { setPicking(false); document.getElementById('open-pick')?.focus(); }}>Cancel</button>
               {pick && <span class="mono small muted">{resumeCommand(slug, pick)}</span>}
             </div>
@@ -1250,6 +1256,29 @@ export function Run({ slug }: { slug: string }) {
           </div>
         );
       })()}
+
+      {resumeAsk && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setResumeAsk(null)}>
+          <div role="dialog" aria-modal="true" aria-label="Confirm resume stage" class="col" onClick={e => e.stopPropagation()}
+            style={{ background: 'var(--bg, #17181c)', border: '1px solid var(--ln, #262d36)', borderRadius: '10px', padding: '18px', maxWidth: '480px', width: '92%', gap: '10px' }}>
+            <strong>Resume at {resumeAsk.name}?</strong>
+            <p class="small" style={{ margin: 0 }}>
+              This will resume the run on branch <span class="mono">{v.branch}</span> starting from <strong>{resumeAsk.name}</strong> (<span class="mono">{resumeCommand(slug, resumeAsk.key)}</span>).
+            </p>
+            <p class="small" style={{ margin: 0 }}>
+              Existing red tests{v.redCommit ? <> (<span class="mono">{v.redCommit}</span>)</> : ''} and commits are kept. The <strong>Red tests</strong> stage will analyse existing red tests against the current spec and plan, keep valid tests, or add new failing tests to expand coverage.
+            </p>
+            <div class="row" style={{ gap: '8px', justifyContent: 'flex-end' }}>
+              <button class="btn" type="button" onClick={() => setResumeAsk(null)}>Cancel</button>
+              <button class="btn btn-p" type="button" id="confirm-resume-go" disabled={!!busy || running} onClick={() => {
+                const { key, name } = resumeAsk;
+                setResumeAsk(null);
+                act(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj); setPicking(false); return o; });
+              }}>Confirm resume at {resumeAsk.name}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

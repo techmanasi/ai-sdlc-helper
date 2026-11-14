@@ -92,3 +92,15 @@ export function mergeFailureInput(docsDir: string, values: Record<string, string
   const rules = text(part).trim().replace(/\{\{([A-Z_]+)\}\}/g, (all, name: string) => (name in values ? values[name] : all));
   return `\n\n${rules}\n\n${content}\n`;
 }
+
+/**
+ * When a run resumes at or before Red tests and red-tests commit(s) already exist on the branch, instructs the Red tests
+ * agent to inspect the existing red tests and test matrix, keep valid tests, and expand/update coverage for the current
+ * spec and plan. Empty when no red-tests commit exists yet.
+ */
+export function existingRedTestsInput(docs: string, redCommits: string[], existingTestFiles: string[]): string {
+  if (!redCommits.length && !existingTestFiles.length) return '';
+  const shas = redCommits.map(s => s.slice(0, 7)).join(', ');
+  const files = existingTestFiles.length ? existingTestFiles.map(f => `- ${f}`).join('\n') : '- (none found)';
+  return `\n\n## Existing Red Tests on This Branch\nThis branch already has existing red-tests commit(s)${shas ? ` (${shas})` : ''}. Do NOT discard the existing tests:\n1. Read ${docs}/test-cases-1.md and the existing red test file(s) listed below.\n2. Analyse whether the existing red tests are sufficient in terms of coverage for every requirement and edge case in ${docs}/specs-1.md and ${docs}/plan-1.md.\n3. Decide whether to keep the existing tests as-is (if coverage is already complete and accurate) or update/add new failing tests to expand coverage for new, changed, or previously uncovered requirements.\n\nExisting red test files:\n${files}\n`;
+}

@@ -24,7 +24,7 @@ import { appendRound, priorStarts } from './observe.js';
 import { redCommitTestFiles, resultsAt } from './gates.js';
 import { adoptKeptAttempt, resolveConflictsStage } from './resolve-conflicts.js';
 import {
-  implementStage, markStage, planStage, redTestsStage, refuseRedone, resumeAtTests, reviewStage, finaliseStage, specStage,
+  implementStage, markStage, planStage, redTestsStage, resumeAtTests, reviewStage, finaliseStage, specStage,
   testRepairStage,
 } from './stages.js';
 
@@ -253,29 +253,27 @@ async function stages(ctx: Ctx): Promise<void> {
 
   // Baseline of already-dirty files, so Finalise commits only what this cycle changed (never the developer's own work).
   const baseline = path.join(ctx.root, ctx.log, 'baseline.json');
-  if (fromN === 1) snapshot(baseline, { root: ctx.root });
-  else if (!exists(baseline)) {
-    ctx.out('WARNING: no baseline from the original run; changes made before this resume are treated as pre-existing and will not be committed');
+  if (!exists(baseline)) {
+    if (fromN > 1) ctx.out('WARNING: no baseline from the original run; changes made before this resume are treated as pre-existing and will not be committed');
     snapshot(baseline, { root: ctx.root });
   }
   await tick();
-  if (fromN === 2 || fromN === 3) refuseRedone(ctx);
 
   if (fromN <= 1) await specStage(ctx);
   if (fromN <= 2) await planStage(ctx);
   // The push check: before Red tests commits and pushes anything, the branch is made pushable (or the run moves to a new
-  // branch). After refuseRedone, so a refused start changes nothing. (A kept attempt, SDLC_ON_ATTEMPT=1, starts at
-  // Implement only: adoptKeptAttempt stops any other start, so it never gets here.)
+  // branch). (A kept attempt, SDLC_ON_ATTEMPT=1, starts at Implement only: adoptKeptAttempt stops any other start, so it
+  // never gets here.)
   if (fromN <= 3) await ensurePushable(ctx, { resume: 'red-tests', fresh: ctx.from === 'spec' || ctx.from === 'plan' });
   if (fromN <= 3) await redTestsStage(ctx);
   else resumeAtTests(ctx);
-  ctx.origRedSha = ctx.redSha;
+  if (!ctx.origRedSha) ctx.origRedSha = ctx.redSha;
   await tick();
 
   if (fromN <= 5) {
     const redJson = path.join(ctx.root, ctx.log, 'red.json');
     if (!fs.existsSync(redJson)) {
-      resultsAt(ctx, ctx.redSha, `${ctx.log}/red.json`, redCommitTestFiles(ctx));
+      resultsAt(ctx, ctx.origRedSha, `${ctx.log}/red.json`, redCommitTestFiles(ctx));
     }
     await tick();
     const green = fromN <= 4 ? await implementStage(ctx) : false;

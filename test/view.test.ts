@@ -113,7 +113,7 @@ describe('runView', () => {
   test('reports the red-tests commit on the run branch, and none before it exists', () => {
     const { ctx, wt } = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Implement' } });
     expect(runView(ctx, 'add-tokens', { changes: false }).redCommit).toBe('');
-    git(wt, 'commit', '-q', '--allow-empty', '-m', 'test(add-tokens): add failing tests');
+    git(wt, 'commit', '-q', '--allow-empty', '-m', '[red-tests] test(add-tokens): add failing tests');
     expect(runView(ctx, 'add-tokens', { changes: false }).redCommit).toMatch(/^[0-9a-f]{7,}$/);
   });
 
@@ -314,7 +314,7 @@ describe('the cached git facts of runView', () => {
     expect(runView(ctx, 'tok', { cacheGit: true }).redCommit).toBe('');
     write(wt, 'test/tok.test.ts', 'x');
     git(wt, 'add', '-A');
-    git(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'test(tok): add failing tests');
+    git(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', '[red-tests] test(tok): add failing tests');
     write(wt, 'Docs/backlog/tok/logs/status.json', status('Implement'));
     expect(runView(ctx, 'tok', { cacheGit: true }).redCommit).not.toBe('');
   });

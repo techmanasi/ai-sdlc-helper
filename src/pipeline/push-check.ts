@@ -177,7 +177,7 @@ function backup(git: Git, branch: string, local: string, remote: string | null):
 /** After a fix rewrote the run's commits, the locked tests are found again by their messages and the lock moves to HEAD. */
 function relock(ctx: Ctx): void {
   if (!ctx.lockSha && !ctx.redSha) return;
-  ctx.origRedSha = ctx.git.findCommit([redPattern(ctx.slug)]);
+  ctx.origRedSha = (ctx.git.findCommits ? ctx.git.findCommits([redPattern(ctx.slug)])[0] : '') || ctx.git.findCommit([redPattern(ctx.slug)]);
   ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug), repairPattern(ctx.slug)]) || ctx.origRedSha;
   ctx.lockSha = ctx.git.head();
 }
