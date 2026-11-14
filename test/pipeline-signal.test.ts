@@ -37,10 +37,9 @@ describe('a run stopped by a signal', () => {
   test('the pipeline command passes the signal it received on', async () => {
     const f = fixture();
     const seen: string[] = [];
-    const io = { cwd: f.dir, env: cleanEnv({ PATH: `${f.bin}:${process.env.PATH}`, FAKE_DIR: f.fake, AI_SDLC_HELPER_MODELS_FILE: path.join(f.fake, 'none.json') }), out: (l: string) => { seen.push(l); }, err: () => {} };
-    const done = cliPipeline(['pipeline', SLUG], ['--from', '--cwd', '--agent', '--model', '--effort'], io as any);
-    setTimeout(() => process.emit('SIGTERM' as any), 50);
-    const code = await done;
+    const io = { cwd: f.dir, env: cleanEnv({ PATH: `${f.bin}:${process.env.PATH}`, FAKE_DIR: f.fake, AI_SDLC_HELPER_MODELS_FILE: path.join(f.fake, 'none.json') }), out: (l: string) => { seen.push(l); if (seen.length === 1) process.emit('SIGTERM' as any); }, err: () => {} };
+    // The signal comes with the run's first output line: the handlers are installed by then, whatever the run's speed.
+    const code = await cliPipeline(['pipeline', SLUG], ['--from', '--cwd', '--agent', '--model', '--effort'], io as any);
     expect(code).toBe(143);
   });
 });
