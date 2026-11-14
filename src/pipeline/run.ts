@@ -20,6 +20,7 @@ import { Status, finalState, previousBranch, previousStage, previousState } from
 import { isRunBranch } from './branch-move.js';
 import { ensurePushable } from './push-check.js';
 import { formatRecoveryCli, stageRecoveryHint } from './hints.js';
+import { keepError } from './errors.js';
 import { appendRound, priorStarts } from './observe.js';
 import { redCommitTestFiles, resultsAt } from './gates.js';
 import { adoptKeptAttempt, resolveConflictsStage } from './resolve-conflicts.js';
@@ -45,6 +46,8 @@ export interface PipelineOptions {
   testFileCmd?: string;
   /** Aborts the running agent or command (the run then fails). */
   signal?: AbortSignal;
+  /** The signal that stopped the run (SIGTERM, ...) and its exit code, once there is one: the run then says so and keeps it in errors.log. */
+  stoppedBy?: () => { name: string; code: number } | undefined;
   /** Primary coding agent harness: claude, agy, or codex */
   agent?: 'claude' | 'agy' | 'codex';
   /** --model: the model of every stage (wins over MODEL_<STAGE> and the project's settings). */
@@ -119,6 +122,13 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
     }
   } finally {
     if (ctx) {
+      const sig = opts.stoppedBy?.();
+      if (sig) {
+        const line = `run stopped by ${sig.name} (exit ${sig.code}) during ${ctx.status.stage || 'setup'}${ctx.status.agent ? `, agent ${ctx.status.agent}` : ''}`;
+        keepError(ctx, 'run stopped by a signal', line);
+        out(line);
+        reason = line;
+      }
       markStage(ctx, ctx.status.stage);
       Object.assign(ctx.status, { state: finalState(code), agent: '', model: '', effort: '', attempt: '', step: null });
       // A stop that names its resume stage (Exit.resumeFrom) says where the run resumes, which may not be the stage shown

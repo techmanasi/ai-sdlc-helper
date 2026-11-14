@@ -62,7 +62,7 @@ function finish(rc, message) {
     if (r.status === 0 && (b === own || (b.startsWith(own + '_') && /^[1-9][0-9]*$/.test(b.slice(own.length + 1)) && Number(b.slice(own.length + 1)) >= 2))) branch = b;
   } catch (e) { /* keep the old one */ }
   const rec = Object.assign({}, job.record, branch ? { branch } : {}, {
-    pid: process.pid, state: 'exited', exit_code: String(rc), interrupted: fs.existsSync(job.interruptFile), finished: now(), message: message || '',
+    pid: process.pid, state: 'exited', exit_code: String(rc), interrupted: fs.existsSync(job.interruptFile) || (rc > 128 && rc < 160), finished: now(), message: message || '',
   });
   const tmp = job.recordFile + '.' + process.pid + '.tmp';
   try { fs.writeFileSync(tmp, JSON.stringify(rec) + '\n'); fs.renameSync(tmp, job.recordFile); } catch (e) { log('cannot write the run record: ' + e.message); }
