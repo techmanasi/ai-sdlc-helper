@@ -22,3 +22,4 @@ Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 - [ ] `web-perf-measurement-order` - Improvement: settle the measurement-vs-independence order for the web-performance steps and prove each saving after they land
 - [ ] `backend-driven-pipeline` - Feature: the pipeline's follow-up work (brief cleanup after a merge, a run's questions) is driven by the server, not by someone opening the board
 - [ ] `github-enterprise-support` - Feature: recognise GitHub Enterprise remotes, so a company GitHub on another domain gets the start-up PR fill
+- [ ] `board-quiet-time-setting` - Improvement: set the board watcher's quiet time (30 s, now only `SDLC_BOARD_SILENCE_MS`) from the web UI's Config
