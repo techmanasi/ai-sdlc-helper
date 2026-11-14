@@ -712,6 +712,22 @@ audit is there to catch), and Windows is untested.
 - A line in the trace report summarising audits, misses and time spent in fallback.
 - Back-off between failures, if real faults turn out to come in bursts.
 - Linux and Windows measurements with `scripts/watch-probe.mjs`.
+- Board watcher, to verify later (only if start-up feels slow): whether a cold start rebuilds the board twice (saving `pr-status.cache` probably triggers the watcher), and whether the status writer's temp file shows as extra change events on the run page (12 extra events in 2 minutes were seen in a simulation).
+- Board watcher gaps, waiting for real feedback from Windows and Linux users: a test cannot detect a deaf watcher on Linux; review item M13 has no test; some board inputs are computed twice per rebuild; nothing is measured on Windows.
+- Branch move, corner cases without a test (add them when this code is next touched; `src/pipeline/push-check.ts`): uncommitted changes that clash with the new base while the old branch cannot be checked out again (the changes stay in git's stash); a failed rebase that is never aborted (mutation M8); the two error checks behind the branch-name 403 fix each have a second check, so a test cannot tell that either alone works (mutations M1 and M1b).
+- Completed page: review the detail-panel speed fix that already merged (the panel made 4 blocking git calls): check it covers `getCompletedTaskDetailAsync`, and measure it.
+- Completed page: review how many calls the start-up PR fill makes (one `gh pr view` per branch-keyed task, 4 at a time).
+- Completed page, tests to add later: the page makes exactly two requests (rows first, then the full list); stopping the server in the middle of the start-up fill.
+
+### Accepted behaviours (decided, no change)
+
+- A crashed run is noticed at the next quiet-time check, not by a file event.
+- A PR status change on GitHub is re-checked at a quiet-time check at most once an hour, and the board refreshes when GitHub answers.
+- "cannot lock ref" is retried once; then the run moves to a new branch.
+- A blank-space-only edit of a brief is undone by the brief cleanup.
+- The board's cleanup path has no test of its own; it shares the Completed page's tested code.
+- Stopping the server in the middle of the start-up PR fill lets a running `gh` call finish.
+- The rows-first Completed page's second request adds about 0.1 s.
 
 ## 14. Final measurements (P9), 2026-11-13
 
