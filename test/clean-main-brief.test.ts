@@ -3,10 +3,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { cleanMainBrief } from '../src/pipeline/pr-link.js';
 import { clearPrCache, recordPrInBrief } from '../src/pipeline/finalise.js';
-import { listCompletedTasks, settleBriefCleanups } from '../src/runs/completed.js';
+import { completedListAsync, listCompletedTasks, settleBriefCleanups, warmCompletedPrs } from '../src/runs/completed.js';
+import { clearNotices } from '../src/runs/notices.js';
+import { boardView } from '../src/runs/view.js';
 import { runContext } from '../src/runs/index.js';
 import { tmp } from './helpers.js';
 
@@ -23,7 +25,7 @@ const SLUG = 'task';
 const BODY = `# ${SLUG}\n\nType: feature\n`;
 
 let saved: string | undefined;
-beforeEach(() => { saved = process.env.PATH; clearPrCache(); });
+beforeEach(() => { saved = process.env.PATH; clearPrCache(); clearNotices(); });
 afterEach(() => { process.env.PATH = saved; clearPrCache(); });
 
 /** A main checkout with the item's brief committed and pushed to a bare origin, and a run worktree beside it with a record. */
@@ -150,5 +152,77 @@ describe('the completed tasks list cleans a merged run\'s brief, and only a merg
     expect(tasks.map(t => [t.slug, t.prState])).toEqual([[SLUG, 'MERGED']]);
     expect(fs.readFileSync(p.file, 'utf8')).toBe(BODY);
     expect(git(p.main, 'status', '--porcelain')).toBe('');
+  });
+});
+
+describe('what a cleanup says reaches the next list and board', () => {
+  function fakeGh(p: ReturnType<typeof project>): void {
+    const bin = path.join(p.base, 'bin');
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nif [ "$1 $2" = "pr view" ]; then echo '${JSON.stringify({ url: PR, state: 'MERGED', number: 99 })}'; exit 0; fi\nexit 1\n`, { mode: 0o755 });
+    process.env.PATH = `${bin}:${saved}`;
+  }
+
+  test('a brief kept for its edits: the Completed list that follows carries a notice, and so does the board', async () => {
+    const p = project();
+    fakeGh(p);
+    fs.writeFileSync(p.file, `${recordPrInBrief(BODY, PR)}\nMy own edit.\n`);
+    const err = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const first = await completedListAsync(runContext(p.main));
+      expect(first.notices).toBeUndefined(); // the cleanup runs after this answer
+      await settleBriefCleanups();
+      expect(err.mock.calls.map(c => String(c[0])).join('')).toContain('Kept');
+      const next = await completedListAsync(runContext(p.main));
+      expect(next.notices).toHaveLength(1);
+      expect(next.notices?.[0]).toMatchObject({ slug: SLUG, level: 'info' });
+      expect(next.notices?.[0].text).toContain('it has edits besides the pull request link');
+      expect(next.notices?.[0].id).toBeTruthy();
+      expect(boardView(runContext(p.main), { changes: false }).notices?.map(n => n.id)).toEqual([next.notices?.[0].id]);
+    } finally { err.mockRestore(); }
+  });
+
+  test('a restored brief says so too', async () => {
+    const p = project();
+    fakeGh(p);
+    const err = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      await completedListAsync(runContext(p.main));
+      await settleBriefCleanups();
+      const next = await completedListAsync(runContext(p.main));
+      expect(next.notices?.[0].text).toContain('Restored');
+    } finally { err.mockRestore(); }
+  });
+});
+
+describe('gh is not installed', () => {
+  /** A PATH with git and nothing else (no gh). */
+  function gitOnly(p: ReturnType<typeof project>): void {
+    const bin = path.join(p.base, 'git-only');
+    fs.mkdirSync(bin, { recursive: true });
+    const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+    fs.symlinkSync(real, path.join(bin, 'git'));
+    process.env.PATH = bin;
+  }
+  const errorsLog = (p: ReturnType<typeof project>): string => {
+    const f = path.join(p.main, runContext(p.main).backlogDir, SLUG, 'logs', 'errors.log');
+    return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '';
+  };
+
+  test('the start-up warm-up skips with no-gh', async () => {
+    const p = project();
+    git(p.main, 'remote', 'set-url', 'origin', 'https://github.com/o/r.git');
+    gitOnly(p);
+    expect(await warmCompletedPrs(runContext(p.main))).toEqual({ skipped: 'no-gh' });
+  });
+
+  test('the Completed list answers a failed check for a task with a PR link, and keeps the message in errors.log', async () => {
+    const p = project();
+    gitOnly(p);
+    const list = await completedListAsync(runContext(p.main));
+    expect(list.prErrors).toHaveLength(1);
+    expect(list.prErrors?.[0]).toMatchObject({ slug: SLUG, pr: PR });
+    expect(list.prErrors?.[0].message).toMatch(/ENOENT|gh/);
+    expect(errorsLog(p)).toMatch(/ENOENT|gh/);
   });
 });

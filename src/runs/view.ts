@@ -19,6 +19,7 @@ import { commonDirOf, stampOf, worktreeInputs } from '../gitdir.js';
 import { withAnswerLines } from '../pipeline/questions.js';
 import { redPattern } from '../pipeline/stages.js';
 import { cleanMergedRunBrief } from './completed.js';
+import { recentNotices, type Notice } from './notices.js';
 
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused';
 
@@ -519,6 +520,8 @@ export interface BoardView {
   runs: RunCard[];
   maxParallel: number;
   running: number;
+  /** What the brief cleanups said lately (see addNotice); absent when there is none. */
+  notices?: Notice[];
 }
 
 /** The files of a run's logs folder that a board card is made from; everything else there (run.out, agents' logs) is left alone. */
@@ -589,5 +592,6 @@ export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): Bo
       pullRequest: pr ? prCard(v.pr || null, pr) : null,
     };
   });
-  return { items: backlog ? backlog.items : null, runs, maxParallel: ctx.maxParallel, running: runs.filter(r => r.state === 'running').length };
+  const notices = recentNotices(ctx.root);
+  return { items: backlog ? backlog.items : null, runs, maxParallel: ctx.maxParallel, running: runs.filter(r => r.state === 'running').length, ...(notices.length ? { notices } : {}) };
 }

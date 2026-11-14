@@ -8,6 +8,7 @@ import { readRecord, type RunRecord } from './records.js';
 import { cleanMainBrief } from '../pipeline/pr-link.js';
 import { liveBranch, liveBriefPr, pickBase, pickBaseAsync, runWorktree, type RunContext } from './index.js';
 import { keepError } from '../pipeline/errors.js';
+import { addNotice, recentNotices, type Notice } from './notices.js';
 import { fetchPrComments, findOrCreatePr, getPrFromBrief, getPrStatus, getPrStatusAsync, keepPrStatusIn, peekPrStatus, prefetchPrStatuses, PR_STATUS_FILE, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
 
 export interface CompletedTask {
@@ -35,6 +36,8 @@ export interface CompletedList {
   completed: CompletedTask[];
   /** Absent when every check answered. */
   prErrors?: { slug: string; pr: string; message: string }[];
+  /** What the brief cleanups said lately (see addNotice); absent when there is none. */
+  notices?: Notice[];
 }
 
 export interface CommitInfo {
@@ -291,7 +294,8 @@ export async function completedListAsync(ctx: RunContext, opts: { rowsFirst?: bo
   for (const [key, k] of known) if (k.error) for (const slug of slugsOf.get(key) || []) prErrors.push({ slug, pr: key, message: k.error });
   const r3 = (n: number) => Math.round(n * 1000) / 1000;
   trace({ action: 'completed', why: opts.rowsFirst ? 'rows' : 'list', ms: r3(performance.now() - t0), n: completed.length, phases: { keys: r3(tKeys - t0), prs: r3(prsAt - tKeys), git: r3(git.at - tKeys), build: r3(performance.now() - tBuild) } });
-  return prErrors.length ? { completed, prErrors } : { completed };
+  const notices = recentNotices(ctx.root);
+  return { completed, ...(prErrors.length ? { prErrors } : {}), ...(notices.length ? { notices } : {}) };
 }
 
 /**
@@ -312,11 +316,13 @@ export function cleanMergedRunBrief(ctx: RunContext, slug: string, rec: Partial<
     .then(() => cleanMainBrief({
       root: ctx.root, rel: path.join(ctx.backlogDir, slug, 'brief.md'), mergedPr, env: ctx.env,
       keepError: (w, t) => keepError(where, w, t),
-      out: l => { process.stderr.write(`${l}\n`); },
+      out: l => { process.stderr.write(`${l}\n`); addNotice(ctx.root, slug, l); },
     }))
     .then(() => undefined, e => {
       keepError(where, 'clean the main checkout\'s brief', (e as Error).stack || String(e));
-      process.stderr.write(`WARNING: could not clean the pull request link out of ${slug}'s brief (see errors.log)\n`);
+      const line = `WARNING: could not clean the pull request link out of ${slug}'s brief (see errors.log)`;
+      process.stderr.write(`${line}\n`);
+      addNotice(ctx.root, slug, line, 'warning');
     })
     .finally(() => { briefCleanups.delete(job); if (cleanupChains.get(ctx.root) === job) cleanupChains.delete(ctx.root); });
   briefCleanups.add(job);

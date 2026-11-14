@@ -7,7 +7,7 @@ import { useStream } from './useStream';
 import { applyRunEvent } from './stream';
 import { awaitsMerge } from './stages';
 import { PrCi } from './PrCi';
-import { Cli, ErrorBox, GLYPH, Panel, PrIcon, Spinner, stateClass, useApp } from './ui';
+import { Cli, ErrorBox, GLYPH, Notices, Panel, PrIcon, Spinner, stateClass, useApp } from './ui';
 
 export const COLUMNS = ['Backlog', 'Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise'];
 
@@ -159,6 +159,7 @@ export function Board({ board, error }: { board: BoardData | null; error: string
         <button class="btn btn-p" type="button" disabled={!chosen.length || busy} onClick={runSelected}>{busy ? <><Spinner /> Starting…</> : `Run selected (${chosen.length})`}</button>
       </div>
       <ErrorBox error={error} />
+      <Notices project={project} notices={board.notices} />
       {board.items === null && <div class="banner">This project has no backlog index yet. <a href="#/new" onClick={e => { e.preventDefault(); go('/new'); }}>Write the first item</a>; it creates the index.</div>}
       {chosen.length > 0 && <Cli commands={chosen.map(s => ['start', s])} />}
       <div class="board-scroll">
