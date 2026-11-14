@@ -8,7 +8,7 @@ import { readRecord, type RunRecord } from './records.js';
 import { cleanMainBrief } from '../pipeline/pr-link.js';
 import { liveBranch, liveBriefPr, pickBase, pickBaseAsync, runWorktree, type RunContext } from './index.js';
 import { keepError } from '../pipeline/errors.js';
-import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, getPrStatusAsync, keepPrStatusIn, peekPrStatus, prefetchPrStatuses, PR_STATUS_FILE, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
+import { fetchPrComments, findOrCreatePr, getPrFromBrief, getPrStatus, getPrStatusAsync, keepPrStatusIn, peekPrStatus, prefetchPrStatuses, PR_STATUS_FILE, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
 
 export interface CompletedTask {
   slug: string;
@@ -581,8 +581,10 @@ export function createPrForCompleted(
   // Push branch to origin
   out.push(`Pushing branch ${branch} to origin...`);
   const pushRes = git(ctx.root, ['push', '-u', 'origin', branch], ctx.env);
+  const logOf = { root: ctx.root, log: path.join(ctx.backlogDir, slug, 'logs') };
   if (pushRes.status !== 0) {
     err.push(`Push warning: ${pushRes.stderr.trim()}`);
+    keepError(logOf, `completed tasks: push ${branch} before creating the pull request`, pushRes.stderr);
   } else {
     out.push(`Pushed ${branch} to origin.`);
   }
@@ -590,10 +592,13 @@ export function createPrForCompleted(
   // Create PR
   const title = `feat(${slug}): implement task`;
   const body = `Completed SDLC implementation for \`${slug}\`.\n\n${briefText.slice(0, 500)}`;
-  const prUrl = createOrGetPr(ctx.root, branch, title, body, base);
+  const opened = findOrCreatePr(ctx.root, branch, title, body, base);
+  const prUrl = opened.url;
 
   if (!prUrl) {
-    err.push('Failed to create PR with gh CLI. Ensure gh is installed and authenticated.');
+    const why = opened.error || 'gh gave no reason';
+    err.push(`Failed to create PR with gh CLI: ${why}`);
+    keepError(logOf, 'completed tasks: create the pull request', why);
     return { ok: false, pr: null, out, err };
   }
 
