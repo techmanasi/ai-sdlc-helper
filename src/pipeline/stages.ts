@@ -12,7 +12,7 @@ import { agentFor, harnessFor } from '../config/settings.js';
 import { at, setAside, stamp, stop, stopIfAborted, tick, type Ctx, type From } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agent.js';
 import {
-  newTestFiles, redCommitTestFiles, repairTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass, testsPassAt,
+  newPassingTests, newTestFiles, redCommitTestFiles, repairTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass, testsPassAt,
 } from './gates.js';
 import { finalisePattern, implementPattern, redPattern, repairPattern } from './git.js';
 import { renderPrompt } from './prompts.js';
@@ -259,6 +259,8 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   }
   const existingTests = firstRedSha ? redCommitTestFiles(ctx) : [];
   const srcBefore = ctx.git.sourceHash ? ctx.git.sourceHash(ctx.layout.sourceDirs || [], ctx.layout.testPathspecs || [], ctx.config.backlogDir || '') : undefined;
+  // What "new" means for the red gate: the tree before the agent ran, or before the first red commit on a resumed run.
+  const baseSha = (firstRedSha ? ctx.git.tryRun('rev-parse', '--verify', `${firstRedSha}^`)?.trim() : '') || ctx.git.head();
   ctx.status.attempt = '1/1';
   ctx.status.write();
   ctx.status?.beginStep?.('agent');
@@ -278,6 +280,16 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
     ? testsPassAt(ctx, firstRedSha, allTaskTests, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true })
     : testsPass(ctx, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true });
   if (redPassed) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
+  // Some new tests failing is not enough: a new test that already passes proves nothing about the new work.
+  const vacuous = newPassingTests(ctx, baseSha, gateFiles);
+  if (vacuous.length > 0) {
+    const list = vacuous.map(t => `${t.file} :: ${t.name}`);
+    const shown = list.slice(0, 20).concat(list.length > 20 ? [`... and ${list.length - 20} more (see ${ctx.log}/red-passing.md)`] : []);
+    const head = `RED GATE FAILED: ${vacuous.length} new test(s) already pass before implementation: they test behaviour that already exists, which the spec or plan did not identify as existing. Fix the spec or plan (mark that behaviour as existing), then run again from Spec or Plan.`;
+    fs.writeFileSync(at(ctx, `${ctx.log}/red-passing.md`), `${head}\n${list.join('\n')}\n`);
+    keepError(ctx, 'red gate', `${head}\n${list.join('\n')}`);
+    stop(ctx, [head, ...shown].join('\n'), 1, 'plan');
+  }
   await tick();
   ctx.status?.beginStep?.('commit');
   ctx.git.run('add', '-A', '--', ctx.docs);

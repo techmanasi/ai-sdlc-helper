@@ -124,6 +124,50 @@ describe('a full run', () => {
     expect(statusOf(f.dir)).toMatchObject({ state: 'failed', stage: 'Red tests' });
   });
 
+  const HEAD_T = "import { test } from 'node:test';\\nimport assert from 'node:assert/strict';\\n";
+  const redWith = (body: string) => ({ 'red-tests': `echo cases > "$FAKE_DOCS/test-cases-1.md"\nprintf "${HEAD_T}${body}" > src/sum.test.mjs` });
+
+  test('the red gate refuses a new test that already passes even when other new tests fail, naming it', async () => {
+    const f = fixture(redWith("test('fails now', () => assert.equal(1, 2));\\ntest('already true', () => assert.equal(1, 1));\\n"));
+    const r = await pipeline(f);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('RED GATE FAILED: 1 new test(s) already pass before implementation: they test behaviour that already exists, which the spec or plan did not identify as existing. Fix the spec or plan (mark that behaviour as existing), then run again from Spec or Plan.\nsrc/sum.test.mjs :: already true');
+    expect(r.stdout).not.toContain('fails now');
+    expect(read(f.dir, `${LOG}/red-passing.md`)).toContain('src/sum.test.mjs :: already true');
+    expect(read(f.dir, `${LOG}/errors.log`)).toContain('already true');
+    expect(subjects(f.dir)).toEqual([]);
+    expect(r.calls).toEqual(['spec', 'plan', 'red-tests']);
+    expect(statusOf(f.dir)).toMatchObject({ state: 'failed', stage: 'Red tests' });
+  });
+
+  test('the red gate accepts new tests that all fail, and does not count a skipped new test as passing', async () => {
+    const f = fixture(redWith("test('fails now', () => assert.equal(1, 2));\\ntest.skip('skipped one', () => {});\\n"));
+    const r = await pipeline(f);
+    expect(r.stdout).not.toContain('RED GATE FAILED');
+    expect(r.calls).toContain('implement');
+  });
+
+  test('the red gate does not flag a passing test that was already in the changed file at the base', async () => {
+    const f = fixture(redWith("test('old passes', () => assert.equal(1, 1));\\ntest('new fails', () => assert.equal(1, 2));\\n"));
+    fs.writeFileSync(path.join(f.dir, 'src/sum.test.mjs'), `${HEAD_T.replace(/\\n/g, '\n')}test('old passes', () => assert.equal(1, 1));\n`);
+    git(f.dir, 'add', '-A');
+    git(f.dir, 'commit', '-q', '-m', 'add an existing passing test');
+    const r = await pipeline(f);
+    expect(r.stdout).not.toContain('RED GATE FAILED');
+    expect(r.calls).toContain('implement');
+  });
+
+  test('the red gate flags a new passing test even when the base file mentions a word of its name', async () => {
+    const f = fixture(redWith("const value = 1;\\ntest('old passes', () => assert.equal(1, 1));\\ntest('new thing takes the saved value', () => assert.equal(1, 1));\\ntest('new fails', () => assert.equal(1, 2));\\n"));
+    fs.writeFileSync(path.join(f.dir, 'src/sum.test.mjs'), `${HEAD_T.replace(/\\n/g, '\n')}const value = 1;\ntest('old passes', () => assert.equal(1, 1));\n`);
+    git(f.dir, 'add', '-A');
+    git(f.dir, 'commit', '-q', '-m', 'add an existing test');
+    const r = await pipeline(f);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('src/sum.test.mjs :: new thing takes the saved value');
+    expect(r.stdout).not.toContain('src/sum.test.mjs :: old passes');
+  });
+
   test('the red gate stops when the Red tests agent leaves no new or changed test file', async () => {
     const f = fixture({ 'red-tests': 'echo cases > "$FAKE_DOCS/test-cases-1.md"' });
     const r = await pipeline(f);
