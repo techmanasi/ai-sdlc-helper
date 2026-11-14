@@ -113,6 +113,21 @@ describe('personal overrides', () => {
     expect(readRegistry(env)[0]).toEqual({ name: 'shop', path: '/p/shop', addedAt: '2026-01-01T00:00:00.000Z' });
   });
 
+  test('board quiet seconds are validated, persisted and cleared', () => {
+    const env = registry();
+    for (const value of [1, 5]) {
+      expect(editOverrides('shop', { boardSilenceSeconds: value }, env).ok).toBe(true);
+      expect(readRegistry(env)[0].overrides).toMatchObject({ maxParallel: 3, boardSilenceSeconds: value });
+    }
+    for (const value of [0, -5, 1.5, '5', {}, NaN, Infinity, -Infinity]) {
+      expect(editOverrides('shop', { boardSilenceSeconds: value }, env).errors)
+        .toEqual(['boardSilenceSeconds: must be a whole number of seconds, 1 or more']);
+      expect(readRegistry(env)[0].overrides).toMatchObject({ boardSilenceSeconds: 5 });
+    }
+    expect(editOverrides('shop', { boardSilenceSeconds: null }, env).ok).toBe(true);
+    expect(readRegistry(env)[0].overrides).toEqual({ maxParallel: 3 });
+  });
+
   test('a bad value, an unknown override or an unknown project is refused', () => {
     const env = registry();
     expect(editOverrides('shop', { maxParallel: 0 }, env).errors).toEqual(['maxParallel: must be a whole number above 0']);
