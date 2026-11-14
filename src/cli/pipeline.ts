@@ -30,14 +30,15 @@ export async function pipeline(argv: string[], valued: string[], io: Io): Promis
   const cwd = path.resolve(io.cwd || process.cwd(), a.value('--cwd') || '.');
   const controller = new AbortController();
   let signalled = 0;
+  let signalName = '';
   const handlers = Object.entries(SIGNALS).map(([name, n]) => {
-    const h = () => { signalled = 128 + n; controller.abort(); };
+    const h = () => { if (!signalled) { signalled = 128 + n; signalName = name; } controller.abort(); };
     process.on(name, h);
     return () => process.off(name, h);
   });
   try {
     const code = await runPipeline({
-      cwd, slug, from: a.value('--from'), agent: force.agent as any, model: force.model, effort: force.effort, env: io.env || process.env, out: l => io.out(l), err: l => io.err(l), signal: controller.signal,
+      cwd, slug, from: a.value('--from'), agent: force.agent as any, model: force.model, effort: force.effort, env: io.env || process.env, out: l => io.out(l), err: l => io.err(l), signal: controller.signal, stoppedBy: () => (signalled ? { name: signalName, code: signalled } : undefined),
     });
     return signalled || code;
   } finally {

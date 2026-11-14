@@ -79,6 +79,19 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     };
   }
 
+  // A run killed from outside by a signal: the agent did not crash.
+  const signalled = /run stopped by (SIG[A-Z0-9]+) \(exit \d+\) during ([^,\n]+)(?:, agent (\S+))?/.exec(latest);
+  if (signalled) {
+    const [, sig, during, agentName] = signalled;
+    const stageName = ctx.stage || during;
+    return {
+      stage: stageName,
+      diagnosis: agentName ? `Agent '${agentName}' was stopped by ${sig} (the run was killed from outside)` : `The run was stopped by ${sig} during ${during} (it was killed from outside)`,
+      autoAction: { label: `Resume at ${stageName}`, command: resumeCommand(ctx.slug, toFromStage(stageName, ctx.hasTestIssues)) },
+      manualAction: agentName ? { file: `logs/${agentName}.err`, instruction: 'Nothing is wrong with the agent: start the run again from this stage.' } : { instruction: 'Start the run again from this stage.' },
+    };
+  }
+
   const agentFailMatch = /agent '([^']+)' failed:\s*([^\n]+)/i.exec(latest)
     || /agent '([^']+)' failed[^\n]*(?:\n\s*failure\s*\([^)]*\):\s*([^\n]+))/i.exec(latest)
     || /agent '([^']+)' failed(?:\s*\([^)]*\))?:\s*([^\n]+)/i.exec(latest)

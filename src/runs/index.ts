@@ -643,7 +643,7 @@ export function watchFrame(ctx: RunContext, slug: string, dir: string): string[]
   out.push(exists(status) ? fs.readFileSync(status, 'utf8').trim() : `(no status.json yet in ${logs})`);
   const rec = readRecord(ctx.reg, slug);
   if (rec) {
-    if (rec.interrupted === true) out.push('run: interrupted (stopped by the user)');
+    if (rec.interrupted === true) out.push('run: interrupted (stopped by the user or a signal)');
     else if (rec.state === 'exited') out.push(`run: finished, exit code ${rec.exit_code}${rec.message ? ` (${rec.message})` : ''}`);
     else if (rec.state === 'running' && !alive(rec.pid)) out.push('run: process has gone (stopped without finishing)');
   }

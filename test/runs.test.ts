@@ -27,6 +27,7 @@ echo "pipeline output for $slug"
 case "$slug" in
   slow*) sleep 300 & echo $! > sleep.pid; wait $! ;;
   fail*) exit 1 ;;
+  sig*) exit 143 ;;
   pause*) exit 2 ;;
 esac
 exit 0
@@ -35,7 +36,7 @@ const SETTINGS = {
   suites: [{ name: 'app', dir: '.', runner: 'node-test', testCmd: 'npm test', testGlobs: ['test/**/*.test.js'] }],
   agent: { codeSearch: 'none' }, ui: { timezone: 'UTC' }, worktree: { link: ['server/node_modules', 'graft', 'missing'] },
 };
-const SLUGS = ['alpha', 'slow-one', 'slow-two', 'fail-one', 'pause-one'];
+const SLUGS = ['alpha', 'slow-one', 'slow-two', 'fail-one', 'pause-one', 'sig-one'];
 
 let template: string;
 function buildTemplate(): string {
@@ -181,6 +182,9 @@ describe('start', () => {
   test('records failing and paused exit codes; copies a brief not committed yet', async () => {
     await cli(['start', 'fail-one']);
     expect(await finished('fail-one')).toMatchObject({ exit_code: '1', interrupted: false });
+    // A run that ended from a signal (exit 128+n) is interrupted even though nobody asked for a stop.
+    await cli(['start', 'sig-one']);
+    expect(await finished('sig-one')).toMatchObject({ exit_code: '143', interrupted: true });
     await cli(['start', 'pause-one']);
     expect(await finished('pause-one')).toMatchObject({ exit_code: '2' });
 
@@ -610,7 +614,7 @@ describe('watch', () => {
     expect(stdout).toContain('{"slug":"slow-one","state":"running"}');
     await cli(['stop', 'slow-one']);
     expect(await watching).toBe(0);
-    expect(stdout.trim().split('\n').some(l => l.includes('run: interrupted (stopped by the user)'))).toBe(true);
+    expect(stdout.trim().split('\n').some(l => l.includes('run: interrupted (stopped by the user or a signal)'))).toBe(true);
   });
 });
 

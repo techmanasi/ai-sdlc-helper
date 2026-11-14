@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { extract, modeFor, rulesFor } from '../permissions/index.js';
 import { toolNotes } from '../config/toolNotes.js';
 import { agentFor, harnessFor, testDir, testFramework } from '../config/settings.js';
+import { withOwnCli } from './launcher.js';
 import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from './context.js';
 import { modelEnvOf, modelFlags, providerEnv, stageModel } from './models.js';
 import { ciFailureInput, existingRedTestsInput, manualInput, mergeFailureInput, prCommentsInput, renderPrompt } from './prompts.js';
@@ -328,7 +329,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     rc = await ctx.spawnAgent({
       command: invocation.command,
       args: invocation.args,
-      cwd: ctx.root, env: { ...ctx.env, ...flags.env, ...invocation.env }, stdout: `${base}.json`, stderr: `${base}.err`, signal: ctx.signal,
+      cwd: ctx.root, env: withOwnCli(ctx, { ...ctx.env, ...flags.env, ...invocation.env }), stdout: `${base}.json`, stderr: `${base}.err`, signal: ctx.signal,
     });
     await tick();
     try { harness.normalizeOutput?.(`${base}.json`); } catch { /* the raw output stays as it is */ }
@@ -434,7 +435,7 @@ export async function runAudit(
     command: inv.command,
     args: inv.args,
     cwd: ctx.root,
-    env: { ...ctx.env, ...flags.env, ...inv.env },
+    env: withOwnCli(ctx, { ...ctx.env, ...flags.env, ...inv.env }),
     stdout: rawFile,
     stderr: errFile,
     signal: ctx.signal,
