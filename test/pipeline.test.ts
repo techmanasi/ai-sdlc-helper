@@ -157,6 +157,17 @@ describe('a full run', () => {
     expect(r.calls).toContain('implement');
   });
 
+  test('the red gate flags a new passing test even when the base file mentions a word of its name', async () => {
+    const f = fixture(redWith("const value = 1;\\ntest('old passes', () => assert.equal(1, 1));\\ntest('new thing takes the saved value', () => assert.equal(1, 1));\\ntest('new fails', () => assert.equal(1, 2));\\n"));
+    fs.writeFileSync(path.join(f.dir, 'src/sum.test.mjs'), `${HEAD_T.replace(/\\n/g, '\n')}const value = 1;\ntest('old passes', () => assert.equal(1, 1));\n`);
+    git(f.dir, 'add', '-A');
+    git(f.dir, 'commit', '-q', '-m', 'add an existing test');
+    const r = await pipeline(f);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('src/sum.test.mjs :: new thing takes the saved value');
+    expect(r.stdout).not.toContain('src/sum.test.mjs :: old passes');
+  });
+
   test('the red gate stops when the Red tests agent leaves no new or changed test file', async () => {
     const f = fixture({ 'red-tests': 'echo cases > "$FAKE_DOCS/test-cases-1.md"' });
     const r = await pipeline(f);

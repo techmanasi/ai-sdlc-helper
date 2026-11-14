@@ -134,13 +134,13 @@ export function newPassingTests(ctx: Ctx, base: string, files: string[]): { file
   for (const t of tests) {
     if (t.status !== 'passed' || !t.file || !wanted.has(t.file)) continue;
     const old = before(t.file);
-    const known = old !== null && [t.name, ...leafNames(t.name)].some(n => old.includes(n));
+    const known = old !== null && [t.name, ...leafNames(t.name)].some(n => ['\'', '"', '`'].some(q => old.includes(`${q}${n}${q}`)));
     if (!known) found.push({ file: t.file, name: t.name });
   }
   return found;
 }
 
-/** A test's title alone: its name joins describe titles and the title with spaces, so a file holds the title, not the name. */
+/** A test's title alone: its name joins describe titles and the title with spaces, so a file holds the title, not the name. A title counts only as a whole string literal. */
 function leafNames(name: string): string[] {
   const words = name.split(' ');
   return words.map((_, i) => words.slice(i).join(' ')).slice(1);
