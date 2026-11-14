@@ -26,7 +26,7 @@ export interface FinaliseOptions {
   err(line: string): void;
   /** Keeps the whole text of a failure (the pipeline's logs/errors.log); without it, only the one-line warning is printed. */
   keepError?(where: string, text: string): void;
-  /** Records a new pull request's link wherever the brief is kept (the pipeline's linkPrEverywhere); without it, in the brief here. */
+  /** Records a new pull request's link in the brief here (the pipeline's linkPrInBrief); without it, written directly. Finalise commits it. */
   linkPr?(url: string): void;
 }
 

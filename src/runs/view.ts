@@ -423,7 +423,11 @@ export function runView(ctx: RunContext, slug: string, opts: {
       return false;
     })(),
     ...(() => {
+      // The run commits its link in its own brief; the status names the draft PR CI opened, the record one created from the
+      // Completed page once no checkout of the branch was left; the main checkout's brief has it once merged and pulled.
       const p = getPrFromBrief(readText(path.join(docsDir, 'brief.md')) || '')
+        || (typeof status?.ci?.pr === 'string' && status.ci.pr ? status.ci.pr as string : null)
+        || (typeof rec?.pr === 'string' && rec.pr ? rec.pr : null)
         || getPrFromBrief(readText(path.join(ctx.root, ctx.backlogDir, slug, 'brief.md')) || '');
       if (opts.checkPr === false || !want('git') || (!p && state !== 'done' && stage.toLowerCase() !== 'finalise' && stage !== 'Resolve conflicts')) {
         return {
@@ -581,8 +585,10 @@ export const BOARD_GIT_MAX_AGE_MS = 600_000;
 export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): BoardView {
   keepPrStatusIn(ctx.root, path.join(ctx.reg, PR_STATUS_FILE));
   const backlog = backlogItems({ root: ctx.root, backlogDir: ctx.backlogDir, branchPrefix: ctx.branchPrefix }, { keepBranches: true });
+  const runPrs = new Map<string, string>();
   const runs = projectSlugs(ctx, { keep: true }).map((slug): RunCard => {
     const v = runView(ctx, slug, { changes: opts.changes, tailLines: 0, checkPr: false, parts: ['live', 'git'], cacheGit: true, gitMaxAgeMs: BOARD_GIT_MAX_AGE_MS });
+    if (v.pr || v.ci?.pr) runPrs.set(slug, (v.pr || v.ci?.pr)!);
     const pr = v.state === 'done' ? getPrStatusCached(ctx.root, prKeyOf(ctx, slug, v), ctx.env, prPollOptions(ctx.env)) : null;
     // Merged: the pull request link in the main checkout's brief goes (no git call for a brief already looked at).
     if (pr?.status?.state === 'MERGED') cleanMergedRunBrief(ctx, slug, v.record, pr.status.url);
@@ -595,6 +601,10 @@ export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): Bo
       pullRequest: pr ? prCard(v.pr || null, pr) : null,
     };
   });
+  // A backlog item's PR link: the pipeline commits it on the run's branch and never writes the main checkout, whose brief has
+  // it only once the PR is merged and pulled (or an older one: a moved run's), so the run's own link comes first.
+  const runPr = new Map(runs.map(r => [r.slug, r.pullRequest?.url || runPrs.get(r.slug) || null]));
+  const items = backlog ? backlog.items.map(i => { const pr = runPr.get(i.slug); return pr && pr !== i.pr ? { ...i, pr } : i; }) : null;
   const notices = recentNotices(ctx.root);
-  return { items: backlog ? backlog.items : null, runs, maxParallel: ctx.maxParallel, running: runs.filter(r => r.state === 'running').length, ...(notices.length ? { notices } : {}) };
+  return { items, runs, maxParallel: ctx.maxParallel, running: runs.filter(r => r.state === 'running').length, ...(notices.length ? { notices } : {}) };
 }

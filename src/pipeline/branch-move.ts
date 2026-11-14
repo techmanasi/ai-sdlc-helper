@@ -6,7 +6,7 @@ import { stop, type Ctx, type From } from './context.js';
 import { keepError } from './errors.js';
 import { resumeCommand } from './hints.js';
 import { clearPrInBrief, findOrCreatePr, firstLine, getPrFromBrief } from './finalise.js';
-import { linkPrEverywhere } from './pr-link.js';
+import { commitPrLink } from './pr-link.js';
 import { draftPrText } from './ci.js';
 import { appendRound } from './observe.js';
 import { moveReasonText } from './status.js';
@@ -139,7 +139,7 @@ export async function openMovedPr(ctx: Ctx): Promise<string | null> {
     return null;
   }
   const url = opened.url;
-  linkPrEverywhere(ctx, url);
+  commitPrLink(ctx, url);
   ctx.out(`   pull request: ${url}`);
   return url;
 }

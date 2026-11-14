@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { DOCS, LOG, SLUG, fixture, git, pipeline, read, statusOf, type Fixture } from './pipeline-fixture.js';
 import { write } from './helpers.js';
 import { getPrFromBrief } from '../src/pipeline/finalise.js';
+import { runContext } from '../src/runs/index.js';
+import { boardView, runView } from '../src/runs/view.js';
+import { getCompletedTaskDetail } from '../src/runs/completed.js';
 
 afterEach(() => new Promise<void>(resolve => { setImmediate(resolve); }));
 vi.setConfig({ testTimeout: 300_000 });
@@ -242,38 +245,57 @@ describe('a start at Resolve conflicts', () => {
 const OLD_PR = 'https://github.com/o/r/pull/5';
 
 /**
- * The run in its own worktree, started from the fixture's checkout (the main checkout): the brief, committed with an older
- * pull request link, is in both, and the run's record names the worktree and where it was started from.
+ * The run in its own worktree, started from the fixture's checkout (the main checkout): the brief, committed (with an older
+ * pull request link unless <linked> is false), is in both, and the run's record names the worktree and where it was started from.
  */
-function inWorktree(f: Fixture): Fixture {
-  write(f.dir, `${DOCS}/brief.md`, `---\npr: ${OLD_PR}\n---\n\n# ${SLUG}\n\nAdd sum(a, b).\n`);
-  git(f.dir, 'commit', '-q', '-am', 'brief with an older pull request');
+function inWorktree(f: Fixture, linked = true): Fixture {
+  if (linked) {
+    write(f.dir, `${DOCS}/brief.md`, `---\npr: ${OLD_PR}\n---\n\n# ${SLUG}\n\nAdd sum(a, b).\n`);
+    git(f.dir, 'commit', '-q', '-am', 'brief with an older pull request');
+  }
   git(f.dir, 'push', '-q', 'origin', 'main');
   const wt = path.join(path.dirname(f.dir), 'wt');
   git(f.dir, 'worktree', 'add', '-q', '-b', BRANCH, wt);
-  write(path.join(f.dir, '.git', 'sdlc-runs'), `${SLUG}.json`, `${JSON.stringify({ slug: SLUG, worktree: wt, root: f.dir, pid: 0, started: '2026-11-14T10:00:00', interrupted: false, finished: '', message: '' })}\n`);
+  write(path.join(f.dir, '.git', 'sdlc-runs'), `${SLUG}.json`, `${JSON.stringify({ slug: SLUG, worktree: wt, root: f.dir, pid: 0, started: '2026-11-14T10:00:00', interrupted: false, finished: '', message: '', branch: BRANCH })}\n`);
   return { ...f, dir: wt };
 }
 
-describe('a new pull request is linked in the brief of the worktree and of the main checkout', () => {
-  test('Red tests opens the pull request in ci mode: both briefs hold the new link, not the older one', async () => {
+const LINK = `chore(${SLUG}): link pull request`;
+/** <ref>'s commit "link pull request" (the newest), in <dir>. */
+const linkCommit = (dir: string, ref: string): string => git(dir, 'log', '-1', '--format=%H', `--grep=^${LINK.replace(/[()]/g, '.')}$`, ref);
+/** The lines a commit adds and removes, without the diff's headers. */
+const changedLines = (dir: string, sha: string): string[] => git(dir, 'show', '--format=', '--unified=0', sha).split('\n')
+  .filter(l => /^[-+]/.test(l) && !/^(---|\+\+\+) /.test(l));
+
+describe('a new pull request is committed on the run\'s branch; the main checkout is never written', () => {
+  test('Red tests opens the pull request in ci mode: a pushed commit whose only change is the pr: line; no later commit holds it; the main checkout is clean', async () => {
     const f = fixture();
     fakeGh(f);
-    withOrigin(f);
+    const { origin } = withOrigin(f);
     const wt = inWorktree(f);
     await pipeline(wt, { ...FAILS_AT_IMPLEMENT, SDLC_FULL_SUITE: 'ci' });
     expect(read(f.fake, 'gh-create.log')).toContain(`--head ${BRANCH}`);
-    for (const dir of [wt.dir, f.dir]) {
-      const brief = read(dir, `${DOCS}/brief.md`);
-      expect(getPrFromBrief(brief), dir).toBe(NEW_PR);
-      expect(brief, dir).not.toContain(OLD_PR);
-    }
+    const sha = linkCommit(origin, BRANCH);
+    expect(sha).not.toBe('');
+    expect(git(origin, 'show', '--name-only', '--format=', sha)).toBe(`${DOCS}/brief.md`);
+    expect(changedLines(origin, sha)).toEqual([`-pr: ${OLD_PR}`, `+pr: ${NEW_PR}`]);
+    // Committed on its own, before anything later: no later commit touches the brief, and the worktree has nothing left of it.
+    expect(git(wt.dir, 'log', '--format=%H', `${sha}..HEAD`, '--', `${DOCS}/brief.md`)).toBe('');
+    expect(git(wt.dir, 'status', '--porcelain', '--', `${DOCS}/brief.md`)).toBe('');
+    expect(getPrFromBrief(read(wt.dir, `${DOCS}/brief.md`))).toBe(NEW_PR);
+    // The main checkout: its committed brief as it was, nothing changed.
+    expect(getPrFromBrief(read(f.dir, `${DOCS}/brief.md`))).toBe(OLD_PR);
+    expect(git(f.dir, 'status', '--porcelain')).toBe('');
+    // The board still shows the link, from the run.
+    const ctx = runContext(f.dir);
+    expect(boardView(ctx).items?.find(i => i.slug === SLUG)?.pr).toBe(NEW_PR);
+    expect(runView(ctx, SLUG).pr).toBe(NEW_PR);
   });
 
-  test('a moved run opens its new pull request: the main checkout\'s brief holds the new link, not the older one', async () => {
+  test('a moved run opens its new pull request: the new branch has a pushed commit with the new link and no trace of the old one; the main checkout is clean', async () => {
     const f = fixture();
     fakeGh(f);
-    const { other } = withOrigin(f);
+    const { origin, other } = withOrigin(f);
     const wt = inWorktree(f);
     // The earlier run started from the main that holds the brief.
     git(other, 'pull', '-q');
@@ -281,10 +303,35 @@ describe('a new pull request is linked in the brief of the worktree and of the m
     const r = await pipeline(wt, FAILS_AT_IMPLEMENT);
     expect(r.stdout).toContain('MOVED:');
     expect(git(wt.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(MOVED);
-    const main = read(f.dir, `${DOCS}/brief.md`);
-    expect(getPrFromBrief(main)).toBe(NEW_PR);
-    expect(main).not.toContain(OLD_PR);
-    expect(getPrFromBrief(read(wt.dir, `${DOCS}/brief.md`))).toBe(NEW_PR);
+    const sha = linkCommit(origin, MOVED);
+    expect(sha).not.toBe('');
+    expect(git(origin, 'show', '--name-only', '--format=', sha)).toBe(`${DOCS}/brief.md`);
+    expect(changedLines(origin, sha).filter(l => /pr:/i.test(l))).toEqual([`+pr: ${NEW_PR}`]);
+    const pushed = git(origin, 'show', `${MOVED}:${DOCS}/brief.md`);
+    expect(getPrFromBrief(pushed)).toBe(NEW_PR);
+    expect(pushed).not.toContain(OLD_PR);
+    expect(git(wt.dir, 'status', '--porcelain', '--', `${DOCS}/brief.md`)).toBe('');
+    // The main checkout keeps its committed brief, untouched.
+    expect(getPrFromBrief(read(f.dir, `${DOCS}/brief.md`))).toBe(OLD_PR);
+    expect(git(f.dir, 'status', '--porcelain')).toBe('');
+  });
+
+  test('the full suite run locally: Finalise commits and pushes the link; the main checkout is clean after the whole run; the board and the Completed detail show the link', async () => {
+    const f = fixture();
+    fakeGh(f);
+    const { origin } = withOrigin(f);
+    const wt = inWorktree(f, false);
+    const r = await pipeline(wt, { SDLC_CREATE_PR: '1' });
+    expect(r.stdout).toContain(`Review pull request: ${NEW_PR}`);
+    expect(git(origin, 'log', '-1', '--format=%s', BRANCH)).toBe(LINK);
+    expect(git(origin, 'show', '--name-only', '--format=', BRANCH)).toBe(`${DOCS}/brief.md`);
+    expect(getPrFromBrief(git(origin, 'show', `${BRANCH}:${DOCS}/brief.md`))).toBe(NEW_PR);
+    expect(git(wt.dir, 'status', '--porcelain', '--', `${DOCS}/brief.md`)).toBe('');
+    expect(getPrFromBrief(read(f.dir, `${DOCS}/brief.md`))).toBeNull();
+    expect(git(f.dir, 'status', '--porcelain')).toBe('');
+    const ctx = runContext(f.dir);
+    expect(boardView(ctx).items?.find(i => i.slug === SLUG)?.pr).toBe(NEW_PR);
+    expect(getCompletedTaskDetail(ctx, SLUG).pr).toBe(NEW_PR);
   });
 });
 

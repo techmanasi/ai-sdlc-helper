@@ -33,6 +33,8 @@ export interface RunRecord {
   from?: string;
   /** The checkout the run was started from: its settings, run controls and saved rules belong to it. */
   root?: string;
+  /** The run's pull request, kept here when no checkout of its branch was left to commit the link in its brief. */
+  pr?: string;
 }
 
 /** Local time as the records and status.json write it: 2026-10-17T09:30:00. */

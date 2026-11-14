@@ -4,7 +4,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { runContext } from '../src/runs/index.js';
-import { createPrForCompleted } from '../src/runs/completed.js';
+import { createPrForCompleted, getCompletedTaskDetail } from '../src/runs/completed.js';
+import { readRecord } from '../src/runs/records.js';
 
 const git = (cwd: string, ...args: string[]) => {
   const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
@@ -61,6 +62,47 @@ describe('creating a PR from the UI links it in the brief and pushes the link', 
     expect(git(origin, 'rev-parse', `sdlc/${slug}`)).toBe(git(wt, 'rev-parse', 'HEAD'));
     // The main checkout is not edited.
     expect(git(main, 'status', '--porcelain')).toBe('');
+  });
+});
+
+describe('creating a PR from the UI once the run\'s worktree is gone', () => {
+  it('writes no brief anywhere and keeps the link in the run record, where the Completed detail finds it', () => {
+    saved = { PATH: process.env.PATH, SDLC_WT_BASE: process.env.SDLC_WT_BASE };
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-pr-norun-')));
+    const main = path.join(root, 'main');
+    fs.mkdirSync(main);
+    const origin = path.join(root, 'origin.git');
+    const slug = 'task';
+    const brief = `${runContext(main).backlogDir}/${slug}/brief.md`;
+    const bin = path.join(root, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nif [ "$1 $2" = "pr create" ]; then echo ${PR}; exit 0; fi\nexit 1\n`, { mode: 0o755 });
+    process.env.PATH = `${bin}:${process.env.PATH}`;
+    process.env.SDLC_WT_BASE = path.join(root, 'wt');
+    spawnSync('git', ['init', '-q', '--bare', origin]);
+    spawnSync('git', ['init', '-q', '-b', 'main', main]);
+    git(main, 'config', 'user.email', 't@example.com');
+    git(main, 'config', 'user.name', 'T');
+    git(main, 'remote', 'add', 'origin', origin);
+    fs.mkdirSync(path.join(main, path.dirname(brief)), { recursive: true });
+    fs.writeFileSync(path.join(main, brief), `# ${slug}\n\nBody.\n`);
+    git(main, 'add', '-A');
+    git(main, 'commit', '-q', '-m', 'init');
+    git(main, 'push', '-q', '-u', 'origin', 'main');
+    git(main, 'branch', `sdlc/${slug}`);
+    const ctx = runContext(main);
+    fs.mkdirSync(ctx.reg, { recursive: true });
+    // The run's record names a worktree that was removed.
+    fs.writeFileSync(path.join(ctx.reg, `${slug}.json`), JSON.stringify({ slug, worktree: path.join(root, 'wt', slug), root: main, pid: 0, started: '2026-11-14T10:00:00', state: 'exited', exit_code: '0', interrupted: false, finished: '', message: '', branch: `sdlc/${slug}` }));
+
+    const res = createPrForCompleted(ctx, slug);
+
+    expect([res.ok, res.pr, res.err]).toEqual([true, PR, []]);
+    expect(git(main, 'status', '--porcelain')).toBe('');
+    expect(git(origin, 'show', `sdlc/${slug}:${brief}`)).not.toContain('pr:');
+    expect(readRecord(ctx.reg, slug)?.pr).toBe(PR);
+    expect(readRecord(ctx.reg, slug)?.branch).toBe(`sdlc/${slug}`);
+    expect(getCompletedTaskDetail(ctx, slug).pr).toBe(PR);
   });
 });
 

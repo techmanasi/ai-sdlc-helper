@@ -13,7 +13,7 @@ import type { Ctx } from './context.js';
 import { keepError } from './errors.js';
 import { moveReasonText } from './status.js';
 import { findOrCreatePr, forgetPrStatus, firstLine, getPrStatus, type CheckRunStatus, type PrStatus } from './finalise.js';
-import { linkPrEverywhere } from './pr-link.js';
+import { commitPrLink } from './pr-link.js';
 
 export type CiClassification = 'infrastructure' | 'pre-existing' | 'flaky' | 'allowed' | 'side-effect';
 export interface CiCheckResult { name: string; conclusion: string; detailsUrl?: string; log?: string }
@@ -83,7 +83,8 @@ export function draftPrText(ctx: Ctx): { title: string; body: string } {
 
 /**
  * Whether the full suite can run in CI: an origin remote, gh installed and signed in, the branch pushed (with upstream
- * tracking), and an open PR for it (a draft is opened when there is none). The PR link goes into brief.md.
+ * tracking), and an open PR for it (a draft is opened when there is none). The PR link goes into brief.md, committed and
+ * pushed on its own (commitPrLink).
  */
 export async function checkCiAvailability(ctx: Ctx): Promise<{ available: boolean; reason?: string; pr?: string; prDraft?: boolean; rejected?: boolean }> {
   let remotes = '';
@@ -128,7 +129,7 @@ export async function checkCiAvailability(ctx: Ctx): Promise<{ available: boolea
   if (pr.state === 'CLOSED') return { available: false, reason: 'PR is closed' };
   if (pr.state === 'MERGED') return { available: false, reason: 'PR is merged' };
 
-  linkPrEverywhere(ctx, pr.url);
+  commitPrLink(ctx, pr.url);
   return { available: true, pr: pr.url, ...(typeof pr.isDraft === 'boolean' ? { prDraft: pr.isDraft } : {}) };
 }
 

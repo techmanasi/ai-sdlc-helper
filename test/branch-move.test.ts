@@ -360,8 +360,10 @@ describe('ensurePushable', () => {
     expect(sh(repo, 'symbolic-ref', '--short', 'HEAD')).toBe('sdlc/foo_2');
     expect(fs.existsSync(path.join(repo, '.git', 'rebase-merge'))).toBe(false);
     expect(fs.readFileSync(path.join(repo, 'c.txt'), 'utf8')).toBe('mine\n');
-    expect(sh(repo, 'log', '-1', '--format=%s')).toBe('mine');
-    expect(sh(repo, 'rev-parse', 'HEAD~1')).toBe(sh(repo, 'rev-parse', 'origin/main'));
+    // The new pull request's link is committed on its own on top of the run's commit.
+    expect(sh(repo, 'log', '-1', '--format=%s')).toBe('chore(foo): link pull request');
+    expect(sh(repo, 'log', '-1', '--format=%s', 'HEAD~1')).toBe('mine');
+    expect(sh(repo, 'rev-parse', 'HEAD~2')).toBe(sh(repo, 'rev-parse', 'origin/main'));
     // Old branch, here and on origin, as it was.
     expect(sh(repo, 'rev-parse', 'sdlc/foo')).toBe(mine);
     expect(remoteSha()).toBe(theirs);
@@ -385,8 +387,10 @@ describe('ensurePushable', () => {
     expect(ctx.branch).toBe('sdlc/foo_2');
     // The local base is not touched and not used: the new branch is origin's base plus the run's own commit.
     expect(sh(repo, 'rev-parse', 'main')).toBe(localMain);
-    expect(sh(repo, 'rev-parse', 'HEAD~1')).toBe(ahead);
-    expect(sh(repo, 'log', '-1', '--format=%s')).toBe('mine');
+    // The run's own commit on origin's base, then the new pull request's link committed on its own.
+    expect(sh(repo, 'rev-parse', 'HEAD~2')).toBe(ahead);
+    expect(sh(repo, 'log', '-1', '--format=%s', 'HEAD~1')).toBe('mine');
+    expect(sh(repo, 'log', '-1', '--format=%s')).toBe('chore(foo): link pull request');
     expect(sh(repo, 'rev-parse', 'sdlc/foo')).toBe(mine);
     expect(sh(repo, 'rev-parse', 'refs/sdlc-backup/sdlc/foo/local')).toBe(mine);
     expect(checks()).toMatchObject([{ finding: 'pr-closed', action: 'new-branch-from-base' }]);

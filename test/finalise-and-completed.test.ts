@@ -15,7 +15,7 @@ import {
   listCompletedTasks, getCompletedTaskDetail, isArchivedInIndex,
 } from '../src/runs/completed.js';
 import { runContext } from '../src/runs/index.js';
-import { linkPrEverywhere } from '../src/pipeline/pr-link.js';
+import { commitPrLink, linkPrInBrief } from '../src/pipeline/pr-link.js';
 import { main } from '../src/cli/main.js';
 import { tmp } from './helpers.js';
 
@@ -117,7 +117,7 @@ Type: feature
   });
 });
 
-describe('a failed gh pr create and the pull request link in both checkouts', () => {
+describe('a failed gh pr create and the pull request link in the run\'s checkout', () => {
   test('Create PR off with the draft PR in brief.md: the backlog waits for the merge, and nothing says a PR was created', () => {
     const root = tmp('finalise-draft-');
     fs.mkdirSync(path.join(root, 'repo'));
@@ -175,7 +175,7 @@ describe('a failed gh pr create and the pull request link in both checkouts', ()
     } finally { process.env.PATH = savedPath; }
   });
 
-  test('linkPrEverywhere replaces the older link in the run worktree\'s brief and the main checkout\'s; a brief it cannot write is logged and said, and the run goes on', () => {
+  test('linkPrInBrief replaces the older link in the run worktree\'s brief only, never the main checkout\'s; a brief it cannot write is logged and said, and the run goes on', () => {
     const root = tmp('pr-link-');
     fs.mkdirSync(path.join(root, 'main'));
     const main = makeRepo(path.join(root, 'main'));
@@ -191,25 +191,76 @@ describe('a failed gh pr create and the pull request link in both checkouts', ()
     fs.writeFileSync(path.join(main, '.git', 'sdlc-runs', `${slug}.json`), JSON.stringify({ slug, worktree: wt, root: main }));
     const lines: string[] = [];
     const ctx = { root: wt, docs, log: `${docs}/logs`, env: process.env, out: (l: string) => { lines.push(l); } };
-    linkPrEverywhere(ctx, NEW);
-    for (const dir of [wt, main]) {
-      const text = fs.readFileSync(path.join(dir, docs, 'brief.md'), 'utf8');
-      expect(getPrFromBrief(text), dir).toBe(NEW);
-      expect(text, dir).not.toContain(OLD);
-    }
+    expect(linkPrInBrief(ctx, NEW)).toBe(true);
+    const text = fs.readFileSync(path.join(wt, docs, 'brief.md'), 'utf8');
+    expect(getPrFromBrief(text)).toBe(NEW);
+    expect(text).not.toContain(OLD);
+    // The main checkout keeps its committed brief, untouched.
+    expect(getPrFromBrief(fs.readFileSync(path.join(main, docs, 'brief.md'), 'utf8'))).toBe(OLD);
+    expect(gitCmd(main, 'status', '--porcelain')).toBe('');
     expect(lines).toEqual([]);
 
     // The link is written whole (a temporary file renamed over the brief): a folder that takes no new file keeps the brief as it was.
-    const mainBrief = path.join(main, docs, 'brief.md');
-    fs.chmodSync(path.dirname(mainBrief), 0o555);
+    const wtBrief = path.join(wt, docs, 'brief.md');
+    fs.mkdirSync(path.join(wt, docs, 'logs'), { recursive: true });
+    fs.chmodSync(path.dirname(wtBrief), 0o555);
+    let linked: boolean;
     try {
-      linkPrEverywhere(ctx, 'https://github.com/o/r/pull/100');
-    } finally { fs.chmodSync(path.dirname(mainBrief), 0o755); }
-    expect(fs.readdirSync(path.dirname(mainBrief))).toEqual(['brief.md']);
-    expect(getPrFromBrief(fs.readFileSync(path.join(wt, docs, 'brief.md'), 'utf8'))).toBe('https://github.com/o/r/pull/100');
-    expect(getPrFromBrief(fs.readFileSync(mainBrief, 'utf8'))).toBe(NEW);
-    expect(lines).toEqual([`WARNING: could not write the pull request link into ${mainBrief} (see ${docs}/logs/errors.log)`]);
-    expect(fs.readFileSync(path.join(wt, docs, 'logs', 'errors.log'), 'utf8')).toContain(`${mainBrief}: EACCES`);
+      linked = linkPrInBrief(ctx, 'https://github.com/o/r/pull/100');
+    } finally { fs.chmodSync(path.dirname(wtBrief), 0o755); }
+    expect(linked).toBe(false);
+    expect(fs.readdirSync(path.dirname(wtBrief)).sort()).toEqual(['brief.md', 'logs']);
+    expect(getPrFromBrief(fs.readFileSync(wtBrief, 'utf8'))).toBe(NEW);
+    expect(lines).toEqual([`WARNING: could not write the pull request link into ${wtBrief} (see ${docs}/logs/errors.log)`]);
+    expect(fs.readFileSync(path.join(wt, docs, 'logs', 'errors.log'), 'utf8')).toContain(`${wtBrief}: EACCES`);
+    expect(gitCmd(main, 'status', '--porcelain')).toBe('');
+  });
+
+  test('commitPrLink commits the link alone and pushes it; a failed commit or push is kept in errors.log and said, and never throws', () => {
+    const root = tmp('pr-link-commit-');
+    fs.mkdirSync(path.join(root, 'repo'));
+    const repo = makeRepo(path.join(root, 'repo'));
+    gitCmd(root, 'init', '-q', '--bare', '-b', 'main', 'origin.git');
+    gitCmd(repo, 'remote', 'add', 'origin', path.join(root, 'origin.git'));
+    gitCmd(repo, 'checkout', '-q', '-b', 'sdlc/task-one');
+    gitCmd(repo, 'push', '-q', '-u', 'origin', 'sdlc/task-one');
+    const slug = 'task-one';
+    const docs = `Docs/backlog/${slug}`;
+    const log = `${docs}/logs`;
+    fs.mkdirSync(path.join(repo, log), { recursive: true });
+    fs.writeFileSync(path.join(repo, log, '.gitignore'), '*\n');
+    // Another uncommitted file is left out of the link's commit.
+    fs.writeFileSync(path.join(repo, 'README.md'), '# Changed\n');
+    const lines: string[] = [];
+    const ctx = { root: repo, docs, log, env: process.env, slug, branch: 'sdlc/task-one', git: new Git(repo), out: (l: string) => { lines.push(l); } };
+    const PR = 'https://github.com/o/r/pull/7';
+    commitPrLink(ctx as never, PR);
+    expect(lines).toEqual([]);
+    expect(gitCmd(repo, 'log', '-1', '--format=%s')).toBe(`chore(${slug}): link pull request`);
+    expect(gitCmd(repo, 'show', '--name-only', '--format=', 'HEAD')).toBe(`${docs}/brief.md`);
+    expect(gitCmd(repo, 'rev-parse', 'origin/sdlc/task-one')).toBe(gitCmd(repo, 'rev-parse', 'HEAD'));
+    expect(gitCmd(repo, 'status', '--porcelain')).toBe('M README.md');
+    // The same link again: nothing to commit.
+    const head = gitCmd(repo, 'rev-parse', 'HEAD');
+    commitPrLink(ctx as never, PR);
+    expect(gitCmd(repo, 'rev-parse', 'HEAD')).toBe(head);
+
+    // A push that fails: the commit stays, the failure is kept and said.
+    gitCmd(repo, 'remote', 'set-url', 'origin', path.join(root, 'missing.git'));
+    commitPrLink(ctx as never, 'https://github.com/o/r/pull/8');
+    expect(gitCmd(repo, 'log', '-1', '--format=%s')).toBe(`chore(${slug}): link pull request`);
+    expect(lines).toEqual([`WARNING: could not push the pull request link on sdlc/task-one (see ${log}/errors.log)`]);
+    expect(fs.readFileSync(path.join(repo, log, 'errors.log'), 'utf8')).toContain('push of the pull request link');
+
+    // A commit that fails (a pre-commit hook refuses it): kept and said.
+    const hooks = path.join(root, 'hooks');
+    fs.mkdirSync(hooks);
+    fs.writeFileSync(path.join(hooks, 'pre-commit'), '#!/bin/sh\necho refused by hook >&2\nexit 1\n', { mode: 0o755 });
+    gitCmd(repo, 'config', 'core.hooksPath', hooks);
+    lines.length = 0;
+    commitPrLink(ctx as never, 'https://github.com/o/r/pull/9');
+    expect(lines).toEqual([`WARNING: could not commit the pull request link in ${docs}/brief.md (see ${log}/errors.log)`]);
+    expect(fs.readFileSync(path.join(repo, log, 'errors.log'), 'utf8')).toContain('refused by hook');
   });
 });
 
