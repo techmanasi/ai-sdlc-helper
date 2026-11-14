@@ -5,8 +5,8 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { Git } from '../src/pipeline/git.js';
 import { Status } from '../src/pipeline/status.js';
-import type { Ctx } from '../src/pipeline/context.js';
-import { isRunBranch, moveReasonText, moveSkipped, moveToNewBranch, nextRunBranch, openMovedPr } from '../src/pipeline/branch-move.js';
+import { Exit, type Ctx } from '../src/pipeline/context.js';
+import { isRunBranch, moveReasonText, moveSkipped, moveToNewBranch, nextRunBranch, OriginNamesError, openMovedPr } from '../src/pipeline/branch-move.js';
 import { clearPrCache, clearPrInBrief, getPrFromBrief } from '../src/pipeline/finalise.js';
 import { draftPrText } from '../src/pipeline/ci.js';
 import { diagnosePush, ensurePushable, pushFailureKind } from '../src/pipeline/push-check.js';
@@ -100,7 +100,29 @@ describe('isRunBranch and moveSkipped', () => {
   });
 });
 
+/** Makes <ctx> talk to a git whose `ls-remote` fails the way an unreachable origin does; everything else is the real git. */
+function originUnreachable(ctx: Ctx): void {
+  const real = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+  const bin = path.join(root, 'gitshim');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'git'), [
+    '#!/bin/sh',
+    'for a in "$@"; do if [ "$a" = ls-remote ]; then echo "fatal: unable to access origin: Could not resolve host" >&2; exit 128; fi; done',
+    `exec ${real} "$@"`, '',
+  ].join('\n'), { mode: 0o755 });
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  (ctx as { env: unknown }).env = env;
+  (ctx as { git: Git }).git = new Git(repo, env);
+}
+
 describe('nextRunBranch', () => {
+  it('throws, naming the command and git\'s message, when origin cannot say which names exist', () => {
+    const ctx = setup('sdlc/');
+    originUnreachable(ctx);
+    expect(() => nextRunBranch(ctx.git, 'sdlc/', slug)).toThrow(OriginNamesError);
+    expect(() => nextRunBranch(ctx.git, 'sdlc/', slug)).toThrow(/could not ask origin which sdlc\/foo_N branches exist.*ls-remote.*Could not resolve host/);
+  });
+
   it('skips other items\' branches, local branches, remote-tracking ones and names only on origin', () => {
     const ctx = setup('sdlc/');
     expect(nextRunBranch(ctx.git, 'sdlc/', slug)).toBe('sdlc/foo_2');
@@ -369,6 +391,22 @@ describe('ensurePushable', () => {
     expect(sh(repo, 'rev-parse', 'refs/sdlc-backup/sdlc/foo/local')).toBe(mine);
     expect(checks()).toMatchObject([{ finding: 'pr-closed', action: 'new-branch-from-base' }]);
     expect(lines.join('\n')).toContain(`made from origin/main (${ahead.slice(0, 7)}) with this run's own commits`);
+  });
+
+  it('a new branch name that origin cannot vouch for: the run stops, nothing is pushed, the error is kept and the resume command is named', async () => {
+    const ctx = setup('sdlc/');
+    commitFile(repo, 'mine.txt', 'mine\n', 'mine');
+    fs.writeFileSync(path.join(ghDir, 'view.json'), JSON.stringify({ url: OLD_PR, state: 'CLOSED', number: 5 }));
+    originUnreachable(ctx);
+    const remoteBefore = sh(origin, 'for-each-ref');
+    const e = await ensurePushable(ctx, { resume: 'red-tests', fresh: false }).then(() => null, (x: unknown) => x);
+    expect(e).toBeInstanceOf(Exit);
+    expect((e as Exit).code).toBe(1);
+    expect((e as Exit).resumeFrom).toBe('red-tests');
+    expect((e as Exit).reason).toMatch(/Check the network and your git credentials.*ai-sdlc-helper pipeline foo --from red-tests/);
+    expect(ctx.branch).toBe('sdlc/foo');
+    expect(sh(origin, 'for-each-ref')).toBe(remoteBefore);
+    expect(fs.readFileSync(path.join(repo, `docs/backlog/${slug}/logs/errors.log`), 'utf8')).toMatch(/could not ask origin which sdlc\/foo_N branches exist.*Could not resolve host/);
   });
 
   const closedPr = () => fs.writeFileSync(path.join(ghDir, 'view.json'), JSON.stringify({ url: OLD_PR, state: 'CLOSED', number: 5 }));

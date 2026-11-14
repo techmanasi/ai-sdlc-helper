@@ -63,3 +63,33 @@ describe('creating a PR from the UI links it in the brief and pushes the link', 
     expect(git(main, 'status', '--porcelain')).toBe('');
   });
 });
+
+describe('a pull request that gh cannot create', () => {
+  it('reports gh\'s own message, and keeps it and the push failure in the task\'s errors.log', () => {
+    saved = { PATH: process.env.PATH, SDLC_WT_BASE: process.env.SDLC_WT_BASE };
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-pr-fail-')));
+    const main = path.join(root, 'main');
+    fs.mkdirSync(main);
+    const slug = 'task';
+    const bin = path.join(root, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nif [ "$1 $2" = "pr create" ]; then echo "GraphQL: Head sha can\'t be blank" >&2; exit 1; fi\nexit 1\n', { mode: 0o755 });
+    process.env.PATH = `${bin}:${process.env.PATH}`;
+    // No origin remote: the push fails too.
+    spawnSync('git', ['init', '-q', '-b', 'main', main]);
+    git(main, 'config', 'user.email', 't@example.com');
+    git(main, 'config', 'user.name', 'T');
+    git(main, 'commit', '-q', '--allow-empty', '-m', 'init');
+    git(main, 'branch', `sdlc/${slug}`);
+    const ctx = runContext(main);
+
+    const res = createPrForCompleted(ctx, slug);
+
+    expect(res.ok).toBe(false);
+    expect(res.pr).toBeNull();
+    expect(res.err.join('\n')).toContain("Head sha can't be blank");
+    const log = fs.readFileSync(path.join(main, ctx.backlogDir, slug, 'logs', 'errors.log'), 'utf8');
+    expect(log).toContain("Head sha can't be blank");
+    expect(log).toMatch(/push sdlc\/task[\s\S]*origin/);
+  });
+});

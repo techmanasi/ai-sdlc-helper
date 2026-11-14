@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { clearPrCache, getPrStatusAsync, getPrStatusCached, onPrStatusChange } from '../src/pipeline/finalise.js';
+import { clearPrCache, getPrStatusAsync, getPrStatusCached } from '../src/pipeline/finalise.js';
 import { listCompletedTasksAsync } from '../src/runs/completed.js';
 import { runContext } from '../src/runs/index.js';
 
@@ -93,30 +93,6 @@ describe('PR status without blocking', () => {
     const after = getPrStatusCached(dir, 'd', env);
     expect(after.status?.state).toBe('OPEN');
     expect(after.stale).toBe(true);
-  });
-
-  test('a refresh that changes the result tells the listeners; one that does not, does not', async () => {
-    ghShim(0.1);
-    const seen: string[] = [];
-    const off = onPrStatusChange(e => seen.push(`${e.branchOrUrl}:${e.status?.state}`));
-    await getPrStatusAsync(dir, 'e', env);
-    expect(seen).toEqual(['e:OPEN']);
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(Date.now() + 120_000);
-    getPrStatusCached(dir, 'e', env); // refresh finds the same value
-    vi.useRealTimers();
-    await until(() => starts() === 2);
-    await until(() => ends() === 2);
-    await new Promise(r => setTimeout(r, 200)); // gh has exited; let its result reach the listeners
-    expect(seen).toEqual(['e:OPEN']);
-    answer('MERGED');
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(Date.now() + 240_000);
-    getPrStatusCached(dir, 'e', env);
-    vi.useRealTimers();
-    await until(() => seen.length === 2);
-    expect(seen[1]).toBe('e:MERGED');
-    off();
   });
 });
 

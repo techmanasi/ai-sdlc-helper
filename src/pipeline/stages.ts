@@ -9,7 +9,7 @@ import { runSuites } from '../runners/run.js';
 import { exists } from '../util.js';
 import { answerQuestions, parseQuestions } from '../runs/view.js';
 import { agentFor, harnessFor } from '../config/settings.js';
-import { at, setAside, stamp, stop, stopIfAborted, tick, type Ctx } from './context.js';
+import { at, setAside, stamp, stop, stopIfAborted, tick, type Ctx, type From } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agent.js';
 import {
   newTestFiles, redCommitTestFiles, repairTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass, testsPassAt,
@@ -218,7 +218,7 @@ export async function planStage(ctx: Ctx): Promise<void> {
         recordAnswers(ctx);
         continue;
       }
-      stop(ctx, `PAUSED: the Plan agent has open questions in ${ctx.docs}/questions.md. Fill each '**Answer:**' (write 'accept' to take the suggestion) and resume: ${resumeCommand(ctx.slug, 'plan')}`, 2);
+      stop(ctx, `PAUSED: the Plan agent has open questions in ${ctx.docs}/questions.md. Fill each '**Answer:**' (write 'accept' to take the suggestion) and resume: ${resumeCommand(ctx.slug, 'plan')}`, 2, 'plan');
     }
     break;
   }
@@ -341,8 +341,8 @@ function mayCheckPush(ctx: Ctx): boolean {
 }
 
 /** Where a run resumes when the push check stops it in <stage> (Red tests has committed its tests by then). */
-const RESUME_AFTER: Record<string, string> = { 'Red tests': 'implement', Implement: 'implement', 'Test repair': 'test-repair', Review: 'review' };
-const resumeKey = (ctx: Ctx): string => RESUME_AFTER[ctx.status.stage] || ctx.from;
+const RESUME_AFTER: Record<string, From> = { 'Red tests': 'implement', Implement: 'implement', 'Test repair': 'test-repair', Review: 'review' };
+const resumeKey = (ctx: Ctx): From => RESUME_AFTER[ctx.status.stage] || ctx.from;
 
 /**
  * Implement's push was refused: the push check settles the branch (a fix, or a new branch), and the round goes on once
@@ -475,7 +475,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
           endRound('Push failed (paused)');
           setCiStatus(ctx, { state: 'timed out (paused)', reason: 'push failed' });
           saveAttempts(ctx, i - 1);
-          return stop(ctx, `PAUSED: ${message.split('\n')[0]}. Fix it and resume with FROM=implement (${resumeCommand(ctx.slug, 'implement')})`, 2);
+          return stop(ctx, `PAUSED: ${message.split('\n')[0]}. Fix it and resume with FROM=implement (${resumeCommand(ctx.slug, 'implement')})`, 2, 'implement');
         }
         sha = ctx.git.head();
       }
@@ -573,7 +573,7 @@ async function awaitCi(ctx: Ctx, sha: string, usedBefore: number): Promise<CiSte
     ctx.out(`  status: ${result.reason ? `${result.reason} (paused)` : ciStatusLine(result, ctx.config.ci.waitMinutes)}`);
     setCiStatus(ctx, { state: 'timed out (paused)' });
     saveAttempts(ctx, usedBefore);
-    stop(ctx, `PAUSED: CI did not finish. To wait for it again, resume with FROM=implement (${resumeCommand(ctx.slug, 'implement')}).`, 2);
+    stop(ctx, `PAUSED: CI did not finish. To wait for it again, resume with FROM=implement (${resumeCommand(ctx.slug, 'implement')}).`, 2, 'implement');
   }
   return result;
 }

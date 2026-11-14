@@ -103,6 +103,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
   let ctx: Ctx | null = null;
   let code = 0;
   let reason: string | undefined;
+  let resumeFrom: string | undefined;
   try {
     ctx = await setup(opts, from, env, out, err);
     // Resolved model and effort of every stage, for the status file (and a bad value fails here, before any agent).
@@ -110,7 +111,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
     ctx.status.write();
     await stages(ctx);
   } catch (e) {
-    if (e instanceof Exit) { code = e.code; reason = e.reason; }
+    if (e instanceof Exit) { code = e.code; reason = e.reason; resumeFrom = e.resumeFrom; }
     else {
       code = 1;
       const msg = (e as Error).message;
@@ -120,12 +121,9 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
     if (ctx) {
       markStage(ctx, ctx.status.stage);
       Object.assign(ctx.status, { state: finalState(code), agent: '', model: '', effort: '', attempt: '', step: null });
-      // A stop that names its resume command (resumeCommand) says where the run resumes, which may not be the stage shown
+      // A stop that names its resume stage (Exit.resumeFrom) says where the run resumes, which may not be the stage shown
       // (an inline Resolve conflicts stop after Plan resumes at Red tests): the status file keeps it for the run page.
-      if (code !== 0) {
-        const named = [...String(reason || '').matchAll(/ai-sdlc-helper pipeline (\S+) --from ([a-z-]+)/g)].filter(m => m[1] === ctx!.slug).pop()?.[2];
-        if (named && (FROM_STAGES as readonly string[]).includes(named)) ctx.status.resumeFrom = named;
-      }
+      if (code !== 0 && resumeFrom && (FROM_STAGES as readonly string[]).includes(resumeFrom)) ctx.status.resumeFrom = resumeFrom;
       ctx.status.write();
       if (code !== 0) {
         try {
