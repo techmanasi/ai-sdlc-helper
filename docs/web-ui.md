@@ -253,6 +253,12 @@ from the run's `status.json` and refreshes with the PR status. Under it, an **Im
 of the run log as its own block: the agent, the local red tests, `Full suite in CI: running (PR #n, commit sha)`, the
 start and end times, and the round's status line. With the setting off neither is shown.
 
+The CI line names the commit its state belongs to. CI is waited for in Implement, and again in Finalise when the pushed
+head changed files outside the task's docs since the last commit CI was green on (Review may change the source; a run
+resumed at Finalise does not know that commit, so CI runs again). Green goes on; red stops the run with the failing
+checks and a Resume at Implement, which is given the failures. Finalise marks the draft PR ready for review only with
+Create PR on; with it off the branch is pushed and the PR stays a draft.
+
 ## Triage in the dashboard
 
 **New item → Draft with the triage agent** opens a drawer above the form. Paste a report and start; tick **Quick** to

@@ -852,7 +852,9 @@ export function finalise(o: FinaliseOptions): FinaliseResult {
         o.git.run('commit', '-q', '-m', `chore(backlog): mark ${o.slug} done`, '--', o.backlog);
       }
     } else {
-      o.out(`PR created (${prUrl}). Backlog item will be marked completed once the PR is merged into main.`);
+      // With Create PR off the pull request is the draft CI runs on: it was not created for review here.
+      if (o.createPr) o.out(`PR created (${prUrl}). Backlog item will be marked completed once the PR is merged into main.`);
+      else o.out(`Backlog item will be marked completed once ${prUrl} is merged into main.`);
     }
   } else if (shouldTickDone) {
     o.out(`WARNING: ${o.slug} not found in ${o.backlog}; not ticked`);

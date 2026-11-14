@@ -64,5 +64,6 @@ export const STEPS: Record<string, StepDef[]> = {
   ],
   Finalise: [
     { key: 'commit', label: 'Committing the work and preparing the pull request' },
+    { key: 'ci', label: 'Waiting for CI on the changes since Implement' },
   ],
 };

@@ -217,8 +217,8 @@ describe('CI stage orchestration (spec 4, 7, 9)', () => {
     expect(successCheck).toHaveBeenCalledTimes(2);
     expect(runAgent).toHaveBeenCalledTimes(1);
   });
-  it('S11 Finalise readies the existing draft even when createPr is off', async () => {
-    const ctx = context();
+  it('S11 Finalise readies the existing draft when createPr is on', async () => {
+    const ctx = context(); ctx.env = { SDLC_CREATE_PR: '1' } as typeof ctx.env;
     Object.assign(ctx, { ciLastResult: { status: 'green' } });
     Object.assign(ctx.status, { ci: { enabled: true, state: 'green', pr: 'https://github.com/acme/repo/pull/12' } });
     await finaliseStage(cast(ctx));
@@ -277,5 +277,95 @@ describe('CI stage orchestration (spec 4, 7, 9)', () => {
     const local = context('local'); (local as { ciAvailable?: boolean }).ciAvailable = undefined;
     await reviewStage(cast(local));
     expect(ci.available).not.toHaveBeenCalled();
+  });
+});
+
+describe('Finalise waits for CI on the changes since Implement, and Create PR off leaves the draft', () => {
+  const PR = 'https://github.com/acme/repo/pull/12';
+  const HEAD = 'a'.repeat(40);
+  const GREEN = 'b'.repeat(40);
+  /** A run whose Implement went green in CI on GREEN; <since> are the files changed from GREEN to the pushed head. */
+  function finaliseCtx(since: string[], createPr = true) {
+    const ctx = context(); ctx.env = { SDLC_CREATE_PR: createPr ? '1' : '0' } as typeof ctx.env;
+    Object.assign(ctx, { ciLastResult: { status: 'green' } });
+    Object.assign(ctx.status, { stage: 'Finalise', ci: { enabled: true, state: 'green', pr: PR, prDraft: true, sha: GREEN, greenSha: GREEN } });
+    ctx.git.run.mockImplementation((...args: string[]) => args[0] === 'diff' ? since.join('\n') : '');
+    return ctx;
+  }
+  const output = (ctx: ReturnType<typeof context>) => [...ctx.out.mock.calls, ...ctx.err.mock.calls].flat().join('\n');
+  const statusCi = (ctx: ReturnType<typeof context>) => (ctx.status as unknown as { ci: Record<string, unknown> }).ci;
+
+  it('Review changed a source file: CI is waited on the pushed head before the PR is ready, and green finishes', async () => {
+    const ctx = finaliseCtx(['src/feature.ts', 'docs/review-1.md']);
+    const order: string[] = [];
+    ci.wait.mockImplementation(async (_c: unknown, sha: string) => {
+      order.push('wait');
+      // While CI runs, the run page shows the new head as running, not the previous commit's green.
+      expect(statusCi(ctx)).toMatchObject({ state: 'running', sha });
+      return { status: 'green', sideEffects: [], nonBlocking: [], testFiles: [] };
+    });
+    ci.ready.mockImplementation(() => { order.push('ready'); return true; });
+    await finaliseStage(cast(ctx));
+    expect(ctx.git.run).toHaveBeenCalledWith('diff', '--name-only', GREEN, HEAD);
+    expect(ci.wait).toHaveBeenCalledTimes(1);
+    expect(ci.wait.mock.calls[0][1]).toBe(HEAD);
+    expect(order).toEqual(['wait', 'ready']);
+    expect(statusCi(ctx)).toMatchObject({ state: 'green', sha: HEAD, greenSha: HEAD, prDraft: false });
+  });
+
+  it('a red CI on the pushed head stops the run at Implement with the failing checks named', async () => {
+    const ctx = finaliseCtx(['src/feature.ts']);
+    ci.wait.mockResolvedValue({ status: 'red', failingChecks: ['unit (node 18)'], sideEffects: [{ classification: 'side-effect', file: 'test/old.test.ts', checkName: 'unit (node 18)', testName: 'regression', message: 'expected true' }], nonBlocking: [], testFiles: ['test/old.test.ts'] });
+    await expect(finaliseStage(cast(ctx))).rejects.toMatchObject({ code: 1, resumeFrom: 'implement' });
+    const out = output(ctx);
+    expect(out).toContain('unit (node 18)');
+    expect(out).toContain('--from implement');
+    expect(ci.ready).not.toHaveBeenCalled();
+    expect(statusCi(ctx)).toMatchObject({ state: 'red: side effect', sha: HEAD, greenSha: GREEN, failingChecks: ['unit (node 18)'] });
+    // The resumed Implement reads the failure, and errors.log keeps it.
+    expect(await fs.readFile(path.join(root, 'docs/logs/tests.log'), 'utf8')).toContain('test/old.test.ts :: regression');
+    expect(await fs.readFile(path.join(root, 'docs/ci-failure.md'), 'utf8')).toContain('unit (node 18)');
+    expect(await fs.readFile(path.join(root, 'docs/logs/errors.log'), 'utf8')).toContain('unit (node 18)');
+  });
+
+  it('only docs changed since CI was green: no second wait', async () => {
+    const ctx = finaliseCtx(['docs/review-1.md', 'docs/brief.md']);
+    await finaliseStage(cast(ctx));
+    expect(ci.wait).not.toHaveBeenCalled();
+    expect(ci.ready).toHaveBeenCalledTimes(1);
+    expect(output(ctx)).toContain(`Pull request ready for review: ${PR}`);
+  });
+
+  it('the head CI was green on is pushed unchanged: no second wait', async () => {
+    const ctx = finaliseCtx([]);
+    Object.assign(statusCi(ctx), { greenSha: HEAD });
+    await finaliseStage(cast(ctx));
+    expect(ci.wait).not.toHaveBeenCalled();
+  });
+
+  it('no green commit is known (a resumed run): CI runs again on the pushed head', async () => {
+    const ctx = finaliseCtx([]);
+    delete statusCi(ctx).greenSha;
+    await finaliseStage(cast(ctx));
+    expect(ci.wait).toHaveBeenCalledTimes(1);
+    expect(ci.wait.mock.calls[0][1]).toBe(HEAD);
+  });
+
+  it('Create PR off: the branch is pushed, the draft stays a draft and nothing says it was created or is ready', async () => {
+    const ctx = finaliseCtx(['docs/review-1.md'], false);
+    await finaliseStage(cast(ctx));
+    expect(ctx.git.run).toHaveBeenCalledWith('push', '-u', 'origin', 'sdlc/feature');
+    expect(ci.ready).not.toHaveBeenCalled();
+    const out = output(ctx);
+    expect(out).toContain(`Draft pull request left as a draft (Create PR is off): ${PR}`);
+    expect(out).not.toMatch(/PR created|ready for review/);
+    expect(statusCi(ctx).prDraft).toBe(true);
+  });
+
+  it('Create PR off still waits for CI when Review changed the source', async () => {
+    const ctx = finaliseCtx(['src/feature.ts'], false);
+    await finaliseStage(cast(ctx));
+    expect(ci.wait).toHaveBeenCalledTimes(1);
+    expect(ci.ready).not.toHaveBeenCalled();
   });
 });

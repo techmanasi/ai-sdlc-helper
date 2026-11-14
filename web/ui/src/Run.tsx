@@ -507,6 +507,7 @@ export function Run({ slug }: { slug: string }) {
             <span class={`tag mono ${v.ci.state.startsWith('green') ? 's-done' : v.ci.state.startsWith('red') ? 's-failed' : v.ci.state.startsWith('running') || v.ci.state === 'waiting' ? 's-running' : 's-paused'}`}>
               {v.ci.state}{v.ci.reason ? ` (${v.ci.reason})` : ''}
             </span>
+            {v.ci.sha && <span class="tag mono" title={v.ci.sha}>commit {v.ci.sha.slice(0, 7)}</span>}
             {v.ci.state.startsWith('red') && v.ci.failingChecks.length > 0 && <span class="small mono s-failed">checks: {v.ci.failingChecks.join(', ')}</span>}
           </div>
         )}
