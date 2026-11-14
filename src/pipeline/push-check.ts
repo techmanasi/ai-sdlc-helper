@@ -5,13 +5,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from '../trace.js';
-import { at, stop, type Ctx } from './context.js';
+import { at, stop, type Ctx, type From } from './context.js';
 import { Git } from './git.js';
 import { keepError } from './errors.js';
 import { clearPrCache, getPrFromBrief, getPrStatus } from './finalise.js';
 import { gitReason, gitSaid, isRejectedPush } from './ci.js';
 import { appendRound } from './observe.js';
-import { moveSkipped, nextRunBranch, openMovedPr, recordMove, type MoveReason } from './branch-move.js';
+import { moveSkipped, nextRunBranchOrStop, openMovedPr, recordMove, type MoveReason } from './branch-move.js';
 import { abortAll, leasePush, resolveConflictsStage, resolveRebaseStops, resolverFor, trialMerge, type FileResolution } from './resolve-conflicts.js';
 import { resumeCommand } from './hints.js';
 import { redPattern, repairPattern } from './stages.js';
@@ -189,7 +189,7 @@ function relock(ctx: Ctx): void {
  * and put back; untracked files stay. When that cannot be done safely the run stops: nothing is pushed, <to> is removed (it was
  * made here and never pushed), the old branch is checked out again as it was, and refs/sdlc-backup/<branch>/local names it.
  */
-async function branchFromOriginBase(ctx: Ctx, to: string, upstream: string, resume: string): Promise<{ resolved: FileResolution[] }> {
+async function branchFromOriginBase(ctx: Ctx, to: string, upstream: string, resume: From): Promise<{ resolved: FileResolution[] }> {
   const git = ctx.git;
   const from = ctx.branch;
   const local = git.head();
@@ -262,7 +262,7 @@ async function branchFromOriginBase(ctx: Ctx, to: string, upstream: string, resu
   const where = back
     ? `${from} is checked out again, unchanged`
     : `${from} could not be checked out again, so nothing was discarded: ${to} is left as it is (never pushed); check out ${from} by hand (git rebase --abort first if a rebase is still going on)`;
-  return stop(ctx, `ERROR: the push check could not make ${to} from origin/${baseName} with this run's commits: ${reason}. Nothing was pushed; ${where} (refs/sdlc-backup/${from}/local is ${local.slice(0, 7)}). The details are in ${ctx.log}/errors.log${resolverRan ? ` and ${ctx.log}/resolve-conflicts-context.md` : ''}. Rebase ${from} onto origin/${baseName} by hand (or fix what the details name), then resume: ${resumeCommand(ctx.slug, resume)}`, 1);
+  return stop(ctx, `ERROR: the push check could not make ${to} from origin/${baseName} with this run's commits: ${reason}. Nothing was pushed; ${where} (refs/sdlc-backup/${from}/local is ${local.slice(0, 7)}). The details are in ${ctx.log}/errors.log${resolverRan ? ` and ${ctx.log}/resolve-conflicts-context.md` : ''}. Rebase ${from} onto origin/${baseName} by hand (or fix what the details name), then resume: ${resumeCommand(ctx.slug, resume)}`, 1, resume);
 }
 
 /** The stash entries, newest first, by commit. */
@@ -281,7 +281,7 @@ function report(ctx: Ctx, f: PushFinding, action: string, line: string): void {
  * and when nothing of that applies, a new branch from the base with the run's own commits and its own pull request.
  * <resume>: the from key a stopped run resumes at. <fresh>: the run started at Spec or Plan.
  */
-export async function ensurePushable(ctx: Ctx, opts: { resume: string; fresh: boolean }): Promise<void> {
+export async function ensurePushable(ctx: Ctx, opts: { resume: From; fresh: boolean }): Promise<void> {
   if (pushCheckSkipped(ctx.env)) {
     ctx.out(`Push check: skipped (SDLC_PUSH_CHECK=${ctx.env.SDLC_PUSH_CHECK})`);
     return;
@@ -371,7 +371,7 @@ export async function ensurePushable(ctx: Ctx, opts: { resume: string; fresh: bo
       return;
     }
     const reason: MoveReason = { kind: unknown.kind, detail: f.pr || unknown.why };
-    const to = nextRunBranch(git, ctx.config.git.branchPrefix, ctx.slug);
+    const to = nextRunBranchOrStop(ctx, opts.resume);
     const made = await branchFromOriginBase(ctx, to, upstream, opts.resume);
     recordMove(ctx, to, reason);
     relock(ctx);

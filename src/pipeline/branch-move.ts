@@ -2,8 +2,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isRunBranch } from '../gitdir.js';
-import type { Ctx } from './context.js';
+import { stop, type Ctx, type From } from './context.js';
 import { keepError } from './errors.js';
+import { resumeCommand } from './hints.js';
 import { clearPrInBrief, findOrCreatePr, firstLine, getPrFromBrief } from './finalise.js';
 import { linkPrEverywhere } from './pr-link.js';
 import { draftPrText } from './ci.js';
@@ -28,13 +29,28 @@ export const moveSkipped = (env: NodeJS.ProcessEnv): boolean => ['0', 'no', 'off
 
 const exists = (git: Git, ref: string): boolean => git.tryRun('rev-parse', '--verify', '--quiet', ref) !== null;
 
-/** The branches named <base>_* on origin, asked now (a ref fetched earlier may be stale); empty when origin cannot be asked. */
+/** origin could not say which <base>_N branches exist: a name picked without knowing could be one that is there. */
+export class OriginNamesError extends Error {}
+
+/** The branches named <base>_* on origin, asked now (a ref fetched earlier may be stale); empty when the repository has no origin; throws OriginNamesError when origin cannot be asked. */
 function remoteMoved(git: Git, base: string): Set<string> {
   if (git.tryRun('remote', 'get-url', 'origin') === null) return new Set();
   try {
     const out = new Git(git.root, { ...git.env, GIT_TERMINAL_PROMPT: '0' }).runTimeout(30_000, 'ls-remote', '--heads', 'origin', `${base}_*`);
     return new Set(out.split('\n').map(l => /\trefs\/heads\/(.+)$/.exec(l)?.[1]).filter((n): n is string => !!n));
-  } catch { return new Set(); }
+  } catch (e) { throw new OriginNamesError(`could not ask origin which ${base}_N branches exist (git ls-remote --heads origin ${base}_*): ${(e as Error).message}`); }
+}
+
+/**
+ * Like nextRunBranch, but a failed question to origin ends the run cleanly (nothing pushed or made): the error is kept in
+ * errors.log, and the stop says to check the network and credentials and resume at <resume>.
+ */
+export function nextRunBranchOrStop(ctx: Ctx, resume: From): string {
+  try { return nextRunBranch(ctx.git, ctx.config.git.branchPrefix, ctx.slug); } catch (e) {
+    if (!(e instanceof OriginNamesError)) throw e;
+    keepError(ctx, 'new branch name: ls-remote origin', e.message);
+    return stop(ctx, `ERROR: ${e.message}. No new branch was made and nothing was pushed. Check the network and your git credentials (details in ${ctx.log}/errors.log), then resume: ${resumeCommand(ctx.slug, resume)}`, 1, resume);
+  }
 }
 
 /**
@@ -60,8 +76,8 @@ const readBrief = (ctx: Ctx): string | null => { try { return fs.readFileSync(br
  * Switches the run to a new branch and records the move (status, brief, attempts log). <create> makes the branch and
  * checks it out (default: from where the run is); the bookkeeping is the same whichever way it was made. Returns its name.
  */
-export function moveToNewBranch(ctx: Ctx, reason: MoveReason, create: (to: string) => void = to => { ctx.git.run('checkout', '-q', '-b', to); }): string {
-  const to = nextRunBranch(ctx.git, ctx.config.git.branchPrefix, ctx.slug);
+export function moveToNewBranch(ctx: Ctx, reason: MoveReason, create: (to: string) => void = to => { ctx.git.run('checkout', '-q', '-b', to); }, resume: From = ctx.from): string {
+  const to = nextRunBranchOrStop(ctx, resume);
   create(to);
   return recordMove(ctx, to, reason);
 }
