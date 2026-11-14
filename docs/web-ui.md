@@ -259,6 +259,16 @@ resumed at Finalise does not know that commit, so CI runs again). Green goes on;
 checks and a Resume at Implement, which is given the failures. Finalise marks the draft PR ready for review only with
 Create PR on; with it off the branch is pushed and the PR stays a draft.
 
+## Where a run's PR link comes from
+
+The pipeline commits the PR link (`pr:` in the brief's front matter) on the run's branch as its own commit,
+`chore(<slug>): link pull request`, and pushes it as soon as the PR is opened or replaced (the draft PR for CI, a moved
+run's new PR, Finalise). It never writes the main checkout: the link reaches `main` with the PR when it merges. So the
+board item, its run card, the run page and the Completed page take the link, in this order, from the brief in the run's
+worktree, the run's `status.json` (`ci.pr`), the run record (`<git common dir>/sdlc-runs/<slug>.json`, `pr`: a PR created
+from the Completed page once no checkout of the branch is left), and the main checkout's brief (merged and pulled, or
+written by an older version, which the board takes out again once the PR is merged).
+
 ## Triage in the dashboard
 
 **New item → Draft with the triage agent** opens a drawer above the form. Paste a report and start; tick **Quick** to

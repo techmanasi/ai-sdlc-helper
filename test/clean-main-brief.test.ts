@@ -49,7 +49,7 @@ function project() {
   const reg = path.join(main, '.git', 'sdlc-runs');
   fs.mkdirSync(reg, { recursive: true });
   fs.writeFileSync(path.join(reg, `${SLUG}.json`), JSON.stringify({ slug: SLUG, worktree: wt, root: main, pid: 0, started: '2026-11-14T10:00:00', state: 'exited', exit_code: '0', interrupted: false, finished: '', message: '', branch: `sdlc/${SLUG}`, base: 'main' }));
-  // The run linked its pull request in the main checkout's brief too (linkPrEverywhere): uncommitted there.
+  // An older version linked the run's pull request in the main checkout's brief too: uncommitted there.
   const file = path.join(main, rel);
   fs.writeFileSync(file, recordPrInBrief(BODY, PR));
   return { base, origin, main, wt, rel, file };

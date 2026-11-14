@@ -18,7 +18,7 @@ import { finalisePattern, implementPattern, redPattern, repairPattern } from './
 import { renderPrompt } from './prompts.js';
 import { resumeCommand, resumeHint } from './hints.js';
 import { finalise, firstLine, getPrFromBrief, markPrReady } from './finalise.js';
-import { cleanRunMainBrief, linkPrEverywhere } from './pr-link.js';
+import { cleanRunMainBrief, linkPrInBrief } from './pr-link.js';
 import { installDeps } from './deps.js';
 import { agentLastMessage, appendRound, repeatedFailures } from './observe.js';
 import { keepError } from './errors.js';
@@ -307,24 +307,6 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   // The full suite in CI: the tests are locked, so push and open the draft PR now (a failed red gate never gets here).
   if (ctx.config.tests.fullSuite === 'ci') await openCi(ctx);
   else if (ctx.movedFrom) await openMovedPr(ctx);
-  if (ctx.movedFrom) commitBriefLink(ctx);
-}
-
-/** A moved run's new pull request link is in brief.md: it is committed and pushed (the same commit Finalise makes). */
-function commitBriefLink(ctx: Ctx): void {
-  const rel = `${ctx.docs}/brief.md`;
-  try {
-    if (!ctx.git.run('status', '--porcelain', '--', rel).trim()) return;
-    ctx.git.run('add', '--', rel);
-    ctx.git.run('commit', '-q', '-m', `chore(${ctx.slug}): link pull request`, '--', rel);
-    try { ctx.git.run('push', 'origin', ctx.branch); } catch (e) {
-      keepError(ctx, 'push of the pull request link', (e as Error).message);
-      ctx.out(`WARNING: could not push the pull request link on ${ctx.branch} (see ${ctx.log}/errors.log)`);
-    }
-  } catch (e) {
-    keepError(ctx, 'link pull request', (e as Error).message);
-    ctx.out(`WARNING: could not commit the pull request link in ${rel} (see ${ctx.log}/errors.log)`);
-  }
 }
 
 /** Whether the full suite runs in CI for this run: the setting is on and CI has not been given up on. */
@@ -759,9 +741,9 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
     maxBytes: ctx.config.finalise.maxFileBytes, envExample: ctx.config.finalise.envExample,
     createPr, baseBranch: ctx.config.git.base || undefined,
     out: l => ctx.out(l), err: l => ctx.err(l),
-    keepError: (where, text) => keepError(ctx, where, text), linkPr: url => linkPrEverywhere(ctx, url),
+    keepError: (where, text) => keepError(ctx, where, text), linkPr: url => { linkPrInBrief(ctx, url); },
   });
-  // A pull request that is merged already: the link in the main checkout's brief is not needed there any more.
+  // A pull request that is merged already: a link an older version wrote into the main checkout's brief is taken out again.
   if (res.merged && res.pr) await cleanRunMainBrief(ctx, res.pr);
   // The full suite ran in CI: the PR opened as a draft after Red tests (never a second PR, no squashing) gets the pushed
   // head, CI runs again when the commits since its last green changed more than the docs, and with Create PR on the draft

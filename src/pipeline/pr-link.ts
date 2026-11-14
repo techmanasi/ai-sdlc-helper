@@ -1,4 +1,5 @@
-// A run's pull request link, kept in its brief: in the run's worktree and in the checkout the run was started from.
+// A run's pull request link, kept in its brief in the run's own checkout and committed on the run's branch. The main checkout
+// (the project the run was started from) is never written: the link reaches it with the pull request when that merges.
 import fs from 'node:fs';
 import path from 'node:path';
 import { projectRoot } from '../runs/records.js';
@@ -10,34 +11,51 @@ import { clearPrInBrief, getPrFromBrief, recordPrInBrief } from './finalise.js';
 const real = (p: string): string => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
 
 /**
- * Records <url> as the run's pull request in <docs>/brief.md here and in the main checkout's copy (the project the run was
- * started from), replacing any older link. A brief that is missing there is left alone; one that already holds <url> is
- * not written. A failure to write is kept in errors.log and said in one line: it never stops the run.
+ * Records <url> as the run's pull request in <docs>/brief.md of the run's checkout, replacing any older link. A missing brief
+ * is left alone; one that already holds <url> is not written. A failure to write is kept in errors.log and said in one line:
+ * it never stops the run. Returns whether the brief holds <url> now.
  */
-export function linkPrEverywhere(ctx: Pick<Ctx, 'root' | 'docs' | 'log' | 'env' | 'out'>, url: string): void {
-  const rel = path.join(ctx.docs, 'brief.md');
-  const files = [path.join(ctx.root, rel)];
-  let main: string | null = null;
-  try { main = projectRoot(ctx.root, ctx.env); } catch (e) {
-    keepError(ctx, 'link pull request: find the main checkout', (e as Error).message);
-    ctx.out(`WARNING: could not find the main checkout to link ${url} in its brief (see ${ctx.log}/errors.log)`);
+export function linkPrInBrief(ctx: Pick<Ctx, 'root' | 'docs' | 'log' | 'env' | 'out'>, url: string): boolean {
+  const file = path.join(ctx.root, ctx.docs, 'brief.md');
+  let text: string;
+  // A checkout without this brief has nothing to link.
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return false; }
+  if (getPrFromBrief(text) === url) return true;
+  // Whole or not at all: a temporary file beside it, renamed over it.
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, recordPrInBrief(text, url), { mode: fs.statSync(file).mode & 0o777 });
+    fs.renameSync(tmp, file);
+    return true;
+  } catch (e) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* nothing was left to remove */ }
+    keepError(ctx, 'link pull request in the brief', `${file}: ${(e as Error).message}`);
+    ctx.out(`WARNING: could not write the pull request link into ${file} (see ${ctx.log}/errors.log)`);
+    return false;
   }
-  if (main && real(main) !== real(ctx.root)) files.push(path.join(main, rel));
-  for (const file of files) {
-    let text: string;
-    // A checkout without this brief has nothing to link.
-    try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
-    if (getPrFromBrief(text) === url) continue;
-    // Whole or not at all: a temporary file beside it, renamed over it (an editor or the user may have the main checkout's open).
-    const tmp = `${file}.${process.pid}.tmp`;
-    try {
-      fs.writeFileSync(tmp, recordPrInBrief(text, url), { mode: fs.statSync(file).mode & 0o777 });
-      fs.renameSync(tmp, file);
-    } catch (e) {
-      try { fs.rmSync(tmp, { force: true }); } catch { /* nothing was left to remove */ }
-      keepError(ctx, 'link pull request in the brief', `${file}: ${(e as Error).message}`);
-      ctx.out(`WARNING: could not write the pull request link into ${file} (see ${ctx.log}/errors.log)`);
-    }
+}
+
+/**
+ * A pull request was opened or replaced for the run: its link goes into the brief (linkPrInBrief) and is committed on the run's
+ * branch at once, as its own commit, and pushed, so no later stage's commit carries it and no checkout keeps it uncommitted.
+ * A brief that already has the link committed makes no commit. A failed commit or push is kept in errors.log and said in one
+ * WARNING line: it never stops the run (the next push takes a commit that was not pushed).
+ */
+export function commitPrLink(ctx: Pick<Ctx, 'root' | 'docs' | 'log' | 'env' | 'out' | 'git' | 'slug' | 'branch'>, url: string): void {
+  if (!linkPrInBrief(ctx, url)) return;
+  const rel = `${ctx.docs}/brief.md`;
+  try {
+    if (!ctx.git.run('status', '--porcelain', '--', rel).trim()) return;
+    ctx.git.run('add', '--', rel);
+    ctx.git.run('commit', '-q', '-m', `chore(${ctx.slug}): link pull request`, '--', rel);
+  } catch (e) {
+    keepError(ctx, 'commit of the pull request link', (e as Error).message);
+    ctx.out(`WARNING: could not commit the pull request link in ${rel} (see ${ctx.log}/errors.log)`);
+    return;
+  }
+  try { ctx.git.run('push', 'origin', ctx.branch); } catch (e) {
+    keepError(ctx, 'push of the pull request link', (e as Error).message);
+    ctx.out(`WARNING: could not push the pull request link on ${ctx.branch} (see ${ctx.log}/errors.log)`);
   }
 }
 
@@ -60,7 +78,7 @@ export interface CleanMainBrief {
 }
 
 /**
- * Once the run's pull request is merged, takes the link linkPrEverywhere wrote out of the main checkout's brief, so a pull that
+ * Once the run's pull request is merged, takes the link older versions wrote out of the main checkout's brief, so a pull that
  * brings the committed link is not blocked: when the brief's only change from HEAD is the pull request link, it is checked out
  * again. A brief with other edits is kept, and said so. Nothing else in the main checkout is touched and nothing is committed.
  */
@@ -107,7 +125,7 @@ async function cleanBrief(o: CleanMainBrief, file: string, text: string, key: st
   return 'restored';
 }
 
-/** cleanMainBrief for a pipeline run whose pull request <url> is merged: the main checkout's brief, when that is not this checkout. */
+/** cleanMainBrief for a pipeline run whose pull request <url> is merged: the main checkout's brief (a link an older version wrote there), when that is not this checkout. */
 export async function cleanRunMainBrief(ctx: Pick<Ctx, 'root' | 'docs' | 'log' | 'env' | 'out'>, url: string): Promise<void> {
   let main: string;
   try { main = projectRoot(ctx.root, ctx.env); } catch (e) {

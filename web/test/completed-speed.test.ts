@@ -153,10 +153,11 @@ const traceLines = () => {
 };
 
 describe('the Completed list endpoint', () => {
-  test('answers the same list as before for a fixed repository and fixed gh answers, and links the PR gh found in the brief', async () => {
+  test('answers the same list as before for a fixed repository and fixed gh answers, and shows the PR gh found without writing it into the main checkout\'s brief', async () => {
     server = await start();
+    const charlie = fs.readFileSync(path.join(repo, 'Docs/backlog/charlie/brief.md'), 'utf8');
     expect(await completed(server)).toEqual(EXPECTED);
-    expect(fs.readFileSync(path.join(repo, 'Docs/backlog/charlie/brief.md'), 'utf8')).toContain('pr: https://github.com/o/shop/pull/3');
+    expect(fs.readFileSync(path.join(repo, 'Docs/backlog/charlie/brief.md'), 'utf8')).toBe(charlie);
     // The links are asked for in one list; only the branches without a link (charlie, echo) get their own call.
     expect(ghCalls().sort()).toEqual(['api graphql -F', 'pr view sdlc/charlie', 'pr view sdlc/echo']);
   });

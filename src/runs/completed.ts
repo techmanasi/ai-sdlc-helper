@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileAsync, spawnSync, trace } from '../trace.js';
 import { backlogItems, parseBrief, parseIndex, parseTitle } from '../backlog/index.js';
-import { readRecord, type RunRecord } from './records.js';
+import { readRecord, writeRecord, type RunRecord } from './records.js';
 import { cleanMainBrief } from '../pipeline/pr-link.js';
 import { liveBranch, liveBriefPr, pickBase, pickBaseAsync, runWorktree, type RunContext } from './index.js';
 import { keepError } from '../pipeline/errors.js';
@@ -82,16 +82,23 @@ export function isArchivedInIndex(indexText: string, slug: string): boolean {
 }
 
 /**
- * The PR link of a completed task: its main-checkout brief's, else (a merged run whose link the #136 cleanup took out
- * of the main checkout's brief, before a pull brings the committed one) its run worktree's. So such a task keeps being
- * asked for by the same link, whose status is cached, and not by its branch.
+ * The PR link of a completed task: its main-checkout brief's (merged and pulled, or written by an older version), else its
+ * run worktree's (the run commits the link on its branch, never in the main checkout), else its run record's (a PR created
+ * from the Completed page once no checkout of the branch was left). So such a task keeps being asked for by the same link,
+ * whose status is cached, and not by its branch.
  */
 function briefLinkOf(ctx: RunContext, slug: string, mainText: string): string | null {
   const own = getPrFromBrief(mainText);
   if (own) return own;
   const wt = runWorktree(ctx, slug);
-  if (!wt) return null;
-  try { return getPrFromBrief(fs.readFileSync(path.join(wt, ctx.backlogDir, slug, 'brief.md'), 'utf8')); } catch { return null; }
+  if (wt) {
+    try {
+      const linked = getPrFromBrief(fs.readFileSync(path.join(wt, ctx.backlogDir, slug, 'brief.md'), 'utf8'));
+      if (linked) return linked;
+    } catch { /* no brief in the worktree: the record may still name the PR */ }
+  }
+  const rec = readRecord(ctx.reg, slug);
+  return typeof rec?.pr === 'string' && rec.pr ? rec.pr : null;
 }
 
 /** What the Completed list needs to know of a slug before it asks GitHub: the PR key is the brief's PR, else the branch. */
@@ -299,7 +306,7 @@ export async function completedListAsync(ctx: RunContext, opts: { rowsFirst?: bo
 }
 
 /**
- * A run with its own worktree whose pull request <mergedPr> is merged: the link linkPrEverywhere wrote into the main checkout's
+ * A run with its own worktree whose pull request <mergedPr> is merged: a link an older version wrote into the main checkout's
  * brief is taken out again (see cleanMainBrief). A failure is kept in the run worktree's errors.log, or in the run registry's
  * (<git dir>/sdlc-runs/errors.log) once the worktree is gone, and said on stderr: this path has no run output.
  */
@@ -369,17 +376,8 @@ function completedTasks(ctx: RunContext, prOf: (key: string) => PrKnown, facts: 
       });
       continue;
     }
-    if (!pr && prStatus?.url) {
-      pr = prStatus.url;
-      // A run with a worktree gets its link on the PR branch (when the PR is created); the main checkout stays unedited.
-      if (!runWorktree(ctx, slug)) try {
-        const updated = recordPrInBrief(briefText, pr);
-        fs.writeFileSync(briefFile, updated);
-      } catch (e) {
-        // The list still shows the link; the brief that could not take it says why in the task's errors.log.
-        keepError({ root: ctx.root, log: path.join(ctx.backlogDir, slug, 'logs') }, 'completed tasks: link pull request in the brief', `${briefFile}: ${(e as Error).message}`);
-      }
-    }
+    // The PR gh found for the branch is shown; no brief is written (the main checkout is never edited by a list read).
+    if (!pr && prStatus?.url) pr = prStatus.url;
 
     const prState = prStatus ? prStatus.state : null;
     if (prStatus?.state === 'MERGED') cleanMergedRunBrief(ctx, slug, rec, prStatus.url);
@@ -623,13 +621,28 @@ export function createPrForCompleted(
     fs.writeFileSync(file, recordPrInBrief(fs.readFileSync(file, 'utf8'), prUrl));
     git(dir, ['add', '--', briefRel], ctx.env);
     const c = git(dir, ['commit', '-q', '-m', `chore(${slug}): link pull request`, '--', briefRel], ctx.env);
-    if (c.status !== 0) { err.push(`Could not commit the PR link: ${c.stderr.trim()}`); continue; }
+    if (c.status !== 0) {
+      err.push(`Could not commit the PR link: ${c.stderr.trim()}`);
+      keepError(logOf, 'completed tasks: commit the pull request link', `${dir}: ${c.stderr || c.stdout || '(no output)'}`);
+      continue;
+    }
+    committed = true;
     const push = git(dir, ['push', 'origin', branch], ctx.env);
-    if (push.status !== 0) err.push(`Push warning (PR link): ${push.stderr.trim()}`);
-    else { out.push('Committed the PR link in brief.md and pushed it to the branch.'); committed = true; }
+    if (push.status !== 0) {
+      err.push(`Push warning (PR link): ${push.stderr.trim()}`);
+      keepError(logOf, 'completed tasks: push the pull request link', `${dir}: ${push.stderr || '(no output)'}`);
+    } else out.push('Committed the PR link in brief.md and pushed it to the branch.');
     break;
   }
-  if (!committed) out.push('The PR link was not committed: no checkout has the PR branch.');
+  // No checkout of the branch is left: nothing is written in any brief, and the run's record keeps the link.
+  if (!committed) {
+    if (rec) {
+      try { writeRecord(ctx.reg, { ...(rec as RunRecord), slug, pr: prUrl }); out.push('The PR link was kept in the run record: no checkout has the PR branch.'); } catch (e) {
+        err.push(`Could not keep the PR link in the run record: ${(e as Error).message}`);
+        keepError(logOf, 'completed tasks: keep the pull request link in the run record', (e as Error).message);
+      }
+    } else out.push('The PR link was not committed: no checkout has the PR branch.');
+  }
 
   return { ok: true, pr: prUrl, out, err };
 }
