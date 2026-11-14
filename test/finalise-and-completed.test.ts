@@ -118,6 +118,32 @@ Type: feature
 });
 
 describe('a failed gh pr create and the pull request link in both checkouts', () => {
+  test('Create PR off with the draft PR in brief.md: the backlog waits for the merge, and nothing says a PR was created', () => {
+    const root = tmp('finalise-draft-');
+    fs.mkdirSync(path.join(root, 'repo'));
+    const repo = makeRepo(path.join(root, 'repo'), 'task-one');
+    const bin = path.join(root, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${bin}:${savedPath}`;
+    try {
+      const docs = 'Docs/backlog/task-one';
+      const log = `${docs}/logs`;
+      const url = 'https://github.com/o/r/pull/146';
+      fs.writeFileSync(path.join(repo, docs, 'brief.md'), recordPrInBrief(fs.readFileSync(path.join(repo, docs, 'brief.md'), 'utf8'), url));
+      gitCmd(repo, 'commit', '-q', '-am', 'link draft');
+      fs.mkdirSync(path.join(repo, log), { recursive: true });
+      snapshot(path.join(repo, log, 'baseline.json'), { root: repo });
+      fs.writeFileSync(path.join(repo, 'new-feature.js'), 'export const hello = 1;\n');
+      let out = '';
+      finalise({ git: new Git(repo), slug: 'task-one', docs, baseline: `${log}/baseline.json`, backlog: 'Docs/backlog/index.md', createPr: false, out: l => { out += `${l}\n`; }, err: () => {} });
+      expect(out).not.toContain('PR created');
+      expect(out).toContain(`Backlog item will be marked completed once ${url} is merged into main.`);
+      expect(fs.readFileSync(path.join(repo, 'Docs/backlog/index.md'), 'utf8')).toContain('- [ ] `task-one`');
+    } finally { process.env.PATH = savedPath; }
+  });
+
   test('Finalise with createPr: gh\'s message and exit code are kept whole, and one warning line names it and where the rest is', () => {
     const root = tmp('finalise-gh-fails-');
     fs.mkdirSync(path.join(root, 'repo'));

@@ -144,7 +144,7 @@ describe('through a real pipeline run', () => {
       expect([...order].sort((a, b) => a - b), `${stage} out of order`).toEqual(order);
       // only when a run starts from that stage, or the project configures a lint command / integration tests (this fixture has neither)
       const optional = ['lint', 'integration'];
-      const only = ({ Plan: ['answers'], Implement: ['baseline'] } as Record<string, string[]>)[stage] ?? [];
+      const only = ({ Plan: ['answers'], Implement: ['baseline'], Finalise: ['ci'] /* only with the full suite in CI */ } as Record<string, string[]>)[stage] ?? [];
       only.push(...optional);
       expect(list.map(d => d.key).filter(k => !used.includes(k) && !only.includes(k)), `${stage} steps never reported`).toEqual([]);
     }

@@ -425,7 +425,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
     const sha = ctx.git.head();
     const result = await awaitCi(ctx, sha, used);
     last = { sha, result };
-    if (settleCi(ctx, result) === 'green') { fixed(); ctx.out(' CI green'); return true; }
+    if (settleCi(ctx, result, sha) === 'green') { fixed(); ctx.out(' CI green'); return true; }
   }
   for (let i = used + 1; i <= maxAttempts; i++) {
     const viaCi = ciOn(ctx);
@@ -486,7 +486,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
         last = { sha, result };
       }
       endRound(ciStatusLine(result, ctx.config.ci.waitMinutes));
-      const kind = settleCi(ctx, result);
+      const kind = settleCi(ctx, result, sha);
       if (kind === 'green') { fixed(); return true; }
       if (kind === 'red') {
         await tick();
@@ -563,7 +563,7 @@ async function awaitCi(ctx: Ctx, sha: string, usedBefore: number): Promise<CiSte
   const pr = ctx.status.ci?.pr || briefPr(ctx) || ctx.branch;
   const number = /\/pull\/(\d+)/.exec(pr)?.[1];
   ctx.out(`  Full suite in CI: running (${number ? `PR #${number}` : pr}, commit ${short(sha)})`);
-  setCiStatus(ctx, { state: 'running', failingChecks: [], warnings: [] });
+  setCiStatus(ctx, { state: 'running', failingChecks: [], warnings: [], sha });
   const answeredBefore = ctx.ciLastResult !== undefined && ctx.ciLastResult.status !== 'unavailable';
   let result = await waitForCiAndClassify(ctx, sha, { prUrl: pr, startTime: Date.now() });
   // "no workflow" falls back only on the first wait (4.3); once CI has answered, a missing check is a CI problem: pause.
@@ -578,14 +578,15 @@ async function awaitCi(ctx: Ctx, sha: string, usedBefore: number): Promise<CiSte
   return result;
 }
 
-/** Acts on a CI result: green, red (side effects feed the next round), or fallback to the local full suite. */
-function settleCi(ctx: Ctx, result: CiStepResult): 'green' | 'red' | 'fallback' {
+/** Acts on a CI result on <sha>: green (remembered as the last green commit), red (side effects feed the next round), or fallback to the local full suite. */
+function settleCi(ctx: Ctx, result: CiStepResult, sha: string): 'green' | 'red' | 'fallback' {
   if (result.status === 'unavailable') {
     fallBack(ctx, result.reason || 'no workflow');
     return 'fallback';
   }
   const failingChecks = [...new Set(result.sideEffects.map(f => f.checkName))];
-  setCiStatus(ctx, { state: ciState(result), failingChecks: result.failingChecks || failingChecks, warnings: ciWarnings(result) });
+  const green = result.status === 'green' || result.status === 'green-with-warnings';
+  setCiStatus(ctx, { state: ciState(result), failingChecks: result.failingChecks || failingChecks, warnings: ciWarnings(result), sha, ...(green ? { greenSha: sha } : {}) });
   if (result.status === 'red') {
     ctx.ciSideEffectFiles = [...new Set([...(ctx.ciSideEffectFiles || []), ...result.testFiles])];
     try { fs.writeFileSync(at(ctx, `${ctx.log}/tests.log`), ciFailureText(result, [...new Set([...targetTestFiles(ctx), ...ctx.ciSideEffectFiles])])); } catch (e) {
@@ -750,22 +751,87 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
   });
   // A pull request that is merged already: the link in the main checkout's brief is not needed there any more.
   if (res.merged && res.pr) await cleanRunMainBrief(ctx, res.pr);
-  // The full suite ran in CI: the PR opened as a draft after Red tests is now ready for review (never a second PR, no squashing).
+  // The full suite ran in CI: the PR opened as a draft after Red tests (never a second PR, no squashing) gets the pushed
+  // head, CI runs again when the commits since its last green changed more than the docs, and with Create PR on the draft
+  // is then ready for review.
   const draft = opened || null;
-  if (draft) {
+  if (draft || ciOn(ctx)) {
     try { ctx.git.run('push', '-u', 'origin', ctx.branch); } catch (e) {
       keepError(ctx, 'finalise: push', (e as Error).message);
       ctx.err(`WARNING: git push to origin failed: ${firstLine((e as Error).message)} (the whole message is in ${ctx.log}/errors.log)`);
     }
+  }
+  if (ciOn(ctx)) await ciAfterChanges(ctx);
+  if (draft && createPr) {
     if (markPrReady(ctx.root, draft, ctx.env, text => keepError(ctx, 'gh pr ready', text))) {
       ctx.out(`Pull request ready for review: ${draft}`);
       if (ctx.status.ci) { ctx.status.ci = { ...ctx.status.ci, prDraft: false }; ctx.status.write(); }
     }
     else ctx.err(`WARNING: could not mark ${draft} ready for review (gh pr ready; see ${ctx.log}/errors.log)`);
-  }
+  } else if (draft) ctx.out(`Draft pull request left as a draft (Create PR is off): ${draft}`);
   if (res.pr || draft) {
     ctx.out(`Review pull request: ${res.pr || draft}`);
   } else {
     ctx.out(`Review with: git log --oneline ${ctx.redSha}~1..HEAD ; then open a PR.`);
   }
+}
+
+/**
+ * The files outside the task's docs changed between the last commit CI was green on and <head>. Null when that is not
+ * known (a resumed run, or a commit git cannot compare): CI must run again.
+ */
+function codeChangedSinceGreen(ctx: Ctx, head: string): string[] | null {
+  const green = ctx.status.ci?.greenSha;
+  if (!green) return null;
+  if (green === head) return [];
+  try {
+    const docs = `${ctx.docs.replace(/\/+$/, '')}/`;
+    return String(ctx.git.run('diff', '--name-only', green, head)).split('\n').map(l => l.trim()).filter(f => f && !f.startsWith(docs));
+  } catch (e) {
+    keepError(ctx, `finalise: compare ${short(green)} with ${short(head)}`, (e as Error).message);
+    ctx.out(`WARNING: could not compare the pushed head with the last green commit ${short(green)}: CI runs again (see ${ctx.log}/errors.log)`);
+    return null;
+  }
+}
+
+/**
+ * Finalise with the full suite in CI: when the pushed head changed files outside the docs since CI was last green (Review
+ * may change the source), waits for CI on it the way Implement does (a timeout pauses). Red stops the run at Implement,
+ * which reads the failures; green, or nothing but docs changed, goes on.
+ */
+async function ciAfterChanges(ctx: Ctx): Promise<void> {
+  const head = ctx.git.head();
+  const changedFiles = codeChangedSinceGreen(ctx, head);
+  if (changedFiles && !changedFiles.length) return;
+  ctx.status?.beginStep?.('ci');
+  ctx.out(changedFiles
+    ? `Changed since CI was last green (${short(ctx.status.ci?.greenSha || '')}): ${changedFiles.slice(0, 8).join(', ')}${changedFiles.length > 8 ? ` and ${changedFiles.length - 8} more` : ''}`
+    : 'No green CI result is known for the pushed changes: CI must run again');
+  // A run resumed at Finalise (a new process) has not asked about CI yet.
+  if (ctx.ciAvailable === undefined) {
+    await openCi(ctx);
+    if (!ciOn(ctx)) return localAfterChanges(ctx);
+  }
+  const result = await awaitCi(ctx, head, 0);
+  ctx.out(`  status: ${ciStatusLine(result, ctx.config.ci.waitMinutes)}`);
+  const kind = settleCi(ctx, result, head);
+  if (kind === 'green') return;
+  if (kind === 'fallback') return localAfterChanges(ctx);
+  const checks = ctx.status.ci?.failingChecks?.length ? ctx.status.ci.failingChecks : [...new Set(result.sideEffects.map(f => f.checkName))];
+  const text = ciFailureText(result, []);
+  keepError(ctx, `finalise: CI on ${short(head)}`, text);
+  // The resumed Implement agent is given the failure (ci-failure.md) as well as tests.log.
+  try { fs.writeFileSync(at(ctx, `${ctx.docs}/ci-failure.md`), text); } catch (e) {
+    keepError(ctx, 'write ci-failure.md', (e as Error).message);
+    ctx.out(`WARNING: could not write ${ctx.docs}/ci-failure.md (see ${ctx.log}/errors.log)`);
+  }
+  for (const f of result.sideEffects.slice(0, 8)) ctx.out(`  ${f.file || f.checkName}${f.testName ? ` :: ${f.testName}` : ''}`);
+  stop(ctx, `CI FAILED on ${short(head)} after the changes since Implement: ${checks.join(', ') || 'see the pull request'}. Resume at Implement to fix it (${resumeCommand(ctx.slug, 'implement')})`, 1, 'implement');
+}
+
+/** CI cannot be used in Finalise: the full suite runs here instead; a failure stops the run at Implement. */
+async function localAfterChanges(ctx: Ctx): Promise<void> {
+  if (await successCheck(ctx)) return;
+  keepError(ctx, 'finalise: local full suite', `checks failed after the changes since Implement; see ${ctx.failLog}`);
+  stop(ctx, `Checks failed after the changes since Implement. See ${ctx.failLog}. Resume at Implement to fix it (${resumeCommand(ctx.slug, 'implement')})`, 1, 'implement');
 }

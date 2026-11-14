@@ -71,6 +71,10 @@ export interface CiStatus {
   prDraft?: boolean;
   failingChecks?: string[];
   warnings?: string[];
+  /** The commit the state belongs to (the head CI runs, or ran, on). */
+  sha?: string;
+  /** The last commit CI was green on: Finalise waits again only when files outside the task's docs changed since. */
+  greenSha?: string;
 }
 
 export interface StepLine { i: number; n: number; label: string; started: string }

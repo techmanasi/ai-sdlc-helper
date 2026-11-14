@@ -104,6 +104,8 @@ export interface CiView {
   reason?: string;
   failingChecks: string[];
   warnings: string[];
+  /** The commit the state belongs to, when known. */
+  sha?: string;
 }
 
 function ciView(root: string, env: NodeJS.ProcessEnv, status: any, brief: string | null): CiView | null {
@@ -124,6 +126,7 @@ function ciView(root: string, env: NodeJS.ProcessEnv, status: any, brief: string
     ...(typeof c.reason === 'string' ? { reason: c.reason } : {}),
     failingChecks: strs(c.failingChecks),
     warnings: strs(c.warnings),
+    ...(typeof c.sha === 'string' && c.sha ? { sha: c.sha } : {}),
   };
 }
 
