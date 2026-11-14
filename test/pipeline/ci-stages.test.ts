@@ -174,7 +174,7 @@ describe('CI stage orchestration (spec 4, 7, 9)', () => {
     const ctx = context();
     ci.wait.mockImplementation(async () => {
       const calls = ctx.git.run.mock.calls;
-      expect(calls.some(args => args.includes('feat(feature): implement (attempt 1)'))).toBe(true);
+      expect(calls.some(args => args.includes('[implement] feat(feature): implement (attempt 1)'))).toBe(true);
       expect(calls.some(args => args.includes('push'))).toBe(true);
       return { status: 'green', sideEffects: [], nonBlocking: [], testFiles: [] };
     });

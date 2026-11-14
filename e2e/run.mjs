@@ -176,7 +176,7 @@ function checkShipped(c, dir, env, stubLog, output) {
   const branch = git(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
   check(branch === `sdlc/${p.slug}`, `on branch ${branch}, expected sdlc/${p.slug}`);
   const subjects = git(dir, 'log', '--reverse', '--format=%s', 'main..HEAD').split('\n').filter(Boolean);
-  const expected = [`test(${p.slug}): add failing tests and spec/plan docs`, `feat(${p.slug}): implement per ${docs}/specs-1.md`, `chore(backlog): mark ${p.slug} done`];
+  const expected = [`[red-tests] test(${p.slug}): add failing tests and spec/plan docs`, `[finalise] feat(${p.slug}): implement per ${docs}/specs-1.md`, `chore(backlog): mark ${p.slug} done`];
   check(JSON.stringify(subjects) === JSON.stringify(expected), `commits on the branch (oldest first):\n  ${subjects.join('\n  ')}\nexpected:\n  ${expected.join('\n  ')}`);
 
   const filesOf = ref => git(dir, 'show', '--name-only', '--format=', ref).split('\n').filter(Boolean);

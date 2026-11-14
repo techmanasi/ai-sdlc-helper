@@ -425,7 +425,7 @@ describe('testcheck resumecheck', () => {
       commit(dir, 'init');
       write(dir, 'server/__tests__/a.test.js', "test('a works', () => {});\n");
       write(dir, `Docs/backlog/${SLUG}/brief.md`, 'brief\n');
-      const red = commit(dir, `test(${SLUG}): add failing tests and spec/plan docs`);
+      const red = commit(dir, `[red-tests] test(${SLUG}): add failing tests and spec/plan docs`);
       write(dir, `Docs/backlog/${SLUG}/test-issues.md`, CLAIM);
       if (impl) { write(dir, 'server/src/feature.js', 'module.exports = 1;\n'); commit(dir, 'impl'); }
       templates[key] = { dir, red };
@@ -462,7 +462,7 @@ describe('testcheck resumecheck', () => {
     const { dir, red, claimFile } = makeRepo();
     let r = await resume(dir, '', claimFile, SLUG);
     expect(r.status).toBe(1);
-    expect(rejects(r)).toEqual([`REJECT: no red-tests commit found for ${SLUG} (expected a commit with subject "test(${SLUG}): add failing tests")`]);
+    expect(rejects(r)).toEqual([`REJECT: no red-tests commit found for ${SLUG} (expected a commit with subject "[red-tests] test(${SLUG}): add failing tests")`]);
     r = await resume(dir, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', claimFile, SLUG);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('REJECT: red-tests commit deadbeefdeadbeefdeadbeefdeadbeefdeadbeef is not a known commit');
@@ -516,10 +516,10 @@ describe('testcheck resumecheck', () => {
   test('rejects when a repair commit for this slug already exists, naming it and pointing to FROM=review', async () => {
     const { dir, red, claimFile } = makeRepo();
     write(dir, 'Docs/x.md', 'x\n');
-    commit(dir, 'test(other): repair invalid tests (mechanically checked and audited)');
+    commit(dir, '[test-repair] test(other): repair invalid tests (mechanically checked and audited)');
     expect((await resume(dir, red, claimFile, SLUG)).status).toBe(0);
     write(dir, 'server/__tests__/a.test.js', "test('a works', () => { expect(1).toBe(1); });\n");
-    commit(dir, `test(${SLUG}): repair invalid tests (mechanically checked and audited)`);
+    commit(dir, `[test-repair] test(${SLUG}): repair invalid tests (mechanically checked and audited)`);
     const sha = git(dir, 'log', '-1', '--format=%h');
     const r = await resume(dir, red, claimFile, SLUG);
     expect(r.status).toBe(1);
@@ -529,7 +529,7 @@ describe('testcheck resumecheck', () => {
   test('allows a second repair when Implement wrote new claims after the accepted repair', async () => {
     const { dir, red, claimFile } = makeRepo();
     write(dir, 'server/__tests__/a.test.js', "test('a works', () => { expect(1).toBe(1); });\n");
-    commit(dir, `test(${SLUG}): repair invalid tests (mechanically checked and audited)`);
+    commit(dir, `[test-repair] test(${SLUG}): repair invalid tests (mechanically checked and audited)`);
     expect((await resume(dir, red, claimFile, SLUG)).status).toBe(1);
     fs.appendFileSync(claimFile, 'server/__tests__/a.test.js :: a works :: contradicts specs-1.md §6\n');
     write(dir, 'server/src/feature2.js', 'module.exports = 2;\n');

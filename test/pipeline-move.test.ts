@@ -55,7 +55,7 @@ const commitIn = (dir: string, file: string, text: string, msg: string): string 
 /** Origin's run branch holds an earlier run's commit; this checkout has no such branch (a fresh start). */
 function earlierRun(other: string): string {
   git(other, 'checkout', '-q', '-b', BRANCH);
-  const sha = commitIn(other, 'earlier.txt', 'earlier run\n', `test(${SLUG}): add failing tests and spec/plan docs`);
+  const sha = commitIn(other, 'earlier.txt', 'earlier run\n', `[red-tests] test(${SLUG}): add failing tests and spec/plan docs`);
   git(other, 'push', '-q', 'origin', BRANCH);
   git(other, 'checkout', '-q', 'main');
   return sha;

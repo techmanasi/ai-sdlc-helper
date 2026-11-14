@@ -6,7 +6,9 @@ import { toolNotes } from '../config/toolNotes.js';
 import { agentFor, harnessFor, testDir, testFramework } from '../config/settings.js';
 import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from './context.js';
 import { modelEnvOf, modelFlags, providerEnv, stageModel } from './models.js';
-import { ciFailureInput, manualInput, mergeFailureInput, prCommentsInput, renderPrompt } from './prompts.js';
+import { ciFailureInput, existingRedTestsInput, manualInput, mergeFailureInput, prCommentsInput, renderPrompt } from './prompts.js';
+import { redCommitTestFiles } from './gates.js';
+import { redPattern, repairPattern } from './git.js';
 import { resumeHint } from './hints.js';
 import { keepError } from './errors.js';
 import { agentFacts, appendRound, changedBetween, debugLeftovers, roundWarnings, snapshot } from './observe.js';
@@ -283,6 +285,10 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     prompt += manualInput(at(ctx, ctx.docs), stage, testDir(ctx.config.suites[0]));
     prompt += prCommentsInput(at(ctx, ctx.docs));
     if (stage === 'implement') prompt += ciFailureInput(at(ctx, ctx.docs)) + mergeFailureInput(at(ctx, ctx.docs), promptValues(ctx), ctx.promptsDir);
+    if (stage === 'red-tests' && ctx.git?.findCommits) {
+      const existingShas = ctx.git.findCommits([redPattern(ctx.slug), repairPattern(ctx.slug)]);
+      if (existingShas.length) prompt += existingRedTestsInput(ctx.docs, existingShas, redCommitTestFiles(ctx));
+    }
   }
   ctx.out(`   -> agent: ${name}`);
   appendRound(at(ctx, ctx.log), { kind: 'start', at: stamp(), stage, agent: name });

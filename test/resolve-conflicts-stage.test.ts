@@ -24,9 +24,9 @@ function conflicted(f: Fixture): { remote: string } {
   write(f.dir, `${DOCS}/specs-1.md`, 'spec\n');
   write(f.dir, `${DOCS}/plan-1.md`, 'plan\n');
   git(f.dir, 'add', '-A');
-  git(f.dir, 'commit', '-q', '-m', `test(${SLUG}): add failing tests and spec/plan docs`);
+  git(f.dir, 'commit', '-q', '-m', `[red-tests] test(${SLUG}): add failing tests and spec/plan docs`);
   write(f.dir, 'src/existing.mjs', ONE.replace('1;', '1; // the task'));
-  git(f.dir, 'commit', '-q', '-am', `feat(${SLUG}): implement per ${DOCS}/specs-1.md`);
+  git(f.dir, 'commit', '-q', '-am', `[finalise] feat(${SLUG}): implement per ${DOCS}/specs-1.md`);
   git(f.dir, 'push', '-q', '-u', 'origin', BRANCH);
   const other = path.join(path.dirname(remote), 'other');
   git(path.dirname(remote), 'clone', '-q', remote, other);
@@ -197,7 +197,7 @@ printf 'FILE: src/existing.mjs :: kept both comments\\nVERDICT: SAFE\\n' > "$FAK
     expect(git(remote, 'rev-parse', BRANCH)).toBe(git(f.dir, 'rev-parse', 'HEAD'));
     expect(git(remote, 'show', `${BRANCH}:src/existing.mjs`)).toContain('merged work, and the task');
     expect(git(f.dir, 'rev-list', '--merges', 'origin/main..HEAD')).toBe('');
-    const newRed = git(f.dir, 'log', '--format=%H', '-1', `--grep=^test(${SLUG}): add failing tests`);
+    const newRed = git(f.dir, 'log', '--format=%H', '-1', `--grep=^\\[red-tests\\] test(${SLUG}): add failing tests`);
     expect(newRed).not.toBe(oldRed);
     expect(r.stdout).toContain(`tests commit is now ${newRed.slice(0, 7)}`);
     expect(read(f.dir, `${LOG}/resolve-conflicts.md`)).toContain('src/existing.mjs (code');
@@ -206,7 +206,7 @@ printf 'FILE: src/existing.mjs :: kept both comments\\nVERDICT: SAFE\\n' > "$FAK
   test('without a remote the stage is skipped and the run stays at Finalise', async () => {
     const f = fixture();
     git(f.dir, 'checkout', '-q', '-b', BRANCH);
-    git(f.dir, 'commit', '-q', '--allow-empty', '-m', `test(${SLUG}): add failing tests and spec/plan docs`);
+    git(f.dir, 'commit', '-q', '--allow-empty', '-m', `[red-tests] test(${SLUG}): add failing tests and spec/plan docs`);
     write(f.dir, `${LOG}/status.json`, `${JSON.stringify({ stage: 'Finalise' })}\n`);
     const r = await pipeline(f, { SDLC_RESOLVE_CONFLICTS: '' }, { from: 'resolve-conflicts' });
     expect(r.status).toBe(0);

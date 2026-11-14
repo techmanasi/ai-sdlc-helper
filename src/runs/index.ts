@@ -18,6 +18,7 @@ import {
 import { startSupervisor, type SetupStep } from './supervisor.js';
 import { identity } from './proc.js';
 import { keepError } from '../pipeline/errors.js';
+import { redPattern } from '../pipeline/git.js';
 
 /** The controls' own environment variables: read here, never passed to the pipeline. */
 export const CONTROL_ENV = ['SDLC_BASE', 'SDLC_WT_BASE', 'SDLC_MAX_PARALLEL', 'SDLC_ALLOW_MERGED', 'FROM', 'AI_SDLC_HELPER_PIPELINE_CMD', 'WATCH_REPORT_DEPENDENCIES'];
@@ -141,7 +142,7 @@ export async function pickBaseAsync(ctx: RunContext): Promise<string> {
 
 /** True when the item's red-tests commit is already in <base>: it was merged. */
 export const isMerged = (ctx: RunContext, slug: string, base: string): boolean =>
-  git(ctx.root, ['log', base, '-1', '--format=%h', `--grep=^test(${slug}): add failing tests`], ctx.env).stdout.trim() !== '';
+  git(ctx.root, ['log', base, '-1', '--format=%h', `--grep=${redPattern(slug)}`], ctx.env).stdout.trim() !== '';
 
 const branchOf = (ctx: RunContext, slug: string, rec?: Partial<RunRecord> | null) => rec?.branch || `${ctx.branchPrefix}${slug}`;
 const committed = (ctx: RunContext, ref: string, file: string) => gitOk(ctx.root, ['cat-file', '-e', `${ref}:${file}`], ctx.env);

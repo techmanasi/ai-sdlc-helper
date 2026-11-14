@@ -26,7 +26,7 @@ describe('a full run', () => {
     expect(r.calls).toEqual(['spec', 'plan', 'red-tests', 'implement', 'review']);
     expect(git(f.dir, 'branch', '--show-current')).toBe(`feature/${SLUG}`);
     expect(subjects(f.dir)).toEqual([
-      `chore(backlog): mark ${SLUG} done`, `feat(${SLUG}): implement per ${DOCS}/specs-1.md`, `test(${SLUG}): add failing tests and spec/plan docs`,
+      `chore(backlog): mark ${SLUG} done`, `[finalise] feat(${SLUG}): implement per ${DOCS}/specs-1.md`, `[red-tests] test(${SLUG}): add failing tests and spec/plan docs`,
     ]);
     // the red-tests commit holds the docs and the new test; the implementation comes after
     expect(filesIn(f.dir, 'HEAD~2')).toEqual(['src/sum.test.mjs', `${DOCS}/manual-inputs.md`, `${DOCS}/plan-1.md`, `${DOCS}/specs-1.md`, `${DOCS}/test-cases-1.md`]);
@@ -84,13 +84,13 @@ describe('a full run', () => {
     expect(stageFiles.Implement).toEqual(['src/sum.mjs']);
     expect(stageFiles['Red tests']).toContain('src/sum.test.mjs');
 
-    // Plan and Red tests refuse to run again once the red-tests commit exists
+    // Plan and Red tests can run again once the red-tests commit exists: existing red tests are analysed and kept
     const again = await pipeline(f, { FROM: 'plan' });
-    expect(again.status).toBe(1);
-    expect(again.stdout).toMatch(new RegExp(`FROM=plan but the red-tests commit [0-9a-f]{7} already exists: use FROM=implement`));
-    expect(again.calls).toEqual([]);
-    // the refused resume is no stage: the run keeps the one it ended at, so the board does not fall back to Spec
-    expect(statusOf(f.dir)).toMatchObject({ state: 'failed', stage: 'Finalise' });
+    expect([again.status, again.stderr]).toEqual([0, '']);
+    expect(again.calls).toEqual(['plan', 'red-tests', 'implement', 'review']);
+    expect(again.prompts).toContain('## Existing Red Tests on This Branch');
+    expect(again.prompts).toContain('- src/sum.test.mjs');
+    expect(statusOf(f.dir)).toMatchObject({ state: 'done', stage: 'Finalise' });
   });
 
   test('a committed project note reaches the stage prompt it names', async () => {

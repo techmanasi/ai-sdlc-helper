@@ -675,7 +675,7 @@ export function finalise(o: FinaliseOptions): FinaliseResult {
   if (!include.length) o.out('WARNING: nothing to commit');
   else {
     o.git.run('add', '-A', '--', ...include);
-    o.git.run('commit', '-q', '-m', `feat(${o.slug}): implement per ${o.docs}/specs-1.md`, '-m', include.slice(0, 50).join('\n'), '--', ...include);
+    o.git.run('commit', '-q', '-m', `[finalise] feat(${o.slug}): implement per ${o.docs}/specs-1.md`, '-m', include.slice(0, 50).join('\n'), '--', ...include);
   }
 
   const lines = skipped.map(s => `- ${s.path}: ${s.reason}`);

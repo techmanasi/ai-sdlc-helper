@@ -8,6 +8,11 @@ import { execFileSync } from '../trace.js';
 export class GitError extends Error {}
 
 /** Git in one checkout, with the run's environment. */
+export const redPattern = (slug: string) => `^\\[red-tests\\] test(${slug}): add failing tests`;
+export const repairPattern = (slug: string) => `^\\[test-repair\\] test(${slug}): repair invalid tests`;
+export const implementPattern = (slug: string) => `^\\[implement\\] feat(${slug}): implement`;
+export const finalisePattern = (slug: string) => `^\\[finalise\\] feat(${slug}): implement per `;
+
 export class Git {
   constructor(readonly root: string, readonly env: NodeJS.ProcessEnv = process.env) {}
 
@@ -53,6 +58,11 @@ export class Git {
   /** The newest commit (full sha, or empty) whose message matches any of <patterns> (git --grep). */
   findCommit(patterns: string[], format = '%H'): string {
     return this.run('log', `--format=${format}`, '-1', ...patterns.map(p => `--grep=${p}`)).trim();
+  }
+
+  /** Every commit on HEAD (oldest first) whose message matches any of <patterns> (git --grep). */
+  findCommits(patterns: string[], format = '%H'): string[] {
+    return this.lines('log', '--reverse', `--format=${format}`, ...patterns.map(p => `--grep=${p}`)).map(s => s.trim()).filter(Boolean);
   }
 
   /** Test files changed (tracked) since <sha>. */

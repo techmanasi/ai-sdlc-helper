@@ -121,7 +121,7 @@ const sleeping = (slug: string, dir = wts) => until(() => {
   return record(slug).state === 'running' && fs.existsSync(f) && Number(fs.readFileSync(f, 'utf8')) || 0;
 });
 const ranLines = (wt: string) => fs.readFileSync(path.join(wt, 'ran.txt'), 'utf8').trim().split('\n');
-const MERGED = (slug: string) => ['commit', '--allow-empty', '-q', '-m', `test(${slug}): add failing tests and spec/plan docs`];
+const MERGED = (slug: string) => ['commit', '--allow-empty', '-q', '-m', `[red-tests] test(${slug}): add failing tests and spec/plan docs`];
 
 describe('start', () => {
   test('--agent, --model and --effort reach the pipeline as SDLC_FORCE_*, over the shell\'s; without them nothing is set', async () => {
