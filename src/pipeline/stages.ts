@@ -8,7 +8,7 @@ import {
 import { runSuites } from '../runners/run.js';
 import { exists } from '../util.js';
 import { answerQuestions, parseQuestions } from '../runs/view.js';
-import { agentFor } from '../config/settings.js';
+import { agentFor, harnessFor } from '../config/settings.js';
 import { at, setAside, stamp, stop, stopIfAborted, tick, type Ctx } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agent.js';
 import {
@@ -688,7 +688,7 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
 
   ctx.status?.beginStep?.('audit');
   const flags = stageFlags(ctx, 'test-audit');
-  const auditPrompt = renderPrompt('test-audit', promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, 'test-audit'));
+  const auditPrompt = renderPrompt('test-audit', promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, 'test-audit'), harnessFor(ctx.config, 'test-audit'));
   if ((await runAudit(ctx, auditPrompt, flags)) !== 0) reject('auditor failed to run', true);
   const audit = fs.readFileSync(at(ctx, `${ctx.log}/test-audit.log`), 'utf8');
   fs.writeFileSync(at(ctx, `${ctx.docs}/test-audit.md`), audit);

@@ -1,5 +1,6 @@
-// Stage prompts: assets/prompts/prompt-<stage>.md with the tool rules (parts/tools.md) appended and the {{PLACEHOLDERS}}
-// filled in, plus the developer's manual input for the stage.
+// Stage prompts: assets/prompts/prompt-<stage>.md with the tool rules (parts/tools.md, or parts/tools.codex.md for a
+// harness without Read/Grep/Glob) appended and the {{PLACEHOLDERS}} filled in, plus the developer's manual input for the
+// stage.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ASSETS_DIR, exists } from '../util.js';
@@ -15,13 +16,17 @@ const text = (file: string) => fs.readFileSync(file, 'utf8').replace(/\n+$/, '')
 /**
  * The prompt of <stage>: {{DOCS}} {{LOG}} {{TEST_DIR}} {{TEST_CMD}} {{TEST_FILE_CMD}} {{RED_SHA}} {{SLUG}}
  * {{TEST_FRAMEWORK}} {{TEST_FILES}} from <values>, and {{CODE_SEARCH}} from <guide> (else parts/code-search.md, which
- * must then exist). <notes> (tool notes) follow, unfilled. Throws SetupError for a missing prompt file.
+ * must then exist). <notes> (tool notes) follow, unfilled. <harness> picks the tool rules: codex has a shell instead of
+ * Read/Grep/Glob, so it gets parts/tools.codex.md when that exists. Throws SetupError for a missing prompt file.
  */
-export function renderPrompt(stage: string, values: Record<string, string>, guide: string, promptsDir = PROMPTS_DIR, notes = ''): string {
+export function renderPrompt(
+  stage: string, values: Record<string, string>, guide: string, promptsDir = PROMPTS_DIR, notes = '', harness = 'claude',
+): string {
   const file = path.join(promptsDir, `prompt-${stage}.md`);
   if (!exists(file)) throw new SetupError(`ERROR: missing prompt file ${file}`);
   let t = text(file);
-  const tools = path.join(promptsDir, 'parts', 'tools.md');
+  const codexTools = path.join(promptsDir, 'parts', 'tools.codex.md');
+  const tools = harness === 'codex' && exists(codexTools) ? codexTools : path.join(promptsDir, 'parts', 'tools.md');
   if (exists(tools)) t = `${t}\n\n${text(tools)}`;
   t = t.replace(/\{\{([A-Z_]+)\}\}/g, (all, name: string) => (name !== 'CODE_SEARCH' && name in values ? values[name] : all));
   if (t.includes('{{CODE_SEARCH}}')) {

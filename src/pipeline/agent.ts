@@ -208,14 +208,6 @@ const sleep = (seconds: number, signal?: AbortSignal) => new Promise<void>(resol
 /** Plan reads the published docs and type definitions of a new library from the web (it is installed only in Implement). */
 export const PLAN_TOOLS = ['WebFetch', 'WebSearch', 'mcp__context7'];
 
-/**
- * Codex CLI exposes a shell and apply_patch, not the Read/Grep/Glob tools the other harnesses have: a model that looks
- * for those and finds nothing must be told that the shell is how it reads files.
- */
-export const CODEX_READ_NOTE = 'This harness has no Read/Grep/Glob tools; read files with the shell (rg, sed -n, cat, git show) or any other tool you are allowed to use.';
-
-const withHarnessNote = (prompt: string, harnessId: string): string => (harnessId === 'codex' ? `${CODEX_READ_NOTE}\n\n${prompt}` : prompt);
-
 /** One agent process: command, arguments, and the files its output goes to (one file when both are the same). */
 /** The sentence of the Implement prompt about the linter: empty for a project without one. */
 export const lintNote = (ctx: Ctx): string => ctx.config.lint
@@ -288,7 +280,9 @@ function harnessSelection(
  */
 export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promise<void> {
   stopIfAborted(ctx);
-  let prompt = renderPrompt(stage, promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, stage));
+  const harnessId = harnessFor(ctx.config, stage);
+  const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
+  let prompt = renderPrompt(stage, promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, stage), harness.id);
   if (stage !== 'test-repair' && stage !== 'test-audit') {
     prompt += manualInput(at(ctx, ctx.docs), stage, testDir(ctx.config.suites[0]));
     prompt += prCommentsInput(at(ctx, ctx.docs));
@@ -310,13 +304,10 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   if (mode !== 'acceptEdits') ctx.out('   (permission checks are off for this stage: you allowed a protected path)');
   const base = at(ctx, `${ctx.log}/${name}`);
 
-  const harnessId = harnessFor(ctx.config, stage);
-  const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
-
   const selection = harnessSelection(ctx, stage, flags, harness);
 
   const invocation = harness.compileStageArgs({
-    prompt: withHarnessNote(prompt, harness.id),
+    prompt,
     stage,
     model: selection.model,
     effort: selection.effort,
@@ -434,7 +425,7 @@ export async function runAudit(
   const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
   const selection = harnessSelection(ctx, stage, { model: flags.model || '', effort: flags.effort || '', hasEffort: Boolean(flags.effort) }, harness);
   const inv = harness.compileAuditArgs({
-    prompt: withHarnessNote(prompt, harness.id),
+    prompt,
     model: selection.model,
     effort: selection.effort,
     cwd: ctx.root,

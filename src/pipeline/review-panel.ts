@@ -2,6 +2,7 @@
 // in parallel and none sees another's answer; a judge agent writes one conclusion when they do not all agree.
 import fs from 'node:fs';
 import { at, stamp, type AgentStage, type Ctx } from './context.js';
+import { harnessFor } from '../config/settings.js';
 import { promptValues, runAudit, stageFlags, stageModelKey, stageNotes } from './agent.js';
 import { renderPrompt } from './prompts.js';
 
@@ -103,7 +104,7 @@ export async function reviewPanel(ctx: Ctx, spec: PanelSpec): Promise<PanelResul
   ctx.status.agentStarted = stamp();
   ctx.status.write();
   const run = async (stage: AgentStage, name: string, promptName: string): Promise<{ rc: number; text: string }> => {
-    const prompt = renderPrompt(promptName, promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, stage));
+    const prompt = renderPrompt(promptName, promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, stage), harnessFor(ctx.config, stage));
     const rc = await runAudit(ctx, prompt, stageFlags(ctx, stage), { stage, name });
     const file = at(ctx, `${ctx.log}/${name}.log`);
     return { rc, text: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '' };
