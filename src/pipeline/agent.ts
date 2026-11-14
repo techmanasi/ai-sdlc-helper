@@ -280,7 +280,9 @@ function harnessSelection(
  */
 export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promise<void> {
   stopIfAborted(ctx);
-  let prompt = renderPrompt(stage, promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, stage));
+  const harnessId = harnessFor(ctx.config, stage);
+  const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
+  let prompt = renderPrompt(stage, promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, stage), harness.id);
   if (stage !== 'test-repair' && stage !== 'test-audit') {
     prompt += manualInput(at(ctx, ctx.docs), stage, testDir(ctx.config.suites[0]));
     prompt += prCommentsInput(at(ctx, ctx.docs));
@@ -301,9 +303,6 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
   const mode = modeFor(at(ctx, ctx.docs), stage);
   if (mode !== 'acceptEdits') ctx.out('   (permission checks are off for this stage: you allowed a protected path)');
   const base = at(ctx, `${ctx.log}/${name}`);
-
-  const harnessId = harnessFor(ctx.config, stage);
-  const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
 
   const selection = harnessSelection(ctx, stage, flags, harness);
 

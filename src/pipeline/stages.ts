@@ -8,7 +8,7 @@ import {
 import { runSuites } from '../runners/run.js';
 import { exists } from '../util.js';
 import { answerQuestions, parseQuestions } from '../runs/view.js';
-import { agentFor } from '../config/settings.js';
+import { agentFor, harnessFor } from '../config/settings.js';
 import { at, setAside, stamp, stop, stopIfAborted, tick, type Ctx } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agent.js';
 import {
@@ -20,7 +20,7 @@ import { resumeCommand, resumeHint } from './hints.js';
 import { finalise, firstLine, getPrFromBrief, markPrReady } from './finalise.js';
 import { cleanRunMainBrief, linkPrEverywhere } from './pr-link.js';
 import { installDeps } from './deps.js';
-import { appendRound, repeatedFailures } from './observe.js';
+import { agentLastMessage, appendRound, repeatedFailures } from './observe.js';
 import { keepError } from './errors.js';
 import { withAnswerLines } from './questions.js';
 import { openMovedPr } from './branch-move.js';
@@ -156,6 +156,12 @@ export function recordAnswers(ctx: Ctx): void {
   ctx.out(`   recorded round ${round} answers in ${ctx.docs}/decisions.md`);
 }
 
+/** The stop for a stage whose agent wrote no artifact: quote its last message and name its log, instead of stopping blankly. */
+function notProduced(ctx: Ctx, agent: string, stage: string): never {
+  const said = firstLine(agentLastMessage(at(ctx, `${ctx.log}/${agent}.json`)));
+  return stop(ctx, `${stage} not produced${said ? `: ${agent} said "${said}"` : ''} (see ${ctx.log}/${agent}.log)`);
+}
+
 /** Spec: the agent writes specs-1.md, or questions.md (the run pauses for answers). */
 export async function specStage(ctx: Ctx): Promise<void> {
   stage(ctx, '1/6 Spec');
@@ -165,12 +171,14 @@ export async function specStage(ctx: Ctx): Promise<void> {
   if (exists(questions) && isAutoAccept(ctx)) autoAcceptQuestions(questions);
   recordAnswers(ctx);
   const MAX_SPEC_ROUNDS = 5;
+  let name = 'spec-1';
   while (true) {
     const round = countLines(at(ctx, `${ctx.docs}/decisions.md`), /^## Round /) + 1;
+    name = `spec-${round}`;
     ctx.status.attempt = `${round}/${MAX_SPEC_ROUNDS}`;
     ctx.status.write();
     ctx.status?.beginStep?.('agent');
-    await runAgent(ctx, `spec-${round}`, 'spec');
+    await runAgent(ctx, name, 'spec');
     if (exists(questions)) {
       if (isAutoAccept(ctx) && round < MAX_SPEC_ROUNDS) {
         ctx.out(`   SDLC_AUTO_ACCEPT: auto-accepting suggestions in ${ctx.docs}/questions.md (round ${round})`);
@@ -183,7 +191,7 @@ export async function specStage(ctx: Ctx): Promise<void> {
     break;
   }
   ctx.status?.beginStep?.('check');
-  if (!exists(at(ctx, `${ctx.docs}/specs-1.md`))) stop(ctx, 'Spec not produced');
+  if (!exists(at(ctx, `${ctx.docs}/specs-1.md`))) notProduced(ctx, name, 'Spec');
 }
 
 /** Plan: the agent writes plan-1.md, or questions.md for open technical questions (the run pauses for answers). */
@@ -215,7 +223,7 @@ export async function planStage(ctx: Ctx): Promise<void> {
     break;
   }
   ctx.status?.beginStep?.('check');
-  if (!exists(at(ctx, `${ctx.docs}/plan-1.md`))) stop(ctx, 'Plan not produced');
+  if (!exists(at(ctx, `${ctx.docs}/plan-1.md`))) notProduced(ctx, 'plan', 'Plan');
 }
 
 function hasImplSince(ctx: Ctx, firstRedSha: string): boolean {
@@ -680,7 +688,7 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
 
   ctx.status?.beginStep?.('audit');
   const flags = stageFlags(ctx, 'test-audit');
-  const auditPrompt = renderPrompt('test-audit', promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, 'test-audit'));
+  const auditPrompt = renderPrompt('test-audit', promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, 'test-audit'), harnessFor(ctx.config, 'test-audit'));
   if ((await runAudit(ctx, auditPrompt, flags)) !== 0) reject('auditor failed to run', true);
   const audit = fs.readFileSync(at(ctx, `${ctx.log}/test-audit.log`), 'utf8');
   fs.writeFileSync(at(ctx, `${ctx.docs}/test-audit.md`), audit);

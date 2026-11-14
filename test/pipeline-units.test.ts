@@ -190,10 +190,24 @@ describe('prompts', () => {
     expect(errorOf(() => renderPrompt('nope', values, '', dir))).toBe(`ERROR: missing prompt file ${path.join(dir, 'prompt-nope.md')}`);
   });
 
+  test('a codex stage gets the shell tool rules; another harness, and a codex run without that part, gets the shared ones', () => {
+    const dir = prompts({
+      'prompt-demo.md': 'Do {{SLUG}}.\n',
+      'parts/tools.md': 'Read with the Read tool.\n',
+      'parts/tools.codex.md': "Read with the shell: '{{TEST_FILE_CMD}} <f>'.\n",
+    });
+    const values = { SLUG: 's', TEST_FILE_CMD: 'ai-sdlc-helper run --file' };
+    expect(renderPrompt('demo', values, '', dir, '', 'codex')).toBe("Do s.\n\nRead with the shell: 'ai-sdlc-helper run --file <f>'.");
+    expect(renderPrompt('demo', values, '', dir, '', 'claude')).toBe('Do s.\n\nRead with the Read tool.');
+    fs.rmSync(path.join(dir, 'parts/tools.codex.md'));
+    expect(renderPrompt('demo', values, '', dir, '', 'codex')).toBe('Do s.\n\nRead with the Read tool.');
+  });
+
   test('every shipped stage prompt renders without a placeholder left', () => {
     const values = Object.fromEntries(['DOCS', 'LOG', 'TEST_DIR', 'TEST_CMD', 'TEST_FILE_CMD', 'RED_SHA', 'SLUG', 'TEST_FRAMEWORK', 'TEST_FILES', 'FETCH_CMD', 'LINT_NOTE', 'LINT_TESTS_NOTE'].map(k => [k, `<${k}>`]));
     for (const st of ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'test-audit', 'review']) {
       expect(renderPrompt(st, values, 'GUIDE')).not.toMatch(/\{\{[A-Z_]+\}\}/);
+      expect(renderPrompt(st, values, 'GUIDE', undefined, '', 'codex')).not.toMatch(/\{\{[A-Z_]+\}\}/);
     }
   });
 
