@@ -664,6 +664,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const t0 = performance.now();
         const r = await warmCompletedPrs(ctx);
         trace({ action: 'warm:pr', why: 'skipped' in r ? r.skipped : 'asked', run: p.name, n: 'asked' in r ? r.asked : 0, ms: Math.round((performance.now() - t0) * 1000) / 1000 });
+        if ('skipped' in r && r.skipped === 'no-gh') {
+          const line = "gh is not installed: PR states on the Completed page can't be checked; install GitHub CLI and run gh auth login";
+          keepError({ root: reg, log: '' }, `web server start: warm the PR statuses of ${p.name}`, line);
+          process.stderr.write(`WARNING: ${line} (${p.name}; see ${path.join(reg, 'errors.log')})\n`);
+        }
         if ('errors' in r && r.errors.length) {
           for (const m of r.errors) keepError({ root: reg, log: '' }, `web server start: warm the PR statuses of ${p.name}`, m);
           process.stderr.write(`WARNING: ${r.failed} PR status check(s) of ${p.name} failed at start-up (see ${path.join(reg, 'errors.log')})\n`);

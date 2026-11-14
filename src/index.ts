@@ -39,6 +39,7 @@ export {
   pipelineArgv, pipelineEnv, type RunContext, type Outcome,
 } from './runs/index.js';
 export { keepError } from './pipeline/errors.js';
+export { addNotice, recentNotices, clearNotices, type Notice } from './runs/notices.js';
 export { alive, killTree, readRecord, recordedSlugs, registryDir, primeRepoPaths, runState, type RunRecord } from './runs/records.js';
 export {
   answerQuestions, boardView, boardInputs, boardIgnores, syncRunPr, parseQuestions, resumeStage, runView, runPaths, runTail, RUN_PARTS, clearGitFacts, type RunPart, type BoardView, type PrCard, type Question, type RunCard, type RunView,

@@ -4,6 +4,7 @@ import { useContext, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { cliLine, type ViewState } from './api';
 import { parseMarkdown, type Inline } from './markdown';
+import { loadDismissed, saveDismissed, visibleNotices, type NoticeItem } from './notices';
 
 export interface AppContext {
   project: string;
@@ -62,6 +63,23 @@ export function Panel({ title, extra, children }: { title: ComponentChildren; ex
       <div class="ph"><h2>{title}</h2>{extra}</div>
       {children}
     </section>
+  );
+}
+
+/** The server's notices not dismissed yet, one dismissible line each; a dismissed one stays gone (kept in this browser). */
+export function Notices({ project, notices }: { project: string; notices?: NoticeItem[] }) {
+  const [dismissed, setDismissed] = useState<string[]>(() => loadDismissed(project));
+  const shown = visibleNotices(notices, dismissed);
+  if (!shown.length) return null;
+  return (
+    <div class="col" role="status" style={{ gap: '6px' }}>
+      {shown.map(n => (
+        <div class={n.level === 'warning' ? 'banner' : 'banner banner-ok'} style={{ flexDirection: 'row', alignItems: 'center', gap: '10px' }}>
+          <span class="grow small"><span class="mono">{n.slug}</span>: {n.text.replace(/^WARNING:\s*/, '')}</span>
+          <button class="btn btn-xs" type="button" onClick={() => setDismissed(saveDismissed(project, [n.id]))}>Dismiss</button>
+        </div>
+      ))}
+    </div>
   );
 }
 

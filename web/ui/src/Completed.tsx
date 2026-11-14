@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, type CompletedTask, type CompletedTaskDetail, type PrCheckErrors } from './api';
 import { loadCompleted } from './completed-load';
-import { ErrorBox, Markdown, Panel, Spinner, useApp } from './ui';
+import type { NoticeItem } from './notices';
+import { ErrorBox, Markdown, Notices, Panel, Spinner, useApp } from './ui';
 
 export function Completed() {
   const { project, toast, go } = useApp();
@@ -15,6 +16,7 @@ export function Completed() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [prErrors, setPrErrors] = useState<PrCheckErrors>([]);
+  const [notices, setNotices] = useState<NoticeItem[]>([]);
   const marked = useRef(false);
   const settledMarked = useRef(false);
   const loadId = useRef(0);
@@ -31,7 +33,10 @@ export function Completed() {
     setPrErrors([]);
     setRemoved([]);
     setError('');
-    await loadCompleted({ rows: api.completedRows, settled: api.completed }, project, {
+    await loadCompleted({
+      rows: async p => { const a = await api.completedRows(p); if (id === loadId.current) setNotices(a.notices || []); return a; },
+      settled: async p => { const a = await api.completed(p); if (id === loadId.current) setNotices(a.notices || []); return a; },
+    }, project, {
       rows: (rows, errs) => {
         setTasks(rows);
         setPrErrors(errs);
@@ -208,6 +213,7 @@ export function Completed() {
       </div>
 
       <ErrorBox error={error} />
+      <Notices project={project} notices={notices} />
       {settling && <p class="muted small" role="status"><Spinner /> Checking pull requests on GitHub…</p>}
       {removed.length > 0 && (
         <div class="row muted small" role="status" style={{ gap: '8px', alignItems: 'center' }}>

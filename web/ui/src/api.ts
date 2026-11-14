@@ -1,4 +1,5 @@
 import { pageTrace } from './pageTrace';
+import type { NoticeItem } from './notices';
 
 // The server's API, as the app uses it. The shapes mirror the engine's (RunView, BoardView …); the app keeps its own
 // copy so the browser build never pulls in Node code.
@@ -39,7 +40,7 @@ export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
 export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; checkedAt: string | null; failed: boolean; ci: CiState | null; failing: string[]; conflicts: 'none' | 'conflicting' | 'unknown' | null }
 /** What "Sync PR" brings: the PR's state and CI, the number of review comments saved, and the error lines of a failing CI. */
 export interface PrSync { ok: boolean; pr: PrCard; count: number; summary: string[]; err?: string[] }
-export interface Board { items: BacklogItem[] | null; runs: RunCard[]; maxParallel: number; running: number }
+export interface Board { items: BacklogItem[] | null; runs: RunCard[]; maxParallel: number; running: number; notices?: NoticeItem[] }
 export interface Question { n: number; title: string; body: string; suggested: string; answer: string }
 export interface Ask { stage: string; tool: string; detail: string; rule: string; protected: boolean }
 export interface StageRecovery {
@@ -232,9 +233,9 @@ export const api = {
   testIssues: (project: string, slug: string) => call<{ slug: string; text: string | null }>('GET', `${r(project, slug)}/test-issues`),
   saveTestIssues: (project: string, slug: string, text: string, resume = true) =>
     call<{ ok: boolean; text: string; resumed: Outcome | null }>('POST', `${r(project, slug)}/test-issues`, { text, resume }),
-  completed: (project: string) => call<{ completed: CompletedTask[]; prErrors?: PrCheckErrors }>('GET', `${p(project)}/completed`),
+  completed: (project: string) => call<{ completed: CompletedTask[]; prErrors?: PrCheckErrors; notices?: NoticeItem[] }>('GET', `${p(project)}/completed`),
   /** The rows at once, from git and the cache: PRs not known yet are prPending (then ask completed for the settled list). */
-  completedRows: (project: string) => call<{ completed: CompletedTask[]; prErrors?: PrCheckErrors }>('GET', `${p(project)}/completed?rows=first`),
+  completedRows: (project: string) => call<{ completed: CompletedTask[]; prErrors?: PrCheckErrors; notices?: NoticeItem[] }>('GET', `${p(project)}/completed?rows=first`),
   completedTask: (project: string, slug: string) => call<CompletedTaskDetail>('GET', `${p(project)}/completed/${encodeURIComponent(slug)}`),
   createCompletedPr: (project: string, slug: string) =>
     call<{ ok: boolean; pr: string | null; out: string[]; err: string[] }>('POST', `${p(project)}/completed/${encodeURIComponent(slug)}/pr`, {}),
