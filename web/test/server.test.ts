@@ -258,6 +258,32 @@ test('the built app is served, with index.html for the app routes and nothing ou
 describe('editing a project\'s setup', () => {
   const settingsUrl = '/api/projects/shop/settings';
 
+  test('reports a valid environment quiet time in rounded seconds and ignores invalid values', async () => {
+    await post('/api/projects', { path: repo });
+    for (const [value, expected] of [[undefined, null], ['5000', 5], ['1500', 2], ['500', null], ['abc', null], ['Infinity', null]] as const) {
+      if (value === undefined) delete env.SDLC_BOARD_SILENCE_MS;
+      else env.SDLC_BOARD_SILENCE_MS = value;
+      expect((await get(settingsUrl)).json.boardSilenceEnvSeconds).toBe(expected);
+    }
+  });
+
+  test('quiet time override is saved, validated and removed through the API', async () => {
+    await post('/api/projects', { path: repo });
+    const url = '/api/projects/shop/overrides';
+    const saved = await post(url, { patch: { boardSilenceSeconds: 7 } });
+    expect(saved.status).toBe(200);
+    expect(saved.json).toEqual({ ok: true });
+    expect((await get(settingsUrl)).json.overrides.boardSilenceSeconds).toBe(7);
+    for (const value of [0, -5, 1.5, '5', {}]) {
+      const bad = await post(url, { patch: { boardSilenceSeconds: value } });
+      expect(bad.status).toBe(400);
+      expect(bad.json.errors).toEqual(['boardSilenceSeconds: must be a whole number of seconds, 1 or more']);
+      expect((await get(settingsUrl)).json.overrides.boardSilenceSeconds).toBe(7);
+    }
+    expect((await post(url, { patch: { boardSilenceSeconds: null } })).status).toBe(200);
+    expect((await get(settingsUrl)).json.overrides).not.toHaveProperty('boardSilenceSeconds');
+  });
+
   test('the settings reply carries what the form needs: hash, harnesses, stages, overrides and the active runs', async () => {
     await post('/api/projects', { path: repo });
     const s = (await get(settingsUrl)).json;

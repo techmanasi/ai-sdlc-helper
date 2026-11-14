@@ -13,7 +13,8 @@ export interface SettingsView {
     tests?: { retry: boolean | null; maxWorkers: number | 'auto' | null; preliminary?: 'scoped' | 'full' };
   } | null;
   errors: string[]; warnings: string[]; raw: string | null;
-  hash: string; overrides: { worktreeBase?: string; maxParallel?: number }; registered: boolean;
+  hash: string; overrides: { worktreeBase?: string; maxParallel?: number; boardSilenceSeconds?: number }; registered: boolean;
+  boardSilenceEnvSeconds?: number | null;
   harnesses: string[]; stages: string[]; efforts: string[];
   stageDefaults: Record<string, { model: string; effort: string }>;
   models: Record<string, ModelInfo[]>;

@@ -1,3 +1,7 @@
+---
+pr: https://github.com/techmanasi/ai-sdlc-helper/pull/146
+---
+
 # board-quiet-time-setting
 
 Type: improvement

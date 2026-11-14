@@ -107,7 +107,9 @@ const outcome = (o: Outcome) => ({ ok: o.code === 0, code: o.code, out: o.out, e
 
 export async function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
   // Every run this server starts gets its environment from here, so one marker says the web UI started it.
-  const env: NodeJS.ProcessEnv = { ...(opts.env || process.env), SDLC_RUN_TRIGGER: 'ui' };
+  // `liveEnv` is the caller's own object, never written to: SDLC_BOARD_SILENCE_MS is read from it on each use.
+  const liveEnv: NodeJS.ProcessEnv = opts.env || process.env;
+  const env: NodeJS.ProcessEnv = { ...liveEnv, SDLC_RUN_TRIGGER: 'ui' };
   const token = opts.token || crypto.randomBytes(24).toString('base64url');
   const uiDir = opts.uiDir || path.join(here, '..', 'ui');
   const cli = opts.cli || [process.execPath, path.join(here, '..', '..', 'bin.js')];
@@ -257,6 +259,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       const personalAgent = (entry?.overrides?.agent || undefined) as Record<string, any> | undefined;
       return send(200, {
         ...r, raw, hash: hashOf(raw ?? ''), overrides: entry?.overrides || {}, registered: Boolean(entry),
+        boardSilenceEnvSeconds: envSilenceSeconds(),
         fileAgent, personalAgent: personalAgent || {}, sources: agentSources(mergeAgent(fileAgent, personalAgent), personalAgent),
         files: { project: path.join(p.path, 'sdlc.config.json'), personal: registryFile(env) },
         harnesses: [...HARNESS_IDS], stages: [...AGENT_STAGES], efforts: [...EFFORT_LEVELS], stageDefaults: STAGE_DEFAULTS,
@@ -273,7 +276,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       if (!body.patch || typeof body.patch !== 'object' || Array.isArray(body.patch)) throw new HttpError(400, 'patch must be an object');
       try {
         const r = editOverrides(p.name, body.patch, env);
-        return send(r.ok ? 200 : 400, r);
+        if (r.ok && 'boardSilenceSeconds' in body.patch) {
+          const feed = feeds.get(p.name);
+          if (feed) feed.timings.silenceMs = silenceMsFor(p);
+        }
+        return send(r.ok ? 200 : 400, r.ok ? { ok: true } : r);
       } catch (e) { throw new HttpError(404, (e as Error).message); }
     }
     if (what === 'command' && method === 'POST') {
@@ -470,9 +477,27 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
 
   // One board feed per project, shared by every page that shows it: the board is built once a tick however many tabs
   // are open, a page that joins later gets the last board at once, and the feed stops with its last page.
-  interface BoardFeed { clients: Set<http.ServerResponse>; last: string; ticks: number; busy: boolean; running: number; hasPr: boolean; builtAt: number; ping: NodeJS.Timeout; watch: BoardWatch; build(why: string): void }
+  interface BoardFeed { clients: Set<http.ServerResponse>; last: string; ticks: number; busy: boolean; running: number; hasPr: boolean; builtAt: number; ping: NodeJS.Timeout; watch: BoardWatch; timings: BoardWatchTimings; build(why: string): void }
   const feeds = new Map<string, BoardFeed>();
   const boardEvent = (text: string): string => `event: board\ndata: ${text}\n\n`;
+
+  function savedSilenceMs(p: Project): number | undefined {
+    try {
+      const s = readRegistry(env).find(e => e.name === p.name)?.overrides?.boardSilenceSeconds;
+      return Number.isInteger(s) && (s as number) >= 1 ? (s as number) * 1000 : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function silenceMsFor(p: Project): number {
+    return opts.boardWatch?.silenceMs ?? silenceFrom(liveEnv).silenceMs ?? savedSilenceMs(p) ?? BOARD_WATCH_TIMINGS.silenceMs;
+  }
+
+  function envSilenceSeconds(): number | null {
+    const ms = silenceFrom(liveEnv).silenceMs;
+    return ms === undefined ? null : Math.round(ms / 1000);
+  }
 
   function boardFeed(p: Project): BoardFeed {
     const had = feeds.get(p.name);
@@ -503,8 +528,14 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     // status is written to `pr-status.cache` in the folder of run records when GitHub answers, so the watcher
     // reports it; it is asked for again once an hour from `quiet`.
     const inputs = () => boardInputs(contextFor(p));
+    const timings: BoardWatchTimings = {
+      ...BOARD_WATCH_TIMINGS,
+      ...opts.boardWatch,
+      silenceMs: silenceMsFor(p),
+    };
     const feed: BoardFeed = {
       clients: new Set(), last: '', ticks: 0, busy: false, running: 0, hasPr: false, builtAt: 0,
+      timings,
       build: why => { feed.watch.baseline(); tick(why); },
       watch: createBoardWatch({
         folders: () => inputs().folders,
@@ -518,7 +549,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
           if (feed.hasPr && Date.now() - feed.builtAt >= (prPollOptions(env).ttlMs ?? PR_POLL_MS)) feed.build('pr-poll');
         },
         trace: e => trace({ ...e, run: p.name }),
-      }, { ...BOARD_WATCH_TIMINGS, ...silenceFrom(env), ...opts.boardWatch }),
+      }, timings),
       ping: setInterval(() => { all('event: ping\ndata: {}\n\n'); trace({ action: 'sse:ping', run: p.name }); }, 15000),
     };
     feeds.set(p.name, feed);

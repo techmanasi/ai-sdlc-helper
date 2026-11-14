@@ -211,7 +211,11 @@ Spec questions, allows a refused command, sees it ship, and discards another run
 
 - **Settings editing.** A form per block of `sdlc.config.json` (tests, lint, worktree, git, agent, ship, node, ui),
   checked with `validate` before it is saved, the error shown on the field at fault. A JSON view for anything the form
-  does not cover.
+  does not cover. The Config modal (`EditSetup`) also edits personal workstation settings for registered projects,
+  including `Board quiet time in seconds (personal)`. It is stored in `projects.json` under `overrides.boardSilenceSeconds`
+  (default 30 s, minimum 1 s, whole seconds) and applies dynamically at the next quiet-time timer cycle without requiring a
+  server restart. When `SDLC_BOARD_SILENCE_MS` is set in the server environment, it takes precedence (the UI field is disabled
+  and explains that the environment variable overrides config).
 - **Prompts editor.** Each stage prompt (`prompt-spec.md` … `prompt-review.md`, `prompt-test-repair.md`,
   `prompt-test-audit.md`) and the parts (`parts/tools.md`, the code search parts) in a Markdown editor, with the
   placeholders (`{{TEST_CMD}}`, `{{SLUG}}` …) listed and a **Preview** that renders it for a chosen item. **Reset to

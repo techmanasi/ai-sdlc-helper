@@ -30,6 +30,12 @@ async function start(pollMs: number, extra: { env?: NodeJS.ProcessEnv; boardWatc
   return server;
 }
 
+function registerQuietTime(seconds: number): void {
+  const dir = path.join(base, 'config');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'projects.json'), JSON.stringify({ version: 1, projects: [{ name: 'shop', path: repo, addedAt: '2026-01-01T00:00:00.000Z', overrides: { boardSilenceSeconds: seconds } }] }));
+}
+
 /** A page on the board stream: resolves with the first board it is sent. */
 function page(s: RunningServer): Promise<{ board: any; boards: () => number; close: () => void }> {
   return new Promise((res, rej) => {
@@ -166,6 +172,49 @@ describe('the board feed', () => {
     // No file changes from here on: only the quiet moments after each silence can ask again.
     await eventually(() => asked() >= first + 2, 15_000);
     one.close();
+  });
+
+  test('a running feed uses the saved quiet time and adopts an update without reconnecting', async () => {
+    registerQuietTime(2);
+    fs.mkdirSync(path.join(repo, '.git/sdlc-runs'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.git/sdlc-runs/one.json'), JSON.stringify({ slug: 'one', worktree: '', pid: 0, started: '2026-11-13T10:00:00', state: 'exited', exit_code: '0', interrupted: false, finished: '2026-11-13T10:05:00', message: '', branch: 'sdlc/one', base: 'main', root: repo }));
+    const ghLog = path.join(base, 'gh-calls.txt');
+    fs.writeFileSync(path.join(base, 'bin', 'gh'), `#!/bin/sh\necho x >> "${ghLog}"\necho '{"url":"https://github.com/o/r/pull/7","state":"OPEN","number":7}'\n`, { mode: 0o755 });
+    const asked = (): number => { try { return fs.readFileSync(ghLog, 'utf8').split('\n').filter(Boolean).length; } catch { return 0; } };
+    const s = await start(60_000, { env: { SDLC_PR_POLL_MS: '300', SDLC_BOARD_SILENCE_MS: undefined } });
+    const one = await page(s);
+    try {
+      await eventually(() => asked() >= 1);
+      const initial = asked();
+      await eventually(() => asked() > initial, 6000);
+      const response = await fetch(`http://127.0.0.1:${s.port}/api/projects/shop/overrides`, {
+        method: 'POST', headers: { 'x-sdlc-token': s.token, 'content-type': 'application/json' },
+        body: JSON.stringify({ patch: { boardSilenceSeconds: 1 } }),
+      });
+      expect(response.status).toBe(200);
+      fs.appendFileSync(path.join(repo, 'Docs/backlog/one/brief.md'), '\nchanged\n');
+      await new Promise(r => setTimeout(r, 600));
+      const afterChange = asked();
+      await eventually(() => asked() >= afterChange + 2, 5000);
+    } finally { one.close(); }
+  });
+
+  test('environment quiet time takes precedence over the saved value', async () => {
+    registerQuietTime(1);
+    fs.mkdirSync(path.join(repo, '.git/sdlc-runs'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.git/sdlc-runs/one.json'), JSON.stringify({ slug: 'one', worktree: '', pid: 0, started: '2026-11-13T10:00:00', state: 'exited', exit_code: '0', interrupted: false, finished: '2026-11-13T10:05:00', message: '', branch: 'sdlc/one', base: 'main', root: repo }));
+    const ghLog = path.join(base, 'gh-calls.txt');
+    fs.writeFileSync(path.join(base, 'bin', 'gh'), `#!/bin/sh\necho x >> "${ghLog}"\necho '{"url":"https://github.com/o/r/pull/7","state":"OPEN","number":7}'\n`, { mode: 0o755 });
+    const asked = (): number => { try { return fs.readFileSync(ghLog, 'utf8').split('\n').filter(Boolean).length; } catch { return 0; } };
+    const s = await start(60_000, { env: { SDLC_PR_POLL_MS: '300', SDLC_BOARD_SILENCE_MS: '60000' } });
+    const one = await page(s);
+    try {
+      await eventually(() => asked() >= 1);
+      await new Promise(r => setTimeout(r, 600));
+      const initial = asked();
+      await new Promise(r => setTimeout(r, 2500));
+      expect(asked()).toBe(initial);
+    } finally { one.close(); }
   });
 
   test("a pull request's status reaches the page when GitHub answers, by the watcher", async () => {
