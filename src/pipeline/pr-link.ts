@@ -43,20 +43,55 @@ export function linkPrInBrief(ctx: Pick<Ctx, 'root' | 'docs' | 'log' | 'env' | '
  */
 export function commitPrLink(ctx: Pick<Ctx, 'root' | 'docs' | 'log' | 'env' | 'out' | 'git' | 'slug' | 'branch'>, url: string): void {
   if (!linkPrInBrief(ctx, url)) return;
-  const rel = `${ctx.docs}/brief.md`;
+  commitRunDoc({
+    git: (...a) => ctx.git.run(...a),
+    branch: ctx.branch,
+    keepError: (where, text) => keepError(ctx, where, text),
+    warn: l => ctx.out(l),
+    see: `${ctx.log}/errors.log`,
+  }, [`${ctx.docs}/brief.md`], `chore(${ctx.slug}): link pull request`, 'the pull request link');
+}
+
+/** What commitRunDoc needs of the checkout it commits in. */
+export interface RunDocCheckout {
+  /** Runs git in the checkout; throws with git's message when it fails. */
+  git(...args: string[]): string;
+  /** The run's branch, pushed to origin. */
+  branch: string;
+  /** What to push (default: <branch>); a detached checkout pushes HEAD:refs/heads/<branch>. */
+  pushRef?: string;
+  /** Keeps git's whole message (errors.log). */
+  keepError(where: string, text: string): void;
+  /** One WARNING line for the output. */
+  warn(line: string): void;
+  /** Where the kept message is, for the WARNING line. */
+  see: string;
+}
+
+/**
+ * Commits <relFiles> (paths from the checkout's top; a removed tracked file is committed as removed) on the checkout's branch
+ * as one commit with <message>, only those paths, and pushes it to origin. Files with no change from HEAD make no commit. A
+ * failed commit or push is kept (keepError) and said in one WARNING line, which is also returned in <err>: it never throws.
+ */
+export function commitRunDoc(o: RunDocCheckout, relFiles: string[], message: string, what: string): { committed: boolean; pushed: boolean; err: string[] } {
+  const shown = relFiles.join(', ');
+  const warn = (line: string) => { o.warn(line); return line; };
+  let changed: string[];
   try {
-    if (!ctx.git.run('status', '--porcelain', '--', rel).trim()) return;
-    ctx.git.run('add', '--', rel);
-    ctx.git.run('commit', '-q', '-m', `chore(${ctx.slug}): link pull request`, '--', rel);
+    const status = o.git('status', '--porcelain', '--', ...relFiles);
+    changed = relFiles.filter(f => status.includes(f));
+    if (!changed.length) return { committed: false, pushed: false, err: [] };
+    o.git('add', '-A', '--', ...changed);
+    o.git('commit', '-q', '-m', message, '--', ...changed);
   } catch (e) {
-    keepError(ctx, 'commit of the pull request link', (e as Error).message);
-    ctx.out(`WARNING: could not commit the pull request link in ${rel} (see ${ctx.log}/errors.log)`);
-    return;
+    o.keepError(`commit of ${what}`, (e as Error).message);
+    return { committed: false, pushed: false, err: [warn(`WARNING: could not commit ${what} in ${shown} (see ${o.see})`)] };
   }
-  try { ctx.git.run('push', 'origin', ctx.branch); } catch (e) {
-    keepError(ctx, 'push of the pull request link', (e as Error).message);
-    ctx.out(`WARNING: could not push the pull request link on ${ctx.branch} (see ${ctx.log}/errors.log)`);
+  try { o.git('push', 'origin', o.pushRef || o.branch); } catch (e) {
+    o.keepError(`push of ${what}`, (e as Error).message);
+    return { committed: true, pushed: false, err: [warn(`WARNING: could not push ${what} on ${o.branch} (see ${o.see})`)] };
   }
+  return { committed: true, pushed: true, err: [] };
 }
 
 /** Briefs already looked at in this state (file, mtime, size, pull request): a board that polls asks git about each once. */

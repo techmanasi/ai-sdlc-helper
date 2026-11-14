@@ -10,6 +10,7 @@ export {
 } from './config/settings.js';
 export { suggest, setupPlan, provision, locateTestDir, packagesBelow, describeProject, rankRunners } from './config/suggest.js';
 export { syncPr, writeCiFailure, CI_FAILURE_FILE, type PrSync } from './runs/prsync.js';
+export { readRunDoc, saveRunDoc, type SaveRunDoc, type SavedRunDoc } from './runs/run-docs.js';
 export { renderSkill, renderTemplate, skillNames } from './config/skills.js';
 export { argsProblem } from './cli/args.js';
 export { currentState, skipReason, snapshot, changed, mirror, mark, parseKeys, worktreeChanges, type Changed } from './changes/index.js';

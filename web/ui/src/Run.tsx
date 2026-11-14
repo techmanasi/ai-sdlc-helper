@@ -954,7 +954,7 @@ export function Run({ slug }: { slug: string }) {
                       title="Ask GitHub now for the PR's state, its CI status and its review comments"
                       onClick={() => act('Sync PR', async () => {
                         const r = await api.syncPr(project, slug);
-                        toast(r.ok ? `PR ${r.pr.state ? r.pr.state.toLowerCase() : 'status unknown'}${r.pr.ci && r.pr.ci !== 'none' ? `, CI ${r.pr.ci}` : ''}${r.pr.conflicts === 'conflicting' ? ', conflicts with the base' : ''}; ${r.count} comment(s)${r.err?.length ? `; ${r.err.join(' ')}` : ''}` : `Sync failed: ${(r.err || []).join(' ')}`);
+                        toast(r.ok ? `PR ${r.pr.state ? r.pr.state.toLowerCase() : 'status unknown'}${r.pr.ci && r.pr.ci !== 'none' ? `, CI ${r.pr.ci}` : ''}${r.pr.conflicts === 'conflicting' ? ', conflicts with the base' : ''}; ${r.count} comment(s)${r.notes?.length ? `; ${r.notes.join('; ')}` : ''}${r.err?.length ? `; ${r.err.join(' ')}` : ''}` : `Sync failed: ${(r.err || []).join(' ')}`);
                         return {};
                       })}
                     >
