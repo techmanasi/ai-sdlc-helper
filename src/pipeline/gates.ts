@@ -109,6 +109,43 @@ export function newTestFiles(ctx: Ctx): string[] {
     .filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f)));
 }
 
+/**
+ * The tests that passed in the red gate's run and are new in this Red tests round: every test of a file that is not in
+ * <base>, and, in a file that is, each test whose name does not appear in the file's content at <base>. Skipped and todo
+ * tests are not passing. Reads <log>/tests.json; when it cannot, says so (keepError and a WARNING) and returns [].
+ */
+export function newPassingTests(ctx: Ctx, base: string, files: string[]): { file: string; name: string }[] {
+  let tests: RunResult['tests'];
+  try {
+    tests = (JSON.parse(fs.readFileSync(at(ctx, `${ctx.log}/tests.json`), 'utf8')) as RunResult).tests;
+    if (!Array.isArray(tests)) throw new Error('tests.json has no tests list');
+  } catch (e) {
+    keepError(ctx, 'red gate: read the per-test results', (e as Error).message);
+    ctx.out(`WARNING: could not read ${ctx.log}/tests.json, so new tests that already pass were not checked (see ${ctx.log}/errors.log)`);
+    return [];
+  }
+  const wanted = new Set(files);
+  const baseText = new Map<string, string | null>();
+  const before = (f: string): string | null => {
+    if (!baseText.has(f)) baseText.set(f, ctx.git.tryRun('show', `${base}:${f}`));
+    return baseText.get(f)!;
+  };
+  const found: { file: string; name: string }[] = [];
+  for (const t of tests) {
+    if (t.status !== 'passed' || !t.file || !wanted.has(t.file)) continue;
+    const old = before(t.file);
+    const known = old !== null && [t.name, ...leafNames(t.name)].some(n => old.includes(n));
+    if (!known) found.push({ file: t.file, name: t.name });
+  }
+  return found;
+}
+
+/** A test's title alone: its name joins describe titles and the title with spaces, so a file holds the title, not the name. */
+function leafNames(name: string): string[] {
+  const words = name.split(' ');
+  return words.map((_, i) => words.slice(i).join(' ')).slice(1);
+}
+
 /** The test files added or modified across all of the task's red-tests / test-repair commits (and ctx.redSha). */
 export function redCommitTestFiles(ctx: Ctx): string[] {
   if (!ctx.git) return [];

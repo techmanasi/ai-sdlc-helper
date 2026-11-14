@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { formatRecoveryCli, stageRecoveryHint } from '../src/pipeline/hints.js';
 
 describe('stageRecoveryHint diagnostics engine', () => {
+  it('sends new tests that already pass back to Plan and Spec, not to Red tests', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: 'Red tests', state: 'failed', exitCode: 1,
+      runOut: ['SDLC: x on branch b', 'RED GATE FAILED: 2 new test(s) already pass before implementation: they test behaviour that already exists, which the spec or plan did not identify as existing.', 'src/a.test.mjs :: one'],
+    });
+    expect(recovery.stage).toBe('Plan');
+    expect(recovery.autoAction?.command).toBe('ai-sdlc-helper pipeline x --from plan');
+    expect(recovery.escapeHatch?.command).toBe('ai-sdlc-helper pipeline x --from spec');
+    expect(recovery.diagnosis).toContain('2 new test(s)');
+  });
+
   it('names the refusal to resume at Red tests once its commit exists, instead of "stage unknown" and a restart at Spec', () => {
     const recovery = stageRecoveryHint({
       slug: 'x', stage: '', state: 'failed', exitCode: 1,

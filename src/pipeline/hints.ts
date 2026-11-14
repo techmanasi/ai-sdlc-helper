@@ -92,6 +92,18 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     };
   }
 
+  // New tests that already pass test behaviour that exists: the spec or plan should have said so, so the fix is there, not in Red tests.
+  const already = /RED GATE FAILED: (\d+) new test\(s\) already pass before implementation/.exec(latest);
+  if (already) {
+    return {
+      stage: 'Plan',
+      diagnosis: `${already[1]} new test(s) already pass before implementation: they test behaviour that already exists, which the spec or plan did not identify as existing.`,
+      autoAction: { label: 'Resume at Plan', command: resumeCommand(ctx.slug, 'plan') },
+      manualAction: { file: 'logs/red-passing.md', instruction: 'Mark the behaviour of the passing tests as existing in the spec or plan, then run again from Spec or Plan.' },
+      escapeHatch: { label: 'Resume at Spec', command: resumeCommand(ctx.slug, 'spec') },
+    };
+  }
+
   const agentFailMatch = /agent '([^']+)' failed:\s*([^\n]+)/i.exec(latest)
     || /agent '([^']+)' failed[^\n]*(?:\n\s*failure\s*\([^)]*\):\s*([^\n]+))/i.exec(latest)
     || /agent '([^']+)' failed(?:\s*\([^)]*\))?:\s*([^\n]+)/i.exec(latest)
