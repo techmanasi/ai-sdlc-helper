@@ -80,18 +80,32 @@ export function commitRunDoc(o: RunDocCheckout, relFiles: string[], message: str
   try {
     const status = o.git('status', '--porcelain', '--', ...relFiles);
     changed = relFiles.filter(f => status.includes(f));
-    if (!changed.length) return { committed: false, pushed: false, err: [] };
-    o.git('add', '-A', '--', ...changed);
-    o.git('commit', '-q', '-m', message, '--', ...changed);
+    if (changed.length) {
+      o.git('add', '-A', '--', ...changed);
+      o.git('commit', '-q', '-m', message, '--', ...changed);
+    }
   } catch (e) {
     o.keepError(`commit of ${what}`, (e as Error).message);
     return { committed: false, pushed: false, err: [warn(`WARNING: could not commit ${what} in ${shown} (see ${o.see})`)] };
   }
+  // Nothing new: an earlier commit whose push failed is pushed now; a branch even with origin's makes no push.
+  if (!changed.length && !aheadOfOrigin(o)) return { committed: false, pushed: false, err: [] };
   try { o.git('push', 'origin', o.pushRef || o.branch); } catch (e) {
     o.keepError(`push of ${what}`, (e as Error).message);
-    return { committed: true, pushed: false, err: [warn(`WARNING: could not push ${what} on ${o.branch} (see ${o.see})`)] };
+    return { committed: changed.length > 0, pushed: false, err: [warn(`WARNING: could not push ${what} on ${o.branch} (see ${o.see})`)] };
   }
-  return { committed: true, pushed: true, err: [] };
+  return { committed: changed.length > 0, pushed: true, err: [] };
+}
+
+/**
+ * Whether the checkout's HEAD has commits origin's <branch> lacks, after a fetch of it (a fetch that fails leaves the last
+ * known one), or origin has no such branch yet. A HEAD that cannot be read is not ahead.
+ */
+function aheadOfOrigin(o: RunDocCheckout): boolean {
+  const tracking = `refs/remotes/origin/${o.branch}`;
+  try { o.git('fetch', '-q', 'origin', `+refs/heads/${o.branch}:${tracking}`); } catch { /* the push says what is wrong with origin */ }
+  try { o.git('rev-parse', '--verify', '-q', tracking); } catch { return true; }
+  try { return Number(o.git('rev-list', '--count', `${tracking}..HEAD`).trim()) > 0; } catch { return false; }
 }
 
 /** Briefs already looked at in this state (file, mtime, size, pull request): a board that polls asks git about each once. */

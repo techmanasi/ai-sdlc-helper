@@ -151,6 +151,25 @@ describe('Sync PR commits its files on the run\'s branch', () => {
     mainClean();
   });
 
+  test('a push that failed is retried by the next sync with the same text', async () => {
+    const ctx = runContext(root, env);
+    git(wt, 'remote', 'set-url', 'origin', path.join(base, 'missing.git'));
+    gh();
+    expect((await syncPr(ctx, SLUG)).err?.join('\n')).toContain('could not push the PR comments');
+    const commit = git(wt, 'rev-parse', 'HEAD');
+    expect(originHead()).not.toBe(commit);
+    // Still unreachable: the retry fails again, and says so.
+    gh();
+    expect((await syncPr(ctx, SLUG)).err?.join('\n')).toContain('could not push the PR comments');
+    git(wt, 'remote', 'set-url', 'origin', origin);
+    gh();
+    const r = await syncPr(ctx, SLUG);
+    expect(r.err).toBeUndefined();
+    expect(git(wt, 'rev-parse', 'HEAD')).toBe(commit);
+    expect(originHead()).toBe(commit);
+    mainClean();
+  });
+
   test('ci-failure.md is committed while the CI fails, and its removal is committed once the CI is green', async () => {
     const ctx = runContext(root, env);
     gh({ ci: 'FAILURE' });
