@@ -114,27 +114,144 @@ export function debugLeftovers(git: Git, files: string[]): string[] {
   return found;
 }
 
-/** Duration, turns, tokens and denied actions from an agent's `--output-format json` result (harnesses name them alike). */
-export function agentFacts(jsonFile: string): { durationSec: number | null; turns: number | null; tokens: number | null; responseChars: number; denied: Array<{ tool: string; detail: string }> } {
-  const none = { durationSec: null, turns: null, tokens: null, responseChars: 0, denied: [] };
-  let data: any;
-  try { data = JSON.parse(fs.readFileSync(jsonFile, 'utf8')); } catch { return none; }
-  if (!data || typeof data !== 'object') return none;
-  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+export type AgentFacts = { durationSec: number | null; turns: number | null; tokens: number | null; responseChars: number; denied: Array<{ tool: string; detail: string }> };
+
+/** What an agent's result file says, whichever shape its harness prints: one JSON object, or one event per line (codex). */
+interface ParsedAgentResult {
+  /** The agent's messages, oldest first. */
+  messages: string[];
+  /** The streamed text, when the harness sends deltas instead of whole messages. */
+  streamed: string;
+  durationSec: number | null;
+  turns: number | null;
+  tokens: number | null;
+  denied: Array<{ tool: string; detail: string }>;
+}
+
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+const totalTokens = (usage: any): number | null =>
+  num(usage?.total_tokens) ?? ((num(usage?.input_tokens) ?? 0) + (num(usage?.output_tokens) ?? 0) || null);
+
+/** The text of an agent message item, whichever field the harness puts it in. */
+function itemText(item: any): string {
+  if (typeof item.text === 'string') return item.text;
+  if (typeof item.content === 'string') return item.content;
+  if (Array.isArray(item.content)) return item.content.map((c: any) => (typeof c === 'string' ? c : String(c?.text || ''))).join('');
+  return '';
+}
+
+/** One JSON object, as claude and agy print with `--output-format json` (the harnesses name the fields alike). */
+function objectResult(data: any): ParsedAgentResult {
   const text = typeof data.response === 'string' ? data.response : typeof data.result === 'string' ? data.result : '';
   const denied = [
     ...(Array.isArray(data.denied_actions) ? data.denied_actions : []).map((a: any) => ({ tool: String(a.tool || a.tool_name || a.action || 'command'), detail: String(a.detail || a.command || '') })),
     ...(Array.isArray(data.permission_denials) ? data.permission_denials : []).map((a: any) => ({ tool: String(a.tool_name || ''), detail: '' })),
   ];
-  const usage = data.usage && typeof data.usage === 'object' ? data.usage : {};
-  const total = num(usage.total_tokens) ?? ((num(usage.input_tokens) ?? 0) + (num(usage.output_tokens) ?? 0) || null);
   return {
+    messages: text.trim() ? [text] : [],
+    streamed: '',
     durationSec: num(data.duration_seconds) ?? (num(data.duration_ms) !== null ? Math.round((data.duration_ms as number) / 100) / 10 : null),
     turns: num(data.num_turns),
-    tokens: total,
-    responseChars: text.trim().length,
+    tokens: totalTokens(data.usage),
     denied,
   };
+}
+
+/** One JSON event per line, as codex prints with `--json`. */
+function jsonlResult(text: string): ParsedAgentResult | null {
+  const events: any[] = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line);
+      if (event && typeof event === 'object') events.push(event);
+    } catch { /* not an event */ }
+  }
+  if (!events.length) return null;
+  const messages: string[] = [];
+  const deltaParts: string[] = [];
+  const denied: Array<{ tool: string; detail: string }> = [];
+  let usage: any = null;
+  let started = 0;
+  let completed = 0;
+  for (const event of events) {
+    if (event.type === 'item.completed' && event.item && typeof event.item === 'object') {
+      const item = event.item;
+      if (item.type === 'agent_message' || item.type === 'message') {
+        const message = itemText(item);
+        if (message.trim()) messages.push(message);
+      }
+      if (item.type === 'command_execution' && (item.status === 'denied' || (item.exit_code === 126 && /denied/i.test(String(item.aggregated_output || ''))))) {
+        denied.push({ tool: 'Bash', detail: String(item.command || '') });
+      }
+    }
+    if (event.type === 'turn.started') started++;
+    if (event.type === 'turn.completed') {
+      completed++;
+      if (event.usage && typeof event.usage === 'object') usage = event.usage;
+    }
+    // A refused action, as codex prints it (see codex.parseOutput and permissions.extract).
+    if (
+      event.type === 'tool_denial' || event.type === 'permission_denial' || event.type === 'approval.rejected' ||
+      event.action === 'denied' || (event.type === 'command_execution' && (event.status === 'denied' || event.status === 'rejected'))
+    ) {
+      const item = event.item && typeof event.item === 'object' ? event.item : {};
+      const input = event.tool_input && typeof event.tool_input === 'object' ? event.tool_input : {};
+      let tool = String(event.tool || event.tool_name || (item.type === 'command_execution' ? 'Bash' : item.type) || 'command');
+      if (tool === 'command') tool = 'Bash';
+      denied.push({ tool, detail: String(event.command || event.detail || item.command || input.command || input.file_path || '') });
+    }
+    if (event.type === 'item.delta' || event.type === 'content_block_delta' || event.type === 'message_delta') {
+      const item = event.item && typeof event.item === 'object' ? event.item : {};
+      const delta = event.delta && typeof event.delta === 'object' ? event.delta : {};
+      if (!String(event.type).includes('reasoning') && item.type !== 'reasoning' && delta.type !== 'reasoning') {
+        const part = typeof event.delta === 'string' ? event.delta : typeof delta.text === 'string' ? delta.text : '';
+        if (part) deltaParts.push(part);
+      }
+    }
+  }
+  return {
+    messages,
+    streamed: deltaParts.join(''),
+    durationSec: null,
+    turns: started || completed || null,
+    tokens: totalTokens(usage),
+    denied,
+  };
+}
+
+/** The agent's result file, as one JSON object or as JSONL events; null when it holds neither. */
+function readAgentResult(jsonFile: string): ParsedAgentResult | null {
+  let text: string;
+  try { text = fs.readFileSync(jsonFile, 'utf8'); } catch { return null; }
+  try {
+    const data = JSON.parse(text);
+    if (data && typeof data === 'object' && !Array.isArray(data)) return objectResult(data);
+  } catch { /* not one object: try the event stream */ }
+  return jsonlResult(text);
+}
+
+/** Duration, turns, tokens and denied actions from an agent's result (harnesses name them alike; codex writes JSONL). */
+export function agentFacts(jsonFile: string): AgentFacts {
+  const parsed = readAgentResult(jsonFile);
+  if (!parsed) return { durationSec: null, turns: null, tokens: null, responseChars: 0, denied: [] };
+  const text = parsed.messages.join('\n\n') || parsed.streamed;
+  return {
+    durationSec: parsed.durationSec,
+    turns: parsed.turns,
+    tokens: parsed.tokens,
+    responseChars: text.trim().length,
+    denied: parsed.denied,
+  };
+}
+
+/** The last thing the agent said, for a stop that has no artifact to point at; '' when it said nothing. */
+export function agentLastMessage(jsonFile: string): string {
+  const parsed = readAgentResult(jsonFile);
+  if (!parsed) return '';
+  const last = parsed.messages.length ? parsed.messages[parsed.messages.length - 1] : parsed.streamed;
+  return last.trim();
 }
 
 /** The warnings of one agent round; stages that edit code are expected to change files. */

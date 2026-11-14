@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { describe, expect, test } from 'vitest';
 import { Git } from '../src/pipeline/git.js';
 import {
-  agentFacts, appendRound, changedBetween, debugLeftovers, priorStarts, readRounds, repeatedFailures, roundWarnings, snapshot,
+  agentFacts, agentLastMessage, appendRound, changedBetween, debugLeftovers, priorStarts, readRounds, repeatedFailures, roundWarnings, snapshot,
   type AgentRound,
 } from '../src/pipeline/observe.js';
 import { tmp } from './helpers.js';
@@ -93,9 +93,34 @@ describe('agentFacts', () => {
     });
   });
 
+  test('reads a codex JSONL stream: its messages, the tokens of its turn and a refused command', () => {
+    const events = [
+      { type: 'thread.started', thread_id: 't1' },
+      { type: 'turn.started' },
+      { type: 'item.completed', item: { id: 'i0', type: 'agent_message', text: 'I will read the brief.' } },
+      { type: 'item.completed', item: { id: 'i1', type: 'command_execution', command: 'rm -rf build', aggregated_output: 'denied', exit_code: 1, status: 'denied' } },
+      { type: 'item.completed', item: { id: 'i2', type: 'agent_message', text: 'I cannot read files.' } },
+      { type: 'turn.completed', usage: { input_tokens: 41840, output_tokens: 293 } },
+    ];
+    const file = path.join(tmp(), 'codex.json');
+    fs.writeFileSync(file, events.map(e => JSON.stringify(e)).join('\n'));
+    expect(agentFacts(file)).toEqual({
+      durationSec: null, turns: 1, tokens: 42133, responseChars: 44, denied: [{ tool: 'Bash', detail: 'rm -rf build' }],
+    });
+    expect(agentLastMessage(file)).toBe('I cannot read files.');
+  });
+
+  test('a codex stream that said nothing is still an empty answer', () => {
+    const file = path.join(tmp(), 'codex.json');
+    fs.writeFileSync(file, `${JSON.stringify({ type: 'turn.started' })}\n${JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 3, output_tokens: 0 } })}\n`);
+    expect(agentFacts(file).responseChars).toBe(0);
+    expect(agentLastMessage(file)).toBe('');
+  });
+
   test('gives nothing for a file that is missing or not JSON', () => {
     expect(agentFacts(path.join(tmp(), 'none.json')).denied).toEqual([]);
     expect(read('not json').turns).toBeNull();
+    expect(agentLastMessage(path.join(tmp(), 'none.json'))).toBe('');
   });
 });
 
