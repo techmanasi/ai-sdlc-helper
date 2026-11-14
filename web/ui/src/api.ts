@@ -89,6 +89,8 @@ export interface CompletedTask {
   date?: string | null;
   /** The last check of the PR failed: gh's message. */
   prError?: string;
+  /** Rows first: the PR is still being asked for; the settled list says whether the row stays. */
+  prPending?: true;
 }
 
 /** Every PR whose check failed, also of tasks the list leaves out (absent when all answered). */
@@ -231,6 +233,8 @@ export const api = {
   saveTestIssues: (project: string, slug: string, text: string, resume = true) =>
     call<{ ok: boolean; text: string; resumed: Outcome | null }>('POST', `${r(project, slug)}/test-issues`, { text, resume }),
   completed: (project: string) => call<{ completed: CompletedTask[]; prErrors?: PrCheckErrors }>('GET', `${p(project)}/completed`),
+  /** The rows at once, from git and the cache: PRs not known yet are prPending (then ask completed for the settled list). */
+  completedRows: (project: string) => call<{ completed: CompletedTask[]; prErrors?: PrCheckErrors }>('GET', `${p(project)}/completed?rows=first`),
   completedTask: (project: string, slug: string) => call<CompletedTaskDetail>('GET', `${p(project)}/completed/${encodeURIComponent(slug)}`),
   createCompletedPr: (project: string, slug: string) =>
     call<{ ok: boolean; pr: string | null; out: string[]; err: string[] }>('POST', `${p(project)}/completed/${encodeURIComponent(slug)}/pr`, {}),

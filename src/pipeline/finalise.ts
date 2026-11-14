@@ -440,6 +440,13 @@ export function getPrStatusCached(cwd: string, branchOrUrl: string, env: NodeJS.
   return r;
 }
 
+/** What the cache holds for a PR, without asking GitHub or starting anything: null when nothing is known yet. */
+export function peekPrStatus(cwd: string, branchOrUrl: string, o: PrReadOptions = {}): PrRead | null {
+  if (!branchOrUrl || !branchOrUrl.trim()) return { status: null, ageMs: null, stale: false, pending: false };
+  const e = prCache.get(prKey(cwd, branchOrUrl));
+  return e ? readEntry(e, Date.now(), o) : null;
+}
+
 /**
  * Like getPrStatusCached, but with nothing cached it waits for the first answer (asynchronously, so other requests and
  * streams keep running). A cached value, however old, is returned at once.

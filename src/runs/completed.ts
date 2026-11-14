@@ -8,7 +8,7 @@ import { readRecord, type RunRecord } from './records.js';
 import { cleanMainBrief } from '../pipeline/pr-link.js';
 import { liveBranch, liveBriefPr, pickBase, pickBaseAsync, runWorktree, type RunContext } from './index.js';
 import { keepError } from '../pipeline/errors.js';
-import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, getPrStatusAsync, keepPrStatusIn, prefetchPrStatuses, PR_STATUS_FILE, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
+import { createOrGetPr, fetchPrComments, getPrFromBrief, getPrStatus, getPrStatusAsync, keepPrStatusIn, peekPrStatus, prefetchPrStatuses, PR_STATUS_FILE, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
 
 export interface CompletedTask {
   slug: string;
@@ -23,6 +23,11 @@ export interface CompletedTask {
   date: string | null;
   /** The last check of the PR failed: gh's message (the state, if any, is from an earlier check). Absent when it did not fail. */
   prError?: string;
+  /**
+   * Rows first only: nothing is known of the PR yet; it is being asked for. The row is shown until the settled list
+   * says whether it stays (a PR that turns out not merged takes it out). Absent in the settled list.
+   */
+  prPending?: true;
 }
 
 /** The Completed list as the web server answers it: the rows, and every PR whose check failed (also of tasks the list leaves out). */
@@ -73,6 +78,19 @@ export function isArchivedInIndex(indexText: string, slug: string): boolean {
   return false;
 }
 
+/**
+ * The PR link of a completed task: its main-checkout brief's, else (a merged run whose link the #136 cleanup took out
+ * of the main checkout's brief, before a pull brings the committed one) its run worktree's. So such a task keeps being
+ * asked for by the same link, whose status is cached, and not by its branch.
+ */
+function briefLinkOf(ctx: RunContext, slug: string, mainText: string): string | null {
+  const own = getPrFromBrief(mainText);
+  if (own) return own;
+  const wt = runWorktree(ctx, slug);
+  if (!wt) return null;
+  try { return getPrFromBrief(fs.readFileSync(path.join(wt, ctx.backlogDir, slug, 'brief.md'), 'utf8')); } catch { return null; }
+}
+
 /** What the Completed list needs to know of a slug before it asks GitHub: the PR key is the brief's PR, else the branch. */
 function completedSlugsOf(ctx: RunContext) {
   const indexFile = path.join(ctx.root, ctx.backlogDir, 'index.md');
@@ -105,7 +123,7 @@ function completedPrKeys(ctx: RunContext): { keys: { slug: string; key: string }
   for (const slug of completedSlugs) {
     const rec = readRecord(ctx.reg, slug);
     const briefFile = path.join(ctx.root, ctx.backlogDir, slug, 'brief.md');
-    const pr = getPrFromBrief(fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '');
+    const pr = briefLinkOf(ctx, slug, fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '');
     const branch = (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
     keys.push({ slug, key: pr || branch });
     if (!(rec && (rec.finished || rec.started))) undated.push(branch);
@@ -117,7 +135,7 @@ function completedPrKeys(ctx: RunContext): { keys: { slug: string; key: string }
 interface GitFacts { defaultBase: string; dateOf(branch: string): string | null }
 
 /** What the list knows of a PR key: its status, and gh's message when the last check failed. */
-interface PrKnown { status: PrStatus | null; error?: string }
+interface PrKnown { status: PrStatus | null; error?: string; pending?: boolean }
 
 /** Lists all completed tasks in the project (asks GitHub for each PR, one after another: for the CLI and tests). */
 export function listCompletedTasks(ctx: RunContext): CompletedTask[] {
@@ -171,6 +189,62 @@ async function pooled<T>(items: T[], limit: number, fn: (item: T) => Promise<unk
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
+const slugsByKey = (keys: { slug: string; key: string }[]): Map<string, string[]> => {
+  const m = new Map<string, string[]>();
+  for (const { slug, key } of keys) m.set(key, [...(m.get(key) || []), slug]);
+  return m;
+};
+
+/**
+ * Asks for the PR status of every key of <slugsOf> (key -> its tasks): the links in one `gh pr list`, the branches
+ * (gh's pick of a PR) each, four at a time, while the list runs; cached ones from the cache. A failed check goes to its
+ * tasks' errors.log. What is known lands in <known>. Calls already running (another request's, the start-up warm-up's)
+ * are joined, not repeated.
+ */
+async function askPrStatuses(ctx: RunContext, slugsOf: Map<string, string[]>, known: Map<string, PrKnown>): Promise<void> {
+  const logFailure = (key: string, message: string) => {
+    for (const slug of slugsOf.get(key) || []) keepError({ root: ctx.root, log: path.join(ctx.backlogDir, slug, 'logs') }, `completed tasks: pull request status of ${key}`, message);
+  };
+  const unique = [...slugsOf.keys()];
+  const o = prPollOptions(ctx.env);
+  const read = async (key: string) => {
+    const r = await getPrStatusAsync(ctx.root, key, ctx.env, { ...o, onError: message => logFailure(key, message) });
+    known.set(key, { status: r.status, ...(r.failed ? { error: r.error || 'the last check of this pull request failed' } : {}) });
+  };
+  const isLink = (k: string) => /^https?:\/\//.test(k.trim());
+  await Promise.all([
+    prefetchPrStatuses(ctx.root, unique, ctx.env, logFailure).then(() => pooled(unique.filter(isLink), 4, read)),
+    pooled(unique.filter(k => !isLink(k)), 4, read),
+  ]);
+}
+
+/** Why a warm-up asked GitHub nothing, or what it asked. */
+export type PrWarmup = { skipped: 'no-github' | 'no-gh' | 'fresh' | 'no-tasks' } | { asked: number; failed: number; errors: string[] };
+
+/**
+ * The web server's start-up warm-up of a project's Completed list: the same PR status calls the list makes
+ * (askPrStatuses), so the first list after a start finds them cached (pr-status.cache). Asks nothing for a project
+ * without a GitHub origin, without gh, without completed tasks, or whose statuses are all still fresh. A list request
+ * made while it runs joins its calls. A failed check is kept in its task's errors.log, like the list's.
+ */
+export async function warmCompletedPrs(ctx: RunContext): Promise<PrWarmup> {
+  keepPrStatusIn(ctx.root, path.join(ctx.reg, PR_STATUS_FILE));
+  const origin = await execFileAsync('git', ['-C', ctx.root, 'config', '--get', 'remote.origin.url'], { env: ctx.env });
+  if (origin.code !== 0 || !/github/i.test(origin.stdout)) return { skipped: 'no-github' };
+  const { keys } = completedPrKeys(ctx);
+  if (!keys.length) return { skipped: 'no-tasks' };
+  const slugsOf = slugsByKey(keys);
+  const o = prPollOptions(ctx.env);
+  if ([...slugsOf.keys()].every(k => { const r = peekPrStatus(ctx.root, k, o); return r && !r.stale; })) return { skipped: 'fresh' };
+  const gh = await execFileAsync('gh', ['--version'], { env: ctx.env, timeout: 5000 });
+  // Only a gh that is not installed is skipped; any other trouble shows in the calls below, logged.
+  if ((gh.error as { code?: unknown } | undefined)?.code === 'ENOENT') return { skipped: 'no-gh' };
+  const known = new Map<string, PrKnown>();
+  await askPrStatuses(ctx, slugsOf, known);
+  const errors = [...known.values()].map(k => k.error).filter((e): e is string => Boolean(e));
+  return { asked: slugsOf.size, failed: errors.length, errors: [...new Set(errors)] };
+}
+
 /** The web server's version of listCompletedTasks (the rows only; completedListAsync also gives the failed checks). */
 export async function listCompletedTasksAsync(ctx: RunContext): Promise<CompletedTask[]> {
   return (await completedListAsync(ctx)).completed;
@@ -183,43 +257,40 @@ export async function listCompletedTasksAsync(ctx: RunContext): Promise<Complete
  * The git facts (default base, branch dates) are read asynchronously at the same time. A failed check is kept in the
  * task's errors.log with gh's whole message when it happens, and answered with the list (prError, prErrors).
  */
-export async function completedListAsync(ctx: RunContext): Promise<CompletedList> {
+export async function completedListAsync(ctx: RunContext, opts: { rowsFirst?: boolean } = {}): Promise<CompletedList> {
   const t0 = performance.now();
   keepPrStatusIn(ctx.root, path.join(ctx.reg, PR_STATUS_FILE));
   const { keys, undated } = completedPrKeys(ctx);
-  const slugsOf = new Map<string, string[]>();
-  for (const { slug, key } of keys) slugsOf.set(key, [...(slugsOf.get(key) || []), slug]);
-  const logFailure = (key: string, message: string) => {
-    for (const slug of slugsOf.get(key) || []) keepError({ root: ctx.root, log: path.join(ctx.backlogDir, slug, 'logs') }, `completed tasks: pull request status of ${key}`, message);
-  };
+  const slugsOf = slugsByKey(keys);
   const tKeys = performance.now();
   const known = new Map<string, PrKnown>();
-  const prs = (async () => {
-    const unique = [...slugsOf.keys()];
-    const o = prPollOptions(ctx.env);
-    const read = async (key: string) => {
-      const r = await getPrStatusAsync(ctx.root, key, ctx.env, { ...o, onError: message => logFailure(key, message) });
-      known.set(key, { status: r.status, ...(r.failed ? { error: r.error || 'the last check of this pull request failed' } : {}) });
-    };
-    // The links come from one list; the branches (gh's pick of a PR) are asked for each, while the list runs.
-    const isLink = (k: string) => /^https?:\/\//.test(k.trim());
-    await Promise.all([
-      prefetchPrStatuses(ctx.root, unique, ctx.env, logFailure).then(() => pooled(unique.filter(isLink), 4, read)),
-      pooled(unique.filter(k => !isLink(k)), 4, read),
-    ]);
-    return performance.now();
-  })();
+  const prs = askPrStatuses(ctx, slugsOf, known).then(() => performance.now());
+  if (opts.rowsFirst) {
+    // Not waited for: the settled list that follows joins these same calls (the cache's in-flight map), never repeats them.
+    prs.catch(e => {
+      keepError({ root: ctx.reg, log: '' }, 'completed tasks: ask for the pull request statuses', (e as Error).stack || String(e));
+      process.stderr.write(`WARNING: the Completed list could not ask for its pull request statuses (see ${path.join(ctx.reg, 'errors.log')})\n`);
+    });
+  }
   const facts = (async () => {
     const [base, dates] = await Promise.all([pickBaseAsync(ctx), branchDates(ctx, undated)]);
     return { facts: { defaultBase: base || 'main', dateOf: (b: string) => dates.get(b) ?? null } as GitFacts, at: performance.now() };
   })();
-  const [prsAt, git] = await Promise.all([prs, facts]);
+  // Rows first: what the cache holds now, every other PR pending; the settled list waits for GitHub.
+  const prOf = opts.rowsFirst
+    ? (key: string): PrKnown => {
+      const r = peekPrStatus(ctx.root, key, prPollOptions(ctx.env));
+      return r ? { status: r.status, ...(r.failed ? { error: r.error || 'the last check of this pull request failed' } : {}) } : { status: null, pending: true };
+    }
+    : (key: string): PrKnown => known.get(key) ?? { status: null };
+  const [prsAt, git] = await Promise.all([opts.rowsFirst ? Promise.resolve(performance.now()) : prs, facts]);
+  if (opts.rowsFirst) for (const { key } of keys) { const k = prOf(key); if (k.error) known.set(key, k); }
   const tBuild = performance.now();
-  const completed = completedTasks(ctx, key => known.get(key) ?? { status: null }, git.facts);
+  const completed = completedTasks(ctx, prOf, git.facts);
   const prErrors: NonNullable<CompletedList['prErrors']> = [];
   for (const [key, k] of known) if (k.error) for (const slug of slugsOf.get(key) || []) prErrors.push({ slug, pr: key, message: k.error });
   const r3 = (n: number) => Math.round(n * 1000) / 1000;
-  trace({ action: 'completed', why: 'list', ms: r3(performance.now() - t0), n: completed.length, phases: { keys: r3(tKeys - t0), prs: r3(prsAt - tKeys), git: r3(git.at - tKeys), build: r3(performance.now() - tBuild) } });
+  trace({ action: 'completed', why: opts.rowsFirst ? 'rows' : 'list', ms: r3(performance.now() - t0), n: completed.length, phases: { keys: r3(tKeys - t0), prs: r3(prsAt - tKeys), git: r3(git.at - tKeys), build: r3(performance.now() - tBuild) } });
   return prErrors.length ? { completed, prErrors } : { completed };
 }
 
@@ -275,7 +346,7 @@ function completedTasks(ctx: RunContext, prOf: (key: string) => PrKnown, facts: 
     const docsDir = path.join(ctx.root, ctx.backlogDir, slug);
     const briefFile = path.join(docsDir, 'brief.md');
     const briefText = fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '';
-    let pr = getPrFromBrief(briefText);
+    let pr = briefLinkOf(ctx, slug, briefText);
     const briefMeta = parseBrief({ root: ctx.root, backlogDir: ctx.backlogDir }, slug);
     const branch = (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
     const base = (rec && rec.base) || defaultBase;
@@ -284,6 +355,14 @@ function completedTasks(ctx: RunContext, prOf: (key: string) => PrKnown, facts: 
     // Query live PR status
     const known = prOf(pr || branch);
     const prStatus = known.status;
+    if (known.pending) {
+      // Rows first: shown now; the settled list decides whether it stays.
+      out.push({
+        slug, title: item ? item.title : slug, type: (item && item.type) || briefMeta.type, priority: briefMeta.priority,
+        branch, base, pr, prState: null, archived, date: (rec && (rec.finished || rec.started)) || facts.dateOf(branch), prPending: true,
+      });
+      continue;
+    }
     if (!pr && prStatus?.url) {
       pr = prStatus.url;
       // A run with a worktree gets its link on the PR branch (when the PR is created); the main checkout stays unedited.
@@ -352,7 +431,7 @@ export function getCompletedTaskDetail(ctx: RunContext, slug: string): Completed
 export async function getCompletedTaskDetailAsync(ctx: RunContext, slug: string): Promise<CompletedTaskDetail> {
   const rec = readRecord(ctx.reg, slug);
   const briefFile = path.join(ctx.root, ctx.backlogDir, slug, 'brief.md');
-  const pr = getPrFromBrief(fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '');
+  const pr = briefLinkOf(ctx, slug, fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '');
   const key = pr || (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
   const status = (await getPrStatusAsync(ctx.root, key, ctx.env, prPollOptions(ctx.env))).status;
   return completedDetail(ctx, slug, k => (k === key ? status : null));
@@ -367,7 +446,7 @@ function completedDetail(ctx: RunContext, slug: string, prOf: (key: string) => P
   const docsDir = path.join(ctx.root, ctx.backlogDir, slug);
   const briefFile = path.join(docsDir, 'brief.md');
   const briefText = fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '';
-  let pr = getPrFromBrief(briefText);
+  let pr = briefLinkOf(ctx, slug, briefText);
   const briefMeta = parseBrief({ root: ctx.root, backlogDir: ctx.backlogDir }, slug);
   const defaultBase = pickBase(ctx) || 'main';
   const branch = (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;

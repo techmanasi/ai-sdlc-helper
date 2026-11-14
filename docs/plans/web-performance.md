@@ -1,6 +1,7 @@
 # Web performance: the board, the run page and the run register
 
-Status (2026-11-13): **P0, P1, P2, P3, P5, P7 and P9 are merged or done; P4 and P6 are done as the board watcher; P8 is dropped.**
+Status (2026-11-14): **P0, P1, P2, P3, P5, P7 and P9 are merged or done; P4 and P6 are done as the board watcher; P8 is dropped.
+The Completed list is fast (#137); rows first, the start-up PR cache fill and the worktree keying fix are in #138.**
 Section 12 has what was built, what was measured, and the decision still open. One PR per step, **direct**
 (no backlog briefs).
 Revised 2026-11-12 after a review against the code: P1 and P2 are redesigned,
@@ -784,9 +785,26 @@ Where the time went, and what changed (`src/runs/completed.ts`):
   With 20 merged tasks in worktrees whose briefs need cleaning, the longest synchronous stretch during a load is 34 ms;
   the only longer ones are at the server's start (`gitTop`, triage's `recover`), not during a load.
 
-Section 10 asked for "no `gh` on the request path" for this page. A load with anything cached keeps to that; a cold
-load still waits for the one list, because whether a task is in the list depends on its PR being merged. Showing
-rows first and their state later would change the list's rows after they are shown; not built, see the PR.
+Section 10 asked for "no `gh` on the request path" for this page. Built since (#138), with the user's decision of
+2026-11-14 for rows first: `GET …/completed?rows=first` answers from git and the cache only, and marks a PR it does
+not know yet `prPending`. Only when a row is pending does the page then ask for the settled list (`GET …/completed`,
+unchanged). That list must stay equal to the list main answered before (the test pins it), and it joins the gh calls
+the rows request started instead of repeating them. Rows the settled list leaves out are named in one short line, "N
+tasks removed: PR not merged". The server also fills the PR status cache a few seconds after it starts, one registered
+project at a time, with the same calls the list makes (`SDLC_WARM_PR_CACHE=0` turns that off; failures go to the
+registry's errors.log and one line on stderr), so the first list after a start is warm. And a merged run whose link
+the #136 cleanup took out of the main checkout's brief keeps being asked for by its run worktree's link, which is
+cached, instead of by its branch. Measured with the same probe (120 tasks, fake gh 850 ms, median of 5): a cold load
+shows its rows in 0.18 s instead of 2.10 s and settles in 2.18 s; the first load after a start with the warm-up done
+takes 0.24 s with no gh call; with 20 merged runs in worktrees, a warm load went from 1.12 s and 2 gh calls to 0.18 s
+and none, and a restart from 2.01 s and 8 calls to 0.18 s and none. In Chrome, a cold load's first row came after
+0.36 s instead of 2.37 s.
+
+Still open:
+
+- Create PR clears every cached status (`clearPrCache` in `findOrCreatePr`), so the next load is cold.
+- The detail panel's request (`completed/<slug>`) still makes 4 blocking git calls.
+- Older PRs outside the `gh pr list` are looked up one by one, and the list itself can wait up to 18 s on a slow gh.
 
 ## Appendix: mapping from the two superseded plans
 

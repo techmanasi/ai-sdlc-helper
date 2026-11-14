@@ -11,6 +11,11 @@
 // Usage: npm run build (or tsc of src and web/server), then
 //   node scripts/completed-probe.mjs [--root <checkout with dist/>] [--tasks 120] [--runs 5] [--gh-ms 850]
 //                                    [--worktrees <n>] [--cpu-prof <dir>] [--json <file>]
+//   --rows-first: each load is what the page does: GET ?rows=first, then the settled list only when a row is pending;
+//   firstRowsMs is the first answer, medianMs the settled one.
+//   --warm: one more scenario, "warmStart": a new server with nothing cached whose start-up warm-up (SDLC_WARM_PR_CACHE)
+//   is waited for before the first load (the project gets a GitHub origin for it); every other scenario runs with the
+//   warm-up off, so "cold" is the same load without it.
 //   --worktrees <n>: n merged tasks ran in worktrees of their own and linked their PR in the main checkout's brief
 //   (uncommitted there), so each load also finds briefs to clean (cleanMergedRunBrief).
 //   --serve <port>: no measuring; serves the seeded project with the built UI (dist/web/ui) for a browser, prints the
@@ -35,6 +40,8 @@ const cpuProf = opt('cpu-prof', '');
 const jsonOut = opt('json', '');
 const servePort = Number(opt('serve', 0));
 const WORKTREES = Number(opt('worktrees', 0));
+const ROWS_FIRST = args.includes('--rows-first');
+const WARM = args.includes('--warm');
 const serverJs = path.join(root, 'dist', 'web', 'server', 'index.js');
 if (!fs.existsSync(serverJs)) { console.error(`${serverJs} is missing: build first`); process.exit(2); }
 
@@ -140,7 +147,7 @@ function addWorktrees(d) {
   }
 }
 
-const calls = dir => fs.readFileSync(path.join(dir, 'gh-calls.txt'), 'utf8').split('\n').filter(l => l.startsWith('start ')).length;
+const calls = dir => fs.readFileSync(path.join(dir, 'gh-calls.txt'), 'utf8').split('\n').filter(l => l.startsWith('start ') && !l.endsWith(' --version')).length;
 const running = dir => { const t = fs.readFileSync(path.join(dir, 'gh-calls.txt'), 'utf8').split('\n'); return t.filter(l => l.startsWith('start ')).length - t.filter(l => l.startsWith('end ')).length; };
 /** Waits until no gh call is running and none started for 400 ms. */
 async function settle(dir) {
@@ -156,15 +163,16 @@ async function settle(dir) {
 const CHILD = `
 import { startServer } from ${JSON.stringify(serverJs)};
 const o = JSON.parse(process.argv[1]);
-const s = await startServer({ port: o.port || 0, token: o.token, env: process.env, cwd: o.repo, uiDir: o.ui, traceFlushMs: 50, cli: ['/bin/sh', '-c', 'exit 3', 'sh'] });
+const s = await startServer({ port: o.port || 0, token: o.token, env: process.env, cwd: o.repo, uiDir: o.ui, traceFlushMs: 50, cli: ['/bin/sh', '-c', 'exit 3', 'sh'], warmPrDelayMs: 0 });
+if (o.waitWarm) await s.prWarmup();
 process.stdout.write(JSON.stringify({ port: s.port, token: s.token }) + '\\n');
 process.stdin.on('data', () => {}); process.stdin.on('end', async () => { await s.close(); process.exit(0); });
 `;
 
 async function startChild(dir, extraEnv = {}, tag = '', serve = null) {
-  const env = { ...process.env, ...GIT_ENV, PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, AI_SDLC_HELPER_CONFIG_DIR: path.join(dir, 'config'), FAKE_GH_DIR: dir, FAKE_GH_MS: String(GH_MS), ...extraEnv };
+  const env = { ...process.env, ...GIT_ENV, PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, AI_SDLC_HELPER_CONFIG_DIR: path.join(dir, 'config'), FAKE_GH_DIR: dir, FAKE_GH_MS: String(GH_MS), SDLC_WARM_PR_CACHE: '0', ...extraEnv };
   const flags = cpuProf ? ['--cpu-prof', `--cpu-prof-dir=${path.resolve(cpuProf)}`, `--cpu-prof-name=completed-${tag}-${workN}.cpuprofile`] : [];
-  const child = spawn(process.execPath, [...flags, '--input-type=module', '-e', CHILD, JSON.stringify({ repo: path.join(dir, 'shop'), ui: serve ? path.join(root, 'dist', 'web', 'ui') : path.join(dir, 'ui'), ...(serve || {}) })], { env, stdio: ['pipe', 'pipe', 'inherit'] });
+  const child = spawn(process.execPath, [...flags, '--input-type=module', '-e', CHILD, JSON.stringify({ repo: path.join(dir, 'shop'), ui: serve ? path.join(root, 'dist', 'web', 'ui') : path.join(dir, 'ui'), waitWarm: extraEnv.SDLC_WARM_PR_CACHE === '1', ...(serve || {}) })], { env, stdio: ['pipe', 'pipe', 'inherit'] });
   const info = await new Promise((res, rej) => {
     let out = '';
     child.stdout.on('data', c => { out += c; const nl = out.indexOf('\n'); if (nl >= 0) res(JSON.parse(out.slice(0, nl))); });
@@ -185,6 +193,21 @@ const get = (s, p) => new Promise((res, rej) => {
 /** One timed load: the client's time, gh calls started while it was open, and the total it set off. */
 async function load(s) {
   const before = calls(s.dir);
+  let first = null;
+  if (ROWS_FIRST) {
+    const t0 = performance.now();
+    const f = await get(s, '/api/projects/shop/completed?rows=first');
+    if (f.status !== 200) throw new Error(`rows first answered ${f.status}: ${f.body.slice(0, 300)}`);
+    const fb = JSON.parse(f.body);
+    first = { ms: f.ms };
+    if (!fb.completed.some(t => t.prPending)) return { ms: f.ms, firstMs: f.ms, requests: 1, during: calls(s.dir) - before, total: (await settle(s.dir)) - before, rows: fb.completed.length, body: fb };
+    const r = await get(s, '/api/projects/shop/completed');
+    const settledMs = performance.now() - t0;
+    const during = calls(s.dir) - before;
+    const total = (await settle(s.dir)) - before;
+    const body = JSON.parse(r.body);
+    return { ms: settledMs, firstMs: first.ms, requests: 2, during, total, rows: body.completed.length, body };
+  }
   const r = await get(s, '/api/projects/shop/completed');
   const during = calls(s.dir) - before;
   const total = (await settle(s.dir)) - before;
@@ -240,13 +263,26 @@ for (let i = 0; i < RUNS; i++) {
   results.expired.push({ ...e, phases: phases(dir).slice(-1)[0] });
   await s.stop();
 }
+if (WARM) {
+  results.warmStart = [];
+  for (let i = 0; i < RUNS; i++) {
+    const dir = freshCopy();
+    git(path.join(dir, 'shop'), 'remote', 'add', 'origin', 'https://github.com/o/shop.git');
+    const t0 = performance.now();
+    const s = await startChild(dir, { SDLC_WARM_PR_CACHE: '1' }, 'warmstart');
+    const warmMs = performance.now() - t0;
+    const w = await load(s);
+    results.warmStart.push({ ...w, warmMs, phases: phases(dir).slice(-1)[0] });
+    await s.stop();
+  }
+}
 
 const stat = xs => { const s = [...xs].sort((a, b) => a - b); return { median: s[Math.floor((s.length - 1) / 2)], worst: s[s.length - 1] }; };
 const rows = Object.entries(results).map(([name, rs]) => {
   const ms = stat(rs.map(r => r.ms));
-  return { scenario: name, runs: rs.length, rows: rs[0]?.rows, medianMs: Math.round(ms.median), worstMs: Math.round(ms.worst), ghDuringMedian: stat(rs.map(r => r.during)).median, ghTotalMedian: stat(rs.map(r => r.total)).median, ghTotalWorst: stat(rs.map(r => r.total)).worst };
+  return { scenario: name, runs: rs.length, rows: rs[0]?.rows, ...(ROWS_FIRST ? { firstRowsMs: Math.round(stat(rs.map(r => r.firstMs)).median), requests: stat(rs.map(r => r.requests)).worst } : {}), medianMs: Math.round(ms.median), worstMs: Math.round(ms.worst), ghDuringMedian: stat(rs.map(r => r.during)).median, ghTotalMedian: stat(rs.map(r => r.total)).median, ghTotalWorst: stat(rs.map(r => r.total)).worst };
 });
-console.log(`Completed endpoint, ${TASKS} completed tasks${WORKTREES ? ` (${WORKTREES} merged in worktrees, briefs to clean)` : ''}, fake gh ${GH_MS} ms per call, ${RUNS} runs each (${root})`);
+console.log(`Completed endpoint${ROWS_FIRST ? ' (rows first, then settled)' : ''}, ${TASKS} completed tasks${WORKTREES ? ` (${WORKTREES} merged in worktrees, briefs to clean)` : ''}, fake gh ${GH_MS} ms per call, ${RUNS} runs each (${root})`);
 console.table(rows);
 const ph = results.cold.map(r => r.phases).filter(Boolean);
 if (ph.length) console.log('cold phases (last run):', JSON.stringify(ph[ph.length - 1]));

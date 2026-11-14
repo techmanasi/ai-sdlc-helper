@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, prPollOptions, PR_POLL_MS, createPrForCompleted,
-  decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, completedListAsync, primeRepoPaths, main, readRegistry, repoRulesFile, resolve,
+  decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, completedListAsync, primeRepoPaths, warmCompletedPrs, keepError, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
@@ -43,6 +43,8 @@ export interface ServerOptions {
   traceFlushMs?: number;
   /** Timings of the per-run stream (tests): debounce, safety tick, ping and tail throttle, in ms. */
   stream?: Partial<StreamTimings>;
+  /** How long after the start the PR statuses of the Completed lists are warmed (default 3000 ms; tests shorten it). */
+  warmPrDelayMs?: number;
   /** The claude command triage runs spawn (tests); default 'claude'. */
   claude?: string;
 }
@@ -56,6 +58,8 @@ export interface RunningServer {
   close(): Promise<void>;
   /** The per-run streams open now: pages and watched folders of each (tests). */
   streamStats(): Record<string, { clients: number; watched: number }>;
+  /** Resolves once the start-up warm-up of the PR statuses has finished (at once when it is off or the server closed). */
+  prWarmup(): Promise<void>;
 }
 
 export const DEFAULT_PORT = 4477;
@@ -430,7 +434,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     if (what === 'completed') {
       const ctx = contextFor(p);
       if (method === 'GET' && !parts[3]) {
-        return send(200, await completedListAsync(ctx));
+        return send(200, await completedListAsync(ctx, { rowsFirst: url.searchParams.get('rows') === 'first' }));
       }
       if (parts[3]) {
         const slug = slugOf(parts[3]);
@@ -642,10 +646,45 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   port = (server.address() as { port: number }).port;
   const url = `http://127.0.0.1:${port}`;
   await triage.recover();
+
+  // The PR statuses of every project's Completed list, asked a few seconds after the start (never awaited by it or by a
+  // request), one project at a time, so the first list finds them cached. A list asked for meanwhile joins these calls.
+  let closed = false;
+  let warmTimer: NodeJS.Timeout | null = null;
+  let warmDone: () => void = () => {};
+  const warmed = new Promise<void>(r => { warmDone = r; });
+  const warmAll = async (): Promise<void> => {
+    for (const p of await projects()) {
+      if (closed) return;
+      let reg = '';
+      try {
+        if (!contextFresh(p)) await primeRepoPaths(p.path, env);
+        const ctx = contextFor(p);
+        reg = ctx.reg;
+        const t0 = performance.now();
+        const r = await warmCompletedPrs(ctx);
+        trace({ action: 'warm:pr', why: 'skipped' in r ? r.skipped : 'asked', run: p.name, n: 'asked' in r ? r.asked : 0, ms: Math.round((performance.now() - t0) * 1000) / 1000 });
+        if ('errors' in r && r.errors.length) {
+          for (const m of r.errors) keepError({ root: reg, log: '' }, `web server start: warm the PR statuses of ${p.name}`, m);
+          process.stderr.write(`WARNING: ${r.failed} PR status check(s) of ${p.name} failed at start-up (see ${path.join(reg, 'errors.log')})\n`);
+        }
+      } catch (e) {
+        if (reg) keepError({ root: reg, log: '' }, `web server start: warm the PR statuses of ${p.name}`, (e as Error).stack || String(e));
+        process.stderr.write(`WARNING: could not warm the PR statuses of ${p.name}: ${(e as Error).message}${reg ? ` (see ${path.join(reg, 'errors.log')})` : ''}\n`);
+      }
+    }
+  };
+  if (env.SDLC_WARM_PR_CACHE === '0') warmDone();
+  else {
+    warmTimer = setTimeout(() => { warmTimer = null; void warmAll().finally(warmDone); }, opts.warmPrDelayMs ?? 3000);
+    warmTimer.unref();
+  }
+
   return {
+    prWarmup: () => warmed,
     url, port, token,
     openUrl: `${url}/?t=${token}`,
     streamStats: () => runStreams.stats(),
-    close: () => new Promise(res => { for (const f of feeds.values()) { clearInterval(f.ping); f.watch.close(); } feeds.clear(); runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
+    close: () => new Promise(res => { closed = true; if (warmTimer) { clearTimeout(warmTimer); warmTimer = null; warmDone(); } for (const f of feeds.values()) { clearInterval(f.ping); f.watch.close(); } feeds.clear(); runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
   };
 }
