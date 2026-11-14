@@ -352,15 +352,6 @@ export interface PrRead {
   error?: string;
 }
 
-type PrListener = (e: { cwd: string; branchOrUrl: string; status: PrStatus | null }) => void;
-const prListeners = new Set<PrListener>();
-
-/** Calls <fn> whenever a background refresh changes a PR status (or learns one for the first time). Returns the unsubscribe. */
-export function onPrStatusChange(fn: PrListener): () => void {
-  prListeners.add(fn);
-  return () => { prListeners.delete(fn); };
-}
-
 /** Who waits for the failure of a running refresh, per key: every reader that started or joined it. */
 const failureWaiters = new Map<string, Set<(message: string) => void>>();
 const waitForFailure = (key: string, fn?: (message: string) => void) => {
@@ -409,9 +400,6 @@ function refreshPrStatus(cwd: string, branchOrUrl: string, env: NodeJS.ProcessEn
       savePrStatuses(cwd);
       inflight.delete(key);
       reportFailure(key, error);
-      if ((!err || none) && (!before || JSON.stringify(before.val) !== JSON.stringify(status))) {
-        for (const fn of prListeners) { try { fn({ cwd, branchOrUrl, status }); } catch { /* a listener must not break the refresh */ } }
-      }
       resolve(status);
     });
   });
@@ -507,7 +495,6 @@ export async function prefetchPrStatuses(cwd: string, links: string[], env: Node
       prCache.set(prKey(cwd, k), { time: now, val: status });
       failureWaiters.delete(prKey(cwd, k));
       filled++;
-      for (const fn of prListeners) { try { fn({ cwd, branchOrUrl: k, status }); } catch { /* a listener must not break the refresh */ } }
     }
     return filled;
   } finally {
