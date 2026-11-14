@@ -245,11 +245,13 @@ describe('the Completed list endpoint', () => {
     const calls = ghCalls().length;
     const again = await completed(server);
     expect(ghCalls().length).toBe(calls);
-    expect(again).toEqual(body);
+    expect(again.completed).toEqual(body.completed);
+    // The cleanups that ran after the first answer are told in the next one.
+    expect(again.notices.map((n: { slug: string }) => n.slug)).toEqual(expect.arrayContaining(['alpha', 'bravo']));
     await server.close();
     forgetPrStatuses(); // a restart: the statuses come back from pr-status.cache, still under the links
     server = await start();
-    expect(await completed(server)).toEqual(body);
+    expect((await completed(server)).completed).toEqual(body.completed);
     expect(ghCalls().length).toBe(calls);
   });
 
