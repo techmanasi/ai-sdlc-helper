@@ -107,8 +107,9 @@ const outcome = (o: Outcome) => ({ ok: o.code === 0, code: o.code, out: o.out, e
 
 export async function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
   // Every run this server starts gets its environment from here, so one marker says the web UI started it.
-  const env: NodeJS.ProcessEnv = opts.env || { ...process.env };
-  env.SDLC_RUN_TRIGGER = 'ui';
+  // `liveEnv` is the caller's own object, never written to: SDLC_BOARD_SILENCE_MS is read from it on each use.
+  const liveEnv: NodeJS.ProcessEnv = opts.env || process.env;
+  const env: NodeJS.ProcessEnv = { ...liveEnv, SDLC_RUN_TRIGGER: 'ui' };
   const token = opts.token || crypto.randomBytes(24).toString('base64url');
   const uiDir = opts.uiDir || path.join(here, '..', 'ui');
   const cli = opts.cli || [process.execPath, path.join(here, '..', '..', 'bin.js')];
@@ -258,7 +259,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       const personalAgent = (entry?.overrides?.agent || undefined) as Record<string, any> | undefined;
       return send(200, {
         ...r, raw, hash: hashOf(raw ?? ''), overrides: entry?.overrides || {}, registered: Boolean(entry),
-        boardSilenceEnvSeconds: silenceFrom(env).silenceMs ? Math.round(silenceFrom(env).silenceMs! / 1000) : null,
+        boardSilenceEnvSeconds: envSilenceSeconds(),
         fileAgent, personalAgent: personalAgent || {}, sources: agentSources(mergeAgent(fileAgent, personalAgent), personalAgent),
         files: { project: path.join(p.path, 'sdlc.config.json'), personal: registryFile(env) },
         harnesses: [...HARNESS_IDS], stages: [...AGENT_STAGES], efforts: [...EFFORT_LEVELS], stageDefaults: STAGE_DEFAULTS,
@@ -490,7 +491,12 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   }
 
   function silenceMsFor(p: Project): number {
-    return opts.boardWatch?.silenceMs ?? silenceFrom(env).silenceMs ?? savedSilenceMs(p) ?? BOARD_WATCH_TIMINGS.silenceMs;
+    return opts.boardWatch?.silenceMs ?? silenceFrom(liveEnv).silenceMs ?? savedSilenceMs(p) ?? BOARD_WATCH_TIMINGS.silenceMs;
+  }
+
+  function envSilenceSeconds(): number | null {
+    const ms = silenceFrom(liveEnv).silenceMs;
+    return ms === undefined ? null : Math.round(ms / 1000);
   }
 
   function boardFeed(p: Project): BoardFeed {
