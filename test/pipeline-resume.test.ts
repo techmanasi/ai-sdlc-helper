@@ -68,6 +68,13 @@ describe('resuming', () => {
     expect(r.calls).toEqual(['plan', 'red-tests', 'implement', 'review']);
     expect(r.prompts).toContain('## Existing Red Tests on This Branch');
     expect(r.prompts).toContain('- src/sum.test.mjs');
+    // The Review agent still sees the whole feature: it diffs from the first red-tests commit, not from the one this
+    // resume added above the implementation.
+    const redShas = git(f.dir, 'log', '--format=%H', '--reverse', `--grep=^\\[red-tests\\] test(${SLUG}): add failing tests`).split('\n');
+    expect(redShas).toHaveLength(2);
+    const reviewPrompt = r.prompts.slice(r.prompts.indexOf('== review'));
+    expect(reviewPrompt).toContain(`git diff ${redShas[0]}`);
+    expect(reviewPrompt).not.toContain(redShas[1]);
     const redAfter2 = JSON.parse(read(f.dir, `${LOG}/red.json`));
     expect(redAfter2.suiteErrors.map((e: { file: string }) => e.file).sort()).toEqual(['src/sub.test.mjs', 'src/sum.test.mjs']);
 
