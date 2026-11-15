@@ -27,13 +27,14 @@ case "$prompt" in
   "You are a Requirements Agent"*) stage=spec ;; "You are an Architecture Planner"*) stage=plan ;;
   "You are a QA Engineer"*) stage=red-tests ;; "You are a Senior TDD Developer"*) stage=implement ;;
   "You are a Test Repair Agent"*) stage=test-repair ;; "You are an independent, skeptical Test Auditor"*) stage=test-audit ;;
-  "You are a code reviewer"*) stage=review ;;
+  "You are a code reviewer"*) stage=review ;; "You are the review summariser"*) stage=review-summary ;;
   "You are an independent, skeptical Conflict Reviewer"*) stage=resolve-review ;; "You are the Conflict Review Judge"*) stage=resolve-judge ;;
 esac
 printf '== %s\\n%s\\n' "$stage" "$prompt" >> "$FAKE_DIR/prompts.txt"
 printf '%s\\n' "\${args[@]}" > "$FAKE_DIR/args-$stage.txt"
 echo "$stage" >> "$FAKE_DIR/calls.txt"
 env > "$FAKE_DIR/env-$stage.txt"
+export FAKE_PROMPT="$prompt"
 rc=0
 [ ! -f "$FAKE_DIR/$stage.sh" ] || bash "$FAKE_DIR/$stage.sh" || rc=$?
 if [ "$json" -eq 0 ]; then cat "$FAKE_DIR/$stage.out" 2>/dev/null || echo "VERDICT: VALID"; exit $rc; fi
@@ -73,7 +74,9 @@ printf 'export const sum = (a, b) => a + b;\\n' > src/sum.mjs
   'test-repair': `[ -z "\${FAKE_REPAIR_FAILS:-}" ] || exit 1
 sed -i.bak 's/sum(2, 3), 6/sum(2, 3), 5/' src/sum.test.mjs && rm -f src/sum.test.mjs.bak
 echo "sum adds: expected 6, the spec says 5; changed the expected value" > "$FAKE_DOCS/test-repair-1.md"`,
-  review: 'echo "reviewed" > "$FAKE_DOCS/review-1.md"',
+  review: `echo "reviewed" > "$FAKE_DOCS/review-1.md"
+f=$(printf '%s' "$FAKE_PROMPT" | grep -o 'review\\(-r[0-9]*\\)\\?\\.json' | head -1)
+printf '{"verdict":"pass","blockers":[],"missingTests":[]}\\n' > "$FAKE_DOCS/$f"`,
 };
 
 export interface Fixture { dir: string; fake: string; bin: string }

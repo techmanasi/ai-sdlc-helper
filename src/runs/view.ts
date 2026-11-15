@@ -15,6 +15,7 @@ import { ciSummaryOf, getPrFromBrief, getPrStatusCached, keepPrStatusIn, PR_STAT
 import { readRounds, type Round } from '../pipeline/observe.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
+import type { ReviewRound as ReviewRoundView } from '../pipeline/review-gate.js';
 import { commonDirOf, stampOf, worktreeInputs } from '../gitdir.js';
 import { withAnswerLines } from '../pipeline/questions.js';
 import { redPattern } from '../pipeline/stages.js';
@@ -90,6 +91,8 @@ export interface RunView {
   /** The last Resolve conflicts stopped on a failed check and its merged result is kept: "Fix with Implement" can repair it. */
   mergeFix?: boolean;
   testIssues?: string | null;
+  /** Each Review round: its verdict, findings (open, fixed or still open) and outcome (logs/review-rounds.json). */
+  reviewRounds?: ReviewRoundView[];
   recovery?: StageRecovery | null;
   /** What each agent round did (logs/attempts.jsonl), with its warnings; empty before the first round. */
   attempts: Round[];
@@ -417,6 +420,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
     gitAgeMs,
     // Where the stop said the run resumes, when it named one; else from the stage it stopped at.
     resumeFrom: typeof s.resume_from === 'string' && s.resume_from && s.state !== 'running' ? s.resume_from : resumeStage(stage, exists(path.join(docsDir, 'test-issues.md'))),
+    reviewRounds: (() => { const r = readJson(path.join(logs, 'review-rounds.json')); return Array.isArray(r) ? r as ReviewRoundView[] : []; })(),
     testIssues: exists(path.join(docsDir, 'test-issues.md')) ? readText(path.join(docsDir, 'test-issues.md')) : null,
     createPr: (() => {
       const optFile = path.join(logs, 'finalise-options.json');

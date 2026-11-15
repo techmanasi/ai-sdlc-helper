@@ -225,6 +225,7 @@ export function promptValues(ctx: Ctx): Record<string, string> {
   return {
     DOCS: ctx.docs, LOG: ctx.log, TEST_DIR: testDir(ctx.config.suites[0]), TEST_CMD: ctx.layout.testCmd, TEST_FILE_CMD: ctx.testFileCmd, FETCH_CMD: ctx.fetchCmd,
     LINT_NOTE: lintNote(ctx), LINT_TESTS_NOTE: lintTestsNote(ctx), RED_SHA: ctx.origRedSha || ctx.redSha, SLUG: ctx.slug, TEST_FRAMEWORK: testFramework(ctx.config), TEST_FILES: ctx.layout.testFiles || `${testDir(ctx.config.suites[0])}/`,
+    REVIEW_ROUND: '1', REVIEW_FILE: 'review.json', REVIEW_FINDINGS: '', REVIEW_INPUTS: '', ...ctx.promptExtra,
   };
 }
 

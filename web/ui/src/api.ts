@@ -65,6 +65,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   prCi?: CiState | null; prFailing?: string[]; prConflicts?: 'none' | 'conflicting' | 'unknown' | null; ciSummary?: string[];
   ci?: { enabled: boolean; state: string; pr: string | null; prDraft: boolean; reason?: string; failingChecks: string[]; warnings: string[]; sha?: string } | null;
   testIssues?: string | null;
+  reviewRounds?: { round: number; verdict: 'pass' | 'changes'; outcome: string; findings: { kind: 'blocker' | 'missing-test'; file: string; criterion: string; reason: string; status: 'open' | 'fixed' | 'still open' }[] }[];
   recovery?: StageRecovery | null;
   /** What each agent round did, with its warnings (logs/attempts.jsonl). */
   attempts?: AttemptRound[];
