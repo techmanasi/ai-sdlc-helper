@@ -48,7 +48,7 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
       const sync = await api.syncPr(project, r.slug);
       setSummary(sync.summary);
       const { pr } = sync;
-      toast(pr.state ? `${r.slug}: PR ${pr.number ? `#${pr.number} ` : ''}is ${pr.state.toLowerCase()}${pr.ci && pr.ci !== 'none' ? `, CI ${pr.ci}` : ''}${pr.conflicts === 'conflicting' ? ', conflicts with the base' : ''}; ${sync.count} comment(s)` : `${r.slug}: no PR status (GitHub did not answer)`);
+      toast(pr.state ? `${r.slug}: PR ${pr.number ? `#${pr.number} ` : ''}is ${pr.state.toLowerCase()}${pr.ci && pr.ci !== 'none' ? `, CI ${pr.ci}` : ''}${pr.conflicts === 'conflicting' ? ', conflicts with the base' : ''}; ${sync.count} comment(s)${sync.notes?.length ? `; ${sync.notes.join('; ')}` : ''}${sync.err?.length ? `; ${sync.err.join(' ')}` : ''}` : `${r.slug}: no PR status (GitHub did not answer)${sync.err?.length ? `; ${sync.err.join(' ')}` : ''}`);
     } catch (e) { toast(`${r.slug}: ${e instanceof Error ? e.message : String(e)}`); } finally { setSyncing(false); }
   };
   const waiting = awaitsMerge(r);

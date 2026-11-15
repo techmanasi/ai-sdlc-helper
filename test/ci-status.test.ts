@@ -64,8 +64,12 @@ beforeEach(() => {
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'init');
+  git(base, 'init', '-q', '--bare', 'origin.git');
+  git(root, 'remote', 'add', 'origin', path.join(base, 'origin.git'));
+  git(root, 'push', '-q', 'origin', 'main');
   const wt = path.join(base, 'wts', 'add-tokens');
   git(root, 'worktree', 'add', '-q', wt, '-b', 'sdlc/add-tokens');
+  git(wt, 'push', '-q', '-u', 'origin', 'sdlc/add-tokens');
   write(path.join(root, '.git/sdlc-runs'), 'add-tokens.json', { slug: 'add-tokens', worktree: wt, pid: 0, started: '2026-10-19T10:00:00', state: 'exited', exit_code: '0', interrupted: false, finished: '', message: '', branch: 'sdlc/add-tokens', base: 'main' });
 });
 afterEach(() => { fs.rmSync(base, { recursive: true, force: true }); });
@@ -95,16 +99,19 @@ describe('the CI of a pull request', () => {
     expect(ciFailureReport(root, 'sdlc/add-tokens', env).ci).toBe('in progress');
   });
 
-  test('writeCiFailure writes ci-failure.md to the task and the run worktree, and removes it once the CI no longer fails', () => {
+  test('writeCiFailure writes ci-failure.md to the run worktree only (never the main checkout), and removes it once the CI no longer fails', () => {
     ghShim([run('check (18)', 'FAILURE')]);
     const ctx = runContext(root, env);
     expect(writeCiFailure(ctx, 'add-tokens')).toMatchObject({ ok: true, ci: 'failed', failing: ['check (18)'] });
-    const files = [path.join(root, 'Docs/backlog/add-tokens/ci-failure.md'), path.join(base, 'wts/add-tokens/Docs/backlog/add-tokens/ci-failure.md')];
-    for (const f of files) expect(fs.readFileSync(f, 'utf8')).toContain('# CI failure of the pull request');
+    const inWt = path.join(base, 'wts/add-tokens/Docs/backlog/add-tokens/ci-failure.md');
+    const inRoot = path.join(root, 'Docs/backlog/add-tokens/ci-failure.md');
+    expect(fs.readFileSync(inWt, 'utf8')).toContain('# CI failure of the pull request');
+    expect(fs.existsSync(inRoot)).toBe(false);
     ghShim([run('check (18)', 'SUCCESS')]);
     clearPrCache();
     expect(writeCiFailure(ctx, 'add-tokens')).toMatchObject({ ok: true, ci: 'passed' });
-    for (const f of files) expect(fs.existsSync(f)).toBe(false);
+    expect(fs.existsSync(inWt)).toBe(false);
+    expect(fs.existsSync(inRoot)).toBe(false);
   });
 
   test('Sync PR brings the state, the CI, the comments and the failure summary in one answer', async () => {
@@ -116,7 +123,9 @@ describe('the CI of a pull request', () => {
     expect(r.pr).toMatchObject({ state: 'OPEN', number: 91, ci: 'failed', failing: ['check (18)'] });
     expect(r.count).toBe(1);
     expect(r.summary).toContain('Process completed with exit code 1.');
-    expect(fs.readFileSync(path.join(root, 'Docs/backlog/add-tokens/pr-comments.md'), 'utf8')).toContain('please rename');
+    expect(r.err).toBeUndefined();
+    expect(fs.readFileSync(path.join(base, 'wts/add-tokens/Docs/backlog/add-tokens/pr-comments.md'), 'utf8')).toContain('please rename');
+    expect(fs.existsSync(path.join(root, 'Docs/backlog/add-tokens/pr-comments.md'))).toBe(false);
     expect(fs.existsSync(path.join(base, 'wts/add-tokens/Docs/backlog/add-tokens/ci-failure.md'))).toBe(true);
   });
 });

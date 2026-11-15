@@ -40,7 +40,7 @@ export interface RunCard {
 export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
 export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; checkedAt: string | null; failed: boolean; ci: CiState | null; failing: string[]; conflicts: 'none' | 'conflicting' | 'unknown' | null }
 /** What "Sync PR" brings: the PR's state and CI, the number of review comments saved, and the error lines of a failing CI. */
-export interface PrSync { ok: boolean; pr: PrCard; count: number; summary: string[]; err?: string[] }
+export interface PrSync { ok: boolean; pr: PrCard; count: number; summary: string[]; notes?: string[]; err?: string[] }
 export interface Board { items: BacklogItem[] | null; runs: RunCard[]; maxParallel: number; running: number; notices?: NoticeItem[] }
 export interface Question { n: number; title: string; body: string; suggested: string; answer: string }
 export interface Ask { stage: string; tool: string; detail: string; rule: string; protected: boolean }
@@ -214,7 +214,7 @@ export const api = {
   file: (project: string, slug: string, path: string) => call<{ text: string }>('GET', `${r(project, slug)}/file?path=${encodeURIComponent(path)}`),
   syncPr: (project: string, slug: string) => call<PrSync>('POST', `${r(project, slug)}/pr-sync`, {}),
   syncPrProgress: (project: string, slug: string) => call<{ label: string }>('GET', `${r(project, slug)}/pr-sync-progress`),
-  ciFix: (project: string, slug: string, env?: Record<string, string>) => call<{ ok: boolean; summary: string[]; resumed: Outcome }>('POST', `${r(project, slug)}/ci-fix`, { env }),
+  ciFix: (project: string, slug: string, env?: Record<string, string>) => call<{ ok: boolean; summary: string[]; err?: string[]; resumed: Outcome }>('POST', `${r(project, slug)}/ci-fix`, { env }),
   start: (project: string, slug: string, from?: string, env?: Record<string, string>) => call<Outcome>('POST', `${r(project, slug)}/start`, { from, env }),
   stop: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/stop`, {}),
   discard: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/discard`, { stop: true }),

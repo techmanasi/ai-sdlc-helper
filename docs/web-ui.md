@@ -273,6 +273,26 @@ worktree, the run's `status.json` (`ci.pr`), the run record (`<git common dir>/s
 from the Completed page once no checkout of the branch is left), and the main checkout's brief (merged and pulled, or
 written by an older version, which the board takes out again once the PR is merged).
 
+## Sync PR: where the review comments and the CI failure report go
+
+**Sync PR** (run page, board card) asks GitHub for the PR's state, its CI and its review comments, and keeps the comments
+in `pr-comments.md` and, while the CI fails, the failure details in `ci-failure.md` (in `<backlogDir>/<slug>/`). Like the
+PR link, both are kept on the run's branch, never in the main checkout:
+
+- The run has a worktree and is not running: the file is written there, committed alone (`chore(<slug>): sync PR
+  comments`, `chore(<slug>): CI failure report`) and pushed. Once the CI is no longer failing, `ci-failure.md` is removed
+  and the removal is committed the same way.
+- The run is running: the file is written into its worktree only, with no commit (the run's next docs commit takes it);
+  the sync result says so.
+- No worktree, the branch on origin and the PR neither merged nor closed: the commit is made through a temporary worktree
+  of origin's branch in the system temp folder, pushed, and the temporary worktree removed.
+- The PR is merged or closed (and there is no worktree): nothing is written; the comments are only in the result.
+
+The same text as the branch holds makes no commit. A failed write, commit, push or temporary worktree goes to the
+errors.log (the worktree's, else `<git common dir>/sdlc-runs/errors.log`) and into the sync result's error lines, which
+the toast shows. The run page, the Completed page and the PR panel read these files from the run's worktree, else from
+the run's branch (origin's, else the local one), else from the main checkout (a merged PR brought them there).
+
 ## Triage in the dashboard
 
 **New item → Draft with the triage agent** opens a drawer above the form. Paste a report and start; tick **Quick** to

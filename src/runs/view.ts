@@ -19,6 +19,7 @@ import { commonDirOf, stampOf, worktreeInputs } from '../gitdir.js';
 import { withAnswerLines } from '../pipeline/questions.js';
 import { redPattern } from '../pipeline/stages.js';
 import { cleanMergedRunBrief } from './completed.js';
+import { readRunDoc } from './run-docs.js';
 import { recentNotices, type Notice } from './notices.js';
 
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused';
@@ -335,6 +336,8 @@ export function runView(ctx: RunContext, slug: string, opts: {
   const dir = worktree || inPlace;
   const docsDir = dir ? path.join(dir, ctx.backlogDir, slug) : path.join(ctx.root, ctx.backlogDir, slug);
   const logs = path.join(docsDir, 'logs');
+  // Sync PR's files: the run's checkout's copy, else (no checkout) what its branch holds, else the main checkout's.
+  const runDoc = (file: string): string | null => (dir ? readText(path.join(docsDir, file)) : readRunDoc(ctx, slug, file));
   const status = dir ? readJson(path.join(logs, 'status.json')) : null;
   const s = status && typeof status === 'object' ? status : {};
   const questions = parseQuestions(readText(path.join(docsDir, 'questions.md')) || '');
@@ -450,10 +453,10 @@ export function runView(ctx: RunContext, slug: string, opts: {
       };
     })(),
     ci: ciView(ctx.root, ctx.env, status, readText(path.join(docsDir, 'brief.md'))),
-    hasPrComments: (() => { try { return !prCommentsEmpty(fs.readFileSync(path.join(docsDir, 'pr-comments.md'), 'utf8')); } catch { return false; } })(),
+    hasPrComments: (() => { const t = runDoc('pr-comments.md'); return t !== null && !prCommentsEmpty(t); })(),
     undo: (() => { const c = readCheckpoint(ctx, slug); return c ? { from: c.from, at: c.at } : null; })(),
     mergeFix: stage === 'Resolve conflicts' && ['failed', 'paused'].includes(state) ? mergeFixKept(worktree, branchNow, logs) : false,
-    ciSummary: ciSummaryOf(readText(path.join(docsDir, 'ci-failure.md')) || ''),
+    ciSummary: ciSummaryOf(runDoc('ci-failure.md') || ''),
     // A round still marked running when the run is not running it (or runs another agent) was cut short.
     attempts: readRounds(logs).map(r => (r.running && !(state === 'running' && (s.agent || '') === r.agent) ? { ...r, running: false, warnings: [...r.warnings, 'the round did not finish: the run stopped'] } : r)),
     recovery: ['paused', 'failed', 'refused', 'stopped', 'interrupted'].includes(state)

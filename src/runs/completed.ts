@@ -8,6 +8,7 @@ import { readRecord, writeRecord, type RunRecord } from './records.js';
 import { cleanMainBrief } from '../pipeline/pr-link.js';
 import { liveBranch, liveBriefPr, pickBase, pickBaseAsync, runWorktree, type RunContext } from './index.js';
 import { keepError } from '../pipeline/errors.js';
+import { readRunDoc, saveRunDoc, type SavedRunDoc } from './run-docs.js';
 import { addNotice, recentNotices, type Notice } from './notices.js';
 import { fetchPrComments, findOrCreatePr, getPrFromBrief, getPrStatus, getPrStatusAsync, keepPrStatusIn, peekPrStatus, prefetchPrStatuses, PR_STATUS_FILE, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
 
@@ -512,8 +513,8 @@ function completedDetail(ctx: RunContext, slug: string, prOf: (key: string) => P
     }
   }
 
-  const prCommentsFile = path.join(docsDir, 'pr-comments.md');
-  const prComments = fs.existsSync(prCommentsFile) ? fs.readFileSync(prCommentsFile, 'utf8') : null;
+  // The run's copy (its worktree's, else its branch's), else the main checkout's once the PR brought it there.
+  const prComments = readRunDoc(ctx, slug, 'pr-comments.md');
   const prStatus = branchStatus && pr === branchStatus.url ? branchStatus : prOf(pr || branch);
 
   return {
@@ -535,13 +536,15 @@ function completedDetail(ctx: RunContext, slug: string, prOf: (key: string) => P
   };
 }
 
-/** Fetches discussion comments and inline diff comments from GitHub and saves them to pr-comments.md. */
+/**
+ * Fetches discussion comments and inline diff comments from GitHub and saves them to pr-comments.md on the run's branch
+ * (saveRunDoc: in the run's worktree, committed and pushed when the run is not running; never in the main checkout).
+ */
 export function syncPrComments(
   ctx: RunContext,
   slug: string,
-): { ok: boolean; pr?: string | null; markdown: string; count: number; err?: string[] } {
-  const docsDir = path.join(ctx.root, ctx.backlogDir, slug);
-  const briefFile = path.join(docsDir, 'brief.md');
+): { ok: boolean; pr?: string | null; markdown: string; count: number; saved?: SavedRunDoc['where']; note?: string; err?: string[] } {
+  const briefFile = path.join(ctx.root, ctx.backlogDir, slug, 'brief.md');
   const briefText = fs.existsSync(briefFile) ? fs.readFileSync(briefFile, 'utf8') : '';
   // A run that moved to a new branch: its worktree's brief holds the new link, and its branch is the one it is on now.
   const pr = liveBriefPr(ctx, slug, getPrFromBrief) || getPrFromBrief(briefText);
@@ -553,19 +556,11 @@ export function syncPrComments(
     return { ok: false, markdown: '', count: 0, err: res.err };
   }
 
-  // Save to pr-comments.md in docsDir
-  fs.mkdirSync(docsDir, { recursive: true });
-  fs.writeFileSync(path.join(docsDir, 'pr-comments.md'), res.markdown);
-
-  // If worktree exists, also write there
-  const worktree = runWorktree(ctx, slug);
-  if (worktree) {
-    const wtDocs = path.join(worktree, ctx.backlogDir, slug);
-    fs.mkdirSync(wtDocs, { recursive: true });
-    fs.writeFileSync(path.join(wtDocs, 'pr-comments.md'), res.markdown);
-  }
-
-  return { ok: true, pr: res.pr, markdown: res.markdown, count: res.comments.length };
+  const saved = saveRunDoc(ctx, slug, { file: 'pr-comments.md', text: res.markdown, message: `chore(${slug}): sync PR comments`, what: 'the PR comments', prState: res.state });
+  return {
+    ok: true, pr: res.pr, markdown: res.markdown, count: res.comments.length, saved: saved.where,
+    ...(saved.note ? { note: saved.note } : {}), ...(saved.err.length ? { err: saved.err } : {}),
+  };
 }
 
 /** Creates a PR for a completed task that does not have one yet. */
