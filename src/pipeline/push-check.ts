@@ -333,12 +333,12 @@ export async function ensurePushable(ctx: Ctx, opts: { resume: From; fresh: bool
       return;
     case 'fast-forward': {
       const r = fastForward(ctx, f);
-      if (r.ok) report(ctx, f, 'fast-forward', r.line); else unknown = r.unknown;
+      if (r.ok === false) unknown = r.unknown; else report(ctx, f, 'fast-forward', r.line);
       break;
     }
     case 'same-commits': {
       const r = leaseSame(ctx, f);
-      if (r.ok) report(ctx, f, 'lease-push', r.line); else unknown = r.unknown;
+      if (r.ok === false) unknown = r.unknown; else report(ctx, f, 'lease-push', r.line);
       break;
     }
     case 'diverged': {

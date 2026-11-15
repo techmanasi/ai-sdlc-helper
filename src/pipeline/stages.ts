@@ -299,7 +299,7 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   ctx.git.addTests(ctx.layout.testPathspecs);
   const hasStaged = !firstRedSha || !ctx.git.findCommits || ctx.git.lines('diff', '--cached', '--name-only').some(f => f.trim() !== '');
   if (hasStaged) {
-    ctx.git.run('commit', '-q', '-m', `[red-tests] test(${ctx.slug}): add failing tests and spec/plan docs`);
+    ctx.git.run('commit', '-q', '-m', `[red-tests] test(${ctx.slug}): add failing tests`);
     ctx.redSha = ctx.git.head();
   } else {
     ctx.redSha = existingRedShas[existingRedShas.length - 1] || ctx.git.head();
