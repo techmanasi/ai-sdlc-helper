@@ -35,6 +35,8 @@ export interface RunRecord {
   root?: string;
   /** The run's pull request, kept here when no checkout of its branch was left to commit the link in its brief. */
   pr?: string;
+  /** Uncommitted work the branch sync saved (sdlc:<slug>:<stage>:<time>) and has not put back yet: its sha and the ref that pins it. */
+  stash?: { sha: string; ref: string; message: string; stage: string; at: string };
 }
 
 /** Local time as the records and status.json write it: 2026-10-17T09:30:00. */
@@ -85,6 +87,16 @@ export function readRecord(reg: string, slug: string): Partial<RunRecord> | null
 }
 
 let writes = 0;
+
+/** Changes fields of the run record of <slug> when it exists (never makes one); false when there is none to change. */
+export function patchRecord(reg: string, slug: string, patch: Partial<RunRecord>): boolean {
+  const rec = readRecord(reg, slug);
+  if (!rec || !Object.keys(rec).length) return false;
+  const next = { ...rec, ...patch } as RunRecord;
+  for (const k of Object.keys(next) as Array<keyof RunRecord>) if (next[k] === undefined) delete next[k];
+  writeRecord(reg, next);
+  return true;
+}
 
 /**
  * Writes a record atomically (a temporary file, then a rename), so a reader never sees half of one. The temporary

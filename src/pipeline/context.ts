@@ -55,6 +55,8 @@ export interface Ctx {
   log: string;
   backlog: string;
   branch: string;
+  /** Set once a fetch of origin failed (the branch sync went on offline): no rewrite or lease push until a fetch succeeds. */
+  offline?: boolean;
   /** The environment the agents, tests and commands get: the caller's, without FROM. */
   env: NodeJS.ProcessEnv;
   /** The stage the previous run of this item ended at ('' for none): what a resume refused before its first stage keeps. */
