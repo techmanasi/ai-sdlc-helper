@@ -100,7 +100,7 @@ export function writeRecord(reg: string, rec: RunRecord): void {
 }
 
 /** The start time recorded with a record's pid ('' when none, or when it names another pid). */
-const startOf = (rec: Partial<RunRecord>): string | undefined =>
+export const startOf = (rec: Partial<RunRecord>): string | undefined =>
   (rec.supervisor && rec.supervisor.pid === rec.pid && typeof rec.supervisor.start === 'string' && rec.supervisor.start) || undefined;
 
 /** The slugs that have a record, sorted. */

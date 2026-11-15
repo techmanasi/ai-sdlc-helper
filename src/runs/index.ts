@@ -13,7 +13,7 @@ import { forceEnv, resolve, worktreeBase, type Force } from '../config/settings.
 import { findContaining, readRegistry, type ProjectOverrides } from '../registry/projects.js';
 import { forgetStage, stageWork, worktreeChanges } from '../changes/index.js';
 import {
-  alive, isRunning, killTree, mainTree, projectRoot, now, readRecord, recordFile, recordedSlugs, registryDir, runState, writeRecord, type RunRecord,
+  alive, isRunning, killTree, mainTree, projectRoot, now, readRecord, recordFile, recordedSlugs, registryDir, runState, startOf, writeRecord, type RunRecord,
 } from './records.js';
 import { startSupervisor, type SetupStep } from './supervisor.js';
 import { identity } from './proc.js';
@@ -421,6 +421,34 @@ async function stopRun(ctx: RunContext, slug: string, rec: Partial<RunRecord>): 
   return true;
 }
 
+/**
+ * Closes <slug>'s record when it says running but its supervisor is gone (killed with SIGKILL, crashed, the machine
+ * restarted): exited, interrupted, finished now, with the reason in the record, the run's errors.log and run.out.
+ * Never touches a record whose supervisor is alive; a second call finds the record closed and does nothing.
+ * Returns whether it closed the record.
+ */
+export function closeIfGone(ctx: RunContext, slug: string): boolean {
+  const rec = readRecord(ctx.reg, slug);
+  if (!rec || rec.state !== 'running' || alive(rec.pid, startOf(rec))) return false;
+  // Re-read just before writing: stopRun, or the supervisor itself, may have closed it meanwhile.
+  const again = readRecord(ctx.reg, slug);
+  if (!again || again.state !== 'running' || again.pid !== rec.pid || alive(again.pid, startOf(again))) return false;
+  const dir = rec.worktree && isDir(rec.worktree) ? rec.worktree : ctx.root;
+  const log = path.join(ctx.backlogDir, slug, 'logs');
+  let stage = '';
+  try { stage = String(JSON.parse(fs.readFileSync(path.join(dir, log, 'status.json'), 'utf8')).stage || ''); } catch { /* none yet */ }
+  const message = `supervisor ${rec.pid} is gone (killed or crashed) during ${stage || 'setup'}`;
+  writeRecord(ctx.reg, { ...(again as RunRecord), state: 'exited', interrupted: true, finished: now(), message });
+  keepError({ root: dir, log }, 'run supervisor gone', message);
+  try { fs.appendFileSync(path.join(dir, log, 'run.out'), `${message}\n`); } catch { /* no logs folder: nothing to append to */ }
+  return true;
+}
+
+/** closeIfGone for every recorded run of the project; the slugs it closed. */
+export function closeGoneRuns(ctx: RunContext): string[] {
+  return recordedSlugs(ctx.reg).filter(slug => { try { return closeIfGone(ctx, slug); } catch { return false; } });
+}
+
 /** What a run started from: the branch tip, the whole worktree (untracked files too, as a commit under refs/sdlc-checkpoints) and the record. */
 export interface Checkpoint { head: string; snapshot: string; from: string; at: string; record: Partial<RunRecord> | null }
 
@@ -610,6 +638,7 @@ export function projectSlugs(ctx: RunContext, opts: { keep?: boolean } = {}): st
 }
 
 export function statusLines(ctx: RunContext): string[] {
+  closeGoneRuns(ctx);
   return projectSlugs(ctx).map(slug => {
     const rec = readRecord(ctx.reg, slug) || {};
     const state = runState(rec);
@@ -620,7 +649,7 @@ export function statusLines(ctx: RunContext): string[] {
 
 /** Every record with the state worked out (running, stopped, interrupted, exited), for --json. */
 export const statusRecords = (ctx: RunContext): (Partial<RunRecord> & { run: string })[] =>
-  projectSlugs(ctx).map(slug => { const rec = readRecord(ctx.reg, slug) || {}; return { ...rec, slug, run: runState(rec) }; });
+  (closeGoneRuns(ctx), projectSlugs(ctx).map(slug => { const rec = readRecord(ctx.reg, slug) || {}; return { ...rec, slug, run: runState(rec) }; }));
 
 /** The folder `watch` reads: the run's worktree, else the main working tree for a run started in place; null: none. */
 export function watchDir(ctx: RunContext, slug: string, cwdRoot: string): string | null {
@@ -641,6 +670,7 @@ export function watchFrame(ctx: RunContext, slug: string, dir: string): string[]
   const out: string[] = [];
   const status = path.join(logs, 'status.json');
   out.push(exists(status) ? fs.readFileSync(status, 'utf8').trim() : `(no status.json yet in ${logs})`);
+  closeIfGone(ctx, slug);
   const rec = readRecord(ctx.reg, slug);
   if (rec) {
     if (rec.interrupted === true) out.push('run: interrupted (stopped by the user or a signal)');
@@ -656,7 +686,7 @@ export function watchFrame(ctx: RunContext, slug: string, dir: string): string[]
 }
 
 /** Whether `watch --follow` should keep refreshing: there is no record (a run in place), or the run is going on. */
-export const stillGoing = (ctx: RunContext, slug: string): boolean => { const r = readRecord(ctx.reg, slug); return !r || isRunning(r); };
+export const stillGoing = (ctx: RunContext, slug: string): boolean => { closeIfGone(ctx, slug); const r = readRecord(ctx.reg, slug); return !r || isRunning(r); };
 
 export type ChangeCount = { changed: number; uncommitted: number; files: string[] } | { error: string };
 

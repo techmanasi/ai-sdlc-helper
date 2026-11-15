@@ -401,3 +401,11 @@ database only when queries over it are too slow, or when Node 22 is the minimum.
   keep both? The engine functions are shared either way.
 - Prompt overrides: keep them in the project (`.sdlc/prompts/`) so the team shares them, in the user directory only, or
   both as planned?
+
+## A run whose supervisor was killed
+
+A run's supervisor killed from outside (`kill -9`, a crash) cannot close its own record. The UI server closes it at
+start and every 30 s, and `runs status`, `list` and `watch` close it when they read it: the record becomes exited and
+interrupted with the message `supervisor <pid> is gone (killed or crashed) during <stage>`, also appended to the run's
+`errors.log` and `run.out`. A pipeline started by a supervisor (`SDLC_SUPERVISOR_PID`) checks every 5 s that it is alive
+and, when it is not, stops itself and its agent (`supervisor <pid> is gone: stopping the run ...`); Resume at the stage.

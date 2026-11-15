@@ -47,7 +47,7 @@ export interface PipelineOptions {
   /** Aborts the running agent or command (the run then fails). */
   signal?: AbortSignal;
   /** The signal that stopped the run (SIGTERM, ...) and its exit code, once there is one: the run then says so and keeps it in errors.log. */
-  stoppedBy?: () => { name: string; code: number } | undefined;
+  stoppedBy?: () => { name: string; code: number; /** The whole line to say and keep instead of the signal's (a stop that is not a signal). */ line?: (stage: string) => string } | undefined;
   /** Primary coding agent harness: claude, agy, or codex */
   agent?: 'claude' | 'agy' | 'codex';
   /** --model: the model of every stage (wins over MODEL_<STAGE> and the project's settings). */
@@ -124,8 +124,8 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
     if (ctx) {
       const sig = opts.stoppedBy?.();
       if (sig) {
-        const line = `run stopped by ${sig.name} (exit ${sig.code}) during ${ctx.status.stage || 'setup'}${ctx.status.agent ? `, agent ${ctx.status.agent}` : ''}`;
-        keepError(ctx, 'run stopped by a signal', line);
+        const line = sig.line ? sig.line(ctx.status.stage || 'setup') : `run stopped by ${sig.name} (exit ${sig.code}) during ${ctx.status.stage || 'setup'}${ctx.status.agent ? `, agent ${ctx.status.agent}` : ''}`;
+        keepError(ctx, sig.line ? 'run stopped: supervisor gone' : 'run stopped by a signal', line);
         out(line);
         reason = line;
       }

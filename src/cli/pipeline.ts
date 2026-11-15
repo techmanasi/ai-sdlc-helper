@@ -1,5 +1,6 @@
 // The pipeline command: one SDLC run (Spec to Finalise) for a backlog item, in a project checkout.
 import path from 'node:path';
+import { alive } from '../runs/records.js';
 import { forceOf } from '../config/settings.js';
 import { runPipeline } from '../pipeline/run.js';
 import { parseArgs } from './args.js';
@@ -36,12 +37,26 @@ export async function pipeline(argv: string[], valued: string[], io: Io): Promis
     process.on(name, h);
     return () => process.off(name, h);
   });
+  // Started by a run supervisor (SDLC_SUPERVISOR_PID): when it is killed from outside, nothing is left to record this
+  // run or stop it, so the run stops itself. A pipeline started from a terminal has no such variable and is not watched.
+  const env = io.env || process.env;
+  let gone = 0;
+  const supervisor = Number(env.SDLC_SUPERVISOR_PID);
+  let watch: NodeJS.Timeout | undefined;
+  if (Number.isInteger(supervisor) && supervisor > 1) {
+    const parent = process.ppid;
+    const lost = () => !alive(supervisor) || (process.ppid !== parent && process.ppid !== supervisor);
+    const every = Number(env.SDLC_SUPERVISOR_CHECK_MS) > 0 ? Number(env.SDLC_SUPERVISOR_CHECK_MS) : 5000;
+    watch = setInterval(() => { if (!gone && lost()) { gone = supervisor; controller.abort(); } }, every);
+    watch.unref();
+  }
   try {
     const code = await runPipeline({
-      cwd, slug, from: a.value('--from'), agent: force.agent as any, model: force.model, effort: force.effort, env: io.env || process.env, out: l => io.out(l), err: l => io.err(l), signal: controller.signal, stoppedBy: () => (signalled ? { name: signalName, code: signalled } : undefined),
+      cwd, slug, from: a.value('--from'), agent: force.agent as any, model: force.model, effort: force.effort, env: io.env || process.env, out: l => io.out(l), err: l => io.err(l), signal: controller.signal, stoppedBy: () => (signalled ? { name: signalName, code: signalled } : gone ? { name: 'supervisor', code: 1, line: stage => `supervisor ${gone} is gone: stopping the run (it was killed from outside) during ${stage}` } : undefined),
     });
-    return signalled || code;
+    return signalled || (gone ? 1 : code);
   } finally {
+    if (watch) clearInterval(watch);
     for (const off of handlers) off();
   }
 }
