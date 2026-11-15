@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { FROM_STAGES, at, stop, type Ctx, type From } from './context.js';
 import { keepError } from './errors.js';
-import { resumeCommand, syncLines } from './hints.js';
+import { resumeCommand, syncLines, toFromStage } from './hints.js';
 import { appendRound } from './observe.js';
 import { gitReason } from './ci.js';
 import { patchRecord, registryDir } from '../runs/records.js';
@@ -187,6 +187,13 @@ function stashNotes(ctx: Ctx, s: StashInfo, started: string, files: string[], in
  */
 async function reapply(ctx: Ctx, s: StashInfo, o: { started: string; resume: From; incoming: string }): Promise<void> {
   const git = ctx.git;
+  const interrupted = FROM_STAGES.indexOf(toFromStage(ctx.priorStage || '') as From);
+  if (interrupted >= 0 && FROM_STAGES.indexOf(o.resume) < interrupted) {
+    // Restarting earlier than the interrupted stage: that work may not belong to the stage now starting. Keep it, say where.
+    record(ctx, 'stash-parked', short(s.sha));
+    ctx.out(syncLines.stashParked(s.sha, s.ref, s.stage, o.resume));
+    return;
+  }
   let applied = true;
   try { git.run('stash', 'apply', s.sha); } catch (e) { applied = false; keep(ctx, 'stash apply', cleanMessage(e)); }
   if (applied) {

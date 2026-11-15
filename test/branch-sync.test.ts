@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stageRecoveryHint } from '../src/pipeline/hints.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -246,6 +247,21 @@ describe('local branch', () => {
     expect(sh(repo, 'stash', 'list')).toBe('');
     expect(sh(repo, 'diff', '--name-only', '--cached')).toBe('');
   });
+  it('I: restarting at an earlier stage than the interrupted one keeps the stash, does not reapply it, and says where it is', async () => {
+    setup('pushed');
+    onGithub('sdlc/foo', 'app.txt', 'ONE\ntwo\nthree\n');
+    write(repo, 'app.txt', 'one\ntwo\nTHREE\n');
+    ctx.priorStage = 'implement';
+    await sync('spec', 'spec');
+    expect(sh(repo, 'rev-parse', 'HEAD')).toBe(remoteTip('sdlc/foo'));
+    expect(read(repo, 'app.txt')).toBe('ONE\ntwo\nthree\n');
+    const stash = readRecord(registryDir(repo), slug)?.stash;
+    expect(stash?.sha).toBe(sh(repo, 'rev-parse', 'refs/stash'));
+    expect(sh(repo, 'for-each-ref', 'refs/sdlc/stash')).toContain(stash!.ref);
+    const out = lines.join('\n');
+    expect(out).toContain(`saved in the stash ${stash!.sha}`);
+    expect(stageRecoveryHint({ slug, stage: 'Spec', exitCode: 1, runOut: lines }).autoAction?.label).toBe('Apply my saved changes');
+  });
   it('I: a DOUBT keeps the stash, restores a clean tree and stops', async () => {
     setup('pushed');
     onGithub('sdlc/foo', 'app.txt', 'ONE\ntwo\nthree\n');
@@ -406,6 +422,16 @@ describe('N and the rest', () => {
     await sync('implement', 'implement');
     expect(lines.join('\n')).toContain('specs-1.md');
     expect(sh(repo, 'rev-parse', 'HEAD')).toBe(remoteTip('sdlc/foo'));
+  });
+  it('Restart Implement with the CI failure on GitHub (a Sync PR commit): the local branch is brought up, ci-failure.md is there before the agent and the push works', async () => {
+    setup('pushed');
+    onGithub('sdlc/foo', `docs/backlog/${slug}/ci-failure.md`, 'failing on GitHub\n');
+    expect(fs.existsSync(path.join(repo, `docs/backlog/${slug}/ci-failure.md`))).toBe(false);
+    await sync('implement', 'implement');
+    expect(read(repo, `docs/backlog/${slug}/ci-failure.md`)).toBe('failing on GitHub\n');
+    localCommit('impl.txt', 'x\n');
+    sh(repo, 'push', 'origin', 'sdlc/foo');
+    expect(remoteTip('sdlc/foo')).toBe(sh(repo, 'rev-parse', 'HEAD'));
   });
   it('Restart Implement with the CI failure: a missing worktree is recreated, ci-failure.md is there and the push works', async () => {
     setup('pushed');
