@@ -28,6 +28,12 @@ export function renderPrompt(
   const codexTools = path.join(promptsDir, 'parts', 'tools.codex.md');
   const tools = harness === 'codex' && exists(codexTools) ? codexTools : path.join(promptsDir, 'parts', 'tools.md');
   if (exists(tools)) t = `${t}\n\n${text(tools)}`;
+  // {{PART:name}} includes assets/prompts/parts/<name>.md (shared rules and report formats); a missing part is an error.
+  t = t.replace(/\{\{PART:([a-z0-9-]+)\}\}/g, (_all, name: string) => {
+    const part = path.join(promptsDir, 'parts', `${name}.md`);
+    if (!exists(part)) throw new SetupError(`ERROR: missing prompt part ${part}`);
+    return text(part);
+  });
   t = t.replace(/\{\{([A-Z_]+)\}\}/g, (all, name: string) => (name !== 'CODE_SEARCH' && name in values ? values[name] : all));
   if (t.includes('{{CODE_SEARCH}}')) {
     let g = guide;

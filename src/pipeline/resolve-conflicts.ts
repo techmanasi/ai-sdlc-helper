@@ -770,12 +770,18 @@ async function reviewDoubt(ctx: Ctx, c: CodeConflict, r: CodeResolution): Promis
  * The pipeline's resolver of one conflicted stop: the agent resolves the files and reports (<log>/resolve-conflicts-report.md);
  * a doubt it states goes to the reviewer panel. Resolve conflicts and the push check's new branch both use it.
  */
-export function resolverFor(ctx: Ctx): (c: CodeConflict) => Promise<CodeResolution> {
+export type ResolveMode = 'base' | 'branch-sync' | 'stash';
+const PROMPT_OF: Record<ResolveMode, string> = { base: 'resolve-conflicts', 'branch-sync': 'resolve-branch-sync', stash: 'resolve-stash' };
+
+/** Extra facts for a mode's context file: what came from GitHub, what is local, or which stage saved the work. */
+export interface ModeNotes { lines: string[] }
+
+export function resolverFor(ctx: Ctx, mode: ResolveMode = 'base', notes?: ModeNotes): (c: CodeConflict) => Promise<CodeResolution> {
   return async c => {
-    writeContext(ctx, c);
+    writeContext(ctx, c, mode, notes);
     const report = at(ctx, `${ctx.log}/resolve-conflicts-report.md`);
     fs.rmSync(report, { force: true });
-    await runAgent(ctx, `resolve-conflicts-${c.round}`, 'resolve-conflicts');
+    await runAgent(ctx, `resolve-conflicts-${c.round}`, 'resolve-conflicts', PROMPT_OF[mode]);
     const text = fs.existsSync(report) ? fs.readFileSync(report, 'utf8') : '';
     const r = parseResolverReport(text);
     // Only a stated doubt is reviewed: a missing report or verdict means the agent did not finish.
@@ -784,18 +790,23 @@ export function resolverFor(ctx: Ctx): (c: CodeConflict) => Promise<CodeResoluti
 }
 
 /** Writes what the agent needs for one stop: the commit, the files, both sides, the task's and the merged tasks' documents. */
-function writeContext(ctx: Ctx, c: CodeConflict): void {
+function writeContext(ctx: Ctx, c: CodeConflict, mode: ResolveMode = 'base', notes?: ModeNotes): void {
   const g = ctx.git;
   const merged = mergedTasks(g, c.oldBase, c.upstream, ctx.config.backlogDir);
   const lines = [
-    `# Conflict ${c.round} while rebasing ${ctx.branch}`, '',
-    `Commit being replayed (this task's side): ${c.commit.sha} ${c.commit.subject}`,
-    `Rebased onto: ${c.upstream} (the base). The branch had started from ${c.oldBase}.`, '',
+    `# Conflict ${c.round} ${mode === 'stash' ? `while reapplying saved work on ${ctx.branch}` : `while rebasing ${ctx.branch}`}`, '',
+    ...(mode === 'stash'
+      ? [`Mode: stash. The work saved before the branch was brought up to date is being reapplied; no rebase is in progress.`, '']
+      : [`Commit being replayed (this task's side): ${c.commit.sha} ${c.commit.subject}`,
+        mode === 'branch-sync'
+          ? `Rebased onto: ${c.upstream} (GitHub's copy of the branch). The branch had started from ${c.oldBase}.`
+          : `Rebased onto: ${c.upstream} (the base). The branch had started from ${c.oldBase}.`, '']),
+    ...(notes ? [...notes.lines, ''] : []),
     '## Conflicted files (resolve these)', ...c.files.map(f => `- ${f}`), '',
     ...(c.docs.length ? ['## Documentation in the same commit, already resolved by keeping both sides', ...c.docs.map(f => `- ${f}`), ''] : []),
     `## This task's commitments`, `- ${ctx.docs}/brief.md`, `- ${ctx.docs}/specs-1.md`, `- ${ctx.docs}/plan-1.md`, '',
-    '## Tasks merged into the base since the branch started',
-    ...(merged.length ? merged.map(m => `- ${m.sha.slice(0, 7)} ${m.subject}${m.docs.length ? `: read ${m.docs.join(', ')}` : ''}`) : ['- (none found)']), '',
+    ...(mode !== 'base' ? [] : ['## Tasks merged into the base since the branch started']),
+    ...(mode !== 'base' ? [] : merged.length ? merged.map(m => `- ${m.sha.slice(0, 7)} ${m.subject}${m.docs.length ? `: read ${m.docs.join(', ')}` : ''}`) : ['- (none found)']), '',
   ];
   for (const f of c.files) {
     lines.push(`## ${f}`, '', "### The base's change since the branch started", '```diff', clip(g.tryRun('diff', c.oldBase, c.upstream, '--', f) || '(none)', 300), '```', '',
@@ -907,7 +918,7 @@ export interface InlineResolve { resume: From; caller: string }
  * stop ends the run (exit 1) with the caller's resume command. With tests.fullSuite "ci" and no task tests yet, the local
  * check is skipped: it would be the whole suite, and CI checks the pushed result.
  */
-export async function resolveConflictsStage(ctx: Ctx, opts: { inline?: InlineResolve } = {}): Promise<ResolveStageResult> {
+export async function resolveConflictsStage(ctx: Ctx, opts: { inline?: InlineResolve; mode?: ResolveMode } = {}): Promise<ResolveStageResult> {
   const inline = opts.inline;
   if (resolveSkipped(ctx.env)) {
     if (!inline && !ctx.status.stage) ctx.status.stage = ctx.priorStage || '';
@@ -944,7 +955,7 @@ export async function resolveConflictsStage(ctx: Ctx, opts: { inline?: InlineRes
     mergedReason: () => mergedReason(ctx, base),
     onStart: () => { stage(ctx, RESOLVE_STAGE); ctx.status.attempt = '1/1'; ctx.status.write(); },
     onStep: (k, d) => ctx.status?.beginStep?.(k, d),
-    resolveCode: resolverFor(ctx),
+    resolveCode: resolverFor(ctx, opts.mode || 'base'),
     onError: (where, text) => keepError(ctx, where, text),
     verify: async () => {
       // Before Red tests there are no task tests: the check would be the whole suite here, which CI runs on the push.
