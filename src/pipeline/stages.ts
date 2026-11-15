@@ -446,7 +446,7 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   if (hasStaged) {
     const cost = await writeCostLog(ctx);
     if (cost.length) ctx.git.run('add', '--', ...cost);
-    ctx.git.run('commit', '-q', '-m', `[red-tests] test(${ctx.slug}): add failing tests and spec/plan docs`);
+    ctx.git.run('commit', '-q', '-m', `[red-tests] test(${ctx.slug}): add failing tests`);
     ctx.redSha = ctx.git.head();
   } else {
     ctx.redSha = existingRedShas[existingRedShas.length - 1] || ctx.git.head();

@@ -163,7 +163,8 @@ const hasMarkers = (ctx: Ctx, f: string): boolean => {
 function restoreClean(ctx: Ctx, s: StashInfo): void {
   const git = ctx.git;
   try { git.run('reset', '-q', '--hard', 'HEAD'); } catch (e) { keep(ctx, 'clean tree', cleanMessage(e)); }
-  for (const f of git.lines('ls-tree', '-r', '--name-only', `${s.sha}^3`)) {
+  // a stash made by `push -u` has a third parent only when it holds untracked files
+  for (const f of (git.tryRun('ls-tree', '-r', '--name-only', `${s.sha}^3`) || '').split('\n').filter(Boolean)) {
     try { fs.rmSync(path.join(git.root, f), { force: true }); } catch (e) { keep(ctx, `remove ${f}`, cleanMessage(e)); }
   }
 }

@@ -26,7 +26,7 @@ describe('a full run', () => {
     expect(r.calls).toEqual(['spec', 'plan', 'red-tests', 'implement', 'review']);
     expect(git(f.dir, 'branch', '--show-current')).toBe(`feature/${SLUG}`);
     expect(subjects(f.dir)).toEqual([
-      `chore(backlog): mark ${SLUG} done`, `[finalise] feat(${SLUG}): implement per ${DOCS}/specs-1.md`, `[red-tests] test(${SLUG}): add failing tests and spec/plan docs`,
+      `chore(backlog): mark ${SLUG} done`, `[finalise] feat(${SLUG}): implement per ${DOCS}/specs-1.md`, `[red-tests] test(${SLUG}): add failing tests`,
       `[plan] docs(${SLUG}): add the plan`, `[spec] docs(${SLUG}): add the spec`,
     ]);
     // Spec and Plan committed their own docs; the red-tests commit holds the new test and its cases; the implementation comes after.

@@ -262,6 +262,18 @@ describe('local branch', () => {
     expect(out).toContain(`saved in the stash ${stash!.sha}`);
     expect(stageRecoveryHint({ slug, stage: 'Spec', exitCode: 1, runOut: lines }).autoAction?.label).toBe('Apply my saved changes');
   });
+  it('I: a DOUBT on a stash of tracked changes only (on older git: no untracked parent) still stops with the stash-kept message', async () => {
+    setup('pushed');
+    onGithub('sdlc/foo', 'app.txt', 'ONE\ntwo\nthree\n');
+    write(repo, 'app.txt', 'uno\ntwo\nthree\n');
+    agent.run = c => write(repo, `${(c as Ctx).log}/resolve-conflicts-report.md`, 'DOUBT: not sure\nVERDICT: DOUBT\n');
+    expect(await stop(sync())).toBe(1);
+    const sha = readRecord(registryDir(repo), slug)?.stash?.sha as string;
+    expect(sha).toBeTruthy();
+    expect(lines.join('\n')).toContain(`are saved in the stash ${sha}`);
+    expect(sh(repo, 'stash', 'list', '--format=%H')).toContain(sha);
+    expect(errors()).toContain('stash reapply');
+  });
   it('I: a DOUBT keeps the stash, restores a clean tree and stops', async () => {
     setup('pushed');
     onGithub('sdlc/foo', 'app.txt', 'ONE\ntwo\nthree\n');
