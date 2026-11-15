@@ -18,7 +18,10 @@ import {
 import { startSupervisor, type SetupStep } from './supervisor.js';
 import { identity } from './proc.js';
 import { keepError } from '../pipeline/errors.js';
-import { redPattern } from '../pipeline/git.js';
+import { Git, redPattern } from '../pipeline/git.js';
+import { getPrFromBrief } from '../pipeline/finalise.js';
+import { previousBranch } from '../pipeline/status.js';
+import { nextRunBranch } from '../pipeline/branch-move.js';
 
 /** The controls' own environment variables: read here, never passed to the pipeline. */
 export const CONTROL_ENV = ['SDLC_BASE', 'SDLC_WT_BASE', 'SDLC_MAX_PARALLEL', 'SDLC_ALLOW_MERGED', 'FROM', 'AI_SDLC_HELPER_PIPELINE_CMD', 'WATCH_REPORT_DEPENDENCIES'];
@@ -144,7 +147,6 @@ export async function pickBaseAsync(ctx: RunContext): Promise<string> {
 export const isMerged = (ctx: RunContext, slug: string, base: string): boolean =>
   git(ctx.root, ['log', base, '-1', '--format=%h', `--grep=${redPattern(slug)}`], ctx.env).stdout.trim() !== '';
 
-const branchOf = (ctx: RunContext, slug: string, rec?: Partial<RunRecord> | null) => rec?.branch || `${ctx.branchPrefix}${slug}`;
 const committed = (ctx: RunContext, ref: string, file: string) => gitOk(ctx.root, ['cat-file', '-e', `${ref}:${file}`], ctx.env);
 const branchExists = (ctx: RunContext, branch: string) => gitOk(ctx.root, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], ctx.env);
 const regFile = (ctx: RunContext, slug: string, ext: string) => path.join(ctx.reg, `${slug}.${ext}`);
@@ -271,6 +273,48 @@ function linkShared(ctx: RunContext, wt: string): void {
   }
 }
 
+/** True when a remote branch adds nothing to the base, or a commit of it names the task (its docs or its slug). */
+function remoteBelongs(ctx: RunContext, slug: string, remote: string, base: string): boolean {
+  const mb = git(ctx.root, ['merge-base', remote, base], ctx.env).stdout.trim();
+  if (!mb) return false;
+  const subjects = git(ctx.root, ['log', '--format=%s', `${mb}..${remote}`], ctx.env).stdout.split('\n').filter(Boolean);
+  if (!subjects.length) return true;
+  if (subjects.some(x => x.includes(`(${slug})`))) return true;
+  return git(ctx.root, ['log', '--format=', '--name-only', `${mb}..${remote}`], ctx.env).stdout.split('\n').some(f => f.startsWith(`${ctx.backlogDir}/${slug}/`));
+}
+
+/** The state and head branch of the pull request the brief links to; null when there is none or gh cannot say. */
+function prOf(ctx: RunContext, slug: string): { state: string; head: string } | null {
+  const link = liveBriefPr(ctx, slug, getPrFromBrief);
+  if (!link) return null;
+  try {
+    const r = spawnSync('gh', ['pr', 'view', link, '--json', 'state,headRefName'], { cwd: ctx.root, encoding: 'utf8', env: ctx.env, timeout: 30_000 });
+    if (r.status !== 0) return null;
+    const j = JSON.parse(String(r.stdout));
+    return typeof j.state === 'string' ? { state: j.state, head: typeof j.headRefName === 'string' ? j.headRefName : '' } : null;
+  } catch { return null; }
+}
+
+/**
+ * The branch a start works on: the run record's, else the worktree's checked-out branch, else the one status.json names
+ * (where a moved run went), else the linked pull request's head, else <prefix><slug>. Only this item's run branches count.
+ */
+function chooseBranch(ctx: RunContext, slug: string, rec: Partial<RunRecord> | null, wt: string): string {
+  const mine = (b: unknown): b is string => typeof b === 'string' && b !== '' && isRunBranch(b, ctx.branchPrefix, slug);
+  if (mine(rec?.branch)) return rec!.branch as string;
+  if (exists(path.join(wt, '.git'))) {
+    const current = git(wt, ['symbolic-ref', '--short', '-q', 'HEAD'], ctx.env).stdout.trim();
+    if (mine(current)) return current;
+  }
+  for (const dir of [wt, ctx.root]) {
+    const st = previousBranch(path.join(dir, ctx.backlogDir, slug, 'logs', 'status.json')).branch;
+    if (mine(st)) return st;
+  }
+  const head = prOf(ctx, slug)?.head;
+  if (mine(head)) return head;
+  return `${ctx.branchPrefix}${slug}`;
+}
+
 export interface StartOptions { from?: string; /** The run's own agent, model and effort, for every stage. */ force?: Force }
 
 /**
@@ -312,12 +356,7 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
       }
     }
     const wt = rec?.worktree && exists(path.join(rec.worktree, '.git')) ? rec.worktree : path.join(ctx.wtBase, slug);
-    let branch = branchOf(ctx, slug, rec?.worktree === wt ? rec : null);
-    // A run moved to a new branch keeps working there: the worktree's own branch is the truth.
-    if (exists(path.join(wt, '.git'))) {
-      const current = git(wt, ['symbolic-ref', '--short', '-q', 'HEAD'], ctx.env).stdout.trim();
-      if (current && isRunBranch(current, ctx.branchPrefix, slug)) branch = current;
-    }
+    let branch = chooseBranch(ctx, slug, rec, wt);
     const base = pickBase(ctx);
     let created = false;
     if (!exists(path.join(wt, '.git'))) {
@@ -338,18 +377,32 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
         return refuse(1, `Missing ${docs}/brief.md`);
       }
       fs.mkdirSync(path.dirname(wt), { recursive: true });
-      // Resolving conflicts works on the PR branch itself: with no local branch it is taken from origin, never started
-      // afresh from the base (which would have nothing to resolve).
+      // A branch that exists only on origin and belongs to the task is continued, for every stage, never started afresh from
+      // the base. A closed pull request or a stranger's branch gets a new <slug>_<n> from origin's base.
       let startPoint = base;
-      if (opts.from === 'resolve-conflicts' && !branchExists(ctx, branch)) {
+      let track = false;
+      if (!branchExists(ctx, branch)) {
         git(ctx.root, ['fetch', '-q', 'origin', branch], ctx.env);
-        if (!gitOk(ctx.root, ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${branch}`], ctx.env)) {
+        const onOrigin = gitOk(ctx.root, ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${branch}`], ctx.env);
+        if (onOrigin) {
+          const pr = prOf(ctx, slug);
+          if (pr?.state === 'MERGED' && !ctx.env.SDLC_ALLOW_MERGED) {
+            return refuse(5, `${slug}'s pull request is already merged (${branch}). Delete branch ${branch} and its backlog entry, or set SDLC_ALLOW_MERGED=1 to run it again.`);
+          }
+          if (pr?.state === 'CLOSED' || !remoteBelongs(ctx, slug, `origin/${branch}`, base)) {
+            git(ctx.root, ['fetch', '-q', 'origin', base], ctx.env);
+            branch = nextRunBranch(new Git(ctx.root, ctx.env), ctx.branchPrefix, slug);
+            if (gitOk(ctx.root, ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${base}`], ctx.env)) startPoint = `origin/${base}`;
+          } else {
+            startPoint = `origin/${branch}`;
+            track = true;
+          }
+        } else if (opts.from === 'resolve-conflicts') {
           return refuse(1, `Nothing to resolve: branch ${branch} is neither here nor on origin.`);
         }
-        startPoint = `origin/${branch}`;
       }
       const add = branchExists(ctx, branch) ? git(ctx.root, ['worktree', 'add', wt, branch], ctx.env)
-        : git(ctx.root, ['worktree', 'add', wt, '-b', branch, startPoint], ctx.env);
+        : git(ctx.root, ['worktree', 'add', wt, '-b', branch, ...(track ? ['--track'] : []), startPoint], ctx.env);
       fs.appendFileSync(log, add.stdout + add.stderr);
       if (add.status !== 0) return refuse(1, `git worktree add ${wt} failed: ${add.stderr.trim().split('\n').pop()}`);
       created = true;

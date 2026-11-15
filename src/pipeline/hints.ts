@@ -63,6 +63,8 @@ export function resumeHint(ctx: Ctx): void {
 export const syncLines = {
   stashKept: (sha: string, ref: string, stage: string, why: string): string =>
     `BRANCH SYNC: your uncommitted changes from ${stage} are saved in the stash ${sha} (${ref}); ${why}. Get them back with: git stash apply ${sha}`,
+  stashParked: (sha: string, ref: string, stage: string, resume: string): string =>
+    `BRANCH SYNC: your uncommitted changes from ${stage} are saved in the stash ${sha} (${ref}); not put back, because this run restarts at ${resume}, earlier than ${stage}. Get them back with: git stash apply ${sha}`,
   testsChanged: (files: string[]): string =>
     `BRANCH SYNC: STOPPED: commits that came from GitHub changed the locked test files (${files.join(', ')}). The tests are no longer the ones Red tests locked: restart at Implement to work from them`,
   docsChanged: (kind: 'Spec' | 'Plan', files: string[]): string =>

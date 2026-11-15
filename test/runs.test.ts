@@ -248,6 +248,52 @@ describe('start', () => {
     expect(git(repo, 'branch', '--list', 'sdlc/fail-one')).toBe('');
   });
 
+  /** An origin whose sdlc/alpha has one commit (message and file given), with no local branch left. */
+  function originWithBranch(message: string, file: string): string {
+    const origin = path.join(tmp, 'origin.git');
+    git(tmp, 'init', '-q', '--bare', origin);
+    git(repo, 'remote', 'add', 'origin', origin);
+    git(repo, 'push', '-q', 'origin', 'main');
+    git(repo, 'checkout', '-q', '-b', 'sdlc/alpha');
+    fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
+    fs.writeFileSync(path.join(repo, file), 'from github\n');
+    git(repo, 'add', '-f', file);
+    git(repo, 'commit', '-q', '-m', message);
+    git(repo, 'push', '-q', 'origin', 'sdlc/alpha');
+    git(repo, 'checkout', '-q', 'main');
+    git(repo, 'branch', '-q', '-D', 'sdlc/alpha');
+    return git(origin, 'rev-parse', 'sdlc/alpha');
+  }
+
+  test('any stage with no local branch continues the task\'s branch from origin with tracking, before the agent runs; the run record names it', async () => {
+    const tip = originWithBranch('chore(alpha): CI failure report', 'Docs/backlog/alpha/ci-failure.md');
+    const stub = path.join(tmp, 'seen-stub.sh');
+    fs.writeFileSync(stub, '#!/bin/sh\ntest -f "Docs/backlog/$1/ci-failure.md" && echo yes > seen.txt\ngit push -q origin HEAD 2>push.err && echo pushed > pushed.txt\n', { mode: 0o755 });
+    expect((await cli(['start', 'alpha', '--from', 'implement'], { AI_SDLC_HELPER_PIPELINE_CMD: `sh ${stub}` })).status).toBe(0);
+    const rec = await finished('alpha');
+    const wt = path.join(wts, 'alpha');
+    expect(rec.branch).toBe('sdlc/alpha');
+    expect(git(wt, 'rev-parse', 'HEAD')).toBe(tip);
+    expect(git(wt, 'rev-parse', '--abbrev-ref', '@{upstream}')).toBe('origin/sdlc/alpha');
+    expect(fs.readFileSync(path.join(wt, 'seen.txt'), 'utf8').trim()).toBe('yes');
+    expect(fs.readFileSync(path.join(wt, 'pushed.txt'), 'utf8').trim()).toBe('pushed');
+  });
+
+  test('a stranger\'s branch of that name on origin is not continued: the run gets sdlc/alpha_2 from origin\'s base, and the record names it', async () => {
+    const theirs = originWithBranch('someone else\'s work', 'elsewhere/file.txt');
+    expect((await cli(['start', 'alpha'])).status).toBe(0);
+    const rec = await finished('alpha');
+    const wt = path.join(wts, 'alpha');
+    expect(rec.branch).toBe('sdlc/alpha_2');
+    expect(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('sdlc/alpha_2');
+    expect(git(wt, 'rev-parse', 'HEAD')).toBe(git(repo, 'rev-parse', 'main'));
+    expect(git(repo, 'rev-parse', 'refs/remotes/origin/sdlc/alpha')).toBe(theirs);
+    // the next start continues on the record's branch, not on the stranger's
+    expect((await cli(['start', 'alpha'])).status).toBe(0);
+    await until(() => record('alpha').state === 'exited' && ranLines(wt).length === 2);
+    expect(record('alpha').branch).toBe('sdlc/alpha_2');
+  });
+
   test('--from resolve-conflicts on an item already merged is success (exit 0) with no worktree; any other start is still refused', async () => {
     git(repo, ...MERGED('alpha'));
     const r = await cli(['start', 'alpha', '--from', 'resolve-conflicts']);
