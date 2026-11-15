@@ -165,7 +165,7 @@ describe('the push check after Plan', () => {
     const before = git(origin, 'rev-parse', BRANCH);
     const r = await pipeline(f, FAILS_AT_IMPLEMENT);
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain(`ai-sdlc-helper pipeline ${SLUG} --from spec`);
+    expect(r.stdout).toContain(`ai-sdlc-helper pipeline ${SLUG} --from red-tests`);
     expect(r.stdout).not.toContain('--from resolve-conflicts');
     expect(r.calls).not.toContain('red-tests');
     // Nothing of the base's conflict was pushed: origin's branch only gained Spec and Plan on top of what it held.
