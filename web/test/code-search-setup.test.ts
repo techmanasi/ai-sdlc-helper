@@ -38,18 +38,24 @@ afterEach(async () => {
   fs.rmSync(base, { recursive: true, force: true });
 });
 
-async function request(url: string, body?: unknown) {
+type Inspection = {
+  configured: string;
+  indexers: unknown[];
+  operation: { status: string; exitCode: number | null; error: string | null; output: string[] };
+};
+
+async function request<T = unknown>(url: string, body?: unknown) {
   const response = await fetch(`http://127.0.0.1:${server.port}${url}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: { 'x-sdlc-token': server.token, 'content-type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  return { status: response.status, data: await response.json() };
+  return { status: response.status, data: await response.json() as T };
 }
 
 async function finished() {
   for (let i = 0; i < 100; i++) {
-    const result = await request(route);
+    const result = await request<Inspection>(route);
     if (result.data.operation && result.data.operation.status !== 'running') return result.data.operation;
     await new Promise(resolve => setTimeout(resolve, 20));
   }
@@ -62,7 +68,7 @@ function override(build: string) {
 
 describe('code indexer setup routes', () => {
   it('inspects supported indexers and rejects unknown projects', async () => {
-    const result = await request(route);
+    const result = await request<Inspection>(route);
     expect(result.status).toBe(200);
     expect(result.data.configured).toBe('auto');
     expect(result.data.operation.status).toBe('idle');
@@ -82,7 +88,7 @@ describe('code indexer setup routes', () => {
     expect(JSON.parse(raw)).toEqual({ agent: { codeSearch: 'graft', model: 'example' }, extra: true });
     expect(raw).toBe(JSON.stringify(JSON.parse(raw), null, 2) + '\n');
     expect(fs.readFileSync(marker(), 'utf8')).toBe('build');
-    const doctor = await request('/api/projects/shop/doctor');
+    const doctor = await request<{ checks: unknown[] }>('/api/projects/shop/doctor');
     expect(doctor.data.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'code indexer', ok: true })]));
   });
 
@@ -137,7 +143,7 @@ describe('code indexer setup routes', () => {
     fs.writeFileSync(path.join(base, 'bin', 'graft'), '#!/bin/sh\nexec /bin/sleep 30\n', { mode: 0o755 });
     const before = fs.readFileSync(config(), 'utf8');
     expect((await request(`${route}/setup`, { indexer: 'graft' })).status).toBe(202);
-    expect((await request(route)).data.operation.status).toBe('running');
+    expect((await request<Inspection>(route)).data.operation.status).toBe('running');
     expect((await request(`${route}/setup`, { indexer: 'graft' })).status).toBe(409);
     expect(await finished()).toMatchObject({ status: 'timeout', error: 'Build timed out after 10 minutes' });
     expect(fs.readFileSync(config(), 'utf8')).toBe(before);

@@ -1,0 +1,5 @@
+# Test repair
+
+- **inspects supported indexers and rejects unknown projects**: The request helper returned `Response.json()` as `unknown`, so the inspection fields could not be typechecked. The inspection response is specified in `specs-1.md` §4.1 (lines 143–182). Made the helper generic and supplied an inspection response type here and in the shared `finished()` polling helper. Assertions and runtime behavior are unchanged.
+- **builds and preserves existing settings, then doctor sees a healthy indexer**: The Doctor response body was also `unknown`, preventing access to `checks`. `specs-1.md` §3.1 requires the Doctor checks to refresh after setup, and §7 Scenario 5 requires a healthy code indexer check. Supplied a response type for the Doctor request without changing the assertion.
+- **guards concurrent builds and reports timeout without changing configuration**: The inspection response body was `unknown`, preventing access to the running operation. `specs-1.md` §4.1 (lines 186–189) specifies the running operation status. Supplied the inspection response type without changing the assertion.
