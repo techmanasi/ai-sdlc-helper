@@ -1,6 +1,16 @@
 // What the run page and the board say about a run's stages, its test lock and its cost: the decisions and the wording,
 // kept apart from the components so they can be tested.
-import type { LockView, RunView, StageSpan, UsageTotals } from './api';
+// The shapes are repeated here, not imported from api.ts: the test project reads this file too, and it resolves
+// imports differently. They match the Timeline types there field for field.
+export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null }
+export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: Array<{ key: string; label: string; started: string; ended: string | null }>; usage: UsageTotals }
+export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
+/** What `guarantees` reads of a run. */
+export interface GuardedRun {
+  state: string; stage: string; redCommit: string; worktree: string | null; branch: string;
+  pr?: string | null; prState?: string | null; prCi?: string | null; ci?: { state: string } | null;
+  timeline?: { lock: LockView | null };
+}
 
 /** The stages of the pipeline, in order; Resolve conflicts comes after the pull request and is not one of them. */
 export const PIPELINE = ['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise'];
@@ -92,7 +102,7 @@ export interface Guarantee { key: 'lock' | 'gates' | 'isolated' | 'pr'; title: s
  * stage is checked before the next starts, the work is in its own worktree and branch, and it ends as a pull request
  * whose CI is green. `held` only says what the run's own records show.
  */
-export function guarantees(v: Pick<RunView, 'state' | 'stage' | 'redCommit' | 'worktree' | 'branch' | 'pr' | 'prState' | 'prCi' | 'ci' | 'timeline'>): Guarantee[] {
+export function guarantees(v: GuardedRun): Guarantee[] {
   const lock = v.timeline?.lock || null;
   const sha = (lock?.sha || v.redCommit || '').slice(0, 7);
   const guards = lock?.guards.length || 0;
