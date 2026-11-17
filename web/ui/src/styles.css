@@ -261,6 +261,7 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .tile-icon { width: 14px; text-align: center; flex: 0 0 auto; }
 .tile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile-lock { font-size: 11px; margin-left: auto; }
+.tile-lock-open { background: var(--wait-bg); border-radius: 4px; padding: 0 3px; }
 .tile-model, .tile-line, .tile-cost { font-size: 12px; color: var(--mu); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile-cost { font-size: 11px; }
 .tile-done .tile-fill { background: var(--done); } .tile-done .tile-icon { color: var(--done); }

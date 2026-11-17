@@ -3,8 +3,8 @@
 import { memo } from 'preact/compat';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import type { LockView, RunView, StageSpan, Timeline, UsageTotals } from './api';
-import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, spanSeconds, tileLine, tokensText, type TileState } from './insights';
+import type { LockOpen, LockView, RunView, StageSpan, Timeline, UsageTotals } from './api';
+import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, openSentence, spanSeconds, tileLine, tokensText, type TileState } from './insights';
 import { Panel, Spinner } from './ui';
 
 /** The time now, refreshed every second while `on` (a running stage shows its elapsed time). */
@@ -27,12 +27,14 @@ export interface RailStage { name: string; key: string; state: TileState; model:
  * files and time, or "Not started"). Picking a tile opens its details under the row: the steps it went through and
  * whatever the caller renders for it (its agent, model and effort).
  */
-export function StageRail({ stages, timeline, step, locked, selected, onSelect, children }: {
+export function StageRail({ stages, timeline, step, locked, lockOpen, selected, onSelect, children }: {
   stages: RailStage[];
   timeline?: Timeline;
   step?: RunView['step'];
   /** The test lock is recorded and confirmed (see verifiedLock): only then does Red tests carry the lock mark. */
   locked: boolean;
+  /** Tests that were locked are being changed on purpose: Red tests carries an open lock instead. */
+  lockOpen?: LockOpen | null;
   selected: string;
   onSelect(key: string): void;
   children?: ComponentChildren;
@@ -57,7 +59,8 @@ export function StageRail({ stages, timeline, step, locked, selected, onSelect, 
               <span class="tile-head">
                 <span class="tile-icon" aria-hidden="true">{s.state === 'active' ? <Spinner /> : ICON[s.state]}</span>
                 <span class="tile-name">{s.name}</span>
-                {s.name === 'Red tests' && locked && <span class="tile-lock" role="img" aria-label="Tests locked" title="The tests are committed and locked: a later stage that changes them is stopped">🔒</span>}
+                {s.name === 'Red tests' && lockOpen && <span class="tile-lock tile-lock-open" role="img" aria-label="Test lock open" title={openSentence(lockOpen)}>🔓</span>}
+                {s.name === 'Red tests' && locked && !lockOpen && <span class="tile-lock" role="img" aria-label="Tests locked" title="The tests are committed and locked: a later stage that changes them is stopped">🔒</span>}
               </span>
               <span class="tile-model mono">{s.model || (s.key === 'finalise' ? 'no agent' : 'default')}</span>
               <span class="tile-line">{tileLine(s.state, sp, s.files, s.state === 'active' ? step?.label || '' : '', now)}</span>
@@ -109,10 +112,11 @@ export function Guarantees({ v }: { v: Parameters<typeof guarantees>[0] }) {
 }
 
 /**
- * The test lock, inside the Red tests stage. It is drawn only from a recorded and confirmed lock; without one it says
- * when the lock is set and claims nothing about this run.
+ * The test lock, inside the Red tests stage. It is drawn only from a recorded and confirmed lock, or as open while the
+ * engine records that locked tests are being changed; without either it says when the lock is set and claims nothing.
  */
-export function LockDetail({ lock }: { lock: LockView | null }) {
+export function LockDetail({ lock, open }: { lock: LockView | null; open?: LockOpen | null }) {
+  if (open) return <p class="s-paused" style={{ margin: 0 }}><span aria-hidden="true">🔓</span> {openSentence(open)}</p>;
   if (!lock) return <p class="small muted" style={{ margin: 0 }}>No test lock is recorded for this run. It is set when Red tests commits the tests, and removed if a stage at or before Red tests is run again.</p>;
   return (
     <div class="col" style={{ gap: '8px' }}>

@@ -5,11 +5,12 @@
 export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null }
 export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: Array<{ key: string; label: string; started: string; ended: string | null }>; usage: UsageTotals }
 export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
+export interface LockOpen { at: string; reason: 'retry' | 'review-findings' | 'test-repair'; sha: string }
 /** What `guarantees` reads of a run. */
 export interface GuardedRun {
   state: string; stage: string; redCommit: string; worktree: string | null; branch: string;
   pr?: string | null; prState?: string | null; prCi?: string | null; ci?: { state: string } | null;
-  timeline?: { lock: LockView | null };
+  timeline?: { lock: LockView | null; lockOpen?: LockOpen | null };
 }
 
 /** The stages of the pipeline, in order; Resolve conflicts comes after the pull request and is not one of them. */
@@ -98,11 +99,23 @@ export function tileLine(state: TileState, span: StageSpan | undefined, files: n
 /**
  * The test lock, only when it can be shown to stand: the engine recorded it after the Red tests commit (a row in
  * attempts.jsonl, dropped again when a stage at or before Red tests is retried), and git still shows a red-tests commit
- * on the run's branch. A run with either record missing gets no lock, whatever stage it has reached.
+ * on the run's branch. A run with either record missing gets no lock, whatever stage it has reached. While the lock is
+ * open (the tests are being changed on purpose) there is no closed lock either.
  */
 export function verifiedLock(v: Pick<GuardedRun, 'redCommit' | 'timeline'>): LockView | null {
   const lock = v.timeline?.lock || null;
-  return lock && lock.sha && v.redCommit ? lock : null;
+  return lock && lock.sha && v.redCommit && !v.timeline?.lockOpen ? lock : null;
+}
+
+/** The open lock, when the engine recorded that tests which were locked are being changed again. */
+export const openLock = (v: Pick<GuardedRun, 'timeline'>): LockOpen | null => v.timeline?.lockOpen || null;
+
+/** Why the lock is open, in one sentence. */
+export function openSentence(o: LockOpen): string {
+  const was = o.sha ? ` (they were locked at ${o.sha.slice(0, 7)})` : '';
+  if (o.reason === 'review-findings') return `Open: Review asked for changes, so Red tests is writing tests for its findings${was}. The lock closes when they are committed.`;
+  if (o.reason === 'test-repair') return `Open: Test repair is changing the tests it claimed${was}. The lock closes when the repair is checked and committed; a rejected repair puts the tests back.`;
+  return `Open: a stage at or before Red tests was started again, so the tests are being rewritten${was}. The lock closes when Red tests commits them.`;
 }
 
 export interface Guarantee { key: 'gates' | 'isolated' | 'pr'; title: string; detail: string; state: 'held' | 'pending' | 'broken' }

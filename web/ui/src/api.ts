@@ -75,7 +75,8 @@ export interface StepSpan { key: string; label: string; started: string; ended: 
 export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null }
 export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; usage: UsageTotals }
 export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
-export interface Timeline { stages: StageSpan[]; lock: LockView | null; usage: UsageTotals }
+export interface LockOpen { at: string; reason: 'retry' | 'review-findings' | 'test-repair'; sha: string }
+export interface Timeline { stages: StageSpan[]; lock: LockView | null; lockOpen?: LockOpen | null; usage: UsageTotals }
 export interface AttemptRound {
   at: string; stage: string; agent: string; durationSec: number | null; exitCode: number; responseChars: number;
   turns: number | null; tokens: number | null;

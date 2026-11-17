@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, skipped, spanSeconds, stripStates, tileLine, tokensText, verifiedLock } from '../web/ui/src/insights.js';
+import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, openLock, openSentence, skipped, spanSeconds, stripStates, tileLine, tokensText, verifiedLock } from '../web/ui/src/insights.js';
 
 const usage = (o: Partial<{ rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null }> = {}) =>
   ({ rounds: 1, durationSec: 60, turns: 3, tokens: 1000, input: 200, output: 800, cacheRead: 600, cacheWrite: 200, costUsd: 0.5, ...o });
@@ -110,6 +110,18 @@ describe('Test repair that was never needed', () => {
 describe('the test lock is shown only when it is recorded and confirmed', () => {
   const lock = { sha: 'abcdef1234567', origRedSha: 'abcdef1234567', at: '2026-11-17T10:00:00', source: 'red-tests' as const, tests: 5, files: 2, relocks: 0, guards: [] };
   const timeline = (l: typeof lock | null) => ({ lock: l });
+
+  test('an open lock is never shown as closed, and says why it is open', () => {
+    const open = { at: '2026-11-17T10:05:00', reason: 'test-repair' as const, sha: 'abcdef1234567' };
+    const v = { redCommit: 'abcdef1', timeline: { lock, lockOpen: open } };
+    expect(verifiedLock(v)).toBeNull();
+    expect(openLock(v)).toBe(open);
+    expect(openSentence(open)).toMatch(/^Open: Test repair is changing the tests it claimed \(they were locked at abcdef1\)/);
+    expect(openSentence({ ...open, reason: 'review-findings' })).toMatch(/^Open: Review asked for changes/);
+    expect(openSentence({ ...open, reason: 'retry', sha: '' })).toMatch(/^Open: a stage at or before Red tests was started again, so the tests are being rewritten\. /);
+    expect(openLock({ timeline: { lock } })).toBeNull();
+    expect(openLock({ timeline: undefined })).toBeNull();
+  });
 
   test('a recorded lock with a red-tests commit on the branch is shown', () => {
     expect(verifiedLock({ redCommit: 'abcdef1', timeline: timeline(lock) })).toBe(lock);
