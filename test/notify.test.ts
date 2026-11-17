@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import {
-  DEFAULT_PREFS, attentionFrom, channelsFor, permissionState, playChime, readPrefs, setFaviconBadge, showDesktop, titleFor, writePrefs,
+  DEFAULT_PREFS, attentionFrom, channelsFor, readPrefs, titleFor, writePrefs,
   type Attention, type NotifyPrefs,
 } from '../web/ui/src/notify.js';
+import { permissionState, playChime, setFaviconBadge, showDesktop } from '../web/ui/src/notify-dom.js';
 
 const att = (kind: Attention['kind']): Attention => ({ slug: 'a', kind, title: 't', body: 'b' });
 const prefs = (o: Partial<NotifyPrefs>): NotifyPrefs => ({ ...DEFAULT_PREFS, ...o });

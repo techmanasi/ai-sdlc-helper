@@ -9,7 +9,8 @@ import { Projects } from './Projects';
 import { Run } from './Run';
 import { Settings } from './Settings';
 import { Ctx, ErrorBox, Future } from './ui';
-import { attentionFrom, channelsFor, permissionState, playChime, readPrefs, requestPermission, setFaviconBadge, showDesktop, titleFor, writePrefs, type NotifyMode, type NotifyPrefs } from './notify';
+import { attentionFrom, channelsFor, readPrefs, titleFor, writePrefs, type NotifyMode, type NotifyPrefs } from './notify';
+import { permissionState, playChime, requestPermission, setFaviconBadge, showDesktop } from './notify-dom';
 
 type Theme = 'light' | 'dark' | 'system';
 const store = {
