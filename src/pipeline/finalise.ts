@@ -27,7 +27,8 @@ export interface FinaliseOptions {
   /** Keeps the whole text of a failure (the pipeline's logs/errors.log); without it, only the one-line warning is printed. */
   keepError?(where: string, text: string): void;
   /** Records a new pull request's link in the brief here (the pipeline's linkPrInBrief); without it, written directly. Finalise commits it. */
-  linkPr?(url: string): void;
+  linkPr?(url: string): void;  /** Files committed with the cycle's files when there are any (the cost log); alone they are not something to commit. */
+  alongside?: string[];
 }
 
 export interface FinaliseResult {
@@ -769,10 +770,20 @@ export function finalise(o: FinaliseOptions): FinaliseResult {
   const branch = o.git.run('rev-parse', '--abbrev-ref', 'HEAD').trim();
   const baselineFile = path.join(root, o.baseline);
   if (o.envExample !== false) mirror(baselineFile, opts, line => o.err(line));
-  const { include, skipped } = changed(baselineFile, opts);
+  const found = changed(baselineFile, opts);
+  const alongside = o.alongside ?? [];
+  const work = found.include.filter(f => !alongside.includes(f));
+  const include = work.length ? [...work, ...alongside] : [];
+  const { skipped } = found;
   const base: Baseline = JSON.parse(fs.readFileSync(baselineFile, 'utf8'));
   const backlogDirty = has(base.files, o.backlog);
 
+  // Nothing of the cycle's to commit: the files written to go with it are put back as they were, leaving the checkout clean.
+  if (!work.length) {
+    for (const f of alongside) {
+      try { o.git.run('checkout', 'HEAD', '--', f); } catch { fs.rmSync(path.join(root, f), { force: true }); }
+    }
+  }
   if (!include.length) o.out('WARNING: nothing to commit');
   else {
     o.git.run('add', '-A', '--', ...include);
@@ -785,7 +796,7 @@ export function finalise(o: FinaliseOptions): FinaliseResult {
 
   if (lines.length) { o.out('Skipped:'); for (const l of lines) o.out(l); }
   o.out('');
-  o.out(`DONE: ${o.slug} on ${branch}. Committed ${include.length} file(s), skipped ${lines.length} (see ${log}/finalise-skipped.md).`);
+  o.out(`DONE: ${o.slug} on ${branch}. Committed ${work.length} file(s), skipped ${lines.length} (see ${log}/finalise-skipped.md).`);
 
   let prUrl: string | null = null;
   const briefFile = path.join(root, o.docs, 'brief.md');
