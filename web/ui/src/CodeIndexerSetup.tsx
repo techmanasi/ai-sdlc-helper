@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, type CodeSearchView } from './api';
 import { ErrorBox } from './ui';
+import { buildEligibility, buildPhase, initialPick, setupChanged } from './codeIndexerState';
 
 const POLL_MS = 1000;
 
@@ -15,15 +16,16 @@ export function CodeIndexerSetup({ project, onClose }: { project: string; onClos
 
   const load = () => api.codeSearch(project).then(v => {
     setView(v);
-    setPicked(current => current || (v.indexers.find(i => i.installed && i.runnable) || v.indexers[0] || { name: '' }).name);
-    if (wasRunning.current && v.operation.status === 'succeeded') setChanged(true);
+    setPicked(current => current || initialPick(v));
+    if (setupChanged(wasRunning.current ? 'running' : null, v.operation.status)) setChanged(true);
     wasRunning.current = v.operation.status === 'running';
   }).catch(e => setError((e as Error).message));
   useEffect(() => { load(); dialog.current?.focus(); }, [project]);
 
-  const running = view?.operation.status === 'running';
+  const phase = buildPhase(view?.operation);
+  const running = phase.progress;
   useEffect(() => {
-    if (!running) return undefined;
+    if (!phase.poll) return undefined;
     const t = setInterval(load, POLL_MS);
     return () => clearInterval(t);
   }, [running, project]);
@@ -37,7 +39,6 @@ export function CodeIndexerSetup({ project, onClose }: { project: string; onClos
 
   const choice = view?.indexers.find(i => i.name === picked);
   const op = view?.operation;
-  const finished = op && op.status !== 'idle' && op.status !== 'running';
   return (
     <div
       class="overlay" role="dialog" aria-modal="true" aria-label="Setup Code Indexer" ref={dialog} tabIndex={-1}
@@ -58,19 +59,18 @@ export function CodeIndexerSetup({ project, onClose }: { project: string; onClos
                   <span>
                     <strong class="mono">{i.name}</strong>
                     {' · '}{i.installed ? 'installed' : 'not installed'}{' · '}{i.indexed ? `indexed (${i.index})` : 'no index yet'}
-                    {!i.installed && i.setup && <><br /><span class="muted">Install: {i.setup}</span></>}
-                    {i.installed && !i.runnable && <><br /><span class="muted">Cannot be built here: {i.build || i.setup}</span></>}
+                    {buildEligibility(i, running).guidance && <><br /><span class="muted">{buildEligibility(i, running).guidance}</span></>}
                   </span>
                 </label>
               ))}
               {running && <p class="small s-running">Building the {op?.indexer} index…</p>}
-              {op?.status === 'succeeded' && <p class="small s-done">✔ The {op.indexer} index is built and agent.codeSearch is set to {op.indexer}.</p>}
-              {finished && op.status !== 'succeeded' && <p class="small s-failed">✘ {op.error || 'The build did not finish.'}</p>}
+              {phase.done && <p class="small s-done">✔ The {op?.indexer} index is built and agent.codeSearch is set to {op?.indexer}.</p>}
+              {phase.retry && <p class="small s-failed">✘ {op?.error || 'The build did not finish.'}</p>}
               {op && op.output.length > 0 && <pre class="code mono" style={{ borderRadius: '6px', maxHeight: '240px', overflow: 'auto' }}>{op.output.join('\n')}</pre>}
               <div class="row">
-                <button class="btn btn-p" type="button" onClick={build} disabled={running || !choice || !choice.installed || !choice.runnable}>
-                  {choice && choice.indexed ? 'Rebuild index' : 'Build index'}
-                </button>
+                {phase.done ? <button class="btn btn-p" type="button" onClick={close}>Done</button> : <button class="btn btn-p" type="button" onClick={build} disabled={!choice || !buildEligibility(choice, running).enabled}>
+                  {phase.retry ? 'Retry' : 'Configure & Build'}
+                </button>}
               </div>
             </>
           )}

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, type Check, type Project, type SettingsView, type Source } from './api';
 import { dialogKey, firstFocusable, focusable, type FocusCandidate } from './dialog';
 import { CodeIndexerSetup } from './CodeIndexerSetup';
+import { doctorSetupAction } from './codeIndexerState';
 import { ModelSelect } from './ModelSelect';
 import { Cli, ErrorBox, useApp } from './ui';
 
@@ -22,7 +23,7 @@ function Doctor({ name }: { name: string }) {
         <div style={{ display: 'grid', gridTemplateColumns: '22px minmax(0,1fr)', gap: '2px 8px', padding: '7px 0', borderTop: '1px solid var(--ln)', fontSize: '13px' }}>
           <span class={c.ok ? 's-done' : c.required ? 's-failed' : 's-paused'}>{c.ok ? '✔' : c.required ? '✘' : '!'}</span>
           <span><strong>{c.name}</strong> · {c.detail}{!c.ok && c.fix && <><br /><span class="muted">Fix: {c.fix}</span></>}
-            {!c.ok && c.name === 'code indexer' && <><br /><button class="btn btn-s" type="button" onClick={() => setSetup(true)}>[ Setup Code Indexer ]</button></>}</span>
+            {doctorSetupAction(c) && <><br /><button class="btn btn-s" type="button" onClick={() => setSetup(true)}>[ Setup Code Indexer ]</button></>}</span>
         </div>
       ))}
       {setup && <CodeIndexerSetup project={name} onClose={changed => { setSetup(false); if (changed) run(); }} />}

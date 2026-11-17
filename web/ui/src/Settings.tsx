@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api } from './api';
 import { CodeIndexerSetup } from './CodeIndexerSetup';
+import { settingsSetupAction } from './codeIndexerState';
 import { Cli, CopyButton, ErrorBox, Future, Panel, useApp } from './ui';
 
 export function Settings() {
@@ -12,12 +13,13 @@ export function Settings() {
   const [setup, setSetup] = useState(false);
   const load = () => { setData(null); api.settings(project).then(setData).catch(e => setError((e as Error).message)); };
   useEffect(load, [project]);
+  const setupAction = settingsSetupAction('auto');
 
   return (
     <div class="col">
       <div class="row">
         <h1 class="grow">Settings</h1>
-        <button class="btn" type="button" onClick={() => setSetup(true)}>Setup Code Indexer</button>
+        {setupAction.available && <button class="btn" type="button" onClick={() => setSetup(true)}>{setupAction.label}</button>}
         <button class="btn btn-p" type="button" disabled title="Editing settings comes in phase 2">Edit settings <Future id="phase 2" /></button>
         <button class="btn" type="button" disabled title="Waits on engine request E-1">Edit prompts <Future id="E-1" /></button>
       </div>

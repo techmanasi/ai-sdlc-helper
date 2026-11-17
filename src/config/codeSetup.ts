@@ -68,6 +68,7 @@ export function createCodeSetup(opts: { env: NodeJS.ProcessEnv; timeoutMs?: numb
   const timeoutMs = opts.timeoutMs ?? 600_000;
   const killGraceMs = opts.killGraceMs ?? 5_000;
   const operations = new Map<string, SetupOperation>();
+  const active = new Set<string>();
 
   const operation = (root: string): SetupOperation => {
     const op = operations.get(root);
@@ -93,13 +94,13 @@ export function createCodeSetup(opts: { env: NodeJS.ProcessEnv; timeoutMs?: numb
     }
     const run = runnableBuild(ix);
     if (!run) throw new SetupError(400, `${indexer} has no build command defined`, { setup: ix.setup || '' });
-    const current = operations.get(root);
-    if (current && current.status === 'running') {
+    if (active.has(root)) {
       throw new SetupError(409, 'a code indexer build is already in progress for this project');
     }
 
     const op: SetupOperation = { ...idle(), status: 'running', indexer, startedAt: new Date().toISOString() };
     operations.set(root, op);
+    active.add(root);
     const lines: string[] = [];
     let partial = '';
     let settled = false;
@@ -107,11 +108,13 @@ export function createCodeSetup(opts: { env: NodeJS.ProcessEnv; timeoutMs?: numb
     const trim = () => {
       while (lines.length > MAX_LINES) lines.shift();
       while (lines.length > 1 && Buffer.byteLength(lines.join('\n')) > MAX_BYTES) lines.shift();
+      if (lines.length && Buffer.byteLength(lines[0]) > MAX_BYTES) lines[0] = Buffer.from(lines[0]).subarray(-MAX_BYTES + 3).toString('utf8');
       op.output = [...lines];
     };
     const feed = (chunk: Buffer) => {
       const parts = (partial + chunk.toString('utf8')).split(/\r?\n/);
       partial = parts.pop() || '';
+      if (Buffer.byteLength(partial) > MAX_BYTES) partial = Buffer.from(partial).subarray(-MAX_BYTES + 3).toString('utf8');
       lines.push(...parts);
       trim();
     };
@@ -141,14 +144,17 @@ export function createCodeSetup(opts: { env: NodeJS.ProcessEnv; timeoutMs?: numb
         killTimer = setTimeout(() => { child.kill('SIGKILL'); }, killGraceMs);
       }, Math.max(timeoutMs, MIN_TIMEOUT_MS));
     });
-    child.on('error', e => { clearTimeout(killTimer); finish('failed', `Could not start ${run.program}: ${e.message}`); });
+    child.on('error', e => { clearTimeout(killTimer); active.delete(root); finish('failed', `Could not start ${run.program}: ${e.message}`); });
     child.on('close', code => {
       clearTimeout(killTimer);
+      active.delete(root);
       if (settled) return;
       if (code !== 0) return finish('failed', `Build failed with exit code ${code}`, code);
       if (unavailable(ix, root, opts.env)) return finish('failed', 'Build exited successfully, but index files were not found', 0);
       try {
-        const next = { ...file, agent: { ...(file.agent || {}), codeSearch: indexer } };
+        const latest = fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, 'utf8')) : {};
+        if (!latest || typeof latest !== 'object' || Array.isArray(latest)) throw new Error('configuration is not an object');
+        const next = { ...latest, agent: { ...(latest.agent || {}), codeSearch: indexer } };
         fs.writeFileSync(configFile, JSON.stringify(next, null, 2) + '\n');
       } catch (e) {
         return finish('failed', `Index was built successfully, but saving configuration to sdlc.config.json failed: ${(e as Error).message}`, 0);
