@@ -50,6 +50,26 @@ export function stage(ctx: Ctx, title: string): void {
   ctx.status.attempt = '';
   ctx.status.step = null; // the new stage names its own first step
   ctx.status.write();
+  appendRound(at(ctx, ctx.log), { kind: 'stage', at: stamp(), stage: ctx.status.stage });
+}
+
+/** Records that the tests are locked at the current lockSha (<log>/attempts.jsonl); never throws. */
+function recordLock(ctx: Ctx, source: 'red-tests' | 'test-repair'): void {
+  try {
+    let tests: number | null = null;
+    try {
+      const j = JSON.parse(fs.readFileSync(at(ctx, `${ctx.log}/red.json`), 'utf8'));
+      if (Array.isArray(j?.tests)) tests = j.tests.length;
+    } catch { /* red.json missing or unreadable */ }
+    let files: number | null = null;
+    try { files = ctx.git.lines('ls-tree', '-r', '--name-only', ctx.lockSha, '--', ...ctx.layout.testPathspecs).filter(f => f.trim()).length; } catch { /* not cheap here */ }
+    appendRound(at(ctx, ctx.log), { kind: 'lock', at: stamp(), sha: ctx.lockSha, origRedSha: ctx.origRedSha, source, tests, files });
+  } catch { /* best effort */ }
+}
+
+/** Records that a guard found locked tests changed by an agent (<log>/attempts.jsonl). */
+function recordGuard(ctx: Ctx, stageName: string, restored: string[]): void {
+  appendRound(at(ctx, ctx.log), { kind: 'guard', at: stamp(), stage: stageName, restored });
 }
 
 const countLines = (file: string, re: RegExp) => (exists(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(l => re.test(l)).length : 0);
@@ -304,6 +324,7 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   }
   ctx.origRedSha = firstRedSha || ctx.redSha;
   ctx.lockSha = ctx.git.head();
+  recordLock(ctx, 'red-tests');
   // The full suite in CI: the tests are locked, so push and open the draft PR now (a failed red gate never gets here).
   if (ctx.config.tests.fullSuite === 'ci') await openCi(ctx);
   else if (ctx.movedFrom) await openMovedPr(ctx);
@@ -442,6 +463,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
     const touched = ctx.git.testsChangedSince(ctx.lockSha, ctx.layout.testPathspecs);
     if (touched.length) {
       ctx.out('GUARD FAILED: tests were modified during implementation');
+      recordGuard(ctx, ctx.status.stage, touched);
       for (const f of touched) ctx.out(f);
       stop(ctx, null);
     }
@@ -697,6 +719,7 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   ctx.git.run('commit', '-q', '-m', `[test-repair] test(${ctx.slug}): repair invalid tests (mechanically checked and audited)`);
   ctx.redSha = ctx.git.head();
   ctx.lockSha = ctx.redSha;
+  recordLock(ctx, 'test-repair');
   ctx.out(` test repair accepted; tests locked again at ${short(ctx.redSha)}`);
 }
 
@@ -713,7 +736,11 @@ export async function reviewStage(ctx: Ctx): Promise<void> {
   await runAgent(ctx, 'review', 'review');
   await tick();
   ctx.status?.beginStep?.('guard');
-  if (ctx.git.testsChangedSince(ctx.lockSha, ctx.layout.testPathspecs).length) stop(ctx, 'GUARD FAILED: review modified tests');
+  const touched = ctx.git.testsChangedSince(ctx.lockSha, ctx.layout.testPathspecs);
+  if (touched.length) {
+    recordGuard(ctx, ctx.status.stage, touched);
+    stop(ctx, 'GUARD FAILED: review modified tests');
+  }
   await tick();
   if (!(await successCheck(ctx))) stop(ctx, `Checks broke after review. See ${ctx.failLog}`);
 }

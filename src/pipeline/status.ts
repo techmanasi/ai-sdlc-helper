@@ -1,6 +1,7 @@
 // The status file: ONE small JSON line, replaced (never appended), so the pane and `watch` read it cheaply.
 import fs from 'node:fs';
 import { stamp } from './context.js';
+import { appendRound } from './observe.js';
 import { STEPS } from './steps.js';
 import { procStart } from '../runs/proc.js';
 
@@ -101,7 +102,8 @@ export class Status {
   private stepId = '';
   readonly runStarted = stamp();
 
-  constructor(readonly file: string, readonly slug: string, readonly pid = process.pid) {}
+  /** <history>: the log dir whose attempts.jsonl gets a row for each step; absent means no history. */
+  constructor(readonly file: string, readonly slug: string, readonly pid = process.pid, readonly history?: string) {}
 
   line(): StatusLine {
     const line: StatusLine = {
@@ -135,6 +137,7 @@ export class Status {
       const label = detail ? `${list[at].label}: ${detail}` : list[at].label;
       this.step = { i: at + 1, n: list.length, label, started: new Date().toISOString() };
       this.write();
+      if (this.history) appendRound(this.history, { kind: 'step', at: stamp(), stage: this.stage, key, label });
     } catch { /* best effort */ }
   }
 

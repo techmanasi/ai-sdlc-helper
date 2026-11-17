@@ -89,7 +89,7 @@ describe('agentFacts', () => {
 
   test('reads a claude result: milliseconds, token sum, refused tool', () => {
     expect(read({ result: ' done ', duration_ms: 1234, num_turns: 3, usage: { input_tokens: 10, output_tokens: 5 }, permission_denials: [{ tool_name: 'Bash' }] })).toEqual({
-      durationSec: 1.2, turns: 3, tokens: 15, responseChars: 4, denied: [{ tool: 'Bash', detail: '' }],
+      durationSec: 1.2, turns: 3, tokens: 15, usage: { input: 10, output: 5, cacheRead: null, cacheWrite: null, costUsd: null }, responseChars: 4, denied: [{ tool: 'Bash', detail: '' }],
     });
   });
 
@@ -105,9 +105,26 @@ describe('agentFacts', () => {
     const file = path.join(tmp(), 'codex.json');
     fs.writeFileSync(file, events.map(e => JSON.stringify(e)).join('\n'));
     expect(agentFacts(file)).toEqual({
-      durationSec: null, turns: 1, tokens: 42133, responseChars: 44, denied: [{ tool: 'Bash', detail: 'rm -rf build' }],
+      durationSec: null, turns: 1, tokens: 42133, usage: { input: 41840, output: 293, cacheRead: null, cacheWrite: null, costUsd: null }, responseChars: 44, denied: [{ tool: 'Bash', detail: 'rm -rf build' }],
     });
     expect(agentLastMessage(file)).toBe('I cannot read files.');
+  });
+
+  test('reads the token split and cost of a claude result', () => {
+    const f = read({ result: 'ok', total_cost_usd: 0.0123, usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 700, cache_creation_input_tokens: 40 } });
+    expect(f.usage).toEqual({ input: 10, output: 5, cacheRead: 700, cacheWrite: 40, costUsd: 0.0123 });
+    expect(f.tokens).toBe(15);
+  });
+
+  test('reads the cached input tokens of a codex stream, without a cost', () => {
+    const file = path.join(tmp(), 'codex-usage.json');
+    fs.writeFileSync(file, `${JSON.stringify({ type: 'turn.started' })}\n${JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100, cached_input_tokens: 60, output_tokens: 7 } })}\n`);
+    expect(agentFacts(file).usage).toEqual({ input: 100, output: 7, cacheRead: 60, cacheWrite: null, costUsd: null });
+  });
+
+  test('a result with no usage has no usage member, and never throws', () => {
+    expect('usage' in read({ result: 'ok' })).toBe(false);
+    expect('usage' in read({ result: 'ok', usage: 'weird' })).toBe(false);
   });
 
   test('a codex stream that said nothing is still an empty answer', () => {

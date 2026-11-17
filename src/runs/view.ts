@@ -13,6 +13,7 @@ import { liveBranch, projectSlugs, readCheckpoint, runChanges, runWorktree, type
 import { moveReasonText } from '../pipeline/status.js';
 import { ciSummaryOf, getPrFromBrief, getPrStatusCached, keepPrStatusIn, PR_STATUS_FILE, prCommentsEmpty, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
 import { readRounds, type Round } from '../pipeline/observe.js';
+import { runTimeline, type Timeline } from './timeline.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
 import { commonDirOf, stampOf, worktreeInputs } from '../gitdir.js';
@@ -93,8 +94,22 @@ export interface RunView {
   recovery?: StageRecovery | null;
   /** What each agent round did (logs/attempts.jsonl), with its warnings; empty before the first round. */
   attempts: Round[];
+  /** Stages and steps with their times, usage and cost per stage, and the red-test lock (logs/attempts.jsonl); absent when there is no file. */
+  timeline?: Timeline;
   /** CI full-suite gate status; null unless tests.fullSuite is "ci". */
   ci?: CiView | null;
+}
+
+/** The timeline of every start of the item: tolerant of a missing file, a half-written last line and malformed lines. */
+function timelineOf(logs: string): { timeline?: Timeline } {
+  let text: string;
+  try { text = fs.readFileSync(path.join(logs, 'attempts.jsonl'), 'utf8'); } catch { return {}; }
+  const rows: unknown[] = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try { rows.push(JSON.parse(line)); } catch { /* half-written or malformed */ }
+  }
+  return { timeline: runTimeline(rows) };
 }
 
 export interface CiView {
@@ -459,6 +474,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
     ciSummary: ciSummaryOf(runDoc('ci-failure.md') || ''),
     // A round still marked running when the run is not running it (or runs another agent) was cut short.
     attempts: readRounds(logs).map(r => (r.running && !(state === 'running' && (s.agent || '') === r.agent) ? { ...r, running: false, warnings: [...r.warnings, 'the round did not finish: the run stopped'] } : r)),
+    ...timelineOf(logs),
     recovery: ['paused', 'failed', 'refused', 'stopped', 'interrupted'].includes(state)
       ? stageRecoveryHint({
           slug,

@@ -9,6 +9,8 @@ import { keepError } from './errors.js';
 
 export type Snapshot = Map<string, string>;
 
+export interface RoundUsage { input: number | null; output: number | null; cacheRead: number | null; cacheWrite: number | null; costUsd: number | null }
+
 export interface AgentRound {
   kind: 'agent';
   at: string;
@@ -20,6 +22,10 @@ export interface AgentRound {
   responseChars: number;
   turns: number | null;
   tokens: number | null;
+  /** The token split and cost of the round, when the harness reports them; absent otherwise. */
+  usage?: RoundUsage;
+  /** The model the round ran with, when known. */
+  model?: string;
   /** Actions the agent was refused: the tool, and the target when the harness names it. */
   denied: Array<{ tool: string; detail: string }>;
   /** Files whose content differs from before the round. */
@@ -114,7 +120,7 @@ export function debugLeftovers(git: Git, files: string[]): string[] {
   return found;
 }
 
-export type AgentFacts = { durationSec: number | null; turns: number | null; tokens: number | null; responseChars: number; denied: Array<{ tool: string; detail: string }> };
+export type AgentFacts = { durationSec: number | null; turns: number | null; tokens: number | null; usage?: RoundUsage; responseChars: number; denied: Array<{ tool: string; detail: string }> };
 
 /** What an agent's result file says, whichever shape its harness prints: one JSON object, or one event per line (codex). */
 interface ParsedAgentResult {
@@ -125,6 +131,7 @@ interface ParsedAgentResult {
   durationSec: number | null;
   turns: number | null;
   tokens: number | null;
+  usage?: RoundUsage;
   denied: Array<{ tool: string; detail: string }>;
 }
 
@@ -133,6 +140,19 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const totalTokens = (usage: any): number | null =>
   num(usage?.total_tokens) ?? ((num(usage?.input_tokens) ?? 0) + (num(usage?.output_tokens) ?? 0) || null);
 
+/** The token split and cost of a round; undefined when the harness reported none of it. */
+function usageOf(usage: any, costUsd: unknown): RoundUsage | undefined {
+  const u = usage && typeof usage === 'object' ? usage : {};
+  const out: RoundUsage = {
+    input: num(u.input_tokens),
+    output: num(u.output_tokens),
+    cacheRead: num(u.cache_read_input_tokens) ?? num(u.cached_input_tokens),
+    cacheWrite: num(u.cache_creation_input_tokens),
+    costUsd: num(costUsd),
+  };
+  return Object.values(out).every(v => v === null) ? undefined : out;
+}
+
 /** The text of an agent message item, whichever field the harness puts it in. */
 function itemText(item: any): string {
   if (typeof item.text === 'string') return item.text;
@@ -140,6 +160,8 @@ function itemText(item: any): string {
   if (Array.isArray(item.content)) return item.content.map((c: any) => (typeof c === 'string' ? c : String(c?.text || ''))).join('');
   return '';
 }
+
+const usageField = (usage: RoundUsage | undefined): { usage?: RoundUsage } => (usage ? { usage } : {});
 
 /** One JSON object, as claude and agy print with `--output-format json` (the harnesses name the fields alike). */
 function objectResult(data: any): ParsedAgentResult {
@@ -154,6 +176,7 @@ function objectResult(data: any): ParsedAgentResult {
     durationSec: num(data.duration_seconds) ?? (num(data.duration_ms) !== null ? Math.round((data.duration_ms as number) / 100) / 10 : null),
     turns: num(data.num_turns),
     tokens: totalTokens(data.usage),
+    ...usageField(usageOf(data.usage, data.total_cost_usd)),
     denied,
   };
 }
@@ -217,6 +240,7 @@ function jsonlResult(text: string): ParsedAgentResult | null {
     durationSec: null,
     turns: started || completed || null,
     tokens: totalTokens(usage),
+    ...usageField(usageOf(usage, null)),
     denied,
   };
 }
@@ -241,6 +265,7 @@ export function agentFacts(jsonFile: string): AgentFacts {
     durationSec: parsed.durationSec,
     turns: parsed.turns,
     tokens: parsed.tokens,
+    ...usageField(parsed.usage),
     responseChars: text.trim().length,
     denied: parsed.denied,
   };
@@ -277,7 +302,16 @@ export interface MoveMark { kind: 'move'; at: string; from: string; to: string; 
 /** Written by the push check (push-check.ts): what it found and what it did (readRounds ignores it). */
 export interface PushCheckMark { kind: 'push-check'; at: string; branch: string; finding: string; action: string; detail?: string }
 
-export function appendRound(logDir: string, row: AgentRound | GateResult | RoundStart | RunMark | MoveMark | PushCheckMark): void {
+/** The history rows the run page's timeline reads (readRounds ignores them). */
+export interface StageMark { kind: 'stage'; at: string; stage: string }
+export interface StepMark { kind: 'step'; at: string; stage: string; key: string; label: string }
+export interface EndMark { kind: 'end'; at: string; state: string; stage: string }
+/** The red tests were locked (Red tests commit, or an accepted Test repair); shas are full. */
+export interface LockMark { kind: 'lock'; at: string; sha: string; origRedSha: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null }
+/** A guard found locked tests changed by an agent. */
+export interface GuardMark { kind: 'guard'; at: string; stage: string; restored: string[] }
+
+export function appendRound(logDir: string, row: AgentRound | GateResult | RoundStart | RunMark | MoveMark | PushCheckMark | StageMark | StepMark | EndMark | LockMark | GuardMark): void {
   try {
     fs.mkdirSync(logDir, { recursive: true });
     fs.appendFileSync(path.join(logDir, 'attempts.jsonl'), `${JSON.stringify(row)}\n`);
@@ -297,7 +331,7 @@ export function priorStarts(logDir: string): { count: number; stage?: string; ag
     let row: { kind?: string; stage?: unknown; agent?: unknown; at?: unknown };
     try { row = JSON.parse(line); } catch { continue; }
     if (row.kind === 'run') { count++; last = {}; }
-    else if (typeof row.stage === 'string' && row.stage) {
+    else if ((row.kind === 'agent' || row.kind === 'start') && typeof row.stage === 'string' && row.stage) {
       last = { stage: row.stage, ...(typeof row.agent === 'string' && row.agent ? { agent: row.agent } : {}), ...(typeof row.at === 'string' ? { at: row.at } : {}) };
     }
   }
