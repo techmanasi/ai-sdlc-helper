@@ -83,6 +83,40 @@ Notes:
 2. Merge each on the owner's yes.
 3. Open `feat/ui-refresh` → `main` with a CHANGELOG `[Unreleased]` entry for this work; merge on the owner's yes.
 
+## Added 2026-11-17 after review of the first round
+
+### The test lock is shown only when verified (changes to PRs A and D)
+- No lock claim without a record. The lock mark appears only when (1) the engine recorded a `lock` row after the Red
+  tests commit and (2) git still shows a red-tests commit on the run's branch. A run with either missing shows no
+  lock, whatever stage it has reached; runs made before PR A therefore show none.
+- The lock lives on the stage rail: a lock icon on the Red tests tile, and the details (commit, tests, files, stopped
+  edits, re-locks) inside the Red tests stage. The separate "Test lock" panel is removed.
+- A retry from or before Red tests removes the icon: `runTimeline` drops the recorded lock when a `run` row starts at
+  Spec, Plan or Red tests, or one of those stages starts again; it returns when Red tests commits again.
+- The strip above the stages no longer has a lock item, a count of "stages checked", or "untouched since": it keeps
+  only what the run's records show (worktree and branch, pull request and CI) and one line describing the pipeline.
+
+### PR E: bring #159 (Review findings acted on) into the feature branch
+#159 is the open must-fix item and overlaps this work (`stages.ts`, `run.ts`, `view.ts`, `agent.ts`, `Run.tsx`,
+`api.ts`). It is a draft against `main` and fails CI for three reasons, which PR E fixes:
+1. `prompt-red-tests.md` gained a placeholder that two prompt tests find unrendered
+   (`test/pipeline-units.test.ts`, `test/tool-notes.test.ts`).
+2. Review no longer runs the checks, so its `tests` step in `STEPS` is never reported (`test/step-progress.test.ts`).
+3. The e2e stand-in for `claude` (`e2e/claude-stub/claude.mjs`) writes no `review.json`, so every e2e case stops at
+   Review.
+
+Steps:
+1. Branch `feat/review-findings-redesign` from `feat/ui-refresh`, merge PRs A to D into it, then merge
+   `feat/review-findings-acted-on`; resolve the conflicts. #159's own branch is not pushed to.
+2. Fix the three failures above.
+3. Fit #159's "Review rounds" panel and run options into the redesigned run page, and check the interplay: a fix
+   cycle runs Red tests again, which drops and then re-records the lock (the rule above); a Review round is a stage
+   pass in the timeline.
+4. PR into `feat/ui-refresh`. Until A to D merge it also shows their changes; it is reviewed last.
+
+### Screenshots
+A PR that changes the UI carries a screenshot of the board (and of the screen it changes) in its description.
+
 ## Known gaps
 - Guards stop the run rather than restore the tests, so the lock panel says "the run stopped there".
 - Harnesses other than claude report no cost; the table shows a dash, never a zero.
