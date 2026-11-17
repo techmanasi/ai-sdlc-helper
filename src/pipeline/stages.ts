@@ -56,13 +56,15 @@ export function stage(ctx: Ctx, title: string): void {
 /** Records that the tests are locked at the current lockSha (<log>/attempts.jsonl); never throws. */
 function recordLock(ctx: Ctx, source: 'red-tests' | 'test-repair'): void {
   try {
+    // The tests the run wrote (the files of its red-tests and test-repair commits) are what the lock is about. A count
+    // of tests is kept only when the results at red name them: a test file that cannot load yet reports none.
     let tests: number | null = null;
     try {
       const j = JSON.parse(fs.readFileSync(at(ctx, `${ctx.log}/red.json`), 'utf8'));
-      if (Array.isArray(j?.tests)) tests = j.tests.length;
+      if (Array.isArray(j?.tests) && j.tests.length > 0) tests = j.tests.length;
     } catch { /* red.json missing or unreadable */ }
     let files: number | null = null;
-    try { files = ctx.git.lines('ls-tree', '-r', '--name-only', ctx.lockSha, '--', ...ctx.layout.testPathspecs).filter(f => f.trim()).length; } catch { /* not cheap here */ }
+    try { files = redCommitTestFiles(ctx).length || null; } catch { /* not known */ }
     appendRound(at(ctx, ctx.log), { kind: 'lock', at: stamp(), sha: ctx.lockSha, origRedSha: ctx.origRedSha, source, tests, files });
   } catch { /* best effort */ }
 }
