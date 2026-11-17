@@ -261,8 +261,9 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .tile-head { display: flex; align-items: center; gap: 6px; font-weight: 600; min-width: 0; }
 .tile-icon { width: 14px; text-align: center; flex: 0 0 auto; }
 .tile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tile-lock { font-size: 14px; line-height: 1; margin-left: auto; padding: 3px 6px; border-radius: 6px; background: var(--done-bg); flex: 0 0 auto; }
-.tile-lock-open { background: var(--wait-bg); outline: 1px dashed var(--wait); }
+.tile-lock { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; line-height: 1; margin-left: auto; padding: 3px 6px; border-radius: 6px; color: var(--done); background: var(--done-bg); flex: 0 0 auto; }
+.tile-lock-open { color: var(--wait); background: transparent; outline: 1px dashed var(--wait); font-weight: 500; }
+.lock-svg { flex: 0 0 auto; vertical-align: -1px; }
 .tile-model, .tile-line, .tile-cost { font-size: 12px; color: var(--mu); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile-cost { font-size: 11px; }
 .tile-done .tile-fill { background: var(--done); } .tile-done .tile-icon { color: var(--done); }
