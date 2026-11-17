@@ -90,9 +90,10 @@ setInterval(() => fs.writeFileSync('heartbeat', String(Date.now())), 25);`);
 
   it('requests a refresh for a successful operation found on reopening', async () => {
     const modulePath = '../ui/src/codeIndexerState.js';
-    const { setupChanged } = await import(modulePath) as { setupChanged: (operation: { status: string }) => boolean };
-    expect(setupChanged({ status: 'succeeded' })).toBe(true);
-    expect(setupChanged({ status: 'running' })).toBe(false);
-    expect(setupChanged({ status: 'failed' })).toBe(false);
+    const { setupChanged } = await import(modulePath) as { setupChanged: (openedWith: string | null, now: string) => boolean };
+    expect(setupChanged('running', 'succeeded')).toBe(true);
+    expect(setupChanged(null, 'succeeded')).toBe(true);
+    expect(setupChanged(null, 'running')).toBe(false);
+    expect(setupChanged(null, 'failed')).toBe(false);
   });
 });

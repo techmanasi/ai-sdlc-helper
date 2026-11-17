@@ -27,3 +27,14 @@
 | Dismissed modal | A successful operation first observed on reopening requests a parent refresh; running and failed operations alone do not. The component must use the helper and refresh Doctor and Settings. | `web/test/code-indexer-findings.test.ts`: helper contract; component integration and UI behavior require review / interactive verification. |
 
 The existing route and build-command tests remain intact. They cover core API paths but do not establish the UI rendering and lifecycle cases above; review those and the remaining gaps identified in the original matrix. Documentation and constraints on the tests themselves are review items, not automated assertions.
+
+## Screen decision coverage
+
+| Scenario | Automated decision coverage | Review item |
+|---|---|---|
+| Doctor action | `test/code-indexer-screens.test.ts`: failing and warning code-indexer checks show the action; passing and unrelated checks do not. | Confirm the component renders the action and refreshes Doctor after success. |
+| Settings action | The screen tests require the same Setup Code Indexer action for healthy, `none`, and automatic configurations. | Confirm the button opens the modal and successful setup reloads Settings. The spec does not prescribe configuration-specific hint text. |
+| Selection | The screen tests cover installed/runnable and running eligibility, guidance for unavailable choices, and selection of a listed indexer. | Confirm status and guidance are rendered; the spec does not specify which indexer is initially selected. |
+| Build lifecycle | The screen tests cover progress, completion, retry and polling decisions. `web/test/code-indexer-findings.test.ts` covers refresh after success first seen on reopening. | Confirm the component uses these decisions and closing during a build leaves it running. |
+
+The screen tests specify a DOM-free helper interface for Implement: `doctorSetupAction`, `settingsSetupAction`, `buildEligibility`, `initialPick`, `buildPhase`, and `setupChanged`. Existing route and command tests are retained; the review regressions supplement them rather than duplicating already-passing validation and save-failure cases.
