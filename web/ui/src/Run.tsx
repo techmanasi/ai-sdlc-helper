@@ -5,7 +5,7 @@ import { api, type RunView, type SettingsView } from './api';
 import { ModelSelect } from './ModelSelect';
 import { elapsedText, linkPaths, resolveShown, showTestIssues, stepBanner } from './stages';
 import { Guarantees, LockDetail, OutputPanel, StageRail, StepList, UsagePanel, type RailStage } from './RunInsights';
-import { costText, hasUsage, skipped, tokensText, verifiedLock } from './insights';
+import { costText, hasUsage, openLock, skipped, tokensText, verifiedLock } from './insights';
 import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, GLYPH, Markdown, Panel, Spinner, stateClass, useApp } from './ui';
 import { defaultPick, needsResumeConfirm, resumeCommand, resumeOptions } from './resume';
@@ -360,6 +360,7 @@ export function Run({ slug }: { slug: string }) {
   const states = stageStates(v);
   const spanOf = (name: string) => v.timeline?.stages.find(x => x.stage === name);
   const lock = verifiedLock(v);
+  const lockOpen = openLock(v);
   const railStages: RailStage[] = STAGES.map((s, i) => ({
     name: s.name, key: s.key, afterPr: s.key === 'resolve-conflicts',
     state: skipped(s.name, states[i], v.timeline?.stages, v.stageFiles) ? 'skipped' as const : states[i],
@@ -713,7 +714,7 @@ export function Run({ slug }: { slug: string }) {
       {v.discarded && <p class="small muted" style={{ margin: 0 }}>Discarded before. To get that branch back: <span class="mono">{v.discarded}</span></p>}
 
       <Panel title="Stages" extra={<span class="small muted">Pick a stage to see its steps and set its agent, model and effort (they apply when the run starts or resumes)</span>}>
-        <StageRail stages={railStages} timeline={v.timeline} step={v.state === 'running' ? v.step : undefined} locked={!!lock} selected={openStage} onSelect={setOpenStage}>
+        <StageRail stages={railStages} timeline={v.timeline} step={v.state === 'running' ? v.step : undefined} locked={!!lock} lockOpen={lockOpen} selected={openStage} onSelect={setOpenStage}>
           {openStage && (() => {
               const i = STAGES.findIndex(x => x.key === openStage);
               const s = STAGES[i];
@@ -792,7 +793,7 @@ export function Run({ slug }: { slug: string }) {
                  <div>
                   <h3>Steps{spanOf(s.name)?.started ? ` · started ${spanOf(s.name)!.started.slice(11, 16)}` : ''}</h3>
                   <StepList span={spanOf(s.name)} running={st === 'active'} />
-                  {s.key === 'red-tests' && <><h3 style={{ marginTop: '14px' }}>Test lock</h3><LockDetail lock={lock} /></>}
+                  {s.key === 'red-tests' && <><h3 style={{ marginTop: '14px' }}>Test lock</h3><LockDetail lock={lock} open={lockOpen} /></>}
                  </div>
                 </div>
               );
