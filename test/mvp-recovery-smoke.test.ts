@@ -33,7 +33,7 @@ describe('MVP Node/TS Zero Dead-End Recovery Smoke Tests', () => {
     expect(specHint.stage).toBe('Spec');
     expect(specHint.diagnosis).toContain('1 clarifying question(s)');
     expect(specHint.autoAction?.command).toBe('ai-sdlc-helper pipeline sample-item --from spec');
-    expect(specHint.autoAction?.env?.SDLC_AUTO_ANSWER).toBe('1');
+    expect(specHint.autoAction?.env?.SDLC_AUTO_ACCEPT).toBe('1');
     expect(specHint.escapeHatch?.command).toBe('ai-sdlc-helper pipeline sample-item --from plan');
 
     // Test an implement failure with test-issues

@@ -177,7 +177,7 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
         autoAction: {
           label: 'Auto-answer with suggested defaults & resume Spec',
           command: resumeCommand(ctx.slug, 'spec'),
-          env: { SDLC_AUTO_ANSWER: '1' },
+          env: { SDLC_AUTO_ACCEPT: '1' },
         },
         manualAction: {
           file: 'questions.md',
