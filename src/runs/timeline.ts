@@ -5,7 +5,13 @@ export interface StepSpan { key: string; label: string; started: string; ended: 
 export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null }
 export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; usage: UsageTotals }
 export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
-export interface Timeline { stages: StageSpan[]; lock: LockView | null; usage: UsageTotals }
+/**
+ * The lock is open: tests that were locked are being changed on purpose, and stay open until they are committed again.
+ * `retry`: a stage at or before Red tests was started again; `review-findings`: Review sent its findings back through
+ * Red tests; `test-repair`: Test repair is changing the tests it claimed (the lock it holds meanwhile is the old one).
+ */
+export interface LockOpen { at: string; reason: 'retry' | 'review-findings' | 'test-repair'; sha: string }
+export interface Timeline { stages: StageSpan[]; lock: LockView | null; /** Set while the lock is open; null when there is no lock to open or it is closed. */ lockOpen: LockOpen | null; usage: UsageTotals }
 
 /** The status stage each agent stage belongs to. */
 const STAGE_OF: Record<string, string> = {
@@ -62,7 +68,13 @@ export function runTimeline(rows: unknown[], now?: string): Timeline {
   const locks: Array<Record<string, unknown>> = [];
   const guards: LockView['guards'] = [];
   let sawStage = false;
-  const unlock = (): void => { locks.length = 0; guards.length = 0; };
+  let open: LockOpen | null = null;
+  const lastSha = (): string => str(locks[locks.length - 1]?.sha);
+  /** The lock recorded so far no longer stands; it was open from <at> for <reason> if there was one. */
+  const unlock = (at: string, reason: LockOpen['reason']): void => {
+    if (locks.length && !open) open = { at, reason, sha: lastSha() };
+    locks.length = 0; guards.length = 0;
+  };
 
   const spanFor = (name: string, started: string): StageSpan => {
     let s = stages.get(name);
@@ -77,12 +89,16 @@ export function runTimeline(rows: unknown[], now?: string): Timeline {
     switch (r.kind) {
       case 'run':
         // A start at or before Red tests writes the tests again: the lock recorded so far no longer stands.
-        if (BEFORE_LOCK_KEYS.has(str(r.from))) unlock();
+        if (BEFORE_LOCK_KEYS.has(str(r.from))) unlock(at, 'retry');
         break;
       case 'stage': {
         const name = str(r.stage);
         if (!name || !at) break;
-        if (BEFORE_LOCK_STAGES.has(name)) unlock();
+        if (BEFORE_LOCK_STAGES.has(name)) unlock(at, current?.stage === 'Review' ? 'review-findings' : 'retry');
+        // Test repair changes the tests it claimed: open until it locks them again. A repair that is rejected puts the
+        // tests back, so the next stage (or the end of the run) finds the old lock closed.
+        else if (name === 'Test repair') { if (locks.length) open = { at, reason: 'test-repair', sha: lastSha() }; }
+        else if (open?.reason === 'test-repair') open = null;
         sawStage = true;
         if (current && current.ended === null) current.ended = at;
         closeAt(at);
@@ -105,6 +121,7 @@ export function runTimeline(rows: unknown[], now?: string): Timeline {
         break;
       }
       case 'end': {
+        if (open?.reason === 'test-repair') open = null;
         if (current && current.ended === null && at) current.ended = at;
         closeAt(at);
         current = null;
@@ -134,7 +151,7 @@ export function runTimeline(rows: unknown[], now?: string): Timeline {
         addRound(s.usage, r);
         break;
       }
-      case 'lock': locks.push(r); break;
+      case 'lock': locks.push(r); open = null; break;
       case 'guard': guards.push({ at, stage: str(r.stage), restored: Array.isArray(r.restored) ? r.restored.filter((f): f is string => typeof f === 'string') : [] }); break;
       default: break;
     }
@@ -150,5 +167,5 @@ export function runTimeline(rows: unknown[], now?: string): Timeline {
     relocks: locks.length - 1,
     guards,
   } : null;
-  return { stages: list, lock, usage: sumUsage(list.map(s => s.usage)) };
+  return { stages: list, lock, lockOpen: open, usage: sumUsage(list.map(s => s.usage)) };
 }
