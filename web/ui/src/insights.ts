@@ -2,7 +2,7 @@
 // kept apart from the components so they can be tested.
 // The shapes are repeated here, not imported from api.ts: the test project reads this file too, and it resolves
 // imports differently. They match the Timeline types there field for field.
-export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null }
+export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd?: number; unpriced?: number }
 export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: Array<{ key: string; label: string; started: string; ended: string | null }>; usage: UsageTotals }
 export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
 export interface LockOpen { at: string; reason: 'retry' | 'review-findings' | 'test-repair'; sha: string }
@@ -75,6 +75,35 @@ export function costText(usd: number | null | undefined): string {
   if (usd === null || usd === undefined || !Number.isFinite(usd)) return '—';
   if (usd > 0 && usd < 0.01) return '<$0.01';
   return `$${usd.toFixed(2)}`;
+}
+
+/**
+ * The cost and tokens of a stage or run, for a tile or a chip: "$0.42 · 412k tok" when it cost something, "≈$0.42 · …"
+ * when any of it is an estimate from the model's price, "412k tok" for a free model or one with no known price; '' for
+ * nothing used.
+ */
+export function usageText(u: UsageTotals | null | undefined): string {
+  if (!u) return '';
+  const tok = u.tokens || u.input + u.output;
+  const t = tok > 0 ? `${tokensText(tok)} tok` : '';
+  if (u.costUsd !== null && u.costUsd > 0) return `${(u.estimatedUsd ?? 0) > 0 ? '≈' : ''}${costText(u.costUsd)}${t ? ` · ${t}` : ''}`;
+  return t;
+}
+
+/** The Cost cell of the usage table: "$0.42", "≈$0.42" (estimated), "free" (cost 0), "—" (no cost and no price). */
+export function costCell(u: UsageTotals): string {
+  if (u.costUsd === null) return '—';
+  if (u.costUsd === 0) return 'free';
+  return `${(u.estimatedUsd ?? 0) > 0 ? '≈' : ''}${costText(u.costUsd)}`;
+}
+
+/** What the cost of a run leaves out or estimates, one sentence each; empty when every round reported its cost. */
+export function costNotes(u: UsageTotals): string[] {
+  const notes: string[] = [];
+  if ((u.estimatedUsd ?? 0) > 0) notes.push("≈ is an estimate: the agent reported tokens but no cost, so they are priced at the model's list price from OpenCode's model list.");
+  const n = u.unpriced ?? 0;
+  if (n > 0) notes.push(`${n} agent round${n === 1 ? '' : 's'} reported tokens but no cost, and no price is known for ${n === 1 ? 'its model' : 'their models'} (OpenCode not installed, or the model is not in its list); ${n === 1 ? 'it is' : 'they are'} left out of the cost.`);
+  return notes;
 }
 
 /** The share of the input that came from the cache, as a whole percent; null when there was no input. */

@@ -73,7 +73,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   timeline?: Timeline;
 }
 export interface StepSpan { key: string; label: string; started: string; ended: string | null }
-export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null }
+export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd?: number; unpriced?: number }
 export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; usage: UsageTotals }
 export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
 export interface LockOpen { at: string; reason: 'retry' | 'review-findings' | 'test-repair'; sha: string }

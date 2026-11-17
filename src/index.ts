@@ -46,6 +46,7 @@ export {
   answerQuestions, boardView, boardInputs, boardIgnores, syncRunPr, parseQuestions, resumeStage, runView, runPaths, runTail, RUN_PARTS, clearGitFacts, type RunPart, type BoardView, type PrCard, type Question, type RunCard, type RunView,
   type TestCounts, type ViewState,
 } from './runs/view.js';
+export { estimateUsd, isFree, loadOpencodePrices, loadPrices, priceOf, pricesFromOpencode, pricesNow, type Price, type PriceTable } from './models/prices.js';
 export { runTimeline, type LockOpen, type LockView, type StageSpan, type StepSpan, type Timeline, type UsageTotals } from './runs/timeline.js';
 export { runPipeline, firstPending, type PipelineOptions } from './pipeline/run.js';
 export { spawnAgentProcess, spawnClaude, type AgentSpawn, type AgentRequest } from './pipeline/agent.js';

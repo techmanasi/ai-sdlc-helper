@@ -11,7 +11,7 @@ import {
   AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readRunDoc, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, prPollOptions, PR_POLL_MS, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, completedListAsync, primeRepoPaths, warmCompletedPrs, keepError, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
-  closeGoneRuns,
+  closeGoneRuns, loadOpencodePrices,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -723,6 +723,16 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       }
     }
   };
+  // Model prices, so rounds whose agent reports tokens but no cost show one (models/prices.ts); again every 6 hours.
+  const warmPrices = (): void => {
+    void loadOpencodePrices(env).catch(e => {
+      process.stderr.write(`WARNING: could not read model prices from OpenCode; rounds without a reported cost show tokens only: ${(e as Error).message}\n`);
+    });
+  };
+  warmPrices();
+  const pricesTimer = setInterval(warmPrices, 6 * 3600_000);
+  pricesTimer.unref();
+
   if (env.SDLC_WARM_PR_CACHE === '0') warmDone();
   else {
     warmTimer = setTimeout(() => { warmTimer = null; void warmAll().finally(warmDone); }, opts.warmPrDelayMs ?? 3000);
@@ -734,6 +744,6 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     url, port, token,
     openUrl: `${url}/?t=${token}`,
     streamStats: () => runStreams.stats(),
-    close: () => new Promise(res => { closed = true; clearInterval(goneTimer); if (warmTimer) { clearTimeout(warmTimer); warmTimer = null; warmDone(); } for (const f of feeds.values()) { clearInterval(f.ping); f.watch.close(); } feeds.clear(); runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
+    close: () => new Promise(res => { closed = true; clearInterval(goneTimer); clearInterval(pricesTimer); if (warmTimer) { clearTimeout(warmTimer); warmTimer = null; warmDone(); } for (const f of feeds.values()) { clearInterval(f.ping); f.watch.close(); } feeds.clear(); runStreams.closeAll(); tracer.close(); stopTrace(); triage.close(); server.closeAllConnections?.(); server.close(() => res()); }),
   };
 }

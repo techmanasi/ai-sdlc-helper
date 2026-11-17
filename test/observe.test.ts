@@ -122,6 +122,24 @@ describe('agentFacts', () => {
     expect(agentFacts(file).usage).toEqual({ input: 100, output: 7, cacheRead: 60, cacheWrite: null, costUsd: null });
   });
 
+  test('sums the tokens and dollar cost of an OpenCode run over its step_finish events', () => {
+    const file = path.join(tmp(), 'opencode.json');
+    const step = (cost: number, input: number, output: number, reasoning: number, read: number) =>
+      ({ type: 'step_finish', timestamp: 1, sessionID: 's', part: { type: 'step-finish', reason: 'stop', cost, tokens: { input, output, reasoning, cache: { read, write: 0 } } } });
+    const events = [{ type: 'step_start', part: { type: 'step-start' } }, step(0.01, 1000, 100, 20, 500), { type: 'step_start', part: { type: 'step-start' } }, step(0.02, 2000, 200, 0, 800)];
+    fs.writeFileSync(file, events.map(e => JSON.stringify(e)).join('\n'));
+    const f = agentFacts(file);
+    expect(f.usage).toEqual({ input: 3000, output: 320, cacheRead: 1300, cacheWrite: 0, costUsd: 0.03 });
+    expect(f.tokens).toBe(3320);
+    expect(f.turns).toBe(2);
+  });
+
+  test('a free OpenCode model reports a cost of 0, not none', () => {
+    const file = path.join(tmp(), 'opencode-free.json');
+    fs.writeFileSync(file, JSON.stringify({ type: 'step_start', part: { type: 'step-start' } }) + '\n' + JSON.stringify({ type: 'step_finish', part: { type: 'step-finish', cost: 0, tokens: { input: 10, output: 2, reasoning: 0, cache: { read: 0, write: 0 } } } }));
+    expect(agentFacts(file).usage).toMatchObject({ costUsd: 0, input: 10, output: 2 });
+  });
+
   test('a result with no usage has no usage member, and never throws', () => {
     expect('usage' in read({ result: 'ok' })).toBe(false);
     expect('usage' in read({ result: 'ok', usage: 'weird' })).toBe(false);

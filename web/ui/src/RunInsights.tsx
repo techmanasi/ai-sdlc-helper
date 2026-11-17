@@ -4,7 +4,7 @@ import { memo } from 'preact/compat';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { LockOpen, LockView, RunView, StageSpan, Timeline, UsageTotals } from './api';
-import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, openSentence, spanSeconds, tileLine, tokensText, type TileState } from './insights';
+import { cacheShare, costCell, costNotes, durationText, guarantees, hasUsage, lockSentence, openSentence, spanSeconds, tileLine, tokensText, usageText, type TileState } from './insights';
 import { Panel, Spinner } from './ui';
 
 /** The time now, refreshed every second while `on` (a running stage shows its elapsed time). */
@@ -59,7 +59,7 @@ export function StageRail({ stages, timeline, step, locked, lockOpen, selected, 
         {stages.map(s => {
           const sp = span(s.name);
           const fill = s.state === 'active' && step && step.n > 0 ? Math.max(8, Math.round(((step.i - 0.5) / step.n) * 100)) : s.state === 'pending' ? 0 : 100;
-          const cost = sp && sp.usage.costUsd !== null ? costText(sp.usage.costUsd) : sp && sp.usage.tokens ? `${tokensText(sp.usage.tokens)} tok` : '';
+          const cost = usageText(sp?.usage);
           return (
             <button
               type="button" role="tab" aria-selected={selected === s.key} aria-controls="stage-detail"
@@ -156,17 +156,17 @@ const UsageRow = ({ name, u, total }: { name: string; u: UsageTotals; total?: bo
     <td>{u.turns || '—'}</td>
     <td title={`${u.input.toLocaleString()} in · ${u.output.toLocaleString()} out · ${u.cacheRead.toLocaleString()} cache read · ${u.cacheWrite.toLocaleString()} cache write`}>{tokensText(u.tokens || u.input + u.output)}</td>
     <td>{cacheShare(u) === null ? '—' : `${cacheShare(u)}%`}</td>
-    <td>{costText(u.costUsd)}</td>
+    <td>{costCell(u)}</td>
   </tr>
 );
 
-/** Time, turns, tokens and cost per stage, with the run's totals. A harness that reports no cost shows a dash. */
+/** Time, turns, tokens and cost per stage, with the run's totals. A cost with no figure and no known price shows a dash. */
 export const UsagePanel = memo(function UsagePanel({ timeline }: { timeline?: Timeline }) {
   if (!timeline || !hasUsage(timeline.usage)) return null;
   const rows = timeline.stages.filter(s => hasUsage(s.usage));
   const max = Math.max(1, ...rows.map(s => s.usage.tokens));
   return (
-    <Panel title="Cost and tokens" extra={<span class="chip">{costText(timeline.usage.costUsd)} · {tokensText(timeline.usage.tokens)} tokens</span>}>
+    <Panel title="Cost and tokens" extra={<span class="chip">{usageText(timeline.usage)}</span>}>
       <div class="pb col" style={{ gap: '10px' }}>
         <div class="usage-bars" aria-hidden="true">
           {rows.map(s => <span class="usage-bar" style={{ flexGrow: Math.max(0.04, s.usage.tokens / max) }} title={`${s.stage}: ${tokensText(s.usage.tokens)} tokens`}><span>{s.stage}</span></span>)}
@@ -180,7 +180,7 @@ export const UsagePanel = memo(function UsagePanel({ timeline }: { timeline?: Ti
             </tbody>
           </table>
         </div>
-        {timeline.usage.costUsd === null && <p class="small muted" style={{ margin: 0 }}>The agents used on this run do not report a cost; tokens are counted where they report them.</p>}
+        {costNotes(timeline.usage).map(n => <p class="small muted" style={{ margin: 0 }}>{n}</p>)}
       </div>
     </Panel>
   );

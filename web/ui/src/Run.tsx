@@ -5,7 +5,7 @@ import { api, type RunView, type SettingsView } from './api';
 import { ModelSelect } from './ModelSelect';
 import { elapsedText, linkPaths, resolveShown, showTestIssues, stepBanner } from './stages';
 import { Guarantees, LockDetail, OutputPanel, StageRail, StepList, UsagePanel, type RailStage } from './RunInsights';
-import { costText, hasUsage, openLock, skipped, tokensText, verifiedLock } from './insights';
+import { hasUsage, openLock, skipped, usageText, verifiedLock } from './insights';
 import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, GLYPH, Markdown, Panel, Spinner, stateClass, useApp } from './ui';
 import { defaultPick, needsResumeConfirm, resumeCommand, resumeOptions } from './resume';
@@ -1145,7 +1145,7 @@ export function Run({ slug }: { slug: string }) {
               <dt class="muted">Tests</dt><dd>{v.tests ? `${v.tests.passed} passed · ${v.tests.failed} failing · ${v.tests.total} total` : 'not run yet'}</dd>
               {v.worktree && <><dt class="muted">Worktree</dt><dd class="mono">{v.worktree}</dd></>}
               {v.updated && <><dt class="muted">Updated</dt><dd>{v.updated}</dd></>}
-              {hasUsage(v.timeline?.usage) && <><dt class="muted">Cost</dt><dd>{costText(v.timeline!.usage.costUsd)} · {tokensText(v.timeline!.usage.tokens)} tokens · {v.timeline!.usage.rounds} agent round{v.timeline!.usage.rounds === 1 ? '' : 's'}</dd></>}
+              {hasUsage(v.timeline?.usage) && <><dt class="muted">Cost</dt><dd>{usageText(v.timeline!.usage)} · {v.timeline!.usage.rounds} agent round{v.timeline!.usage.rounds === 1 ? '' : 's'}</dd></>}
             </dl>
           </Panel>
 
