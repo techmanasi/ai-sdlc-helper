@@ -201,7 +201,8 @@ textarea.inp { resize: vertical; }
 /* the notification control in the top bar */
 .pop-wrap { position: relative; }
 .pop { position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; width: min(340px, calc(100vw - 32px)); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
-.pop label.row { cursor: pointer; }
+.pop label.row { cursor: pointer; flex-wrap: nowrap; align-items: flex-start; }
+.pop label.row input[type='checkbox'] { margin-top: 3px; flex: 0 0 auto; }
 .bell-on { color: var(--pri); border-color: var(--pri); }
 input[type='range'] { accent-color: var(--pri); }
 input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
