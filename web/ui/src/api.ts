@@ -123,6 +123,20 @@ export interface CompletedTaskDetail extends CompletedTask {
 export interface Outcome { ok: boolean; code: number; out: string[]; err: string[] }
 export interface Check { name: string; ok: boolean; required: boolean; detail: string; fix?: string }
 
+export interface SetupOperation {
+  status: 'idle' | 'running' | 'succeeded' | 'failed' | 'timeout';
+  indexer: string | null; startedAt: string | null; endedAt: string | null; exitCode: number | null; error: string | null; output: string[];
+}
+export interface CodeIndexerView {
+  name: string; command: string; installed: boolean; index: string; indexed: boolean; build: string; setup: string; runnable: boolean;
+}
+export interface CodeSearchView {
+  configured: string;
+  active: { codeSearch: string; indexer: string | null; warning: string | null };
+  indexers: CodeIndexerView[];
+  operation: SetupOperation;
+}
+
 export type TriageState = 'running' | 'choosing' | 'waiting' | 'ready' | 'interrupted' | 'stopped' | 'failed' | 'done';
 export type DraftStatus = 'pending' | 'saved' | 'skipped';
 export interface TriageItem { slug: string; type: string; priority: string; title: string; summary: string }
@@ -193,6 +207,9 @@ export const api = {
   projects: () => call<{ projects: Project[] }>('GET', '/api/projects'),
   addProject: (path: string, name?: string) => call<Outcome & { projects: Project[] }>('POST', '/api/projects', { path, name }),
   doctor: (project: string) => call<{ checks: Check[] }>('GET', `${p(project)}/doctor`),
+  codeSearch: (project: string) => call<CodeSearchView>('GET', `${p(project)}/code-search`),
+  setupCodeSearch: (project: string, indexer: string) =>
+    call<{ ok: boolean; status: string; indexer: string; message: string }>('POST', `${p(project)}/code-search/setup`, { indexer }),
   runEventsUrl: (project: string, slug: string) => `${r(project, slug)}/events`,
   eventsUrl: (project: string) => `/api/events?project=${encodeURIComponent(project)}`,
   board: (project: string) => call<Board>('GET', `${p(project)}/board`),

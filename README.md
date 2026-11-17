@@ -79,6 +79,13 @@ are written in the page, projects are registered and checked there, and ⌘K / C
 Light, dark or the system's theme. Settings are read-only for now; editing them and the prompts comes next
 ([docs/web-ui.md](docs/web-ui.md)).
 
+A project's code indexer can be set up from the page: the failing `code indexer` check in the Doctor card and the
+Settings view both offer **Setup Code Indexer**, which builds the index of an installed `graft` (its `build` command, run
+without a shell) and then sets `agent.codeSearch` to it in `sdlc.config.json`. A build is stopped after 10 minutes, and
+one build runs per project at a time. The page uses `GET /api/projects/:name/code-search` (the indexers, the active code
+search and the last build) and `POST /api/projects/:name/code-search/setup` with `{"indexer": "graft"}` (202, then poll
+the GET). `graphify` is not built from the page: it stays a `/graphify .` step in Claude Code.
+
 The server listens on 127.0.0.1 only and answers only the browser that opened its URL (a token, then a cookie);
 requests naming another host or sent from another site are refused. Stopping it (Ctrl-C) never stops a run.
 

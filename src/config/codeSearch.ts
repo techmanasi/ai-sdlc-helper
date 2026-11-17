@@ -38,7 +38,17 @@ export const SEARCH_SETTINGS = ['auto', 'none'];
 export const PARTS_DIR = path.join(ASSETS_DIR, 'prompts', 'parts');
 
 const PROGRAM = /^[\w.@+-]+$/;
-const onPath = (cmd: string, env: NodeJS.ProcessEnv) => PROGRAM.test(cmd) && found(cmd, { env });
+export const onPath = (cmd: string, env: NodeJS.ProcessEnv) => PROGRAM.test(cmd) && found(cmd, { env });
+
+const UNSAFE_BUILD = /[;&|<>$`()"']/;
+
+/** The program and arguments of an indexer's build command when it can be run without a shell; otherwise null. */
+export function runnableBuild(ix: CodeIndexer): { program: string; args: string[] } | null {
+  const build = (ix.build || '').trim();
+  if (!build || UNSAFE_BUILD.test(build)) return null;
+  const [program, ...args] = build.split(/\s+/);
+  return program === ix.command ? { program, args } : null;
+}
 
 /** The built-in indexers merged with the project's agent.codeIndexers. */
 export function codeIndexers(file: Json = {}): Record<string, CodeIndexer> {
