@@ -5,7 +5,7 @@ export { globToRegex, expandGlob } from './config/globs.js';
 export { projectNode, satisfiesMajor, nodeRun, wrapCommand, type NodeRun, type ProjectNode } from './config/node.js';
 export { CODE_INDEXERS, codeIndexers, codeSearchErrors, codeSearchFor, codeSearchGuide, type CodeIndexer } from './config/codeSearch.js';
 export {
-  EFFORT_LEVELS, HARNESS_IDS, agentFor, harnessFor, resolve, validate, testDir, testSpec, testFiles, agentRules, allowedTools, testFramework, keyDir, layout, worktreeBase,
+  EFFORT_LEVELS, HARNESS_IDS, agentFor, harnessFor, resolve, validate, testDir, testSpec, testFiles, agentRules, allowedTools, testFramework, keyDir, layout, worktreeBase, DEFAULT_REVIEW_MAX_LOOPS,
   type Config, type Suite, type Layout,
 } from './config/settings.js';
 export { suggest, setupPlan, provision, locateTestDir, packagesBelow, describeProject, rankRunners } from './config/suggest.js';

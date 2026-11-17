@@ -450,7 +450,12 @@ export function Run({ slug }: { slug: string }) {
           </div>
         ))}
         {multi && clash.length > 0 && <span class="small s-failed">{clash.map(i => (names[i] === 'review-summary' ? 'The summariser' : `Reviewer ${i + 1}`)).join(', ')} share an agent and model, and the run would be refused. Give each its own: pick another model or agent.</span>}
-        <span class="small muted">Review only reports. Its findings go back through Red tests and Implement, up to the project's review loop limit.</span>
+        <label class="row small" style={{ gap: '6px', alignItems: 'center' }}>
+          <span>Review loop limit</span>
+          <input class="inp mono" style={{ width: '80px' }} aria-label="review loop limit" disabled={running} value={envObj.SDLC_REVIEW_MAX_LOOPS || ''}
+            placeholder={String(catalog?.config?.review?.maxLoops ?? 2)} onInput={e => setEnvVar('SDLC_REVIEW_MAX_LOOPS', (e.target as HTMLInputElement).value.trim())} />
+        </label>
+        <span class="small muted">Review only reports. Its findings go back through Red tests and Implement, up to the review loop limit ({envObj.SDLC_REVIEW_MAX_LOOPS || `the project's ${catalog?.config?.review?.maxLoops ?? 2}`}).</span>
       </div>
     );
   };

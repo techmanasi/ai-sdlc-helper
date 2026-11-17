@@ -11,7 +11,11 @@ export interface SettingsView {
   config: {
     agent?: { harness: string; model: string | null; effort: string | null; stages: Record<string, StageSetting> };
     tests?: { retry: boolean | null; maxWorkers: number | 'auto' | null; preliminary?: 'scoped' | 'full' };
+    review?: { maxLoops: number };
   } | null;
+  /** The file's own review.maxLoops (absent when unset) and the default the pipeline uses then. */
+  fileReview: { maxLoops?: number };
+  defaults: { reviewMaxLoops: number };
   errors: string[]; warnings: string[]; raw: string | null;
   hash: string; overrides: { worktreeBase?: string; maxParallel?: number; boardSilenceSeconds?: number }; registered: boolean;
   boardSilenceEnvSeconds?: number | null;
@@ -146,13 +150,16 @@ export interface TriageQuestion { id: string; text: string; suggested: string }
 export interface TriageRun { runId: string; state: TriageState; worktree: string; slugs: string[]; drafts: { slug: string; status: DraftStatus }[] }
 export interface TriageEvent { event: string; data: any }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  constructor(message: string, readonly errors: string[] = []) { super(message); }
+}
 
 async function failure(r: Response): Promise<ApiError> {
   const text = await r.text();
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
-  return new ApiError((data && data.error) || text || `${r.status} ${r.statusText}`);
+  const errors: string[] = Array.isArray(data?.errors) ? data.errors.filter((e: unknown): e is string => typeof e === 'string') : [];
+  return new ApiError((data && data.error) || errors.join('\n') || text || `${r.status} ${r.statusText}`, errors);
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {

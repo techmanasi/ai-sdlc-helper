@@ -1,6 +1,6 @@
 // The registered projects (and the folder ui started in), their doctor checks, and adding one.
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { api, type Check, type Project, type SettingsView, type Source } from './api';
+import { api, ApiError, type Check, type Project, type SettingsView, type Source } from './api';
 import { dialogKey, firstFocusable, focusable, type FocusCandidate } from './dialog';
 import { ModelSelect } from './ModelSelect';
 import { Cli, ErrorBox, useApp } from './ui';
@@ -100,6 +100,8 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
   const [parallel, setParallel] = useState('');
   const [silence, setSilence] = useState('');
   const [preliminary, setPreliminary] = useState<'scoped' | 'full'>('scoped');
+  const [loops, setLoops] = useState('');
+  const [loopsError, setLoopsError] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
   const [warn, setWarn] = useState('');
   const [busy, setBusy] = useState(false);
@@ -110,6 +112,8 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
     setDef({ harness: agent.harness || 'claude', model: agent.model || '', effort: agent.effort || '' });
     setStages(Object.fromEntries(d.stages.map(st => [st, { ...NONE, ...(agent.stages?.[st] || {}) }])));
     setPreliminary(d.config?.tests?.preliminary === 'full' ? 'full' : 'scoped');
+    setLoops(d.fileReview?.maxLoops === undefined ? '' : String(d.fileReview.maxLoops));
+    setLoopsError('');
   };
   const load = (sc: Scope) => api.settings(name).then(d => {
     setData(d);
@@ -126,7 +130,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
   const personalKeys = Object.keys(data.personalAgent);
 
   const save = async () => {
-    setBusy(true); setErrors([]); setWarn('');
+    setBusy(true); setErrors([]); setWarn(''); setLoopsError('');
     const s = silence.trim();
     const secs = s ? Number(s) : null;
     if (data.registered && data.boardSilenceEnvSeconds == null && s) {
@@ -150,8 +154,22 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
         if (preliminary !== (data.config?.tests?.preliminary || 'scoped')) {
           patch.tests = { preliminary };
         }
+        const fileLoops = data.fileReview?.maxLoops;
+        const typed = loops.trim();
+        if (!typed) {
+          if (fileLoops !== undefined) patch.review = { maxLoops: null };
+        } else if (/^\d+$/.test(typed)) {
+          if (Number(typed) !== fileLoops) patch.review = { maxLoops: Number(typed) };
+        } else {
+          patch.review = { maxLoops: typed };
+        }
         const r = await api.editSettings(name, patch, data.hash);
-        if (!r.ok) { setErrors(r.errors); setBusy(false); return; }
+        if (!r.ok) {
+          setErrors(r.errors);
+          setLoopsError(r.errors.filter(e => e.includes('review.maxLoops')).join('\n'));
+          setBusy(false);
+          return;
+        }
         activeRuns = r.activeRuns;
       } else {
         // Only what differs from the project file is personal; a field equal to the file's is not an override.
@@ -179,7 +197,11 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
       if (activeRuns.length) setWarn(`Saved. ${activeRuns.join(', ')} ${activeRuns.length > 1 ? 'are' : 'is'} running or paused and keep${activeRuns.length > 1 ? '' : 's'} the old setup until restarted.`);
       else toast(scope === 'personal' ? 'Personal config saved' : 'Global settings saved. Commit sdlc.config.json to share them');
       await load(scope); onSaved();
-    } catch (e) { setErrors([(e as Error).message]); }
+    } catch (e) {
+      const messages = e instanceof ApiError && e.errors.length ? e.errors : [(e as Error).message];
+      setErrors(messages);
+      setLoopsError(messages.filter(message => message.includes('review.maxLoops')).join('\n'));
+    }
     setBusy(false);
   };
 
@@ -191,7 +213,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
     ? { top: own(defFile), stages: Object.fromEntries(data.stages.map(st => [st, own(defFile.stages?.[st] || {})])) }
     : { top: data.sources as RowSources, stages: data.sources.stages as Record<string, RowSources> };
   return (
-    <form class="col" style={{ gap: '8px' }} onSubmit={e => { e.preventDefault(); save(); }}>
+    <form class="col" style={{ gap: '8px' }} onSubmit={e => { e.preventDefault(); return save(); }}>
       <span class="lbl">Agent, model and effort</span>
       <div class="row" style={{ gap: '14px', flexWrap: 'wrap' }}>
         <label class="row small" style={{ gap: '6px', cursor: 'pointer' }}>
@@ -262,8 +284,22 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
           </p>
         </div>
       )}
+      {scope === 'project' && (
+        <div class="col" style={{ gap: '6px' }}>
+          <label class="lbl" for={`loops-${name}`}>Review loop limit</label>
+          <div class="row" style={{ gap: '8px', alignItems: 'center' }}>
+            <input id={`loops-${name}`} class="inp mono" value={loops} placeholder={`default ${data.defaults?.reviewMaxLoops ?? 2}`} onInput={e => setLoops((e.target as HTMLInputElement).value)} />
+            <button class="btn btn-s" type="button" onClick={() => { setLoops(''); setLoopsError(''); }}>Use default</button>
+            {loopsError && <span class="small s-failed">{loopsError}</span>}
+          </div>
+          <p class="small muted" style={{ margin: 0 }}>
+            Current: <span class="mono">{data.fileReview?.maxLoops ?? data.defaults?.reviewMaxLoops ?? 2}</span>{data.fileReview?.maxLoops === undefined ? ' (default)' : ''}. Default: <span class="mono">{data.defaults?.reviewMaxLoops ?? 2}</span>.
+            How many times Review's findings go back through Red tests and Implement; 0 means none. A run can override it.
+          </p>
+        </div>
+      )}
       <p class="small muted mono" style={{ margin: 0, overflowWrap: 'anywhere' }}>
-        project = {data.files.project} (committed) · personal = {data.files.personal} (this machine only)
+        project ={data.files.project} (committed) · personal = {data.files.personal} (this machine only)
       </p>
       {data.registered && (
         <>
