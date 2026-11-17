@@ -18,6 +18,17 @@ function useNow(on: boolean): number {
   return now;
 }
 
+/** A padlock: closed, or with its shackle swung up and out so open and closed differ at a glance (the emoji pair do not). */
+export function LockIcon({ open }: { open?: boolean }) {
+  return (
+    <svg class="lock-svg" width={open ? 17 : 12} height="14" viewBox={open ? '0 0 17 14' : '0 0 12 14'} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+      {/* Open: the shackle hangs off the body's right edge, swung up and out, its free end well clear of the body. */}
+      {open ? <path d="M9.5 7.5V4a3 3 0 0 1 6 0v1.5" /> : <path d="M3 7.5V4.5a3 3 0 0 1 6 0v3" />}
+      <rect x="1" y="7.5" width="10" height="6" rx="1.5" fill={open ? 'none' : 'currentColor'} />
+    </svg>
+  );
+}
+
 const ICON: Record<TileState, string> = { done: '✓', active: '', paused: '⏸', failed: '✕', pending: '', skipped: '–' };
 
 export interface RailStage { name: string; key: string; state: TileState; model: string; files: number; afterPr?: boolean }
@@ -59,8 +70,8 @@ export function StageRail({ stages, timeline, step, locked, lockOpen, selected, 
               <span class="tile-head">
                 <span class="tile-icon" aria-hidden="true">{s.state === 'active' ? <Spinner /> : ICON[s.state]}</span>
                 <span class="tile-name">{s.name}</span>
-                {s.name === 'Red tests' && lockOpen && <span class="tile-lock tile-lock-open" role="img" aria-label="Test lock open" title={openSentence(lockOpen)}>🔓</span>}
-                {s.name === 'Red tests' && locked && !lockOpen && <span class="tile-lock" role="img" aria-label="Tests locked" title="The tests are committed and locked: a later stage that changes them is stopped">🔒</span>}
+                {s.name === 'Red tests' && lockOpen && <span class="tile-lock tile-lock-open" role="img" aria-label="Test lock open" title={openSentence(lockOpen)}><LockIcon open /> unlocked</span>}
+                {s.name === 'Red tests' && locked && !lockOpen && <span class="tile-lock" role="img" aria-label="Tests locked" title="The tests are committed and locked: a later stage that changes them is stopped"><LockIcon /> locked</span>}
               </span>
               <span class="tile-model mono">{s.model || (s.key === 'finalise' ? 'no agent' : 'default')}</span>
               <span class="tile-line">{tileLine(s.state, sp, s.files, s.state === 'active' ? step?.label || '' : '', now)}</span>
@@ -116,11 +127,11 @@ export function Guarantees({ v }: { v: Parameters<typeof guarantees>[0] }) {
  * engine records that locked tests are being changed; without either it says when the lock is set and claims nothing.
  */
 export function LockDetail({ lock, open }: { lock: LockView | null; open?: LockOpen | null }) {
-  if (open) return <p class="s-paused" style={{ margin: 0 }}><span aria-hidden="true">🔓</span> {openSentence(open)}</p>;
+  if (open) return <p class="s-paused" style={{ margin: 0 }}><LockIcon open /> {openSentence(open)}</p>;
   if (!lock) return <p class="small muted" style={{ margin: 0 }}>No test lock is recorded for this run. It is set when Red tests commits the tests, and removed if a stage at or before Red tests is run again.</p>;
   return (
     <div class="col" style={{ gap: '8px' }}>
-      <p style={{ margin: 0 }}><span aria-hidden="true">🔒</span> {lockSentence(lock)}</p>
+      <p style={{ margin: 0 }}><LockIcon /> {lockSentence(lock)}</p>
       {(lock.guards.length > 0 || lock.relocks > 0) && (
         <ol class="locklog">
           {lock.guards.map(g => (
