@@ -6,6 +6,7 @@ import { useSyncLabel } from './useSyncLabel';
 import { useStream } from './useStream';
 import { applyRunEvent } from './stream';
 import { awaitsMerge } from './stages';
+import { PIPELINE, stageName, stripStates } from './insights';
 import { PrCi } from './PrCi';
 import { Cli, ErrorBox, GLYPH, Notices, Panel, PrIcon, Spinner, stateClass, useApp } from './ui';
 
@@ -21,6 +22,7 @@ const clock = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleS
 
 export const needsYou = (r: RunCard) => r.state === 'paused' || r.questions > 0 || r.permissions > 0;
 
+/** One run on the board: its name, the stages as a strip, where it is, its state, its pull request. */
 function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): void }) {
   const { go, project, toast } = useApp();
   const [syncing, setSyncing] = useState(false);
@@ -53,26 +55,40 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
   };
   const waiting = awaitsMerge(r);
   const what = r.questions ? `${r.questions} question${r.questions > 1 ? 's' : ''} to answer`
-    : r.permissions ? `${r.permissions} refused action${r.permissions > 1 ? 's' : ''}`
+    : r.permissions ? `${r.permissions} refused action${r.permissions > 1 ? 's' : ''} to decide`
       : r.deniedPermissions ? `${r.deniedPermissions} denied permission${r.deniedPermissions > 1 ? 's' : ''}`
-        : r.note || r.message || (r.tests ? `tests ${r.tests.passed} / ${r.tests.total}` : r.state);
+        : r.note || r.message || '';
+  const stage = stageName(r.stage);
+  const where = waiting ? (r.pullRequest?.state === 'CLOSED' ? 'PR closed without merging' : r.pullRequest?.state === 'OPEN' ? 'Waiting for the PR to be merged' : r.pullRequest?.url ? 'Checking the PR…' : 'All stages done · no pull request yet')
+    : r.state === 'running' ? [stage || 'Starting', r.attempt && `iteration ${r.attempt}`].filter(Boolean).join(' · ')
+      : r.state === 'paused' ? `Paused at ${stage || 'the start'}` : r.state === 'done' ? 'All stages done' : r.state === 'not started' ? 'Not started' : `${r.state[0].toUpperCase()}${r.state.slice(1)} at ${stage || 'the start'}`;
+  // A finished run whose pull request is not known to be open says "done", not "PR open".
+  const prOpen = waiting && r.pullRequest?.state === 'OPEN';
+  const label = prOpen ? 'PR open' : waiting && r.pullRequest?.state === 'CLOSED' ? 'PR closed' : needsYou(r) ? 'Needs you' : r.state;
+  const chip = prOpen || (waiting && r.pullRequest?.state === 'CLOSED') ? 'paused' : r.state.replace(' ', '-');
+  const open = (e: Event) => { e.preventDefault(); go(`/run/${r.slug}`); };
   return (
-    <div class={`card card-${r.state.replace(' ', '-')} ${on ? 'card-on' : ''}`}>
-      <button type="button" class="mono" onClick={select} style={{ all: 'unset', cursor: 'pointer' }} aria-pressed={on}>
-        <span class={waiting ? 's-pr' : stateClass(r.state)}>{r.state === 'running' ? <Spinner /> : waiting ? <PrIcon title={r.pullRequest?.state === 'CLOSED' ? 'Pull request closed, not merged' : 'Pull request not merged yet'} /> : GLYPH[r.state]} {r.slug}</span>
+    <div class={`brow ${on ? 'brow-on' : ''} ${needsYou(r) ? 'brow-need' : ['failed', 'stopped', 'refused'].includes(r.state) ? 'brow-bad' : ''}`}>
+      <span aria-hidden="true" class={waiting ? 's-pr' : stateClass(r.state)}>{r.state === 'running' ? <Spinner /> : waiting ? <PrIcon title="Pull request not merged yet" /> : GLYPH[r.state]}</span>
+      <button type="button" class="brow-open" onClick={select} aria-pressed={on} title="Show the latest output here">
+        <span class="brow-slug">{r.slug}</span>
+        <span class="brow-sub mono">{[r.branch, r.model && `${r.model} · ${r.effort}`].filter(Boolean).join(' · ') || '—'}</span>
       </button>
-      <span class="small">{waiting ? (r.pullRequest?.state === 'CLOSED' ? 'PR closed without merging' : r.pullRequest?.state === 'OPEN' ? 'Waiting for the PR to be merged' : 'Checking the PR…') : what}</span>
-      {r.state === 'done' && (
-        <span class="mono muted small">
-          {r.pullRequest?.url ? <a href={r.pullRequest.url} target="_blank" rel="noreferrer">{r.pullRequest.number ? `PR #${r.pullRequest.number}` : 'PR'}</a> : 'no PR'}
-          {r.pullRequest?.state ? ` ${r.pullRequest.state.toLowerCase()}` : ''}{r.pullRequest?.checkedAt ? ` · checked ${clock(r.pullRequest.checkedAt)}` : ''}{r.pullRequest?.failed ? ' · last check failed' : ''}{' '}
-          <button type="button" class="btn btn-s" disabled={syncing} onClick={sync} title="Ask GitHub now for this PR's state, CI status and review comments (checked once an hour otherwise)">{syncing ? <><Spinner /> {syncLabel || 'Syncing'}…</> : 'Sync PR'}</button>
-        </span>
-      )}
-      {r.state === 'done' && r.pullRequest?.state === 'OPEN' && <PrCi ci={r.pullRequest.ci} failing={r.pullRequest.failing} summary={summary} busy={fixing} onFix={fix} conflicts={r.pullRequest.conflicts} resolveBusy={resolving} onResolve={resolve} />}
-      <span class="mono muted small" title={r.changes ? 'File counts are read again when the commits of the run change, and every 30 s while the run is going (every 10 minutes at most otherwise), so they may be a little behind' : undefined}>{[r.attempt && (r.state === 'running' ? `running iteration ${r.attempt}` : `iteration ${r.attempt}`), r.model && `${r.model} · ${r.effort}`, r.changes && `${r.changes.changed} files`].filter(Boolean).join(' · ') || r.state}</span>
-      <a href={`#/run/${r.slug}`} onClick={e => { e.preventDefault(); go(`/run/${r.slug}`); }} class="small">Open</a>
-      <a href={`#/edit/board/${r.slug}`} onClick={e => { e.preventDefault(); go(`/edit/board/${r.slug}`); }} class="small">Edit</a>
+      <div class="b-stages col" style={{ gap: '5px', minWidth: 0 }}>
+        <span class="strip" role="img" aria-label={`${stripStates(r).filter(x => x === 'done').length} of ${PIPELINE.length} stages done`}>{stripStates(r).map(x => <i class={`st-${x}`} />)}</span>
+        <span class="brow-sub" title={what || where}>{where}{what ? ` · ${what}` : r.tests ? ` · tests ${r.tests.passed}/${r.tests.total}` : ''}</span>
+      </div>
+      <span><span class={`chip chip-${chip}`}>{label}</span></span>
+      <div class="b-pr col small" style={{ gap: '4px', minWidth: 0 }}>
+        {r.pullRequest?.url
+          ? <span class="mono"><a href={r.pullRequest.url} target="_blank" rel="noreferrer">{r.pullRequest.number ? `#${r.pullRequest.number}` : 'PR'}</a>{r.pullRequest.state ? ` ${r.pullRequest.state.toLowerCase()}` : ''}{r.pullRequest.failed ? ' · last check failed' : ''}</span>
+          : <span class="muted">{r.state === 'done' ? 'no PR' : r.changes ? `${r.changes.changed} files` : '—'}</span>}
+        {r.state === 'done' && r.pullRequest?.state === 'OPEN' && <PrCi ci={r.pullRequest.ci} failing={r.pullRequest.failing} summary={summary} busy={fixing} onFix={fix} conflicts={r.pullRequest.conflicts} resolveBusy={resolving} onResolve={resolve} />}
+      </div>
+      <div class="brow-acts">
+        {r.state === 'done' && <button type="button" class="btn btn-xs" disabled={syncing} onClick={sync} title={`Ask GitHub now for this PR's state, CI status and review comments (checked once an hour otherwise)${r.pullRequest?.checkedAt ? `; last checked ${clock(r.pullRequest.checkedAt)}` : ''}`}>{syncing ? <><Spinner /> {syncLabel || 'Syncing'}…</> : 'Sync PR'}</button>}
+        <a class={`btn btn-xs ${needsYou(r) ? 'btn-p' : ''}`} href={`#/run/${r.slug}`} onClick={open}>{r.questions ? 'Answer' : r.permissions ? 'Decide' : 'Open'}</a>
+      </div>
     </div>
   );
 }
@@ -112,15 +128,28 @@ export function Board({ board, error }: { board: BoardData | null; error: string
   const [showDone, setShowDone] = useState(false);
   const [selected, setSelected] = useState('');
   const [busy, setBusy] = useState(false);
-  if (!board) return <div class="col"><h1>Board</h1>{error ? <ErrorBox error={error} /> : <p class="muted">Loading…</p>}</div>;
+  const [show, setShow] = useState<'all' | 'running' | 'needs' | 'failed'>('all');
+  if (!board) {
+    return (
+      <div class="col">
+        <h1>Board</h1>
+        {error ? <ErrorBox error={error} /> : <><div class="skel" style={{ height: '44px' }} /><div class="skel" style={{ height: '260px' }} /><span class="sr" role="status">Loading the board</span></>}
+      </div>
+    );
+  }
 
   const f = filter.trim().toLowerCase();
   const match = (...s: (string | null)[]) => !f || s.some(x => x && x.toLowerCase().includes(f));
   const runSlugs = new Set(board.runs.map(r => r.slug));
-  const items = (board.items || []).filter(i => !runSlugs.has(i.slug) && (showDone || i.status !== 'completed') && match(i.slug, i.title, i.type));
-  const runs = board.runs.filter(r => (showDone || r.state !== 'done' || awaitsMerge(r)) && match(r.slug, r.stage, r.state, r.model));
+  const isFailed = (r: RunCard) => ['failed', 'stopped', 'refused', 'interrupted'].includes(r.state);
+  const shown = (r: RunCard) => show === 'all' || (show === 'running' && r.state === 'running') || (show === 'needs' && needsYou(r)) || (show === 'failed' && isFailed(r));
+  const items = show === 'all' ? (board.items || []).filter(i => !runSlugs.has(i.slug) && (showDone || i.status !== 'completed') && match(i.slug, i.title, i.type)) : [];
+  const live = board.runs.filter(r => showDone || r.state !== 'done' || awaitsMerge(r));
+  const rank = (r: RunCard) => (needsYou(r) ? 0 : isFailed(r) ? 1 : r.state === 'running' ? 2 : 3);
+  const runs = live.filter(r => shown(r) && match(r.slug, r.stage, r.state, r.model)).sort((a, b) => rank(a) - rank(b));
   const chosen = Object.keys(picked).filter(k => picked[k]);
   const waiting = board.runs.filter(needsYou);
+  const count = { all: live.length + (board.items || []).filter(i => !runSlugs.has(i.slug) && i.status !== 'completed').length, running: live.filter(r => r.state === 'running').length, needs: waiting.length, failed: live.filter(isFailed).length };
 
   const runSelected = async () => {
     setBusy(true);
@@ -141,7 +170,7 @@ export function Board({ board, error }: { board: BoardData | null; error: string
           <strong class="s-paused">⏸ Action needed · {waiting.length} run{waiting.length > 1 ? 's' : ''} waiting for you</strong>
           <div class="row" style={{ gap: '8px 20px' }}>
             {waiting.map(r => (
-              <span class="row">
+              <span class="row" key={r.slug}>
                 <span><span class="mono">{r.slug}</span> · {r.stage || 'start'} · {r.questions ? `${r.questions} questions` : r.permissions ? `${r.permissions} refused actions` : 'paused'}</span>
                 <a class="btn btn-s" href={`#/run/${r.slug}`} onClick={e => { e.preventDefault(); go(`/run/${r.slug}`); }}>{r.questions ? 'Answer' : r.permissions ? 'Decide' : 'Open'}</a>
               </span>
@@ -150,45 +179,57 @@ export function Board({ board, error }: { board: BoardData | null; error: string
         </section>
       )}
       <div class="row">
-        <h1 class="grow">Board</h1>
-        <label class="sr" for="flt">Filter</label>
-        <input id="flt" class="inp" style={{ width: '300px', maxWidth: '100%' }} placeholder="Filter by slug, stage, state, model…" value={filter} onInput={e => setFilter((e.target as HTMLInputElement).value)} />
-        <label class="row small"><input type="checkbox" checked={showDone} onChange={e => setShowDone((e.target as HTMLInputElement).checked)} /> Show done</label>
-        <span class="tag">{board.running} / {board.maxParallel} running</span>
+        <div class="grow">
+          <h1>Board</h1>
+          <span class="small muted">How it works: tests are written first and locked, each stage is checked before the next, each item gets its own worktree and ends as a pull request</span>
+        </div>
+        <div class="segs" role="group" aria-label="Show">
+          {([['all', 'All'], ['running', 'Running'], ['needs', 'Needs you'], ['failed', 'Failed']] as const).map(([k, l]) => (
+            <button type="button" class={`seg ${show === k ? 'seg-on' : ''}`} aria-pressed={show === k} onClick={() => setShow(k)}>{l} {count[k]}</button>
+          ))}
+        </div>
         <a class="btn" href="#/new" onClick={e => { e.preventDefault(); go('/new'); }}>New item</a>
         <button class="btn btn-p" type="button" disabled={!chosen.length || busy} onClick={runSelected}>{busy ? <><Spinner /> Starting…</> : `Run selected (${chosen.length})`}</button>
+      </div>
+      <div class="row">
+        <label class="sr" for="flt">Filter</label>
+        <input id="flt" class="inp" style={{ width: '320px', maxWidth: '100%' }} placeholder="Filter by name, stage, state, model…" value={filter} onInput={e => setFilter((e.target as HTMLInputElement).value)} />
+        <label class="row small"><input type="checkbox" checked={showDone} onChange={e => setShowDone((e.target as HTMLInputElement).checked)} /> Show done</label>
+        <span class="tag">{board.running} / {board.maxParallel} running</span>
       </div>
       <ErrorBox error={error} />
       <Notices project={project} notices={board.notices} />
       {board.items === null && <div class="banner">This project has no backlog index yet. <a href="#/new" onClick={e => { e.preventDefault(); go('/new'); }}>Write the first item</a>; it creates the index.</div>}
       {chosen.length > 0 && <Cli commands={chosen.map(s => ['start', s])} />}
-      <div class="board-scroll">
-        <div class="board">
-          {COLUMNS.map(col => {
-            const cards = runs.filter(r => columnOf(r) === col);
-            const backlog = col === 'Backlog' ? items : [];
-            return (
-              <section class="column" aria-label={col}>
-                <div class="row" style={{ justifyContent: 'space-between' }}><span class="lbl">{col}</span><span class="tag">{cards.length + backlog.length}</span></div>
-                {backlog.map(i => (
-                  <div class={`card ${picked[i.slug] ? 'card-on' : ''}`}>
-                    <label class="row mono" style={{ cursor: 'pointer' }}>
-                      <input type="checkbox" checked={!!picked[i.slug]} disabled={i.status === 'completed' || !i.hasBrief} onChange={e => setPicked(m => ({ ...m, [i.slug]: (e.target as HTMLInputElement).checked }))} />
-                      {i.slug}
-                    </label>
-                    <span class="small muted">{[i.type, i.priority, i.title].filter(Boolean).join(' · ')}</span>
-                    {i.note && <span class="small s-paused">{i.note}</span>}
-                    <a href={`#/run/${i.slug}`} onClick={e => { e.preventDefault(); go(`/run/${i.slug}`); }} class="small">Open</a>
-                    <a href={`#/edit/board/${i.slug}`} onClick={e => { e.preventDefault(); go(`/edit/board/${i.slug}`); }} class="small">Edit</a>
-                  </div>
-                ))}
-                {cards.map(r => <RunCardView r={r} on={selected === r.slug} select={() => setSelected(s => (s === r.slug ? '' : r.slug))} />)}
-                {!cards.length && !backlog.length && <span class="small muted">Nothing here</span>}
-              </section>
-            );
-          })}
-        </div>
-      </div>
+      <section class="pn blist" aria-label="Items">
+        <div class="bhead lbl"><span /><span>Item</span><span>Stages</span><span>Status</span><span>Pull request</span><span /></div>
+        {runs.map(r => <RunCardView key={r.slug} r={r} on={selected === r.slug} select={() => setSelected(s => (s === r.slug ? '' : r.slug))} />)}
+        {items.map(i => (
+          <div class={`brow ${picked[i.slug] ? 'brow-on' : ''}`} key={i.slug}>
+            <input type="checkbox" aria-label={`Select ${i.slug}`} checked={!!picked[i.slug]} disabled={i.status === 'completed' || !i.hasBrief} title={i.hasBrief ? undefined : 'This item has no brief.md yet'} onChange={e => setPicked(m => ({ ...m, [i.slug]: (e.target as HTMLInputElement).checked }))} />
+            <a class="brow-open" href={`#/run/${i.slug}`} onClick={e => { e.preventDefault(); go(`/run/${i.slug}`); }}>
+              <span class="brow-slug">{i.slug}</span>
+              <span class="brow-sub">{[i.type, i.priority, i.title].filter(Boolean).join(' · ')}</span>
+            </a>
+            <div class="b-stages col" style={{ gap: '5px', minWidth: 0 }}>
+              <span class="strip" aria-hidden="true">{PIPELINE.map(() => <i />)}</span>
+              <span class={`brow-sub ${i.note ? 's-paused' : ''}`}>{i.note || (i.status === 'completed' ? 'Completed' : 'In the backlog')}</span>
+            </div>
+            <span><span class="chip chip-pending">{i.status === 'completed' ? 'completed' : 'not started'}</span></span>
+            <span class="b-pr muted small">—</span>
+            <div class="brow-acts">
+              <a class="btn btn-xs" href={`#/edit/board/${i.slug}`} onClick={e => { e.preventDefault(); go(`/edit/board/${i.slug}`); }}>Edit</a>
+            </div>
+          </div>
+        ))}
+        {!runs.length && !items.length && (
+          <div class="empty">
+            <strong>{f || show !== 'all' ? 'Nothing matches' : 'Nothing on the board yet'}</strong>
+            <span class="small">{f || show !== 'all' ? 'Clear the filter to see every item.' : 'Write a backlog item, tick it, and run it: the pipeline writes the tests first, then the code.'}</span>
+            {!f && show === 'all' && <a class="btn btn-p" href="#/new" onClick={e => { e.preventDefault(); go('/new'); }}>New item</a>}
+          </div>
+        )}
+      </section>
       {selected && runSlugs.has(selected) && <Drawer slug={selected} />}
       <p class="mono muted small" style={{ margin: 0 }}>reads {'<backlog>'}/index.md · .git/sdlc-runs/*.json · each run's logs/status.json, live</p>
     </div>
