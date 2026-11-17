@@ -289,7 +289,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
             {loopsError && <span class="small s-failed">{loopsError}</span>}
           </div>
           <p class="small muted" style={{ margin: 0 }}>
-            Current: <span class="mono">{data.fileReview?.maxLoops ?? data.defaults?.reviewMaxLoops ?? 2}</span>{data.fileReview?.maxLoops === undefined ? ' (default)' : ''}.
+            Current: <span class="mono">{data.fileReview?.maxLoops ?? data.defaults?.reviewMaxLoops ?? 2}</span>{data.fileReview?.maxLoops === undefined ? ' (default)' : ''}. Default: <span class="mono">{data.defaults?.reviewMaxLoops ?? 2}</span>.
             How many times Review's findings go back through Red tests and Implement; 0 means none. A run can override it.
           </p>
         </div>
