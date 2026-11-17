@@ -1,0 +1,32 @@
+{
+  "verdict": "changes",
+  "blockers": [
+    {
+      "file": "web/server/index.ts",
+      "criterion": "AC3 / Behaviour 1: clearing the setting (or 'Use default') removes review.maxLoops from the file; the save path must not keep or write an invalid value",
+      "reason": "The settings GET (line 266) builds fileReview only from a safe integer >= 0, so a file holding review.maxLoops = -1 (or 1.5, \"abc\") returns fileReview {}. web/ui/src/Projects.tsx (lines 157-160) sends maxLoops: null only when fileReview.maxLoops is defined, so clearing or 'Use default' sends no patch, the invalid key stays, and every project save is refused by the 'loops' rule. The committed-tree test 'exposes an invalid file limit so it can be cleared' (web/test/review-loop-limit.test.ts:113) fails today: 'expected {} to have property \"maxLoops\"'. Fix: expose whether the file holds the key (its raw value, or a flag) and have the form send maxLoops: null whenever the file holds the key and the field is empty. The test must GET a file with maxLoops -1, see the key reported, POST {review:{maxLoops:null}} with the hash, get ok true, and find review.maxLoops gone from the file."
+    }
+  ],
+  "missingTests": [
+    {
+      "file": "src/config/settings.ts",
+      "criterion": "AC4: saving -1, 1.5, abc is refused with a message, sdlc.config.json is byte-for-byte unchanged, and the response carries the message (tested through the server API)",
+      "reason": "The 'loops' schema rule and LOOP_LIMIT_MESSAGE are new code. No test POSTs /api/projects/<name>/settings with patch {review:{maxLoops:-1}}, {maxLoops:1.5} or {maxLoops:\"abc\"}. The test must check a 400 or ok:false reply whose errors include 'review.maxLoops: must be a whole number, 0 or more', and that the file bytes equal the bytes read before the call. It should also check that a patch with a second invalid field reports both messages."
+    },
+    {
+      "file": "web/server/index.ts",
+      "criterion": "AC2: saving 3 writes review.maxLoops 3 merged with other review keys; loading again returns 3; saving 0 is stored as 0",
+      "reason": "No test saves review.maxLoops through the settings POST. The test must start with a file holding review {mode:'multi'}, POST {review:{maxLoops:3}} with the hash, and check that the file has review {mode:'multi', maxLoops:3} as a JSON number. A GET afterwards must return fileReview.maxLoops 3 and config.review.maxLoops 3. The same steps with 0 must store 0 and return 0, not the default."
+    },
+    {
+      "file": "web/server/index.ts",
+      "criterion": "AC3: clearing a valid setting removes review.maxLoops from the file and the effective value becomes 2",
+      "reason": "Start with a file holding review {maxLoops:4, mode:'single'} and POST {review:{maxLoops:null}}. The file must keep review.mode, review.maxLoops must be gone, and a GET must return fileReview {} and config.review.maxLoops 2."
+    },
+    {
+      "file": "src/runs/index.ts",
+      "criterion": "AC5: with the run option empty, the run uses the file value (tested through the server API)",
+      "reason": "Only the '5' case is tested (web/test/review-loop-limit.test.ts:131). Add a case that starts a run through POST /runs/<slug>/start with env {SDLC_REVIEW_MAX_LOOPS:''} and with the key left out, while the file says maxLoops 1. The start must return 200, and resolving with the env the child received must give review.maxLoops 1."
+    }
+  ]
+}
