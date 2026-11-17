@@ -150,13 +150,16 @@ export interface TriageQuestion { id: string; text: string; suggested: string }
 export interface TriageRun { runId: string; state: TriageState; worktree: string; slugs: string[]; drafts: { slug: string; status: DraftStatus }[] }
 export interface TriageEvent { event: string; data: any }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  constructor(message: string, readonly errors: string[] = []) { super(message); }
+}
 
 async function failure(r: Response): Promise<ApiError> {
   const text = await r.text();
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
-  return new ApiError((data && data.error) || text || `${r.status} ${r.statusText}`);
+  const errors: string[] = Array.isArray(data?.errors) ? data.errors.filter((e: unknown): e is string => typeof e === 'string') : [];
+  return new ApiError((data && data.error) || errors.join('\n') || text || `${r.status} ${r.statusText}`, errors);
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {

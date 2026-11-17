@@ -1,6 +1,6 @@
 // The registered projects (and the folder ui started in), their doctor checks, and adding one.
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { api, type Check, type Project, type SettingsView, type Source } from './api';
+import { api, ApiError, type Check, type Project, type SettingsView, type Source } from './api';
 import { dialogKey, firstFocusable, focusable, type FocusCandidate } from './dialog';
 import { ModelSelect } from './ModelSelect';
 import { Cli, ErrorBox, useApp } from './ui';
@@ -197,7 +197,11 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
       if (activeRuns.length) setWarn(`Saved. ${activeRuns.join(', ')} ${activeRuns.length > 1 ? 'are' : 'is'} running or paused and keep${activeRuns.length > 1 ? '' : 's'} the old setup until restarted.`);
       else toast(scope === 'personal' ? 'Personal config saved' : 'Global settings saved. Commit sdlc.config.json to share them');
       await load(scope); onSaved();
-    } catch (e) { setErrors([(e as Error).message]); }
+    } catch (e) {
+      const messages = e instanceof ApiError && e.errors.length ? e.errors : [(e as Error).message];
+      setErrors(messages);
+      setLoopsError(messages.filter(message => message.includes('review.maxLoops')).join('\n'));
+    }
     setBusy(false);
   };
 
@@ -209,7 +213,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
     ? { top: own(defFile), stages: Object.fromEntries(data.stages.map(st => [st, own(defFile.stages?.[st] || {})])) }
     : { top: data.sources as RowSources, stages: data.sources.stages as Record<string, RowSources> };
   return (
-    <form class="col" style={{ gap: '8px' }} onSubmit={e => { e.preventDefault(); save(); }}>
+    <form class="col" style={{ gap: '8px' }} onSubmit={e => { e.preventDefault(); return save(); }}>
       <span class="lbl">Agent, model and effort</span>
       <div class="row" style={{ gap: '14px', flexWrap: 'wrap' }}>
         <label class="row small" style={{ gap: '6px', cursor: 'pointer' }}>
