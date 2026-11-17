@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, type RunView, type SettingsView } from './api';
 import { ModelSelect } from './ModelSelect';
-import { elapsedText, linkPaths, showTestIssues, stepBanner } from './stages';
+import { elapsedText, linkPaths, resolveShown, showTestIssues, stepBanner } from './stages';
+import { Guarantees, LockPanel, OutputPanel, StageRail, StepList, UsagePanel, type RailStage } from './RunInsights';
+import { costText, hasUsage, skipped, tokensText } from './insights';
 import { PrCi } from './PrCi';
-import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
+import { Cli, CopyButton, ErrorBox, GLYPH, Markdown, Panel, Spinner, stateClass, useApp } from './ui';
 import { defaultPick, needsResumeConfirm, resumeCommand, resumeOptions } from './resume';
 import { isMarkdownPath } from './markdown';
 import { usePoll } from './usePoll';
@@ -180,73 +182,54 @@ function DocTreeNodeView({
 
 function RecoveryCard({
   recovery,
+  state,
   busy,
   onAutoAction,
   onOpenFile,
   onEscapeHatch,
 }: {
   recovery: NonNullable<RunView['recovery']>;
+  state: string;
   busy: string;
   onAutoAction: () => void;
   onOpenFile: (file: string) => void;
   onEscapeHatch: () => void;
 }) {
+  const failed = state !== 'paused';
   return (
-    <div
-      class="panel"
-      style={{
-        border: '1px solid var(--accent, #e53e3e)',
-        backgroundColor: 'rgba(229, 62, 62, 0.05)',
-        borderRadius: '8px',
-        margin: '10px 0',
-      }}
-    >
-      <div class="ph" style={{ borderBottom: '1px solid rgba(229, 62, 62, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <strong>Stage Recovery: {recovery.stage}</strong>
-        <span class="tag s-paused">Guaranteed Forward Progress</span>
+    <section class={`recov ${failed ? 'recov-failed' : ''}`} aria-label="How to go on">
+      <div class="recov-head">
+        <strong>{recovery.stage} {failed ? 'stopped' : 'is waiting'}: {recovery.diagnosis}</strong>
+        <span class="chip" title="Every stop names its cause and offers a way on: a fix the tool can make, what you can do, and a way around">No dead ends · {[recovery.autoAction, recovery.manualAction, recovery.escapeHatch].filter(Boolean).length} ways on</span>
       </div>
-      <div class="pb col" style={{ gap: '10px' }}>
-        <p style={{ margin: 0, fontWeight: 500 }}>{recovery.diagnosis}</p>
-        <div class="row" style={{ gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {recovery.autoAction && (
-            <button
-              class="btn btn-p"
-              type="button"
-              disabled={!!busy}
-              onClick={onAutoAction}
-              title={recovery.autoAction.command}
-            >
-              {busy ? <Spinner /> : null} 1. Auto: {recovery.autoAction.label}
+      <div class="recov-ways">
+        {recovery.autoAction && (
+          <div class="way way-first">
+            <span class="lbl">Let the tool fix it <span class="chip chip-running">recommended</span></span>
+            <p>{recovery.autoAction.label}</p>
+            <button class="btn btn-p" type="button" disabled={!!busy} onClick={onAutoAction} title={recovery.autoAction.command}>
+              {busy ? <Spinner /> : null} {recovery.autoAction.label}
             </button>
-          )}
-          {recovery.manualAction && (
-            <div class="row" style={{ gap: '6px', alignItems: 'center' }}>
-              <span class="small">2. Manual: {recovery.manualAction.instruction}</span>
-              {recovery.manualAction.file && (
-                <button
-                  class="btn btn-s"
-                  type="button"
-                  onClick={() => onOpenFile(recovery.manualAction!.file!)}
-                >
-                  Open {recovery.manualAction.file}
-                </button>
-              )}
-            </div>
-          )}
-          {recovery.escapeHatch && (
-            <button
-              class="btn"
-              type="button"
-              disabled={!!busy}
-              onClick={onEscapeHatch}
-              title={recovery.escapeHatch.command}
-            >
-              3. Bailout: {recovery.escapeHatch.label}
-            </button>
-          )}
-        </div>
+          </div>
+        )}
+        {recovery.manualAction && (
+          <div class="way">
+            <span class="lbl">Do it yourself</span>
+            <p>{recovery.manualAction.instruction}</p>
+            {recovery.manualAction.file && (
+              <button class="btn" type="button" onClick={() => onOpenFile(recovery.manualAction!.file!)}>Open {recovery.manualAction.file}</button>
+            )}
+          </div>
+        )}
+        {recovery.escapeHatch && (
+          <div class="way">
+            <span class="lbl">Go around it</span>
+            <p>{recovery.escapeHatch.label}</p>
+            <button class="btn" type="button" disabled={!!busy} onClick={onEscapeHatch} title={recovery.escapeHatch.command}>{recovery.escapeHatch.label}</button>
+          </div>
+        )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -285,6 +268,8 @@ export function Run({ slug }: { slug: string }) {
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
   const [stageDirs, setStageDirs] = useState<StageDirState>({});
   const [issuesDraft, setIssuesDraft] = useState<string | null>(null);
+  /** The stage whose details are open under the rail ('' for none). */
+  const [openStage, setOpenStage] = useState('');
 
   const testIssuesRejects = useMemo(() => {
     if (!v?.tail) return [];
@@ -369,10 +354,16 @@ export function Run({ slug }: { slug: string }) {
     setBusy('');
   }
 
-  if (!v) return <div class="col"><h1 class="mono">{slug}</h1>{error ? <ErrorBox error={error} /> : <p class="muted">Loading…</p>}</div>;
+  if (!v) return <div class="col"><div class="hero"><h1>{slug}</h1></div>{error ? <ErrorBox error={error} /> : <><div class="skel" style={{ height: '64px' }} /><div class="skel" style={{ height: '150px' }} /><div class="skel" style={{ height: '320px' }} /><span class="sr" role="status">Loading the run</span></>}</div>;
 
   const running = v.state === 'running';
   const states = stageStates(v);
+  const spanOf = (name: string) => v.timeline?.stages.find(x => x.stage === name);
+  const railStages: RailStage[] = STAGES.map((s, i) => ({
+    name: s.name, key: s.key, afterPr: s.key === 'resolve-conflicts',
+    state: skipped(s.name, states[i], v.timeline?.stages, v.stageFiles) ? 'skipped' as const : states[i],
+    model: v.models[s.key]?.model || '', files: v.stageFiles[s.name]?.length || 0,
+  })).filter(s => !s.afterPr || resolveShown(v));
   const unanswered = v.questions.filter(q => !(answers[q.n] !== undefined ? answers[q.n] : q.answer).trim()).length;
   // A run with no recorded stage resumes at Spec, named and sent as such: no button starts without saying where.
   const resumeKey = v.resumeFrom || 'spec';
@@ -481,11 +472,10 @@ export function Run({ slug }: { slug: string }) {
   return (
     <div class="col">
       <a href="#/board" onClick={e => { e.preventDefault(); go('/board'); }} class="small">← Board</a>
-      <div class="row" style={{ gap: '10px 16px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <h1 class="mono" style={{ fontWeight: 500 }}>{slug}</h1>
+      <div class="hero">
+        <h1>{slug}</h1>
         <a class="btn btn-s" href={`#/edit/run/${slug}`} onClick={e => { e.preventDefault(); go(`/edit/run/${slug}`); }}>Edit</a>
-        <StateTag state={v.state} />
-        {v.stage && <span class="tag">at {v.stage}</span>}
+        <span class={`chip chip-${v.state.replace(' ', '-')}`}>{v.state === 'running' ? <Spinner /> : GLYPH[v.state]} {v.state}{v.stage ? ` · ${v.stage}` : ''}</span>
         {v.attempt && (
           <span class={`tag ${v.state === 'running' ? 's-running' : v.state === 'paused' ? 's-paused' : ''}`}>
             {v.state === 'running' ? `running iteration ${v.attempt}` : `iteration ${v.attempt}`}
@@ -518,10 +508,12 @@ export function Run({ slug }: { slug: string }) {
       </div>
       <ErrorBox error={error} />
       {v.message && <div class="error">{v.message}</div>}
+      <Guarantees v={v} />
 
       {v.recovery && ['paused', 'failed', 'refused'].includes(v.state) && (
         <RecoveryCard
           recovery={v.recovery}
+          state={v.state}
           busy={busy}
           onAutoAction={() => {
             const auto = v.recovery!.autoAction;
@@ -675,17 +667,19 @@ export function Run({ slug }: { slug: string }) {
       {v.movedFrom && <p class="small muted" style={{ margin: 0 }}>moved from <span class="mono">{v.movedFrom.branch}</span>: {v.movedFrom.reasonText || v.movedFrom.reason}</p>}
       {v.discarded && <p class="small muted" style={{ margin: 0 }}>Discarded before. To get that branch back: <span class="mono">{v.discarded}</span></p>}
 
-      <Panel title="Stages" extra={<span class="small muted">A stage's agent, model and effort apply when the run starts or resumes (MODEL_&lt;STAGE&gt;, EFFORT_&lt;STAGE&gt;). Changing them while it runs: <Future id="E-2" /></span>}>
-        <div class="rail-scroll">
-          <div class="rail">
-            {STAGES.map((s, i) => {
+      <Panel title="Stages" extra={<span class="small muted">Pick a stage to see its steps and set its agent, model and effort (they apply when the run starts or resumes)</span>}>
+        <StageRail stages={railStages} timeline={v.timeline} step={v.state === 'running' ? v.step : undefined} selected={openStage} onSelect={setOpenStage}>
+          {openStage && (() => {
+              const i = STAGES.findIndex(x => x.key === openStage);
+              const s = STAGES[i];
+              if (!s) return null;
               const st = states[i];
-              if (s.key === 'resolve-conflicts') return null;
               const inUse = s.key && v.models[s.key];
               const locked = running && st !== 'pending';
               return (
-                <div class={`stage ${st === 'active' ? 'stage-active' : st === 'paused' ? 'stage-paused' : ''}`}>
-                  <strong class={STAGE_CLASS[st]}>{st === 'active' ? <Spinner /> : STAGE_GLYPH[st]} {s.name}</strong>
+                <div id="stage-detail" class="stage-detail" role="tabpanel" aria-label={s.name}>
+                 <div class="rail-controls">
+                  <h3>{s.name} · {s.key === 'finalise' ? 'options' : 'agent, model and effort'}</h3>
                   {v.attempt && st === 'active' && (
                     <span class="tag small s-running" style={{ marginTop: '2px', fontSize: '11px', padding: '2px 6px', alignSelf: 'flex-start' }}>
                       running iteration {v.attempt}
@@ -749,12 +743,15 @@ export function Run({ slug }: { slug: string }) {
                       : <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => setConfirm(`discard-stage:${s.key}`)}>Discard {s.name}…</button>
                   )}
                   {s.name === 'Finalise' && v.deniedPermissions && v.deniedPermissions.length > 0 && <span class="small s-failed">{v.deniedPermissions.length} denied</span>}
-                  {s.key && s.key !== 'implement' && s.key !== 'finalise' && s.key !== 'resolve-conflicts' && <span class="small"><Future id="E-7" /> skip</span>}
+                 </div>
+                 <div>
+                  <h3>Steps{spanOf(s.name)?.started ? ` · started ${spanOf(s.name)!.started.slice(11, 16)}` : ''}</h3>
+                  <StepList span={spanOf(s.name)} running={st === 'active'} />
+                 </div>
                 </div>
               );
-            })}
-          </div>
-        </div>
+          })()}
+        </StageRail>
       </Panel>
       <StepBar v={v} />
 
@@ -1088,9 +1085,7 @@ export function Run({ slug }: { slug: string }) {
           )}
 
           {v.state !== 'not started' && (
-            <Panel title="Output"extra={<div class="row"><span class="mono small muted">logs/run.out</span><CopyButton text={v.tail.join('\n')} /><button class="btn btn-s" type="button" onClick={() => openFile('logs/run.out')}>Whole file</button></div>}>
-              <pre class="code mono" style={{ borderRadius: '0 0 8px 8px', maxHeight: '420px', overflowY: 'auto' }}>{v.tail.join('\n') || 'No output yet.'}</pre>
-            </Panel>
+            <OutputPanel tail={v.tail} extra={<div class="row"><span class="mono small muted">logs/run.out</span><CopyButton text={v.tail.join('\n')} /><button class="btn btn-s" type="button" onClick={() => openFile('logs/run.out')}>Whole file</button></div>} />
           )}
         </div>
 
@@ -1103,9 +1098,12 @@ export function Run({ slug }: { slug: string }) {
               <dt class="muted">Tests</dt><dd>{v.tests ? `${v.tests.passed} passed · ${v.tests.failed} failing · ${v.tests.total} total` : 'not run yet'}</dd>
               {v.worktree && <><dt class="muted">Worktree</dt><dd class="mono">{v.worktree}</dd></>}
               {v.updated && <><dt class="muted">Updated</dt><dd>{v.updated}</dd></>}
-              <dt class="muted">Usage</dt><dd>— <Future id="E-9" /></dd>
+              {hasUsage(v.timeline?.usage) && <><dt class="muted">Cost</dt><dd>{costText(v.timeline!.usage.costUsd)} · {tokensText(v.timeline!.usage.tokens)} tokens · {v.timeline!.usage.rounds} agent round{v.timeline!.usage.rounds === 1 ? '' : 's'}</dd></>}
             </dl>
           </Panel>
+
+          {v.state !== 'not started' && <LockPanel lock={v.timeline?.lock} redCommit={v.redCommit} stage={v.stage} />}
+          <UsagePanel timeline={v.timeline} />
 
           <Panel title="Environment for this run" extra={<span class="small muted">applies on start, resume and restart</span>}>
             <div class="pb col" style={{ gap: '6px' }}>

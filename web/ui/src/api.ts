@@ -68,10 +68,19 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   recovery?: StageRecovery | null;
   /** What each agent round did, with its warnings (logs/attempts.jsonl). */
   attempts?: AttemptRound[];
+  /** Every stage's steps, time, tokens and cost, and the test lock (from logs/attempts.jsonl); absent on an older server. */
+  timeline?: Timeline;
 }
+export interface StepSpan { key: string; label: string; started: string; ended: string | null }
+export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null }
+export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; usage: UsageTotals }
+export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
+export interface Timeline { stages: StageSpan[]; lock: LockView | null; usage: UsageTotals }
 export interface AttemptRound {
   at: string; stage: string; agent: string; durationSec: number | null; exitCode: number; responseChars: number;
   turns: number | null; tokens: number | null;
+  usage?: { input: number | null; output: number | null; cacheRead: number | null; cacheWrite: number | null; costUsd: number | null };
+  model?: string;
   denied: Array<{ tool: string; detail: string }>;
   filesChanged: string[]; warnings: string[];
   /** The round has started and not finished. */
