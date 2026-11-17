@@ -16,3 +16,14 @@
 | Modal lifecycle | Closing during a build leaves it running; reopening restores running or completed status. Success closes with refresh; failure shows output and supports retry and close; API errors remain visible. | UI review / interactive verification |
 | Documentation | Review README endpoint and setup guidance, timeout, graphify manual workflow, and Settings comment. | Review only |
 | Test constraints | Review tests for real code execution, no test-file or documentation text assertions, allowed paths, and lint compliance. | Review only |
+
+## Review round 1 regression matrix
+
+| Finding | Expected behavior | Coverage |
+|---|---|---|
+| Oversized output | A multi-megabyte unterminated or newline-terminated line is retained within 32 KB in the final HTTP response; the rolling buffer must also remain bounded during execution. | `web/test/code-indexer-findings.test.ts`: both final-output forms through the setup engine; inspect in-flight memory and HTTP serialization in review. |
+| Concurrent configuration edits | Re-read configuration after a verified build, retaining edits or a file created while it ran; malformed current configuration causes a save failure and is preserved. | `web/test/code-indexer-findings.test.ts`: edited, created, and malformed configurations. |
+| Timeout and exclusion | A SIGTERM-ignoring child cannot overlap another build during the grace period and is killed after it. Descendant workers, including workers holding output pipes after their parent exits, must also terminate. | `web/test/code-indexer-findings.test.ts`: guard and direct child escalation; descendant process cases require further integration coverage. |
+| Dismissed modal | A successful operation first observed on reopening requests a parent refresh; running and failed operations alone do not. The component must use the helper and refresh Doctor and Settings. | `web/test/code-indexer-findings.test.ts`: helper contract; component integration and UI behavior require review / interactive verification. |
+
+The existing route and build-command tests remain intact. They cover core API paths but do not establish the UI rendering and lifecycle cases above; review those and the remaining gaps identified in the original matrix. Documentation and constraints on the tests themselves are review items, not automated assertions.
