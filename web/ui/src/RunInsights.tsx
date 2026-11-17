@@ -1,5 +1,5 @@
-// What a run did, drawn: the stage rail with each stage's steps, the test lock, the cost per stage, and the four
-// promises of the pipeline as they stand for this run. The wording and the decisions are in insights.ts.
+// What a run did, drawn: the stage rail with each stage's steps and the test lock on Red tests, the cost per stage,
+// and what the run's records show about its worktree and pull request. The wording and the decisions are in insights.ts.
 import { memo } from 'preact/compat';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
@@ -27,10 +27,12 @@ export interface RailStage { name: string; key: string; state: TileState; model:
  * files and time, or "Not started"). Picking a tile opens its details under the row: the steps it went through and
  * whatever the caller renders for it (its agent, model and effort).
  */
-export function StageRail({ stages, timeline, step, selected, onSelect, children }: {
+export function StageRail({ stages, timeline, step, locked, selected, onSelect, children }: {
   stages: RailStage[];
   timeline?: Timeline;
   step?: RunView['step'];
+  /** The test lock is recorded and confirmed (see verifiedLock): only then does Red tests carry the lock mark. */
+  locked: boolean;
   selected: string;
   onSelect(key: string): void;
   children?: ComponentChildren;
@@ -55,7 +57,7 @@ export function StageRail({ stages, timeline, step, selected, onSelect, children
               <span class="tile-head">
                 <span class="tile-icon" aria-hidden="true">{s.state === 'active' ? <Spinner /> : ICON[s.state]}</span>
                 <span class="tile-name">{s.name}</span>
-                {s.name === 'Red tests' && s.state === 'done' && <span class="tile-lock" title="The tests are locked from here on">🔒</span>}
+                {s.name === 'Red tests' && locked && <span class="tile-lock" role="img" aria-label="Tests locked" title="The tests are committed and locked: a later stage that changes them is stopped">🔒</span>}
               </span>
               <span class="tile-model mono">{s.model || (s.key === 'finalise' ? 'no agent' : 'default')}</span>
               <span class="tile-line">{tileLine(s.state, sp, s.files, s.state === 'active' ? step?.label || '' : '', now)}</span>
@@ -92,13 +94,13 @@ export function StepList({ span, running }: { span?: StageSpan; running: boolean
   );
 }
 
-/** The four promises, each with what this run's records show for it. */
+/** How the pipeline protects a run, and what this run's records show of its worktree and pull request. */
 export function Guarantees({ v }: { v: Parameters<typeof guarantees>[0] }) {
   return (
     <ul class="guar" aria-label="What protects this run">
       {guarantees(v).map(g => (
         <li class={`guar-item guar-${g.state}`}>
-          <span class="guar-mark" aria-hidden="true">{g.key === 'lock' ? '🔒' : g.key === 'gates' ? '⛩' : g.key === 'isolated' ? '⑂' : '✓'}</span>
+          <span class="guar-mark" aria-hidden="true">{g.key === 'gates' ? '⛩' : g.key === 'isolated' ? '⑂' : '✓'}</span>
           <span class="guar-text"><strong>{g.title}</strong><span class="small muted">{g.detail}</span></span>
         </li>
       ))}
@@ -106,37 +108,31 @@ export function Guarantees({ v }: { v: Parameters<typeof guarantees>[0] }) {
   );
 }
 
-/** The test lock: what was locked and when, and every time a stage was stopped for changing a locked test. */
-export const LockPanel = memo(function LockPanel({ lock, redCommit, stage }: { lock: LockView | null | undefined; redCommit: string; stage: string }) {
-  if (!lock && !redCommit) {
-    return (
-      <Panel title="Test lock" extra={<span class="chip chip-pending">not locked yet</span>}>
-        <div class="pb small muted">Red tests writes the tests first and proves they fail. From that commit on, Implement and Review cannot change them{stage ? '' : ' once the run starts'}.</div>
-      </Panel>
-    );
-  }
-  const sha = (lock?.sha || redCommit).slice(0, 7);
+/**
+ * The test lock, inside the Red tests stage. It is drawn only from a recorded and confirmed lock; without one it says
+ * when the lock is set and claims nothing about this run.
+ */
+export function LockDetail({ lock }: { lock: LockView | null }) {
+  if (!lock) return <p class="small muted" style={{ margin: 0 }}>No test lock is recorded for this run. It is set when Red tests commits the tests, and removed if a stage at or before Red tests is run again.</p>;
   return (
-    <Panel title={<span>🔒 Test lock</span>} extra={<span class="chip chip-done">locked at <span class="mono">{sha}</span></span>}>
-      <div class="pb col" style={{ gap: '10px' }}>
-        <p style={{ margin: 0 }}>{lock ? lockSentence(lock) : 'The tests were locked when Red tests finished. Implement and Review cannot change them.'}</p>
+    <div class="col" style={{ gap: '8px' }}>
+      <p style={{ margin: 0 }}><span aria-hidden="true">🔒</span> {lockSentence(lock)}</p>
+      {(lock.guards.length > 0 || lock.relocks > 0) && (
         <ol class="locklog">
-          <li><span class="locklog-dot dot-done" /><span><strong>Red tests</strong> wrote the tests and saw them fail{lock?.origRedSha ? <> · <span class="mono small">{lock.origRedSha.slice(0, 7)}</span></> : null}</span></li>
-          {(lock?.guards || []).map(g => (
+          {lock.guards.map(g => (
             <li>
               <span class="locklog-dot dot-wait" />
-              <span><strong>{g.stage}</strong> changed {g.restored.length || 'some'} locked test file{g.restored.length === 1 ? '' : 's'}; the run stopped there instead of going on
+              <span><strong>{g.stage}</strong> changed {g.restored.length || 'some'} locked test file{g.restored.length === 1 ? '' : 's'}; the run stopped there
                 {g.restored.length > 0 && <span class="mono small muted" style={{ display: 'block' }}>{g.restored.slice(0, 4).join(', ')}{g.restored.length > 4 ? ` +${g.restored.length - 4} more` : ''}</span>}
               </span>
             </li>
           ))}
-          {lock && lock.relocks > 0 && <li><span class="locklog-dot dot-run" /><span><strong>Test repair</strong> changed claimed tests {lock.relocks} time{lock.relocks > 1 ? 's' : ''}; each claim was checked and audited, then the lock was set again</span></li>}
-          {lock && !lock.guards.length && !lock.relocks && <li><span class="locklog-dot dot-done" /><span>No agent has touched them since</span></li>}
+          {lock.relocks > 0 && <li><span class="locklog-dot dot-run" /><span><strong>Test repair</strong> changed claimed tests {lock.relocks} time{lock.relocks > 1 ? 's' : ''}; the lock was set again each time</span></li>}
         </ol>
-      </div>
-    </Panel>
+      )}
+    </div>
   );
-});
+}
 
 const UsageRow = ({ name, u, total }: { name: string; u: UsageTotals; total?: boolean }) => (
   <tr class={total ? 'usage-total' : ''}>

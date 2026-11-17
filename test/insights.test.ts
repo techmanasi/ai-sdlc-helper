@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, skipped, spanSeconds, stripStates, tileLine, tokensText } from '../web/ui/src/insights.js';
+import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, skipped, spanSeconds, stripStates, tileLine, tokensText, verifiedLock } from '../web/ui/src/insights.js';
 
 const usage = (o: Partial<{ rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null }> = {}) =>
   ({ rounds: 1, durationSec: 60, turns: 3, tokens: 1000, input: 200, output: 800, cacheRead: 600, cacheWrite: 200, costUsd: 0.5, ...o });
@@ -107,47 +107,55 @@ describe('Test repair that was never needed', () => {
   });
 });
 
-describe('what protects a run', () => {
-  const base = { state: 'running' as const, stage: 'Implement', redCommit: '', worktree: '/w/x', branch: 'sdlc/x', pr: null, prState: null, prCi: null, ci: null, timeline: undefined };
+describe('the test lock is shown only when it is recorded and confirmed', () => {
   const lock = { sha: 'abcdef1234567', origRedSha: 'abcdef1234567', at: '2026-11-17T10:00:00', source: 'red-tests' as const, tests: 5, files: 2, relocks: 0, guards: [] };
-  const timeline = (l: typeof lock | null) => ({ stages: [], lock: l, usage: usage({ rounds: 0, tokens: 0 }) });
+  const timeline = (l: typeof lock | null) => ({ lock: l });
+
+  test('a recorded lock with a red-tests commit on the branch is shown', () => {
+    expect(verifiedLock({ redCommit: 'abcdef1', timeline: timeline(lock) })).toBe(lock);
+  });
+
+  test('a run past Red tests with no lock record shows none (a run made before locks were recorded)', () => {
+    expect(verifiedLock({ redCommit: 'abcdef1', timeline: timeline(null) })).toBeNull();
+    expect(verifiedLock({ redCommit: 'abcdef1', timeline: undefined })).toBeNull();
+  });
+
+  test('a lock record without a red-tests commit on the branch shows none', () => {
+    expect(verifiedLock({ redCommit: '', timeline: timeline(lock) })).toBeNull();
+  });
+
+  test('a lock record without a commit shows none', () => {
+    expect(verifiedLock({ redCommit: 'abcdef1', timeline: timeline({ ...lock, sha: '' }) })).toBeNull();
+  });
+
+  test('the sentence names the commit and claims nothing about what happened since', () => {
+    expect(lockSentence(lock)).toBe('5 tests in 2 files were locked when Red tests committed them, at abcdef1. A later stage that changes them is stopped.');
+    expect(lockSentence({ ...lock, tests: null, files: null, source: 'test-repair' })).toContain('locked again after Test repair');
+    expect(lockSentence(lock)).not.toMatch(/untouched|since/);
+  });
+});
+
+describe('what the records show about a run', () => {
+  const base = { state: 'running', stage: 'Implement', redCommit: 'abcdef1', worktree: '/w/x', branch: 'sdlc/x', pr: null, prState: null, prCi: null, ci: null, timeline: undefined };
   const by = (v: Parameters<typeof guarantees>[0]) => Object.fromEntries(guarantees(v).map(g => [g.key, g]));
 
-  test('before Red tests nothing is locked', () => {
-    const g = by({ ...base, stage: 'Spec' });
-    expect(g.lock.state).toBe('pending');
-    expect(g.gates.title).toBe('0 of 7 stages checked');
+  test('there is no lock item and no count of checked stages', () => {
+    const all = guarantees(base);
+    expect(all.map(g => g.key)).toEqual(['gates', 'isolated', 'pr']);
+    expect(all.map(g => `${g.title} ${g.detail}`).join(' ')).not.toMatch(/locked|\d+ of \d+/i);
+    expect(by(base).gates.state).toBe('pending');
+    expect(by({ ...base, state: 'done', stage: 'Finalise' }).gates.state).toBe('pending');
   });
 
-  test('after Red tests the lock is held and names the commit and the tests', () => {
-    const g = by({ ...base, timeline: timeline(lock) });
-    expect(g.lock.state).toBe('held');
-    expect(g.lock.detail).toContain('5 tests at abcdef1');
-    expect(g.gates.title).toBe('3 of 7 stages checked');
-  });
-
-  test('a run on an older server still shows the lock from its red commit', () => {
-    expect(by({ ...base, redCommit: '1234567' }).lock.detail).toContain('1234567');
-  });
-
-  test('a stopped edit of a locked test is counted', () => {
-    const g = by({ ...base, timeline: timeline({ ...lock, guards: [{ at: 'x', stage: 'Implement', restored: ['a.test.ts'] }] as never }) });
-    expect(g.lock.detail).toContain('1 edit stopped');
-  });
-
-  test('a failed run breaks the gate promise at its stage, and CI decides the last one', () => {
-    expect(by({ ...base, state: 'failed' }).gates.state).toBe('broken');
+  test('the pull request item follows the recorded PR state and CI', () => {
     expect(by({ ...base, state: 'done', stage: 'Finalise', pr: 'u', prCi: 'passed' }).pr.state).toBe('held');
     expect(by({ ...base, pr: 'u', prCi: 'failed' }).pr.state).toBe('broken');
-    expect(by({ ...base, state: 'done', stage: 'Finalise', pr: 'u', prState: 'MERGED' }).pr.title).toBe('Merged');
+    expect(by({ ...base, state: 'done', stage: 'Finalise', pr: 'u', prState: 'MERGED' }).pr).toMatchObject({ title: 'Merged', detail: 'In the base branch' });
+    expect(by(base).pr.state).toBe('pending');
   });
 
   test('a run with no worktree does not claim one', () => {
     expect(by({ ...base, worktree: null }).isolated.state).toBe('pending');
-  });
-
-  test('the lock in one sentence', () => {
-    expect(lockSentence(lock)).toBe('5 tests in 2 files were locked when Red tests finished. Implement and Review cannot change them.');
-    expect(lockSentence({ ...lock, tests: null, files: null, source: 'test-repair' })).toContain('locked again after an audited Test repair');
+    expect(by(base).isolated).toMatchObject({ state: 'held', detail: 'sdlc/x' });
   });
 });

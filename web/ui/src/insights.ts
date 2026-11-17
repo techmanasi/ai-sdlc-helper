@@ -95,35 +95,26 @@ export function tileLine(state: TileState, span: StageSpan | undefined, files: n
   return [what, time].filter(Boolean).join(' · ');
 }
 
-export interface Guarantee { key: 'lock' | 'gates' | 'isolated' | 'pr'; title: string; detail: string; state: 'held' | 'pending' | 'broken' }
+/**
+ * The test lock, only when it can be shown to stand: the engine recorded it after the Red tests commit (a row in
+ * attempts.jsonl, dropped again when a stage at or before Red tests is retried), and git still shows a red-tests commit
+ * on the run's branch. A run with either record missing gets no lock, whatever stage it has reached.
+ */
+export function verifiedLock(v: Pick<GuardedRun, 'redCommit' | 'timeline'>): LockView | null {
+  const lock = v.timeline?.lock || null;
+  return lock && lock.sha && v.redCommit ? lock : null;
+}
+
+export interface Guarantee { key: 'gates' | 'isolated' | 'pr'; title: string; detail: string; state: 'held' | 'pending' | 'broken' }
 
 /**
- * The four promises of the pipeline as they stand for this run: the tests are locked before any code is written, every
- * stage is checked before the next starts, the work is in its own worktree and branch, and it ends as a pull request
- * whose CI is green. `held` only says what the run's own records show.
+ * What the run's own records show about how it is protected: its worktree and branch, and its pull request and CI.
+ * The first item describes the pipeline and claims nothing about this run; the test lock is on the Red tests stage.
  */
 export function guarantees(v: GuardedRun): Guarantee[] {
-  const lock = v.timeline?.lock || null;
-  const sha = (lock?.sha || v.redCommit || '').slice(0, 7);
-  const guards = lock?.guards.length || 0;
-  const at = PIPELINE.indexOf(stageName(v.stage));
-  const passed = v.state === 'done' || stageName(v.stage) === AFTER_PR ? PIPELINE.length : Math.max(0, at);
   const ci = v.prCi || (v.ci?.state.startsWith('green') ? 'passed' : v.ci?.state.startsWith('red') ? 'failed' : v.ci ? 'in progress' : null);
   return [
-    {
-      key: 'lock',
-      title: sha ? 'Tests locked' : 'Tests lock at Red tests',
-      detail: sha
-        ? `${lock?.tests ? `${lock.tests} tests ` : ''}at ${sha}${guards ? ` · ${guards} edit${guards > 1 ? 's' : ''} stopped` : ' · untouched since'}`
-        : 'Written and failing before any code',
-      state: sha ? 'held' : 'pending',
-    },
-    {
-      key: 'gates',
-      title: `${passed} of ${PIPELINE.length} stages checked`,
-      detail: v.state === 'failed' || v.state === 'refused' ? `Stopped at ${stageName(v.stage) || 'the start'}: nothing unchecked goes on` : 'Each stage is checked before the next starts',
-      state: passed === PIPELINE.length ? 'held' : v.state === 'failed' || v.state === 'refused' ? 'broken' : 'pending',
-    },
+    { key: 'gates', title: 'Stage by stage', detail: 'A stage starts only after the one before it passes its check', state: 'pending' },
     {
       key: 'isolated',
       title: v.worktree ? 'Own worktree and branch' : 'Runs in its own worktree',
@@ -139,10 +130,10 @@ export function guarantees(v: GuardedRun): Guarantee[] {
   ];
 }
 
-/** What the lock panel says in one sentence. */
+/** What the Red tests stage says about a recorded lock, in one sentence. */
 export function lockSentence(lock: LockView): string {
   const n = lock.tests ? `${lock.tests} test${lock.tests > 1 ? 's' : ''}` : 'The tests';
   const where = lock.files ? ` in ${lock.files} file${lock.files > 1 ? 's' : ''}` : '';
-  const how = lock.source === 'test-repair' ? 'locked again after an audited Test repair' : 'locked when Red tests finished';
-  return `${n}${where} ${lock.tests === 1 ? 'was' : 'were'} ${how}. Implement and Review cannot change them.`;
+  const how = lock.source === 'test-repair' ? 'locked again after Test repair' : 'locked when Red tests committed them';
+  return `${n}${where} ${lock.tests === 1 ? 'was' : 'were'} ${how}, at ${lock.sha.slice(0, 7)}. A later stage that changes them is stopped.`;
 }
