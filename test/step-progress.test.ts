@@ -67,6 +67,23 @@ describe('Status.beginStep', () => {
     expect(Number.isFinite(Date.parse(j.step.started))).toBe(true);
   });
 
+  test('with a history dir each accepted step appends a step row; without one, or with a missing dir, nothing breaks', () => {
+    const { s, dir } = tmpStatus('Test repair');
+    const withLog = new Status(path.join(dir, 'status.json'), 'x', 1, path.join(dir, 'logs'));
+    withLog.stage = 'Test repair';
+    withLog.beginStep('precheck');
+    withLog.beginStep('precheck');
+    withLog.beginStep('nope');
+    const rows = fs.readFileSync(path.join(dir, 'logs', 'attempts.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: 'step', stage: 'Test repair', key: 'precheck', label: 'Checking each claimed test really fails' });
+    s.beginStep('precheck');
+    expect(fs.existsSync(path.join(dir, 'attempts.jsonl'))).toBe(false);
+    const bad = new Status(path.join(dir, 'status.json'), 'x', 1, path.join(dir, 'status.json', 'nope'));
+    bad.stage = 'Spec';
+    expect(() => bad.beginStep('agent')).not.toThrow();
+  });
+
   test('a status line without a step has no step key', () => {
     const { s } = tmpStatus('Spec');
     expect('step' in s.line()).toBe(false);

@@ -391,6 +391,7 @@ function observeRound(ctx: Ctx, name: string, stage: AgentStage, base: string, r
     const facts = agentFacts(`${base}.json`);
     const filesChanged = changedBetween(before, snapshot(ctx.git));
     const editsCode = stage === 'implement' || stage === 'test-repair';
+    const model = ctx.status?.models?.[stage]?.model;
     const warnings = roundWarnings(
       { exitCode: rc, responseChars: facts.responseChars, denied: facts.denied, filesChanged },
       { editsCode, debug: editsCode ? debugLeftovers(ctx.git, filesChanged) : [] },
@@ -399,6 +400,7 @@ function observeRound(ctx: Ctx, name: string, stage: AgentStage, base: string, r
       kind: 'agent', at: stamp(), stage, agent: name,
       durationSec: facts.durationSec ?? Math.round((Date.now() - started) / 100) / 10,
       exitCode: rc, responseChars: facts.responseChars, turns: facts.turns, tokens: facts.tokens,
+      ...(facts.usage ? { usage: facts.usage } : {}), ...(model ? { model } : {}),
       denied: facts.denied, filesChanged, warnings,
     });
     for (const w of warnings) ctx.out(`   !! observed in '${name}': ${w}`);

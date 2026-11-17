@@ -135,6 +135,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
       // (an inline Resolve conflicts stop after Plan resumes at Red tests): the status file keeps it for the run page.
       if (code !== 0 && resumeFrom && (FROM_STAGES as readonly string[]).includes(resumeFrom)) ctx.status.resumeFrom = resumeFrom;
       ctx.status.write();
+      appendRound(at(ctx, ctx.log), { kind: 'end', at: stamp(), state: finalState(code), stage: ctx.status.stage });
       if (code !== 0) {
         try {
           const hint = stageRecoveryHint({
@@ -201,7 +202,7 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
   const testFileCmd = opts.testFileCmd || defaultTestFileCmd(env);
   const fetchCmd = defaultFetchCmd(env);
 
-  const status = new Status(path.join(root, log, 'status.json'), slug);
+  const status = new Status(path.join(root, log, 'status.json'), slug, process.pid, path.join(root, log));
   const priorStage = previousStage(status.file);
   // Read before status.write() below replaces the file: how the previous start ended.
   const priorState = previousState(status.file);
