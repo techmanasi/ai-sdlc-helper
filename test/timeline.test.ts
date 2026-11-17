@@ -95,6 +95,34 @@ describe('runTimeline', () => {
     expect(again).toMatchObject({ sha: 'c'.repeat(40), relocks: 0, guards: [] });
   });
 
+  test('the lock is open, with its reason, from the moment locked tests may be changed until they are committed again', () => {
+    const lock = { kind: 'lock', at: t(1), sha: 'a'.repeat(40), origRedSha: 'a'.repeat(40), source: 'red-tests', tests: 6, files: 2 };
+    // never locked: nothing to open
+    expect(runTimeline([{ kind: 'stage', at: t(1), stage: 'Red tests' }]).lockOpen).toBeNull();
+    // locked: closed
+    expect(runTimeline([lock]).lockOpen).toBeNull();
+    // the user starts again at Red tests
+    expect(runTimeline([lock, { kind: 'run', at: t(3), from: 'red-tests' }])).toMatchObject({ lock: null, lockOpen: { at: t(3), reason: 'retry', sha: 'a'.repeat(40) } });
+    // Review sends its findings back through Red tests
+    const loop = [lock, { kind: 'stage', at: t(2), stage: 'Implement' }, { kind: 'stage', at: t(3), stage: 'Review' }, { kind: 'stage', at: t(4), stage: 'Red tests' }];
+    expect(runTimeline(loop)).toMatchObject({ lock: null, lockOpen: { at: t(4), reason: 'review-findings' } });
+    // still open if the run stops there
+    expect(runTimeline([...loop, { kind: 'end', at: t(5), state: 'failed', stage: 'Red tests' }]).lockOpen).toMatchObject({ reason: 'review-findings' });
+    // closed again once the tests are committed
+    expect(runTimeline([...loop, { ...lock, at: t(6), sha: 'c'.repeat(40) }])).toMatchObject({ lock: { sha: 'c'.repeat(40) }, lockOpen: null });
+  });
+
+  test('Test repair opens the lock while it works; an accepted repair locks again, a rejected one leaves the old lock closed', () => {
+    const lock = { kind: 'lock', at: t(1), sha: 'a'.repeat(40), origRedSha: 'a'.repeat(40), source: 'red-tests', tests: 6, files: 2 };
+    const repairing = [lock, { kind: 'stage', at: t(2), stage: 'Implement' }, { kind: 'stage', at: t(3), stage: 'Test repair' }];
+    expect(runTimeline(repairing)).toMatchObject({ lock: { sha: 'a'.repeat(40) }, lockOpen: { at: t(3), reason: 'test-repair', sha: 'a'.repeat(40) } });
+    expect(runTimeline([...repairing, { ...lock, at: t(4), sha: 'b'.repeat(40), source: 'test-repair' }])).toMatchObject({ lock: { sha: 'b'.repeat(40), relocks: 1 }, lockOpen: null });
+    expect(runTimeline([...repairing, { kind: 'end', at: t(4), state: 'failed', stage: 'Test repair' }])).toMatchObject({ lock: { sha: 'a'.repeat(40) }, lockOpen: null });
+    expect(runTimeline([...repairing, { kind: 'stage', at: t(4), stage: 'Implement' }])).toMatchObject({ lock: { sha: 'a'.repeat(40) }, lockOpen: null });
+    // Test repair with no lock on record opens nothing
+    expect(runTimeline([{ kind: 'stage', at: t(3), stage: 'Test repair' }]).lockOpen).toBeNull();
+  });
+
   test('a resume after Red tests keeps the lock', () => {
     const lock = { kind: 'lock', at: t(1), sha: 'a'.repeat(40), origRedSha: 'a'.repeat(40), source: 'red-tests', tests: 6, files: 2 };
     for (const from of ['implement', 'test-repair', 'review', 'resolve-conflicts']) {
