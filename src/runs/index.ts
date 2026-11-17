@@ -9,7 +9,7 @@ import { CONFIG_FILE, exists, readSettings } from '../util.js';
 import { shellArgv } from '../shell.js';
 import { headBranchOf, isRunBranch } from '../gitdir.js';
 import { PERSONAL_ENV, personalAgentOf } from '../config/personal.js';
-import { forceEnv, resolve, worktreeBase, type Force } from '../config/settings.js';
+import { forceEnv, resolve, worktreeBase, parseLoopLimit, LOOP_LIMIT_MESSAGE, type Force } from '../config/settings.js';
 import { findContaining, readRegistry, type ProjectOverrides } from '../registry/projects.js';
 import { forgetStage, stageWork, worktreeChanges } from '../changes/index.js';
 import {
@@ -56,7 +56,7 @@ const positiveInt = (v: string) => /^[1-9]\d*$/.test(v);
 /**
  * The context for the repository holding <dir>: its settings (sdlc.config.json, else detection; when they do not
  * resolve, the plain defaults, and the pipeline reports the errors), the registry overrides of the project, then the
- * controls' environment (SDLC_WT_BASE, SDLC_BASE, SDLC_MAX_PARALLEL). Throws on a bad SDLC_MAX_PARALLEL.
+ * controls' environment (SDLC_WT_BASE, SDLC_BASE, SDLC_MAX_PARALLEL). Throws on a bad SDLC_MAX_PARALLEL or SDLC_REVIEW_MAX_LOOPS.
  */
 export function runContext(dir: string, env: NodeJS.ProcessEnv = process.env): RunContext {
   const root = projectRoot(dir, env);
@@ -72,6 +72,8 @@ export function runContext(dir: string, env: NodeJS.ProcessEnv = process.env): R
       : config ? worktreeBase(config) : repoBase((file.worktree && file.worktree.base) || '../{repo}-sdlc');
   const capEnv = env.SDLC_MAX_PARALLEL;
   if (capEnv !== undefined && capEnv !== '' && !positiveInt(capEnv)) throw new Error(`SDLC_MAX_PARALLEL must be a whole number of 1 or more, not '${capEnv}'`);
+  const loopsEnv = env.SDLC_REVIEW_MAX_LOOPS;
+  if (loopsEnv !== undefined && loopsEnv !== '' && parseLoopLimit(loopsEnv) === null) throw new Error(`SDLC_REVIEW_MAX_LOOPS ${LOOP_LIMIT_MESSAGE}, not '${loopsEnv}'`);
   const maxParallel = capEnv ? Number(capEnv) : (Number.isInteger(overrides.maxParallel) && overrides.maxParallel! > 0 ? overrides.maxParallel! : DEFAULT_MAX_PARALLEL);
   return {
     root, reg: registryDir(root), backlogDir,

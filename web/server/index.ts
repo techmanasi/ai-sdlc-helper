@@ -11,7 +11,7 @@ import {
   AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readRunDoc, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, prPollOptions, PR_POLL_MS, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, completedListAsync, primeRepoPaths, warmCompletedPrs, keepError, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
-  closeGoneRuns,
+  closeGoneRuns, DEFAULT_REVIEW_MAX_LOOPS,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -263,6 +263,8 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       return send(200, {
         ...r, raw, hash: hashOf(raw ?? ''), overrides: entry?.overrides || {}, registered: Boolean(entry),
         boardSilenceEnvSeconds: envSilenceSeconds(),
+        fileReview: Number.isSafeInteger(fileJson.review?.maxLoops) && fileJson.review.maxLoops >= 0 ? { maxLoops: fileJson.review.maxLoops } : {},
+        defaults: { reviewMaxLoops: DEFAULT_REVIEW_MAX_LOOPS },
         fileAgent, personalAgent: personalAgent || {}, sources: agentSources(mergeAgent(fileAgent, personalAgent), personalAgent),
         files: { project: path.join(p.path, 'sdlc.config.json'), personal: registryFile(env) },
         harnesses: [...HARNESS_IDS], stages: [...AGENT_STAGES], efforts: [...EFFORT_LEVELS], stageDefaults: STAGE_DEFAULTS,

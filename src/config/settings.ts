@@ -159,7 +159,7 @@ export const SCHEMA: Json = {
     stages: { '*': { harness: [...HARNESS_IDS], model: 'string', effort: [...EFFORT_LEVELS] } },
     allowCommands: 'string[]', notesDir: 'string', codeSearch: 'string', codeSearchOrder: 'string[]', codeIndexers: { '*': INDEXER_SCHEMA } },
   finalise: { envExample: 'boolean', maxFileBytes: 'integer' },
-  review: { maxLoops: 'integer', mode: ['single', 'multi'], reviewers: 'integer' },
+  review: { maxLoops: 'loops', mode: ['single', 'multi'], reviewers: 'integer' },
   ui: { timezone: 'string' },
   trace: { enabled: 'boolean', maxSizeKb: 'number', keepFiles: 'integer', maxAgeHours: 'number' },
   node: { version: 'string', manager: ['auto', ...NODE_MANAGERS, 'none'] },
@@ -197,6 +197,8 @@ export function validate(value: unknown, schema: any, where: string, errors: str
     }
   } else if (schema === 'minutes') {
     if (!Number.isInteger(value) || (value as number) < 1) errors.push(`${at}: must be a whole number of minutes, 1 or more (got ${JSON.stringify(value)})`);
+  } else if (schema === 'loops') {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) errors.push(`${at}: ${LOOP_LIMIT_MESSAGE}`);
   } else if (schema === 'integer') {
     if (!Number.isInteger(value) || (value as number) < 0) errors.push(`${at}: must be a whole number`);
   } else if (schema === 'number') {
@@ -216,7 +218,16 @@ export function validate(value: unknown, schema: any, where: string, errors: str
   return errors;
 }
 
-const systemTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+export const DEFAULT_REVIEW_MAX_LOOPS = 2;
+export const LOOP_LIMIT_MESSAGE = 'must be a whole number, 0 or more';
+
+/** A review loop limit: a number, or digits-only text, that is a safe integer of 0 or more; else null. */
+export function parseLoopLimit(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : NaN;
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
+}
+
+const systemTimezone =() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const validTimezone = (tz: string) => { try { new Intl.DateTimeFormat('en', { timeZone: tz }); return true; } catch { return false; } };
 
 /** A suite from the file, completed from detection in its folder and the runner's defaults. */
@@ -337,6 +348,10 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
   const names = done.map(s => s.name);
   for (const n of names.filter((n, i) => names.indexOf(n) !== i)) errors.push(`suite name "${n}" is used twice`);
 
+  const rawLoops = env.SDLC_REVIEW_MAX_LOOPS;
+  const envLoops = rawLoops ? parseLoopLimit(rawLoops) : null;
+  if (rawLoops && envLoops === null) errors.push(`SDLC_REVIEW_MAX_LOOPS ${LOOP_LIMIT_MESSAGE}, not '${rawLoops}'`);
+
   const ui = { timezone: (file.ui && file.ui.timezone) || systemTimezone() };
   if (!validTimezone(ui.timezone)) errors.push(`ui.timezone: unknown time zone "${ui.timezone}"`);
   const { settings: trace, errors: traceProblems } = traceSettings(file.trace, env);
@@ -389,7 +404,8 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
       maxFileBytes: (file.finalise && file.finalise.maxFileBytes) || 1024 * 1024,
     },
     review: {
-      maxLoops: file.review && Number.isInteger(file.review.maxLoops) ? file.review.maxLoops : 2,
+      // SDLC_REVIEW_MAX_LOOPS wins over the file, then the default.
+      maxLoops: envLoops ?? (file.review && Number.isSafeInteger(file.review.maxLoops) && file.review.maxLoops >= 0 ? file.review.maxLoops : DEFAULT_REVIEW_MAX_LOOPS),
       // SDLC_REVIEW_MODE and SDLC_REVIEW_REVIEWERS are the run's own choice (Run options): they win over the file.
       mode: ['single', 'multi'].includes(String(env.SDLC_REVIEW_MODE)) ? env.SDLC_REVIEW_MODE as 'single' | 'multi' : (file.review && file.review.mode) || 'single',
       reviewers: Math.min(5, Math.max(2, /^\d+$/.test(env.SDLC_REVIEW_REVIEWERS || '') ? Number(env.SDLC_REVIEW_REVIEWERS) : (file.review && file.review.reviewers) || 2)),

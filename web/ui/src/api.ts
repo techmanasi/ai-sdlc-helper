@@ -11,7 +11,11 @@ export interface SettingsView {
   config: {
     agent?: { harness: string; model: string | null; effort: string | null; stages: Record<string, StageSetting> };
     tests?: { retry: boolean | null; maxWorkers: number | 'auto' | null; preliminary?: 'scoped' | 'full' };
+    review?: { maxLoops: number };
   } | null;
+  /** The file's own review.maxLoops (absent when unset) and the default the pipeline uses then. */
+  fileReview: { maxLoops?: number };
+  defaults: { reviewMaxLoops: number };
   errors: string[]; warnings: string[]; raw: string | null;
   hash: string; overrides: { worktreeBase?: string; maxParallel?: number; boardSilenceSeconds?: number }; registered: boolean;
   boardSilenceEnvSeconds?: number | null;
