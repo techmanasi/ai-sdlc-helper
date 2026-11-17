@@ -82,6 +82,26 @@ describe('runTimeline', () => {
     expect(tl.usage.rounds).toBe(2);
   });
 
+  test('a retry from or before Red tests removes the lock until the tests are committed again', () => {
+    const lock = { kind: 'lock', at: t(1), sha: 'a'.repeat(40), origRedSha: 'a'.repeat(40), source: 'red-tests', tests: 6, files: 2 };
+    const guard = { kind: 'guard', at: t(2), stage: 'Implement', restored: ['a.test.ts'] };
+    for (const from of ['', 'spec', 'plan', 'red-tests']) {
+      expect(runTimeline([lock, guard, { kind: 'run', at: t(3), from }]).lock).toBeNull();
+    }
+    for (const stage of ['Spec', 'Plan', 'Red tests']) {
+      expect(runTimeline([lock, { kind: 'stage', at: t(3), stage }]).lock).toBeNull();
+    }
+    const again = runTimeline([lock, guard, { kind: 'run', at: t(3), from: 'red-tests' }, { kind: 'stage', at: t(4), stage: 'Red tests' }, { ...lock, at: t(5), sha: 'c'.repeat(40) }]).lock;
+    expect(again).toMatchObject({ sha: 'c'.repeat(40), relocks: 0, guards: [] });
+  });
+
+  test('a resume after Red tests keeps the lock', () => {
+    const lock = { kind: 'lock', at: t(1), sha: 'a'.repeat(40), origRedSha: 'a'.repeat(40), source: 'red-tests', tests: 6, files: 2 };
+    for (const from of ['implement', 'test-repair', 'review', 'resolve-conflicts']) {
+      expect(runTimeline([lock, { kind: 'run', at: t(3), from }, { kind: 'stage', at: t(4), stage: 'Implement' }]).lock).not.toBeNull();
+    }
+  });
+
   test('the latest lock with the number of earlier ones, and every guard', () => {
     const tl = runTimeline([
       { kind: 'lock', at: t(1), sha: 'a'.repeat(40), origRedSha: 'a'.repeat(40), source: 'red-tests', tests: 6, files: 2 },

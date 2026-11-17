@@ -44,6 +44,10 @@ function sumUsage(list: UsageTotals[]): UsageTotals {
   return t;
 }
 
+/** The stages that run before the tests are locked, by status name and by `--from` key ('' is a start from the top). When one of them runs again, the lock is gone until Red tests commits again. */
+const BEFORE_LOCK_STAGES = new Set(['Spec', 'Plan', 'Red tests']);
+const BEFORE_LOCK_KEYS = new Set(['', 'spec', 'plan', 'red-tests']);
+
 /** All rows of an item's attempts.jsonl (every start of it) in order. <now> is accepted for callers that pass one; an open stage stays null. */
 export function runTimeline(rows: unknown[], now?: string): Timeline {
   void now;
@@ -58,6 +62,7 @@ export function runTimeline(rows: unknown[], now?: string): Timeline {
   const locks: Array<Record<string, unknown>> = [];
   const guards: LockView['guards'] = [];
   let sawStage = false;
+  const unlock = (): void => { locks.length = 0; guards.length = 0; };
 
   const spanFor = (name: string, started: string): StageSpan => {
     let s = stages.get(name);
@@ -70,9 +75,14 @@ export function runTimeline(rows: unknown[], now?: string): Timeline {
     const r = raw as Record<string, unknown>;
     const at = str(r.at);
     switch (r.kind) {
+      case 'run':
+        // A start at or before Red tests writes the tests again: the lock recorded so far no longer stands.
+        if (BEFORE_LOCK_KEYS.has(str(r.from))) unlock();
+        break;
       case 'stage': {
         const name = str(r.stage);
         if (!name || !at) break;
+        if (BEFORE_LOCK_STAGES.has(name)) unlock();
         sawStage = true;
         if (current && current.ended === null) current.ended = at;
         closeAt(at);
