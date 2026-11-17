@@ -28,3 +28,15 @@ The uncommitted test changes in the worktree are from the previous Red tests att
 Before finishing, run each new file and confirm every test in it fails.
 
 Red tests for Review findings (fix loop): the code is implemented now, so each new test must fail against the current tree. Put them in a NEW file, `web/test/review-loop-limit-findings.test.ts`. Do not edit the committed `web/test/review-loop-limit.test.ts`: the red gate wrongly counts its existing `test.each` cases as new (PR #169). Revert the uncommitted edits to that file from the previous attempt. Write tests only for findings that are still open. Save, clear and invalid save of `review.maxLoops` through the settings route already work (listed above as existing), so write no test for those findings. The open ones are: clearing an invalid file value from the UI patch (the blocker), and the empty run option using the file value through the server API, if that test fails today.
+
+
+## review
+
+Refusing -1, 1.5 and abc for `review.maxLoops` through the settings route (AC4) and its error messages already exist on the base branch (feat/ui-refresh) and are covered there. Do not raise a finding for them.
+
+CI on PR #170 fails `npm run typecheck` on all four Node jobs: `web/test/review-loop-limit-findings.test.ts(23,14): error TS18046: 'view' is of type 'unknown'` (also lines 24 and 25). It is being fixed through Test repair (test-issues.md); raise it only if `tsc -p web --noEmit` still fails.
+
+Orchestrator decisions on round 4 findings, do not raise them again:
+- Saving 3 or 0 and clearing `review.maxLoops` through the settings API (AC2, AC3) already work on the base branch; no new tests.
+- The `Number.isSafeInteger` bound is accepted: values above 2^53 are not a meaningful loop limit.
+- A setting saved but not committed in the main checkout not reaching a new run's worktree applies to every setting, not just this one. It is out of scope here and goes to the backlog.

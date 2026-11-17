@@ -19,10 +19,10 @@ describe('invalid saved review loop limit', () => {
       const headers = { 'x-sdlc-token': server.token, 'content-type': 'application/json' };
       const response = await fetch(url, { headers });
       expect(response.status).toBe(200);
-      const view = await response.json();
+      const view = await response.json() as { fileReview: { maxLoops?: unknown }; hash: string };
       expect(view.fileReview).toHaveProperty('maxLoops');
       const saved = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ patch: { review: { maxLoops: null } }, hash: view.hash }) });
-      expect((await saved.json()).ok).toBe(true);
+      expect((await saved.json() as { ok: boolean }).ok).toBe(true);
       expect(JSON.parse(fs.readFileSync(file, 'utf8')).review?.maxLoops).toBeUndefined();
     } finally {
       await server.close();
