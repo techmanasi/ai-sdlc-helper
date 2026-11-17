@@ -11,7 +11,7 @@ import {
   AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readRunDoc, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, prPollOptions, PR_POLL_MS, createPrForCompleted,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, completedListAsync, primeRepoPaths, warmCompletedPrs, keepError, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
-  closeGoneRuns,
+  closeGoneRuns, createCodeSetup, inspectCodeSearch, SetupError,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -50,6 +50,9 @@ export interface ServerOptions {
   goneSweepMs?: number;
   /** The claude command triage runs spawn (tests); default 'claude'. */
   claude?: string;
+  /** How long a code indexer build may run (default 10 minutes) and the grace before it is killed; tests shorten them. */
+  codeSetupTimeoutMs?: number;
+  codeSetupKillGraceMs?: number;
 }
 
 export interface RunningServer {
@@ -217,6 +220,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     return file;
   }
 
+  const setup = createCodeSetup({ env, timeoutMs: opts.codeSetupTimeoutMs, killGraceMs: opts.codeSetupKillGraceMs });
   const triage = triageRoutes({ env, claude: opts.claude || 'claude', project, projects, contextFor });
 
   async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
@@ -246,6 +250,17 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     if (parts[0] !== 'projects' || !parts[1]) throw new HttpError(404, 'no such API');
     const p = await project(parts[1]);
     const what = parts[2];
+    // Code search setup needs no repository context, so it is answered before that context is built.
+    if (what === 'code-search' && method === 'GET' && !parts[3]) return send(200, { ...inspectCodeSearch(p.path, env), operation: setup.operation(p.path) });
+    if (what === 'code-search' && parts[3] === 'setup' && method === 'POST') {
+      try {
+        const op = setup.start(p.path, body.indexer);
+        return send(202, { ok: true, status: 'running', indexer: op.indexer, message: 'Index build started' });
+      } catch (e) {
+        if (e instanceof SetupError) return send(e.status, { ok: false, error: e.message, ...e.extra });
+        throw e;
+      }
+    }
     // A project whose context must be built: git's part of it is asked first without blocking (about 150 ms of git).
     if (!contextFresh(p)) await primeRepoPaths(p.path, env);
 

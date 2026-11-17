@@ -1,16 +1,20 @@
 # CI failure of the pull request
 
-Pull request: https://github.com/techmanasi/ai-sdlc-helper/pull/91
+Pull request: https://github.com/techmanasi/ai-sdlc-helper/pull/167
 Failing checks: check (18), check (20), check (22), check (24)
 
-### Run 42703667219
+### Run 44130447276
 
 ```
-[Run npm run lint]
-70:81  error  Unnecessary escape character: \/  no-useless-escape
-1:32  error  'vi' is defined but never used  @typescript-eslint/no-unused-vars
-1:32  error  'vi' is defined but never used                                                                                                                             @typescript-eslint/no-unused-vars
-6:1   error  '../../src/registry/projects.js' import is restricted from being used by a pattern. Import the engine from 'ai-sdlc-helper' (src/index.ts), not its files  no-restricted-imports
-✖ 4 problems (4 errors, 0 warnings)
-Process completed with exit code 1.
+[Run npm run typecheck]
+web/test/code-search-setup.test.ts(53,9): error TS18046: 'result.data' is of type 'unknown'.
+web/test/code-search-setup.test.ts(53,34): error TS18046: 'result.data' is of type 'unknown'.
+web/test/code-search-setup.test.ts(53,85): error TS18046: 'result.data' is of type 'unknown'.
+web/test/code-search-setup.test.ts(67,12): error TS18046: 'result.data' is of type 'unknown'.
+web/test/code-search-setup.test.ts(68,12): error TS18046: 'result.data' is of type 'unknown'.
+web/test/code-search-setup.test.ts(69,12): error TS18046: 'result.data' is of type 'unknown'.
+web/test/code-search-setup.test.ts(70,12): error TS18046: 'result.data' is of type 'unknown'.
+web/test/code-search-setup.test.ts(86,12): error TS18046: 'doctor.data' is of type 'unknown'.
+web/test/code-search-setup.test.ts(140,12): error TS2571: Object is of type 'unknown'.
+Process completed with exit code 2.
 ```

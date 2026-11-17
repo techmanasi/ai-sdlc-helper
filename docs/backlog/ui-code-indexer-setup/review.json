@@ -1,0 +1,57 @@
+{
+  "verdict": "changes",
+  "blockers": [
+    {
+      "file": "src/config/codeSetup.ts",
+      "criterion": "Section 3.4.3 and Decision Q5: capture command output in a bounded rolling buffer (last 100 lines or 32 KB).",
+      "reason": "feed() accumulates partial without any byte limit until a newline arrives. trim() also retains a single arbitrarily large line because its byte-limit loop requires lines.length > 1. A build can exhaust server memory, and a failed operation can return megabytes of output. Test a real fixture executable emitting several megabytes both without newlines and as one newline-terminated line; retained data and the final HTTP output must stay within the chosen byte bound."
+    },
+    {
+      "file": "src/config/codeSetup.ts",
+      "criterion": "Section 3.5.2 and Decision Q1: parse existing configuration at persistence time and preserve all unrelated keys.",
+      "reason": "The close handler writes the file snapshot captured before starting the asynchronous build. Any settings saved during a build of up to ten minutes are silently reverted; a config created during a build that started without one is also overwritten. Test a delayed successful fixture build, edit unrelated top-level and agent settings while it runs, then release it: the final configuration must retain those edits and set only agent.codeSearch. If the current file becomes malformed, setup must report a save failure rather than replacing it with the old snapshot."
+    },
+    {
+      "file": "src/config/codeSetup.ts",
+      "criterion": "Scenario 7 and sections 3.4.2/3.4.4: only one build per project, and timeout must terminate the build.",
+      "reason": "The timeout handler calls finish(timeout) before SIGTERM and the SIGKILL grace period. start() guards only status === running, so another POST can launch a second build while the first ignores SIGTERM and still writes index files. It also signals only the direct child, allowing spawned build workers to survive. Test an executable that ignores SIGTERM and writes a heartbeat: a second request during the kill grace must return 409 until it stops. Test a fixture that spawns a worker and verify both processes stop after timeout, including when the parent exits but the worker retains the output pipes (the current exitCode check then skips timeout entirely)."
+    },
+    {
+      "file": "web/ui/src/CodeIndexerSetup.tsx",
+      "criterion": "Scenario 5, sections 3.1.4/3.2.4/3.3.7, and Decision Q5: closing after successful setup refreshes Doctor/Settings, including completion while dismissed.",
+      "reason": "changed becomes true only when this mounted modal observes a running-to-succeeded transition. Close during a build, let it finish, then reopen: the initial GET returns succeeded but wasRunning starts false, so closing calls onClose(false). Doctor stays on its stale warning and Settings keeps stale configuration. Render the real component with a succeeded inspection on reopen and assert that closing requests the parent refresh; also cover closing during the build and reopening after completion."
+    }
+  ],
+  "missingTests": [
+    {
+      "file": "web/ui/src/Projects.tsx",
+      "criterion": "Scenarios 1 and 2: Doctor setup action visibility and modal launch.",
+      "reason": "No test renders the Doctor UI. Exercise real rendering with a failing code-indexer check and assert its setup button opens the modal for that project; repeat for explicit none and a healthy indexer and assert the row has no setup action. Existing HTTP tests do not verify these UI criteria."
+    },
+    {
+      "file": "web/ui/src/Settings.tsx",
+      "criterion": "Scenario 3 and section 3.2: Settings always exposes setup and reloads after success.",
+      "reason": "No test renders Settings for healthy, none, and unindexed configurations. Assert the action is enabled in each case, opens setup for the active project, and closing a successful setup reloads displayed settings."
+    },
+    {
+      "file": "web/ui/src/CodeIndexerSetup.tsx",
+      "criterion": "Scenario 4: modal reflects installed/indexed state, guidance, and build eligibility.",
+      "reason": "The inspection endpoint test only checks JSON. Render the actual modal and verify installed/unindexed graft enables building, missing graphify shows installation instructions and cannot build, and installed graphify with its built-in prose build remains unbuildable as required by accepted Round 2 Q1. Exercise loading and inspection errors too."
+    },
+    {
+      "file": "web/ui/src/CodeIndexerSetup.tsx",
+      "criterion": "Scenario 5 and section 3.3: selection, POST, progress, completion, retry, and background lifecycle.",
+      "reason": "No UI test clicks Build or exercises polling. Verify the chosen indexer is posted, progress appears while running, reopening restores a running operation without another POST, success is shown and refreshes the parent, and failure shows command-tail output with a usable retry and close action. The server tests cannot establish these behaviors."
+    },
+    {
+      "file": "src/config/codeSetup.ts",
+      "criterion": "Section 3.5.2 and edge case 8: successful indexing followed by a configuration save failure.",
+      "reason": "No test makes configuration persistence fail after a successful verified build. Exercise the real setup code with a deterministic write failure and assert failed status, the explicit built-but-not-saved warning, preservation of generated index files, and no success report."
+    },
+    {
+      "file": "src/config/codeSetup.ts",
+      "criterion": "Scenario 9: timeout actually terminates the process, including SIGKILL escalation.",
+      "reason": "The timeout test asserts operation state and unchanged config only; its fixture terminates normally on SIGTERM. Verify process death using a real PID or cessation of a heartbeat, repeat with a SIGTERM-ignoring executable, and ensure no build process survives the SIGKILL grace period. Merely setting timeout status must not pass."
+    }
+  ]
+}
