@@ -22,8 +22,10 @@ The pipeline writes the log just before each commit it makes on the run's branch
 never gets a commit or push of its own, since each push to a PR starts CI again. It rides along only with a commit that
 has other work in it; when Finalise has nothing to commit, the written files are put back so the checkout stays clean.
 
-So the committed log is complete up to the last commit. Agent work after the last commit with no commit of its own (for
-example a later run that fails before committing) shows on the run page but reaches git only with the next commit.
+Review is the last agent before Finalise's commit, and Finalise runs no agent. The one agent after it is Resolve
+conflicts' resolver (only when the rebase onto the base stops on a conflict): when it ran, a last `chore(<slug>): cost
+log` commit goes with the push that stage makes anyway, so no extra CI run. The committed log then covers every agent
+round of a task that finishes. A failed run's rounds reach git with the task's next commit.
 
 ## PR
 
