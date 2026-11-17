@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { startServer } from '../server/index.js';
 
 describe('invalid saved review loop limit', () => {
@@ -30,3 +30,55 @@ describe('invalid saved review loop limit', () => {
     }
   });
 });
+
+vi.mock('preact/hooks', () => ({
+  useState: (initial: unknown) => [hookValues.length ? hookValues.shift() : initial, vi.fn()],
+  useEffect: vi.fn(),
+  useRef: (value: unknown) => ({ current: value }),
+}));
+vi.mock('../ui/src/ui', () => ({ Cli: vi.fn(), ErrorBox: vi.fn(), useApp: () => ({ project: 'shop', toast: vi.fn(), go: vi.fn() }) }));
+
+const hookValues: unknown[] = [];
+
+type Node = { type: unknown; props: Record<string, any> };
+function nodes(value: unknown): Node[] {
+  if (Array.isArray(value)) return value.flatMap(nodes);
+  if (!value || typeof value !== 'object' || !('props' in value)) return [];
+  const node = value as Node;
+  return [node, ...nodes(node.props.children)];
+}
+function visibleText(value: unknown): string {
+  if (Array.isArray(value)) return value.map(visibleText).join('');
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (!value || typeof value !== 'object' || !('props' in value)) return '';
+  const node = value as Node;
+  return visibleText(node.props.children);
+}
+
+async function projectForm(fileReview: Record<string, unknown>, loops: string) {
+  const componentPath = '../ui/src/Projects.js';
+  const { Projects } = await import(componentPath);
+  hookValues.splice(0, hookValues.length, '', '', '', '', false, 'shop', 0);
+  const page = Projects({ projects: [], reload: vi.fn() });
+  const edit = nodes(page).find(n => typeof n.type === 'function' && (n.type as (...args: never[]) => unknown).name === 'EditSetup');
+  expect(edit).toBeDefined();
+  const data = {
+    fileReview, defaults: { reviewMaxLoops: 2 }, fileAgent: {}, personalAgent: {}, stages: [],
+    config: {}, overrides: {}, sources: { stages: {} }, files: { project: 'config', personal: 'personal' },
+    models: {}, harnesses: ['claude'], efforts: [], stageDefaults: {}, registered: false, hash: 'hash',
+  };
+  hookValues.splice(0, hookValues.length, data, 'project', { harness: 'claude', model: '', effort: '' }, {}, '', '', '', 'scoped', loops, '', [], '', false);
+  return (edit!.type as (props: Record<string, unknown>) => Node)(edit!.props);
+}
+
+describe('project review limit form', () => {
+  it('shows the configured current value and the default while the input is filled', async () => {
+    const form = await projectForm({ maxLoops: 3 }, '3');
+    const input = nodes(form).find(n => n.props.id === 'loops-shop');
+    expect(input?.props.value).toBe('3');
+    const text = visibleText(form);
+    expect(text).toMatch(/Current:\s*3/);
+    expect(text).toMatch(/default\D*2/i);
+  });
+});
+

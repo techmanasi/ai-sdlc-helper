@@ -2,36 +2,16 @@
   "verdict": "changes",
   "blockers": [
     {
-      "file": "web/test/review-loop-limit-findings.test.ts",
-      "criterion": "AC9: real-code tests must compile and pass the required typecheck.",
-      "reason": "Lines 23-25 access JSON results typed as unknown. Reproduced with ./node_modules/.bin/tsc -p web --noEmit: TS18046 at lines 23 and 24 and TS2571 at line 25. This is the reported PR #170 CI blocker. Typecheck must exit 0 after the response bodies are typed or narrowed."
-    },
-    {
-      "file": "src/runs/index.ts",
-      "criterion": "Project setting behaviour: the new value applies to runs started after a save; AC5: an empty override uses the project file value.",
-      "reason": "start() copies the project config into the worktree only when the worktree has no config (lines 359-362), and pipelineEnv() does not carry the resolved project limit. With maxLoops 1 committed on main, save 3 through the settings API without committing, then start a fresh slug with an empty override: its worktree still contains 1 and the real pipeline resolves 1, although settings GET shows 3. A server integration test must resolve settings inside the actual child worktree and expect 3; an already started run must retain 1."
-    },
-    {
-      "file": "src/config/settings.ts",
-      "criterion": "Valid values: a whole number 0 or greater, with no upper bound enforced.",
-      "reason": "The new loops validator, parseLoopLimit(), and file loader enforce Number.isSafeInteger, adding an upper bound of 9007199254740991. For example 9007199254740992 is a finite, exactly representable whole number, but a settings save or run override rejects it, and loading it from the file falls back to 2. A real-code test should save and resolve that value successfully under the specified no-upper-bound contract; the existing config test instead requires its rejection."
+      "file": "web/ui/src/Projects.tsx",
+      "criterion": "AC1: The project settings screen shows review.maxLoops with its current value and the default 2.",
+      "reason": "With review.maxLoops set to 3 (or 0), the form fills the input and displays Current: 3 (or 0). The default 2 appears only in the input placeholder, which is hidden when the input has a value; Use default does not name the value either. Render the project form with a configured limit of 3 and verify that both current 3 and default 2 are visibly displayed without clearing the field."
     }
   ],
   "missingTests": [
     {
       "file": "web/server/index.ts",
-      "criterion": "AC2: saving 3 and 0 persists JSON numbers, preserves other review keys, and reloads the saved value.",
-      "reason": "The settings GET test writes 3 directly with fs.writeFileSync; no test saves review.maxLoops 3 or 0 through editSettings/the settings API. Add POST/GET round-trip cases for both values, asserting numeric file contents, preservation of review.mode/reviewers and unrelated settings, and the resolved value after reload."
-    },
-    {
-      "file": "web/server/index.ts",
-      "criterion": "AC3: clearing the setting removes review.maxLoops and makes the effective value 2.",
-      "reason": "The recovery test only clears an invalid -1 and checks key absence. No test clears a valid configured value and checks the effective result. Save a valid limit, POST maxLoops:null with the current hash, then assert key removal, preservation of sibling review keys, GET config.review.maxLoops === 2, and default metadata."
-    },
-    {
-      "file": "src/runs/index.ts",
-      "criterion": "AC5: starting through the server API with an empty override uses the file value.",
-      "reason": "The server start test is parameterized only with 5. Add a start request with SDLC_REVIEW_MAX_LOOPS set to an empty string and a non-default project limit; assert the effective value resolved by the actual child in its worktree and unchanged project file bytes. Resolving the project checkout separately, as the existing override test does, does not establish what the child uses."
+      "criterion": "AC5: With the run option empty, a run started through the server API uses the file value.",
+      "reason": "The server integration test in web/test/review-loop-limit.test.ts parameterizes only the explicit override 5. Neither it nor test/config/review-loop-limit.test.ts exercises an empty override. Add an API start case with a committed project maxLoops of 1 and env.SDLC_REVIEW_MAX_LOOPS set to an empty string; verify the child resolves 1 and the project config bytes remain unchanged. Commit the fixture config before starting so this tests fallback independently of the excluded uncommitted-settings/worktree issue."
     }
   ]
 }
