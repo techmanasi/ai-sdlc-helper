@@ -59,11 +59,13 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
       : r.deniedPermissions ? `${r.deniedPermissions} denied permission${r.deniedPermissions > 1 ? 's' : ''}`
         : r.note || r.message || '';
   const stage = stageName(r.stage);
-  const where = waiting ? (r.pullRequest?.state === 'CLOSED' ? 'PR closed without merging' : r.pullRequest?.state === 'OPEN' ? 'Waiting for the PR to be merged' : 'Checking the PR…')
+  const where = waiting ? (r.pullRequest?.state === 'CLOSED' ? 'PR closed without merging' : r.pullRequest?.state === 'OPEN' ? 'Waiting for the PR to be merged' : r.pullRequest?.url ? 'Checking the PR…' : 'All stages done · no pull request yet')
     : r.state === 'running' ? [stage || 'Starting', r.attempt && `iteration ${r.attempt}`].filter(Boolean).join(' · ')
       : r.state === 'paused' ? `Paused at ${stage || 'the start'}` : r.state === 'done' ? 'All stages done' : r.state === 'not started' ? 'Not started' : `${r.state[0].toUpperCase()}${r.state.slice(1)} at ${stage || 'the start'}`;
-  const label = waiting ? 'PR open' : needsYou(r) ? 'Needs you' : r.state;
-  const chip = waiting ? 'paused' : r.state.replace(' ', '-');
+  // A finished run whose pull request is not known to be open says "done", not "PR open".
+  const prOpen = waiting && r.pullRequest?.state === 'OPEN';
+  const label = prOpen ? 'PR open' : waiting && r.pullRequest?.state === 'CLOSED' ? 'PR closed' : needsYou(r) ? 'Needs you' : r.state;
+  const chip = prOpen || (waiting && r.pullRequest?.state === 'CLOSED') ? 'paused' : r.state.replace(' ', '-');
   const open = (e: Event) => { e.preventDefault(); go(`/run/${r.slug}`); };
   return (
     <div class={`brow ${on ? 'brow-on' : ''} ${needsYou(r) ? 'brow-need' : ['failed', 'stopped', 'refused'].includes(r.state) ? 'brow-bad' : ''}`}>
@@ -179,7 +181,7 @@ export function Board({ board, error }: { board: BoardData | null; error: string
       <div class="row">
         <div class="grow">
           <h1>Board</h1>
-          <span class="small muted">Tests first and locked · every stage checked · each item in its own worktree, ending as a pull request</span>
+          <span class="small muted">How it works: tests are written first and locked, each stage is checked before the next, each item gets its own worktree and ends as a pull request</span>
         </div>
         <div class="segs" role="group" aria-label="Show">
           {([['all', 'All'], ['running', 'Running'], ['needs', 'Needs you'], ['failed', 'Failed']] as const).map(([k, l]) => (
