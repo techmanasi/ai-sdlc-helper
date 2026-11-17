@@ -3,15 +3,20 @@
   "blockers": [
     {
       "file": "web/ui/src/Projects.tsx",
-      "criterion": "AC1: The project settings screen shows review.maxLoops with its current value and the default 2.",
-      "reason": "With review.maxLoops set to 3 (or 0), the form fills the input and displays Current: 3 (or 0). The default 2 appears only in the input placeholder, which is hidden when the input has a value; Use default does not name the value either. Render the project form with a configured limit of 3 and verify that both current 3 and default 2 are visibly displayed without clearing the field."
+      "criterion": "AC8: the project settings screen shows an error message beside the field on a refused save; invalid text remains available for correction.",
+      "reason": "At lines 166-169 the form expects api.editSettings to return {ok:false, errors}, but the settings route returns HTTP 400 and api.call throws ApiError for every non-2xx response. The catch at line 200 sets only the general errors; loopsError stays empty, so the adjacent message at line 289 never appears. Submit abc through the real form and API client with a 400 validation response; assert that the whole-number message appears beside Review loop limit and that abc stays in the input. Do not mock api.editSettings as resolving {ok:false}, which hides this bug."
     }
   ],
   "missingTests": [
     {
       "file": "web/server/index.ts",
-      "criterion": "AC5: With the run option empty, a run started through the server API uses the file value.",
-      "reason": "The server integration test in web/test/review-loop-limit.test.ts parameterizes only the explicit override 5. Neither it nor test/config/review-loop-limit.test.ts exercises an empty override. Add an API start case with a committed project maxLoops of 1 and env.SDLC_REVIEW_MAX_LOOPS set to an empty string; verify the child resolves 1 and the project config bytes remain unchanged. Commit the fixture config before starting so this tests fallback independently of the excluded uncommitted-settings/worktree issue."
+      "criterion": "AC5: with the run option empty, a run started through the server API uses the file value.",
+      "reason": "web/test/review-loop-limit.test.ts only parameterizes the successful start with 5; neither it nor the other feature tests sends an empty override through the start route. Add a case with a committed project maxLoops of 1 and SDLC_REVIEW_MAX_LOOPS set to an empty string, start through HTTP, and verify the child resolves 1 and the project configuration bytes remain unchanged. A manual check recorded in Markdown does not supply the required automated API test."
+    },
+    {
+      "file": "web/ui/src/Run.tsx",
+      "criterion": "AC8: Run page Review options show the Review loop limit field with the project value, verified by UI tests where they exist.",
+      "reason": "The new web/test/review-loop-limit-findings.test.ts supplies a real component-rendering test for Projects, but no test renders the Run Review options. Render Run with project maxLoops 3 and 0 and assert its loop-limit input and project-value hint show the corresponding value, including 0 rather than fallback 2. Exercise entering 5 and clearing the input and assert the start request carries the override and then uses the project value."
     }
   ]
 }
