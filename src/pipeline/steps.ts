@@ -46,12 +46,10 @@ export const STEPS: Record<string, StepDef[]> = {
     { key: 'integration', label: 'Running the integration tests' },
     { key: 'commit', label: 'Committing and locking the repaired tests' },
   ],
+  // Review only reports: it runs no checks of its own, and whatever it leaves in the tree is undone.
   Review: [
     { key: 'agent', label: 'Reviewing the code' },
-    { key: 'guard', label: 'Checking the tests were not changed' },
-    { key: 'tests', label: 'Running the unit tests' },
-    { key: 'lint', label: 'Running lint' },
-    { key: 'integration', label: 'Running the integration tests' },
+    { key: 'guard', label: 'Undoing anything the review changed' },
   ],
   'Resolve conflicts': [
     { key: 'prepare', label: 'Saving a recovery point' },
