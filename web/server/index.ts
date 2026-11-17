@@ -263,7 +263,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       return send(200, {
         ...r, raw, hash: hashOf(raw ?? ''), overrides: entry?.overrides || {}, registered: Boolean(entry),
         boardSilenceEnvSeconds: envSilenceSeconds(),
-        fileReview: Number.isSafeInteger(fileJson.review?.maxLoops) && fileJson.review.maxLoops >= 0 ? { maxLoops: fileJson.review.maxLoops } : {},
+        fileReview: fileJson.review && typeof fileJson.review === 'object' && 'maxLoops' in fileJson.review && fileJson.review.maxLoops !== null ? { maxLoops: fileJson.review.maxLoops } : {},
         defaults: { reviewMaxLoops: DEFAULT_REVIEW_MAX_LOOPS },
         fileAgent, personalAgent: personalAgent || {}, sources: agentSources(mergeAgent(fileAgent, personalAgent), personalAgent),
         files: { project: path.join(p.path, 'sdlc.config.json'), personal: registryFile(env) },
