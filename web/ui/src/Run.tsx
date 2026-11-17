@@ -411,6 +411,49 @@ export function Run({ slug }: { slug: string }) {
     );
   };
 
+  // Review: one reviewer (default), or several different models whose findings a summariser merges.
+  const reviewConfig = () => {
+    const multi = envObj.SDLC_REVIEW_MODE === 'multi';
+    const count = /^\d+$/.test(envObj.SDLC_REVIEW_REVIEWERS || '') ? Math.min(5, Math.max(2, Number(envObj.SDLC_REVIEW_REVIEWERS))) : 2;
+    const stageKey = (i: number) => (i === 0 ? 'review' : `review-${i + 1}`);
+    const keyOf = (stage: string) => {
+      const st = catalog?.config?.agent?.stages?.[stage];
+      const agent = envObj[AGENT_ENV(stage)] || st?.harness || catalog?.config?.agent?.harness || 'claude';
+      const model = envObj[envKey('MODEL', stage)] || st?.model || (agent === (catalog?.config?.agent?.harness || 'claude') ? catalog?.stageDefaults?.[stage]?.model : '') || '(default)';
+      return `${agent}:${model}`;
+    };
+    const names = [...Array.from({ length: count }, (_, i) => stageKey(i)), 'review-summary'];
+    const keys = names.map(keyOf);
+    const clash = keys.map((k, i) => (keys.indexOf(k) !== i || keys.lastIndexOf(k) !== i ? i : -1)).filter(i => i >= 0);
+    return (
+      <div class="col" style={{ gap: '6px' }}>
+        <label class="row small" style={{ gap: '6px', alignItems: 'center' }}>
+          <span>Review</span>
+          <select class="sel" aria-label="review mode" disabled={running} value={multi ? 'multi' : 'single'} onChange={e => setEnvVar('SDLC_REVIEW_MODE', (e.target as HTMLSelectElement).value === 'multi' ? 'multi' : '')}>
+            <option value="single">single (default)</option>
+            <option value="multi">multi-model</option>
+          </select>
+        </label>
+        {multi && (
+          <label class="row small" style={{ gap: '6px', alignItems: 'center' }}>
+            <span>Reviewers</span>
+            <select class="sel" aria-label="number of review reviewers" disabled={running} value={String(count)} onChange={e => setEnvVar('SDLC_REVIEW_REVIEWERS', (e.target as HTMLSelectElement).value === '2' ? '' : (e.target as HTMLSelectElement).value)}>
+              {[2, 3, 4, 5].map(n => <option value={String(n)}>{n === 2 ? '2 (default)' : String(n)}</option>)}
+            </select>
+          </label>
+        )}
+        {multi && names.map((stage, i) => (
+          <div class="row small" style={{ gap: '6px', alignItems: 'center' }}>
+            <span class="muted" style={{ minWidth: '70px' }}>{stage === 'review-summary' ? 'Summariser' : `Reviewer ${i + 1}`}</span>
+            {running ? <span class="row small" style={{ gap: '4px', alignItems: 'center' }}>{overrideBadge}<span class="mono muted">{v.models[stage] ? `${v.models[stage].model} · ${v.models[stage].effort}` : 'default'}</span></span> : stagePickers({ key: stage, name: stage === 'review-summary' ? 'Summariser' : `Reviewer ${i + 1}`, taken: keys.filter((_, j) => j !== i) })}
+          </div>
+        ))}
+        {multi && clash.length > 0 && <span class="small s-failed">{clash.map(i => (names[i] === 'review-summary' ? 'The summariser' : `Reviewer ${i + 1}`)).join(', ')} share an agent and model, and the run would be refused. Give each its own: pick another model or agent.</span>}
+        <span class="small muted">Review only reports. Its findings go back through Red tests and Implement, up to the project's review loop limit.</span>
+      </div>
+    );
+  };
+
   const rcState = states[STAGES.length - 1];
   const showResolve = !!v.pr && v.prState !== 'MERGED' && (v.prConflicts === 'conflicting' || rcState === 'active' || rcState === 'failed' || rcState === 'paused');
   const runOptionSummary = [
@@ -605,6 +648,7 @@ export function Run({ slug }: { slug: string }) {
               />
               <span>Auto-accept suggested answers (Spec, Plan, Triage)</span>
             </label>
+            {catalog && <details class="small"><summary style={{ cursor: 'pointer' }}>Review: {envObj.SDLC_REVIEW_MODE === 'multi' ? 'multi-model' : 'single'}</summary><div style={{ marginTop: '6px' }}>{reviewConfig()}</div></details>}
             {catalog && <details class="small"><summary style={{ cursor: 'pointer' }}>Resolve conflicts: reviewers when the agent is unsure</summary><div style={{ marginTop: '6px' }}>{reviewerConfig()}</div></details>}
             {catalog && !running && (
               <div class="col" style={{ gap: '8px' }}>
@@ -1129,6 +1173,23 @@ export function Run({ slug }: { slug: string }) {
               </div>
             </div>
           </Panel>
+
+          {(v.reviewRounds?.length || 0) > 0 && (
+            <Panel title="Review rounds" extra={<span class="mono small muted">logs/review-rounds.json</span>}>
+              <div class="pb col" style={{ gap: '8px' }}>
+                {v.reviewRounds!.map(r => (
+                  <details open={r.verdict === 'changes'}>
+                    <summary>
+                      Round {r.round}: <strong class={r.verdict === 'pass' ? 's-done' : 's-failed'}>{r.verdict === 'pass' ? 'pass' : `${r.findings.length} finding${r.findings.length === 1 ? '' : 's'}`}</strong> <span class="small muted">{r.outcome}</span>
+                    </summary>
+                    <ul class="small" style={{ margin: '4px 0', paddingLeft: '18px' }}>
+                      {r.findings.map(f => <li><span class="mono">{f.file}</span> {f.kind === 'missing-test' ? '(missing test) ' : ''}{f.criterion}: {f.reason} <span class="muted">[{f.status}]</span></li>)}
+                    </ul>
+                  </details>
+                ))}
+              </div>
+            </Panel>
+          )}
 
           {(v.attempts?.length || 0) > 0 && (
             <Panel title="Agent rounds" extra={<span class="mono small muted">logs/attempts.jsonl</span>}>

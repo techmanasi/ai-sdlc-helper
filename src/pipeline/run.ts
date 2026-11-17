@@ -23,9 +23,10 @@ import { formatRecoveryCli, stageRecoveryHint } from './hints.js';
 import { keepError } from './errors.js';
 import { appendRound, priorStarts } from './observe.js';
 import { redCommitTestFiles, resultsAt } from './gates.js';
+import { reviewLoop } from './review-gate.js';
 import { adoptKeptAttempt, resolveConflictsStage } from './resolve-conflicts.js';
 import {
-  implementStage, markStage, planStage, redTestsStage, resumeAtTests, reviewStage, finaliseStage, specStage,
+  implementStage, markStage, planStage, redTestsStage, resumeAtTests, finaliseStage, specStage,
   testRepairStage,
 } from './stages.js';
 
@@ -293,7 +294,7 @@ async function stages(ctx: Ctx): Promise<void> {
       await testRepairStage(ctx);
     }
   }
-  if (fromN <= 6) await reviewStage(ctx);
+  if (fromN <= 6) await reviewLoop(ctx);
   if (fromN <= 7) await finaliseStage(ctx);
   await resolveConflictsStage(ctx);
 }

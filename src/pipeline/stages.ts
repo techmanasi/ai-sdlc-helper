@@ -280,7 +280,9 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   const existingTests = firstRedSha ? redCommitTestFiles(ctx) : [];
   const srcBefore = ctx.git.sourceHash ? ctx.git.sourceHash(ctx.layout.sourceDirs || [], ctx.layout.testPathspecs || [], ctx.config.backlogDir || '') : undefined;
   // What "new" means for the red gate: the tree before the agent ran, or before the first red commit on a resumed run.
-  const baseSha = (firstRedSha ? ctx.git.tryRun('rev-parse', '--verify', `${firstRedSha}^`)?.trim() : '') || ctx.git.head();
+  // Red tests for Review findings: the code is implemented already, so a new test must fail against the tree as it is now.
+  const fixing = !!ctx.promptExtra?.REVIEW_FINDINGS;
+  const baseSha = (firstRedSha && !fixing ? ctx.git.tryRun('rev-parse', '--verify', `${firstRedSha}^`)?.trim() : '') || ctx.git.head();
   ctx.status.attempt = '1/1';
   ctx.status.write();
   ctx.status?.beginStep?.('agent');
@@ -296,7 +298,7 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   const allTaskTests = [...new Set([...existingTests, ...added])];
   if (allTaskTests.length === 0) stop(ctx, `RED GATE FAILED: the Red tests agent added or changed no test file. See ${ctx.log}/tests.log`);
   const gateFiles = added.length > 0 ? added : existingTests;
-  const redPassed = hasImplSince(ctx, firstRedSha)
+  const redPassed = hasImplSince(ctx, firstRedSha) && !fixing
     ? testsPassAt(ctx, firstRedSha, allTaskTests, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true })
     : testsPass(ctx, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true });
   if (redPassed) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
@@ -721,28 +723,6 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   ctx.lockSha = ctx.redSha;
   recordLock(ctx, 'test-repair');
   ctx.out(` test repair accepted; tests locked again at ${short(ctx.redSha)}`);
-}
-
-/** Review: the agent reviews and fixes the source; the tests must not change and every check must still pass. */
-export async function reviewStage(ctx: Ctx): Promise<void> {
-  stage(ctx, '5/6 Review');
-  // A run resumed here is a new process that has not asked about CI yet; without the answer the check after the review
-  // would run the whole suite here.
-  if (ctx.config.tests.fullSuite === 'ci' && ctx.ciAvailable === undefined) await openCi(ctx);
-  await tick();
-  ctx.status.attempt = '1/1';
-  ctx.status.write();
-  ctx.status?.beginStep?.('agent');
-  await runAgent(ctx, 'review', 'review');
-  await tick();
-  ctx.status?.beginStep?.('guard');
-  const touched = ctx.git.testsChangedSince(ctx.lockSha, ctx.layout.testPathspecs);
-  if (touched.length) {
-    recordGuard(ctx, ctx.status.stage, touched);
-    stop(ctx, 'GUARD FAILED: review modified tests');
-  }
-  await tick();
-  if (!(await successCheck(ctx))) stop(ctx, `Checks broke after review. See ${ctx.failLog}`);
 }
 
 /** Finalise: commits the cycle's files, ticks the backlog item, and optionally creates a PR. */

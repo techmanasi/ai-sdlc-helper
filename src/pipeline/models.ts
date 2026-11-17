@@ -19,6 +19,12 @@ export const STAGE_DEFAULTS: Record<AgentStage, { model: string; effort: string 
   // a different model from Test repair, so the audit is independent
   'test-audit': { model: 'opus', effort: 'medium' },
   review: { model: 'opus', effort: 'medium' },
+  // multi-model review (opt-in): each reviewer needs its own agent and model, and the summariser one that is none of theirs
+  'review-2': { model: 'sonnet', effort: 'medium' },
+  'review-3': { model: 'haiku', effort: 'medium' }, // the same as the summariser's by default: pick another agent or model for a third reviewer
+  'review-4': { model: 'opus', effort: 'high' },
+  'review-5': { model: 'sonnet', effort: 'high' },
+  'review-summary': { model: 'haiku', effort: 'medium' },
   // only runs on a code or test conflict, where judging both sides' intent matters
   'resolve-conflicts': { model: 'opus', effort: 'medium' },
   // the independent reviewers of a resolution the agent doubts (3 by default, up to 5): each reviewer needs its own agent and model (the Claude agent has three: opus, sonnet, haiku), so more reviewers need other agents
