@@ -14,6 +14,7 @@ import { moveReasonText } from '../pipeline/status.js';
 import { ciSummaryOf, getPrFromBrief, getPrStatusCached, keepPrStatusIn, PR_STATUS_FILE, prCommentsEmpty, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
 import { readRounds, type Round } from '../pipeline/observe.js';
 import { runTimeline, type Timeline } from './timeline.js';
+import { pricesNow } from '../models/prices.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
 import type { ReviewRound as ReviewRoundView } from '../pipeline/review-gate.js';
@@ -112,7 +113,7 @@ function timelineOf(logs: string): { timeline?: Timeline } {
     if (!line.trim()) continue;
     try { rows.push(JSON.parse(line)); } catch { /* half-written or malformed */ }
   }
-  return { timeline: runTimeline(rows) };
+  return { timeline: runTimeline(rows, undefined, pricesNow()) };
 }
 
 export interface CiView {

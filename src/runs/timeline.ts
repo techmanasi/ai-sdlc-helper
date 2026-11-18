@@ -1,8 +1,16 @@
 // The per-stage timeline of a run, from the rows of <log>/attempts.jsonl: when each stage and step began and ended, what each
-// stage's agent rounds cost, and the red-test lock with every time a guard enforced it. Pure: the caller reads the file.
+// stage's agent rounds cost, and the red-test lock with every time a guard enforced it. Pure: the caller reads the file
+// and passes the price table.
+
+import { estimateUsd, priceOf, type PriceTable } from '../models/prices.js';
 
 export interface StepSpan { key: string; label: string; started: string; ended: string | null }
-export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null }
+/**
+ * What a stage's (or the run's) agent rounds used. `costUsd` adds what the harnesses reported and, for rounds that
+ * reported tokens but no cost, what those tokens cost at the model's price; `estimatedUsd` is the estimated part.
+ * `unpriced` counts the rounds with tokens and neither a cost nor a known price, so the cost leaves them out.
+ */
+export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd: number; unpriced: number }
 export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; usage: UsageTotals }
 export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
 /**
@@ -20,24 +28,38 @@ const STAGE_OF: Record<string, string> = {
 };
 const stageOfAgent = (agentStage: string): string | null => STAGE_OF[agentStage] ?? (agentStage.startsWith('resolve-') ? 'Resolve conflicts' : null);
 
-const emptyUsage = (): UsageTotals => ({ rounds: 0, durationSec: 0, turns: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: null });
+const emptyUsage = (): UsageTotals => ({ rounds: 0, durationSec: 0, turns: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: null, estimatedUsd: 0, unpriced: 0 });
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const ms = (t: string): number => { const x = Date.parse(t); return Number.isFinite(x) ? x : NaN; };
 
-function addRound(u: UsageTotals, r: Record<string, unknown>): void {
+const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+function addRound(u: UsageTotals, r: Record<string, unknown>, prices: PriceTable): void {
   u.rounds++;
   u.durationSec += n(r.durationSec);
   u.turns += n(r.turns);
   u.tokens += n(r.tokens);
   const x = r.usage && typeof r.usage === 'object' ? r.usage as Record<string, unknown> : null;
-  if (!x) return;
-  u.input += n(x.input);
-  u.output += n(x.output);
-  u.cacheRead += n(x.cacheRead);
-  u.cacheWrite += n(x.cacheWrite);
-  if (typeof x.costUsd === 'number' && Number.isFinite(x.costUsd)) u.costUsd = (u.costUsd ?? 0) + x.costUsd;
+  if (x) {
+    u.input += n(x.input);
+    u.output += n(x.output);
+    u.cacheRead += n(x.cacheRead);
+    u.cacheWrite += n(x.cacheWrite);
+  }
+  const reported = numOrNull(x?.costUsd);
+  if (reported !== null) { u.costUsd = (u.costUsd ?? 0) + reported; return; }
+  if (!n(r.tokens) && !x) return;
+  // Tokens but no cost: price them at the model's rate. A round with only a total (no split) counts it as input.
+  const price = priceOf(str(r.model), prices);
+  const split = x
+    ? { input: numOrNull(x.input), output: numOrNull(x.output), cacheRead: numOrNull(x.cacheRead), cacheWrite: numOrNull(x.cacheWrite) }
+    : { input: n(r.tokens), output: null, cacheRead: null, cacheWrite: null };
+  const est = price ? estimateUsd(split, price) : null;
+  if (est === null) { u.unpriced++; return; }
+  u.costUsd = (u.costUsd ?? 0) + est;
+  u.estimatedUsd += est;
 }
 
 function sumUsage(list: UsageTotals[]): UsageTotals {
@@ -46,6 +68,7 @@ function sumUsage(list: UsageTotals[]): UsageTotals {
     t.rounds += u.rounds; t.durationSec += u.durationSec; t.turns += u.turns; t.tokens += u.tokens;
     t.input += u.input; t.output += u.output; t.cacheRead += u.cacheRead; t.cacheWrite += u.cacheWrite;
     if (u.costUsd !== null) t.costUsd = (t.costUsd ?? 0) + u.costUsd;
+    t.estimatedUsd += u.estimatedUsd; t.unpriced += u.unpriced;
   }
   return t;
 }
@@ -54,8 +77,11 @@ function sumUsage(list: UsageTotals[]): UsageTotals {
 const BEFORE_LOCK_STAGES = new Set(['Spec', 'Plan', 'Red tests']);
 const BEFORE_LOCK_KEYS = new Set(['', 'spec', 'plan', 'red-tests']);
 
-/** All rows of an item's attempts.jsonl (every start of it) in order. <now> is accepted for callers that pass one; an open stage stays null. */
-export function runTimeline(rows: unknown[], now?: string): Timeline {
+/**
+ * All rows of an item's attempts.jsonl (every start of it) in order. <now> is accepted for callers that pass one; an open
+ * stage stays null. <prices> prices the rounds whose harness reported tokens but no cost (see models/prices.ts).
+ */
+export function runTimeline(rows: unknown[], now?: string, prices: PriceTable = new Map()): Timeline {
   void now;
   const stages = new Map<string, StageSpan>();
   const starts = new Map<string, string>(); // `${agent}` of the open round -> its start row's time
@@ -148,7 +174,7 @@ export function runTimeline(rows: unknown[], now?: string): Timeline {
         } else if (!sawStage && at) {
           s.ended = at;
         }
-        addRound(s.usage, r);
+        addRound(s.usage, r, prices);
         break;
       }
       case 'lock': locks.push(r); open = null; break;

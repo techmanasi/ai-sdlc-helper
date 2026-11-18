@@ -181,7 +181,7 @@ function objectResult(data: any): ParsedAgentResult {
   };
 }
 
-/** One JSON event per line, as codex prints with `--json`. */
+/** One JSON event per line, as codex prints with `--json` and OpenCode with `run --format json`. */
 function jsonlResult(text: string): ParsedAgentResult | null {
   const events: any[] = [];
   for (const line of text.split('\n')) {
@@ -198,7 +198,22 @@ function jsonlResult(text: string): ParsedAgentResult | null {
   let usage: any = null;
   let started = 0;
   let completed = 0;
+  // OpenCode (`run --format json`) prints a step_finish per model call with that call's tokens and dollar cost.
+  let ocSteps = 0;
+  const oc = { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0, costSeen: false };
   for (const event of events) {
+    if (event.type === 'step_finish' && event.part && typeof event.part === 'object') {
+      ocSteps++;
+      const t = event.part.tokens && typeof event.part.tokens === 'object' ? event.part.tokens : {};
+      const cache = t.cache && typeof t.cache === 'object' ? t.cache : {};
+      oc.input += num(t.input) ?? 0;
+      oc.output += num(t.output) ?? 0;
+      oc.reasoning += num(t.reasoning) ?? 0;
+      oc.cacheRead += num(cache.read) ?? 0;
+      oc.cacheWrite += num(cache.write) ?? 0;
+      const c = num(event.part.cost);
+      if (c !== null) { oc.cost += c; oc.costSeen = true; }
+    }
     if (event.type === 'item.completed' && event.item && typeof event.item === 'object') {
       const item = event.item;
       if (item.type === 'agent_message' || item.type === 'message') {
@@ -233,6 +248,18 @@ function jsonlResult(text: string): ParsedAgentResult | null {
         if (part) deltaParts.push(part);
       }
     }
+  }
+  if (ocSteps) {
+    const output = oc.output + oc.reasoning;
+    return {
+      messages,
+      streamed: deltaParts.join(''),
+      durationSec: null,
+      turns: ocSteps,
+      tokens: oc.input + output || null,
+      usage: { input: oc.input, output, cacheRead: oc.cacheRead, cacheWrite: oc.cacheWrite, costUsd: oc.costSeen ? oc.cost : null },
+      denied,
+    };
   }
   return {
     messages,

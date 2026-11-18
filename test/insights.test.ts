@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, openLock, openSentence, skipped, spanSeconds, stripStates, tileLine, tokensText, verifiedLock } from '../web/ui/src/insights.js';
+import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, openLock, openSentence, skipped, spanSeconds, stripStates, tileLine, tokensText, verifiedLock, usageText, costCell, costNotes } from '../web/ui/src/insights.js';
 
-const usage = (o: Partial<{ rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null }> = {}) =>
+const usage = (o: Partial<{ rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd: number; unpriced: number }> = {}) =>
   ({ rounds: 1, durationSec: 60, turns: 3, tokens: 1000, input: 200, output: 800, cacheRead: 600, cacheWrite: 200, costUsd: 0.5, ...o });
 const span = (stage: string, o: Record<string, unknown> = {}) => ({ stage, started: '2026-11-17T10:00:00', ended: '2026-11-17T10:02:05', passes: 1, steps: [], usage: usage(), ...o });
 
@@ -169,5 +169,29 @@ describe('what the records show about a run', () => {
   test('a run with no worktree does not claim one', () => {
     expect(by({ ...base, worktree: null }).isolated.state).toBe('pending');
     expect(by(base).isolated).toMatchObject({ state: 'held', detail: 'sdlc/x' });
+  });
+});
+
+describe('cost and tokens together', () => {
+  test('a paid model shows dollars and tokens; an estimate is marked', () => {
+    expect(usageText(usage({ costUsd: 0.42, tokens: 412_000 }))).toBe('$0.42 · 412k tok');
+    expect(usageText(usage({ costUsd: 0.42, estimatedUsd: 0.1, tokens: 412_000 }))).toBe('≈$0.42 · 412k tok');
+    expect(costCell(usage({ costUsd: 0.42, estimatedUsd: 0.1 }))).toBe('≈$0.42');
+  });
+
+  test('a free model, or one with no price, shows tokens only', () => {
+    expect(usageText(usage({ costUsd: 0, tokens: 5000 }))).toBe('5.0k tok');
+    expect(usageText(usage({ costUsd: null, tokens: 5000 }))).toBe('5.0k tok');
+    expect(costCell(usage({ costUsd: 0 }))).toBe('free');
+    expect(costCell(usage({ costUsd: null }))).toBe('—');
+    expect(usageText(usage({ costUsd: null, tokens: 0, input: 0, output: 0 }))).toBe('');
+    expect(usageText(null)).toBe('');
+  });
+
+  test('notes say what is estimated and what is left out', () => {
+    expect(costNotes(usage())).toEqual([]);
+    const notes = costNotes(usage({ estimatedUsd: 0.2, unpriced: 2 }));
+    expect(notes).toHaveLength(2);
+    expect(notes[1]).toMatch(/^2 agent rounds reported tokens but no cost/);
   });
 });
