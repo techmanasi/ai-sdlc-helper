@@ -29,10 +29,15 @@ describe('a full run', () => {
       `chore(backlog): mark ${SLUG} done`, `[finalise] feat(${SLUG}): implement per ${DOCS}/specs-1.md`, `[red-tests] test(${SLUG}): add failing tests and spec/plan docs`,
     ]);
     // the red-tests commit holds the docs and the new test; the implementation comes after
-    expect(filesIn(f.dir, 'HEAD~2')).toEqual(['src/sum.test.mjs', `${DOCS}/manual-inputs.md`, `${DOCS}/plan-1.md`, `${DOCS}/specs-1.md`, `${DOCS}/test-cases-1.md`]);
-    expect(filesIn(f.dir, 'HEAD~1')).toEqual(['src/sum.mjs', `${DOCS}/review-1.md`, `${DOCS}/review.json`]);
+    // each stage commit carries the task's cost log as it stood then
+    expect(filesIn(f.dir, 'HEAD~2')).toEqual(['src/sum.test.mjs', `${DOCS}/cost/cost.json`, `${DOCS}/cost/cost.md`, `${DOCS}/manual-inputs.md`, `${DOCS}/plan-1.md`, `${DOCS}/specs-1.md`, `${DOCS}/test-cases-1.md`]);
+    expect(filesIn(f.dir, 'HEAD~1')).toEqual(['src/sum.mjs', `${DOCS}/cost/cost.json`, `${DOCS}/cost/cost.md`, `${DOCS}/review-1.md`, `${DOCS}/review.json`]);
     expect(read(f.dir, 'work/items/index.md')).toContain(`- [x] \`${SLUG}\``);
     expect(read(f.dir, `${LOG}/finalise-skipped.md`)).toBe('');
+    // the cost log at Finalise counts every agent round of the run, Review included
+    const cost = JSON.parse(git(f.dir, 'show', `HEAD~1:${DOCS}/cost/cost.json`));
+    expect(cost.stages.map((x: { stage: string }) => x.stage)).toEqual(['Spec', 'Plan', 'Red tests', 'Implement', 'Review', 'Finalise']);
+    expect(cost.usage.rounds).toBe(5);
 
     // the tests at the red commit: the new file failed to load, the old tests passed
     const red = JSON.parse(read(f.dir, `${LOG}/red.json`));

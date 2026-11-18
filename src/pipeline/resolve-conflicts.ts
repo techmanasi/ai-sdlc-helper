@@ -12,6 +12,7 @@ import { projectRoot } from '../runs/records.js';
 import { withAnswerLines } from './questions.js';
 import { at, setAside, stamp, stop, tick, type Ctx, type From } from './context.js';
 import { keepError } from './errors.js';
+import { commitCostLog } from './cost-log.js';
 import { getPrFromBrief, getPrStatus } from './finalise.js';
 import { runAgent, stageModelKey } from './agent.js';
 import { REVIEWERS, reviewPanel, reviewerCount, reviewSkipped, sharedReviewersText } from './review-panel.js';
@@ -93,6 +94,8 @@ export interface ResolveOptions {
   resolveCode?: (c: CodeConflict) => Promise<CodeResolution>;
   /** The full check of the rebased branch; false stops the stage without pushing. */
   verify?: (o: { codeResolved: boolean }) => Promise<boolean>;
+  /** Called once the check passed, before the first push: the last commits that go with this push (the cost log). */
+  beforePush?: () => Promise<void>;
   /** Push attempts (a failed lease fetches, takes what arrived and tries again). Default 3. */
   maxPushes?: number;
   /**
@@ -297,6 +300,7 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
       return stopped('the check failed on the rebased branch', false, undefined, true);
     }
 
+    if (o.beforePush) await o.beforePush();
     // Push with the lease; when it fails someone pushed meanwhile: take what arrived, check again, push again.
     const arrived: string[] = [];
     const maxPushes = o.maxPushes ?? 3;
@@ -939,13 +943,17 @@ export async function resolveConflictsStage(ctx: Ctx, opts: { inline?: InlineRes
   const ciOnly = (ctx.config.tests as { fullSuite?: string } | undefined)?.fullSuite === 'ci';
   const base = ctx.config.git.base || 'main';
   const recordFile = at(ctx, `${ctx.log}/resolve-conflicts.json`);
+  // An agent resolved a stop after Finalise's commit: its cost goes in a last commit with this push, which starts CI anyway.
+  let agentRan = false;
+  const resolver = resolverFor(ctx);
   const result = await resolveConflicts({
     git: ctx.git, branch: ctx.branch, base, docDirs: [ctx.config.backlogDir], recordFile, out: l => ctx.out(l),
     mergedReason: () => mergedReason(ctx, base),
     onStart: () => { stage(ctx, RESOLVE_STAGE); ctx.status.attempt = '1/1'; ctx.status.write(); },
     onStep: (k, d) => ctx.status?.beginStep?.(k, d),
-    resolveCode: resolverFor(ctx),
+    resolveCode: c => { agentRan = true; return resolver(c); },
     onError: (where, text) => keepError(ctx, where, text),
+    beforePush: async () => { if (agentRan && !inline) await commitCostLog(ctx); },
     verify: async () => {
       // Before Red tests there are no task tests: the check would be the whole suite here, which CI runs on the push.
       if (inline && ciOnly && !targetTestFiles(ctx).length) {

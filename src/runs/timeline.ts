@@ -26,9 +26,9 @@ const STAGE_OF: Record<string, string> = {
   spec: 'Spec', plan: 'Plan', 'red-tests': 'Red tests', implement: 'Implement', 'test-repair': 'Test repair', 'test-audit': 'Test repair',
   review: 'Review', finalise: 'Finalise', 'resolve-conflicts': 'Resolve conflicts', 'resolve-judge': 'Resolve conflicts',
 };
-const stageOfAgent = (agentStage: string): string | null => STAGE_OF[agentStage] ?? (agentStage.startsWith('resolve-') ? 'Resolve conflicts' : null);
+export const stageOfAgent = (agentStage: string): string | null => STAGE_OF[agentStage] ?? (agentStage.startsWith('resolve-') ? 'Resolve conflicts' : null);
 
-const emptyUsage = (): UsageTotals => ({ rounds: 0, durationSec: 0, turns: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: null, estimatedUsd: 0, unpriced: 0 });
+export const emptyUsage = (): UsageTotals => ({ rounds: 0, durationSec: 0, turns: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: null, estimatedUsd: 0, unpriced: 0 });
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -36,7 +36,7 @@ const ms = (t: string): number => { const x = Date.parse(t); return Number.isFin
 
 const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-function addRound(u: UsageTotals, r: Record<string, unknown>, prices: PriceTable): void {
+export function addRound(u: UsageTotals, r: Record<string, unknown>, prices: PriceTable): void {
   u.rounds++;
   u.durationSec += n(r.durationSec);
   u.turns += n(r.turns);
@@ -62,7 +62,7 @@ function addRound(u: UsageTotals, r: Record<string, unknown>, prices: PriceTable
   u.estimatedUsd += est;
 }
 
-function sumUsage(list: UsageTotals[]): UsageTotals {
+export function sumUsage(list: UsageTotals[]): UsageTotals {
   const t = emptyUsage();
   for (const u of list) {
     t.rounds += u.rounds; t.durationSec += u.durationSec; t.turns += u.turns; t.tokens += u.tokens;

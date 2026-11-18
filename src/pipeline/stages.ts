@@ -22,6 +22,7 @@ import { cleanRunMainBrief, linkPrInBrief } from './pr-link.js';
 import { installDeps } from './deps.js';
 import { agentLastMessage, appendRound, repeatedFailures } from './observe.js';
 import { keepError } from './errors.js';
+import { isCostFile, writeCostLog } from './cost-log.js';
 import { withAnswerLines } from './questions.js';
 import { openMovedPr } from './branch-move.js';
 import { ensurePushable, pushCheckSkipped } from './push-check.js';
@@ -318,8 +319,10 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   ctx.status?.beginStep?.('commit');
   ctx.git.run('add', '-A', '--', ctx.docs);
   ctx.git.addTests(ctx.layout.testPathspecs);
-  const hasStaged = !firstRedSha || !ctx.git.findCommits || ctx.git.lines('diff', '--cached', '--name-only').some(f => f.trim() !== '');
+  const hasStaged = !firstRedSha || !ctx.git.findCommits || ctx.git.lines('diff', '--cached', '--name-only').some(f => f.trim() !== '' && !isCostFile(ctx, f));
   if (hasStaged) {
+    const cost = await writeCostLog(ctx);
+    if (cost.length) ctx.git.run('add', '--', ...cost);
     ctx.git.run('commit', '-q', '-m', `[red-tests] test(${ctx.slug}): add failing tests and spec/plan docs`);
     ctx.redSha = ctx.git.head();
   } else {
@@ -484,7 +487,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
       let sha: string;
       let committed = false;
       try {
-        committed = commitAttempt(ctx, i);
+        committed = await commitAttempt(ctx, i);
         ctx.git.run('push', '-u', 'origin', ctx.branch);
         sha = ctx.git.head();
       } catch (e) {
@@ -565,11 +568,14 @@ function headIsPushed(ctx: Ctx): boolean {
   } catch { return false; }
 }
 
-/** Commits the files this attempt changed (Finalise's rules: baseline-filtered, no secrets, generated or large files). False when there are none. */
-function commitAttempt(ctx: Ctx, attempt: number): boolean {
+/** Commits the files this attempt changed (Finalise's rules: baseline-filtered, no secrets, generated or large files), with the cost log. False when there are none. */
+async function commitAttempt(ctx: Ctx, attempt: number): Promise<boolean> {
   let include: string[] = [];
   try { include = changed(at(ctx, `${ctx.log}/baseline.json`), { root: ctx.root, maxBytes: ctx.config.finalise.maxFileBytes }).include; } catch { include = []; }
+  // The cost log alone is no work: it rides along only with a commit that has some.
+  include = include.filter(f => !isCostFile(ctx, f));
   if (!include.length) return false;
+  for (const f of await writeCostLog(ctx)) if (!include.includes(f)) include.push(f);
   ctx.git.run('add', '-A', '--', ...include);
   ctx.git.run('commit', '-q', '-m', `[implement] feat(${ctx.slug}): implement (attempt ${attempt})`, '-m', include.slice(0, 50).join('\n'), '--', ...include);
   return true;
@@ -718,6 +724,7 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   await tick();
   if (!(await successCheck(ctx))) reject(`checks still fail after an audited repair; see ${ctx.failLog}`);
   ctx.status?.beginStep?.('commit');
+  await writeCostLog(ctx);
   ctx.git.run('add', '-A', '--', ctx.docs);
   ctx.git.addTests(specs);
   ctx.git.run('commit', '-q', '-m', `[test-repair] test(${ctx.slug}): repair invalid tests (mechanically checked and audited)`);
@@ -745,7 +752,9 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
   // The PR opened after Red tests: from this run's status, or (a resumed run, a new process) the link in brief.md, read
   // before finalise() can record a PR of its own there.
   const opened = ctx.config.tests.fullSuite === 'ci' ? (ctx.status.ci?.pr || briefPr(ctx)) : null;
+  const costFiles = await writeCostLog(ctx);
   const res = finalise({
+    alongside: costFiles,
     git: ctx.git, slug: ctx.slug, docs: ctx.docs, baseline: `${ctx.log}/baseline.json`, backlog: ctx.backlog,
     maxBytes: ctx.config.finalise.maxFileBytes, envExample: ctx.config.finalise.envExample,
     createPr, baseBranch: ctx.config.git.base || undefined,
