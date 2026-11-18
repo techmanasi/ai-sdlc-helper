@@ -1,5 +1,5 @@
-import { pageTrace } from './pageTrace';
-import type { NoticeItem } from './notices';
+import { pageTrace } from './pageTrace.js';
+import type { NoticeItem } from './notices.js';
 
 // The server's API, as the app uses it. The shapes mirror the engine's (RunView, BoardView …); the app keeps its own
 // copy so the browser build never pulls in Node code.

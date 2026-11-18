@@ -1,8 +1,8 @@
 // The stage pane under the run page's stage rail: which stage it shows, the colour of its outline, what a stage that has
 // not started waits for, which round of a stage is on view, the pull request badge on Finalise, and when the rail may
 // scroll a stage into view by itself. Pure, so the decisions are tested without a browser; RunInsights.tsx draws them.
-import type { CiState, StageRound, StageSpan } from './api';
-import type { TileState } from './insights';
+import type { CiState, StageRound, StageSpan } from './api.js';
+import type { TileState } from './insights.js';
 
 export interface PaneStage { key: string; name: string; state: TileState }
 
