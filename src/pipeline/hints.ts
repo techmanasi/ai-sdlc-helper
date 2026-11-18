@@ -104,6 +104,17 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     };
   }
 
+  // Test names that repeat: the Red tests agent already had its one retry, so run Red tests again (the handoff lists the names).
+  const repeats = /RED GATE FAILED: (\d+) test name\(s\) repeat in the new tests/.exec(latest);
+  if (repeats) {
+    return {
+      stage: 'Red tests',
+      diagnosis: `${repeats[1]} test name(s) repeat in the new tests: a result cannot tell same-named tests apart.`,
+      autoAction: { label: 'Resume at Red tests', command: resumeCommand(ctx.slug, 'red-tests') },
+      manualAction: { file: 'logs/tests.log', instruction: 'Give every test, and every row of a parameterised test, a unique name in its file, then run again from Red tests.' },
+    };
+  }
+
   // New tests that already pass test behaviour that exists: the spec or plan should have said so, so the fix is there, not in Red tests.
   const already = /RED GATE FAILED: (\d+) new test\(s\) already pass before implementation/.exec(latest);
   if (already) {
@@ -111,7 +122,7 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
       stage: 'Plan',
       diagnosis: `${already[1]} new test(s) already pass before implementation: they test behaviour that already exists, which the spec or plan did not identify as existing.`,
       autoAction: { label: 'Resume at Plan', command: resumeCommand(ctx.slug, 'plan') },
-      manualAction: { file: 'logs/red-passing.md', instruction: 'Mark the behaviour of the passing tests as existing in the spec or plan, then run again from Spec or Plan.' },
+      manualAction: { file: 'logs/red-passing.md', instruction: 'Mark the behaviour of the passing tests as existing in the spec or plan (logs/handoff.json carries the list to the Plan agent), then run again from Spec or Plan.' },
       escapeHatch: { label: 'Resume at Spec', command: resumeCommand(ctx.slug, 'spec') },
     };
   }

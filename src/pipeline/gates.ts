@@ -143,6 +143,31 @@ export function newPassingTests(ctx: Ctx, base: string, files: string[]): { file
   return found;
 }
 
+/**
+ * The `file :: name` pairs that more than one reported result of <files> carries (each once, with its count), from <log>/tests.json.
+ * Skipped and todo tests count too: a name must identify its test. When tests.json cannot be read, says so and returns [].
+ */
+export function repeatedTestNames(ctx: Ctx, files: string[]): { file: string; name: string; count: number }[] {
+  let tests: RunResult['tests'];
+  try {
+    tests = (JSON.parse(fs.readFileSync(at(ctx, `${ctx.log}/tests.json`), 'utf8')) as RunResult).tests;
+    if (!Array.isArray(tests)) throw new Error('tests.json has no tests list');
+  } catch (e) {
+    keepError(ctx, 'red gate: read the per-test results', (e as Error).message);
+    ctx.out(`WARNING: could not read ${ctx.log}/tests.json, so repeated test names were not checked (see ${ctx.log}/errors.log)`);
+    return [];
+  }
+  const wanted = new Set(files);
+  const counts = new Map<string, { file: string; name: string; count: number }>();
+  for (const t of tests) {
+    if (!t.file || !wanted.has(t.file)) continue;
+    const key = `${t.file}\0${t.name}`;
+    const c = counts.get(key);
+    if (c) c.count++; else counts.set(key, { file: t.file, name: t.name, count: 1 });
+  }
+  return [...counts.values()].filter(c => c.count > 1);
+}
+
 interface BaseTitles { has(name: string): boolean }
 
 /** A placeholder in a parameterised title: test.each's %s, %i, %j... and $name, or a template literal's ${...}. */

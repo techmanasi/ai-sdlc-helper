@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { NOTES_HEADING, readNote } from '../src/config/toolNotes.js';
 import { READ_ONLY_COMMANDS, READ_ONLY_EXACT } from '../src/config/settings.js';
 import {
-  DOCS, LOG, NODE_TEST, SLUG, filesIn, fixture, git, pipeline, read, statusOf, subjects,
+  DOCS, LOG, NODE_TEST, SLUG, STAGES, filesIn, fixture, git, pipeline, read, statusOf, subjects,
 } from './pipeline-fixture.js';
 
 // The runs are long chains of synchronous git and test runs: yield between tests so the runner's messages get through.
@@ -139,13 +139,127 @@ describe('a full run', () => {
     const f = fixture(redWith("test('fails now', () => assert.equal(1, 2));\\ntest('already true', () => assert.equal(1, 1));\\n"));
     const r = await pipeline(f);
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain('RED GATE FAILED: 1 new test(s) already pass before implementation: they test behaviour that already exists, which the spec or plan did not identify as existing. Fix the spec or plan (mark that behaviour as existing), then run again from Spec or Plan.\nsrc/sum.test.mjs :: already true');
+    expect(r.stdout).toContain('RED GATE FAILED: 1 new test(s) already pass before implementation: they test behaviour that already exists, which the spec or plan did not identify as existing. Fix the spec or plan (mark that behaviour as existing), then run again from Spec or Plan. (after one Red tests retry)\nsrc/sum.test.mjs :: already true');
     expect(r.stdout).not.toContain('fails now');
     expect(read(f.dir, `${LOG}/red-passing.md`)).toContain('src/sum.test.mjs :: already true');
     expect(read(f.dir, `${LOG}/errors.log`)).toContain('already true');
     expect(subjects(f.dir)).toEqual([]);
-    expect(r.calls).toEqual(['spec', 'plan', 'red-tests']);
+    expect(r.calls).toEqual(['spec', 'plan', 'red-tests', 'red-tests']);
     expect(statusOf(f.dir)).toMatchObject({ state: 'failed', stage: 'Red tests' });
+  });
+
+  // A Red tests agent that writes <first> on its first call and <second> once its prompt carries the retry note.
+  // A test that fails until Implement writes src/sum.mjs, and one that always passes.
+  const T = "import fs from 'node:fs';\nimport { test } from 'node:test';\nimport assert from 'node:assert/strict';\nconst built = () => assert.ok(fs.existsSync(new URL('./sum.mjs', import.meta.url)));\n";
+  const twice = (first: string, second: string) => ({
+    'red-tests': `echo cases > "$FAKE_DOCS/test-cases-1.md"
+if printf '%s' "$FAKE_PROMPT" | grep -q 'The Red tests gate stopped the first attempt'; then
+cat > src/sum.test.mjs <<'FAKEEOF'
+${T}${second}
+FAKEEOF
+else
+cat > src/sum.test.mjs <<'FAKEEOF'
+${T}${first}
+FAKEEOF
+fi`,
+  });
+  const PASSING = "test('fails now', built);\ntest('already true', () => assert.equal(1, 1));";
+  const FAILING = "test('fails now', built);";
+  const retryPromptOf = (r: { prompts: string }) => r.prompts.split('\n== ').filter(p => /^(== )?red-tests\n/.test(p))[1];
+
+  test('a new test that already passes gets one Red tests retry with the list; when the agent removes it the run goes on', async () => {
+    const f = fixture(twice(PASSING, FAILING));
+    const r = await pipeline(f);
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    expect(r.calls).toEqual(['spec', 'plan', 'red-tests', 'red-tests', 'implement', 'review']);
+    expect(r.stdout).not.toContain('RED GATE FAILED');
+    expect(retryPromptOf(r)).toContain('src/sum.test.mjs :: already true');
+    expect(retryPromptOf(r)).toContain('passes on the code before the change');
+    expect(fs.existsSync(path.join(f.dir, LOG, 'handoff.json'))).toBe(false);
+  });
+
+  test('the retry shows as attempt 2/2 while it runs', async () => {
+    const base = twice(PASSING, FAILING)['red-tests'];
+    const f = fixture({ 'red-tests': `${base}\ncp "$FAKE_LOG/status.json" "$FAKE_DIR/status-$(grep -c . "$FAKE_DIR/calls.txt").json"` });
+    const r = await pipeline(f);
+    expect(r.status).toBe(0);
+    expect(JSON.parse(read(f.fake, 'status-3.json')).attempt).toBe('1/2');
+    expect(JSON.parse(read(f.fake, 'status-4.json')).attempt).toBe('2/2');
+  });
+
+  test('a test that still passes after the retry stops the run for Plan; the handoff names plan and reaches the plan agent once', async () => {
+    const f = fixture(twice(PASSING, PASSING));
+    let r = await pipeline(f);
+    expect(r.status).toBe(1);
+    expect(r.calls).toEqual(['spec', 'plan', 'red-tests', 'red-tests']);
+    expect(r.stdout).toContain('(after one Red tests retry)\nsrc/sum.test.mjs :: already true');
+    expect(statusOf(f.dir)).toMatchObject({ state: 'failed', stage: 'Red tests', resume_from: 'plan' });
+    const h = JSON.parse(read(f.dir, `${LOG}/handoff.json`));
+    expect(h).toMatchObject({ to: 'plan', finding: { from: 'Red tests' } });
+    expect(h.finding.reason).toContain('src/sum.test.mjs :: already true');
+
+    fs.writeFileSync(path.join(f.fake, 'red-tests.sh'), `set -e\n${STAGES['red-tests']}\n`);
+    fs.rmSync(path.join(f.fake, 'prompts.txt'));
+    r = await pipeline(f, { FROM: 'plan' });
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    expect(r.stdout).toContain(`Handoff from Red tests to plan: ${LOG}/handoff.json`);
+    const promptOf = (stage: string) => r.prompts.split('\n== ').find(p => p.startsWith(`${stage}\n`) || p.startsWith(`== ${stage}\n`)) ?? '';
+    expect(promptOf('plan')).toContain('Why this stage is running again (from the pipeline, Red tests):\nRED GATE FAILED');
+    expect(promptOf('red-tests')).not.toContain('This stage is running again');
+    expect(fs.existsSync(path.join(f.dir, LOG, 'handoff.json'))).toBe(false);
+    expect(fs.readdirSync(path.join(f.dir, LOG, 'previous')).length).toBeGreaterThan(0);
+  });
+
+  test('a handoff with a user note reaches the Red tests agent on the first attempt and on the retry', async () => {
+    const f = fixture(twice(PASSING, PASSING));
+    let r = await pipeline(f);
+    expect(r.status).toBe(1);
+    fs.writeFileSync(path.join(f.dir, LOG, 'handoff.json'), JSON.stringify({ to: 'red-tests', user: { note: 'cover the empty list too', at: '2026-01-01T00:00:00.000Z' } }));
+    fs.writeFileSync(path.join(f.fake, 'red-tests.sh'), `set -e\n${twice(PASSING, FAILING)['red-tests']}\n`);
+    fs.rmSync(path.join(f.fake, 'prompts.txt'));
+    r = await pipeline(f, { FROM: 'red-tests' });
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    const prompts = r.prompts.split('\n== ').filter(p => /^(== )?red-tests\n/.test(p));
+    expect(prompts).toHaveLength(2);
+    for (const p of prompts) expect(p).toContain('Instruction from the user:\ncover the empty list too');
+    expect(prompts[1]).toContain('src/sum.test.mjs :: already true');
+    expect(fs.existsSync(path.join(f.dir, LOG, 'handoff.json'))).toBe(false);
+  });
+
+  test('a user note for Review reaches the reviewer and is set aside once the round ends', async () => {
+    const f = fixture({});
+    let r = await pipeline(f);
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    fs.writeFileSync(path.join(f.dir, LOG, 'handoff.json'), JSON.stringify({ to: 'review', user: { note: 'check the empty-list case', at: '2026-01-01T00:00:00.000Z' } }));
+    fs.rmSync(path.join(f.fake, 'prompts.txt'));
+    r = await pipeline(f, { FROM: 'review' });
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    const review = r.prompts.split('\n== ').find(p => /^(== )?review\n/.test(p)) ?? '';
+    expect(review).toContain('Instruction from the user:\ncheck the empty-list case');
+    expect(fs.existsSync(path.join(f.dir, LOG, 'handoff.json'))).toBe(false);
+  });
+
+  const DUP = "test('dup', built);\ntest('dup', built);";
+  const UNIQUE = "test('dup one', built);\ntest('dup two', built);";
+
+  test('a repeated test name gets one Red tests retry with the names; renamed, the run goes on', async () => {
+    const f = fixture(twice(DUP, UNIQUE));
+    const r = await pipeline(f);
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    expect(r.calls).toEqual(['spec', 'plan', 'red-tests', 'red-tests', 'implement', 'review']);
+    expect(retryPromptOf(r)).toContain('src/sum.test.mjs :: dup');
+    expect(retryPromptOf(r)).toContain('unique name');
+  });
+
+  test('a test name that repeats after the retry stops the run for Red tests, naming it', async () => {
+    const f = fixture(twice(DUP, DUP));
+    const r = await pipeline(f);
+    expect(r.status).toBe(1);
+    expect(r.calls).toEqual(['spec', 'plan', 'red-tests', 'red-tests']);
+    expect(r.stdout).toContain('RED GATE FAILED: 1 test name(s) repeat in the new tests:\nsrc/sum.test.mjs :: dup');
+    expect(statusOf(f.dir)).toMatchObject({ state: 'failed', stage: 'Red tests', resume_from: 'red-tests' });
+    expect(JSON.parse(read(f.dir, `${LOG}/handoff.json`))).toMatchObject({ to: 'red-tests', finding: { from: 'Red tests' } });
+    expect(subjects(f.dir)).toEqual([]);
   });
 
   test('the red gate accepts new tests that all fail, and does not count a skipped new test as passing', async () => {
@@ -166,7 +280,7 @@ describe('a full run', () => {
   });
 
   test('the red gate does not flag existing parameterised tests or titles with an escaped quote in the changed file; a new passing one is still flagged', async () => {
-    const f = fixture({ 'red-tests': `echo cases > "$FAKE_DOCS/test-cases-1.md"\nprintf "test('new fails', () => assert.equal(1, 2));\\ntest('new one passes', () => {});\\n" >> src/sum.test.mjs` });
+    const f = fixture({ 'red-tests': `git checkout -q -- src/sum.test.mjs\necho cases > "$FAKE_DOCS/test-cases-1.md"\nprintf "test('new fails', () => assert.equal(1, 2));\\ntest('new one passes', () => {});\\n" >> src/sum.test.mjs` });
     fs.writeFileSync(path.join(f.dir, 'src/sum.test.mjs'), [
       HEAD_T.replace(/\\n/g, '\n'),
       "const each = rows => (title, fn) => rows.forEach(r => test(title.replace('%s', r), fn));",

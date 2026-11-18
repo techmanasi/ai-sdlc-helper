@@ -66,6 +66,8 @@ ESLint. Plan: `docs/PLAN.md`.
 - Drive and read the web UI with `tools/UI-automation/sdlc-ui.js` (`sdlcUI.snapshot()`, `click(label)`, ...), not by
   reading the whole DOM. A change to the UI's markup or button labels updates that tool's `SELECTORS` and functions in
   the same PR; `test/ui-automation.test.ts` fails when a selector leaves `web/ui/src`.
+- A task that changes the web UI carries screenshots of the changed screens in its PR description. Whoever opens the PR
+  adds them; a subagent that only commits reports which screens changed so the screenshots can be taken.
 - Name SDLC stages, never number them.
 - Worktrees: `../ai-sdlc-helper-sdlc/<slug>`.
 - Work goes via PRs into `main`; confirm each merge with the user, naming the PR

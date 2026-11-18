@@ -7,3 +7,4 @@ ZERO-GUESSING: if the brief and decisions leave a requirement ambiguous or missi
 **Answer:**
 Leave the Answer line empty for the developer. Number questions from 1 each round.
 DEPENDENCIES: if the feature needs a new package, name it in the spec, but never make installing it a precondition and never require any stage before Implement to read node_modules. The Plan stage confirms the package's API from its published README and type definitions (npm, unpkg, GitHub or context7) and pins exact versions; the pipeline installs them at the start of Implement. If the brief says otherwise (the developer installs first, Plan reads node_modules), follow this rule instead.
+{{HANDOFF}}

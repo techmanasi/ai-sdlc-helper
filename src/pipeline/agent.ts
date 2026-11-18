@@ -5,7 +5,8 @@ import { extract, modeFor, rulesFor } from '../permissions/index.js';
 import { toolNotes } from '../config/toolNotes.js';
 import { agentFor, harnessFor, testDir, testFramework } from '../config/settings.js';
 import { withOwnCli } from './launcher.js';
-import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx } from './context.js';
+import { at, stamp, stop, stopIfAborted, tick, type AgentStage, type Ctx, type From } from './context.js';
+import { HANDOFF_STAGES, consumeHandoff } from './handoff.js';
 import { modelEnvOf, modelFlags, providerEnv, stageModel } from './models.js';
 import { ciFailureInput, existingRedTestsInput, manualInput, mergeFailureInput, prCommentsInput, renderPrompt } from './prompts.js';
 import { redCommitTestFiles } from './gates.js';
@@ -225,7 +226,7 @@ export function promptValues(ctx: Ctx): Record<string, string> {
   return {
     DOCS: ctx.docs, LOG: ctx.log, TEST_DIR: testDir(ctx.config.suites[0]), TEST_CMD: ctx.layout.testCmd, TEST_FILE_CMD: ctx.testFileCmd, FETCH_CMD: ctx.fetchCmd,
     LINT_NOTE: lintNote(ctx), LINT_TESTS_NOTE: lintTestsNote(ctx), RED_SHA: ctx.origRedSha || ctx.redSha, SLUG: ctx.slug, TEST_FRAMEWORK: testFramework(ctx.config), TEST_FILES: ctx.layout.testFiles || `${testDir(ctx.config.suites[0])}/`,
-    REVIEW_ROUND: '1', REVIEW_FILE: 'review.json', REVIEW_FINDINGS: '', REVIEW_INPUTS: '', ...ctx.promptExtra,
+    REVIEW_ROUND: '1', REVIEW_FILE: 'review.json', REVIEW_FINDINGS: '', REVIEW_INPUTS: '', HANDOFF: ctx.handoff?.text ?? '', ...ctx.promptExtra,
   };
 }
 
@@ -383,6 +384,11 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
       ctx.out(`      see ${ctx.log}/${name}.err`);
     }
     stop(ctx, `agent '${name}' failed: ${failure.summary}`, 1);
+  }
+  // The agent that was given the handoff finished: the note is done (Review's note is set aside once its round ends, so every reviewer reads it).
+  if (ctx.handoff && HANDOFF_STAGES.includes(stage as From) && !stage.startsWith('review') && !ctx.promptExtra?.HANDOFF) {
+    ctx.handoff = undefined;
+    consumeHandoff(ctx);
   }
 }
 

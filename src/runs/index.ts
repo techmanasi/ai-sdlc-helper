@@ -19,6 +19,8 @@ import { startSupervisor, type SetupStep } from './supervisor.js';
 import { identity } from './proc.js';
 import { keepError } from '../pipeline/errors.js';
 import { redPattern } from '../pipeline/git.js';
+import { writeUserNote } from '../pipeline/handoff.js';
+import type { From } from '../pipeline/context.js';
 
 /** The controls' own environment variables: read here, never passed to the pipeline. */
 export const CONTROL_ENV = ['SDLC_BASE', 'SDLC_WT_BASE', 'SDLC_MAX_PARALLEL', 'SDLC_ALLOW_MERGED', 'FROM', 'AI_SDLC_HELPER_PIPELINE_CMD', 'WATCH_REPORT_DEPENDENCIES'];
@@ -275,7 +277,13 @@ function linkShared(ctx: RunContext, wt: string): void {
   }
 }
 
-export interface StartOptions { from?: string; /** The run's own agent, model and effort, for every stage. */ force?: Force }
+export interface StartOptions {
+  from?: string;
+  /** The run's own agent, model and effort, for every stage. */
+  force?: Force;
+  /** The user's instruction for the agent of stage <to>: written to the run's logs/handoff.json before the pipeline starts. */
+  note?: { to: string; text: string };
+}
 
 /**
  * Starts the pipeline of <slug> in its worktree (made on the first start: branch <prefix><slug> from the base) and
@@ -372,6 +380,7 @@ export function start(ctx: RunContext, slug: string, opts: StartOptions = {}): O
     linkShared(ctx, wt);
     const logs = path.join(wt, docs, 'logs');
     fs.mkdirSync(logs, { recursive: true });
+    if (opts.note?.text.trim()) writeUserNote({ root: wt, log: `${docs}/logs` }, { to: opts.note.to as From, text: opts.note.text });
     fs.rmSync(regFile(ctx, slug, 'interrupt'), { force: true });
     const marker = regFile(ctx, slug, 'setup-pending');
     if (created && ctx.setup.length) fs.writeFileSync(marker, `${wt}\n`);
@@ -622,7 +631,7 @@ export async function restart(ctx: RunContext, slug: string, opts: StartOptions 
   }
   const d = await discard(ctx, slug, { yes: opts.yes, stop: true });
   if (d.code !== 0 && d.code !== 1) return d; // 1: nothing to discard, which is fine
-  const s = start(ctx, slug, { from: opts.from, force: opts.force });
+  const s = start(ctx, slug, { from: opts.from, force: opts.force, note: opts.note });
   return { code: s.code, out: [...(d.code === 0 ? d.out : []), ...s.out], err: s.err };
 }
 

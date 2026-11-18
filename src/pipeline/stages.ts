@@ -12,7 +12,7 @@ import { agentFor, harnessFor } from '../config/settings.js';
 import { at, setAside, stamp, stop, stopIfAborted, tick, type Ctx, type From } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agent.js';
 import {
-  newPassingTests, newTestFiles, redCommitTestFiles, repairTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass, testsPassAt,
+  newPassingTests, newTestFiles, repeatedTestNames, redCommitTestFiles, repairTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass, testsPassAt,
 } from './gates.js';
 import { finalisePattern, implementPattern, redPattern, repairPattern } from './git.js';
 import { renderPrompt } from './prompts.js';
@@ -268,6 +268,14 @@ function hasImplSince(ctx: Ctx, firstRedSha: string): boolean {
     && !f.startsWith(`${ctx.log}/`));
 }
 
+/** What the Red tests agent reads on its one retry: the repeated names and the tests that already pass. */
+function redRetryNote(repeated: string[], passing: string[]): string {
+  const parts = ['The Red tests gate stopped the first attempt. Fix this before anything else.'];
+  if (repeated.length) parts.push(`These test names repeat in the new tests. Give every test, and every row of a parameterised test, a unique name in its file (use the framework's placeholder, such as %s or $name):\n${repeated.join('\n')}`);
+  if (passing.length) parts.push(`Each of these tests passes on the code before the change:\n${passing.join('\n')}\nIf it checks behaviour that already exists, delete it or rewrite it to check only the new behaviour. If it does check new behaviour, the spec or plan is missing something, so leave the test as it is.`);
+  return parts.join('\n');
+}
+
 /** Red tests: the agent writes failing tests; they must fail (red gate), then they are committed and locked. */
 export async function redTestsStage(ctx: Ctx): Promise<void> {
   stage(ctx, '3/6 Red tests (red gate)');
@@ -285,34 +293,60 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   // What "new" means for the red gate: the tree before the agent ran, or before the first red commit on a resumed run.
   // Red tests for Review findings: the code is implemented already, so a new test must fail against the tree as it is now.
   const fixing = !!ctx.promptExtra?.REVIEW_FINDINGS;
+  let retryNote = '';
+  // The handoff (pipeline finding and user instruction) is consumed by the first attempt; the retry still reads it, before its own note.
+  const handed = ctx.handoff?.text ?? '';
   const baseSha = (firstRedSha && !fixing ? ctx.git.tryRun('rev-parse', '--verify', `${firstRedSha}^`)?.trim() : '') || ctx.git.head();
-  ctx.status.attempt = '1/1';
-  ctx.status.write();
-  ctx.status?.beginStep?.('agent');
-  await runAgent(ctx, 'tests', 'red-tests');
-  await tick();
-  ctx.status?.beginStep?.('gate');
-  if (srcBefore !== undefined && ctx.git.sourceHash!(ctx.layout.sourceDirs || [], ctx.layout.testPathspecs || [], ctx.config.backlogDir || '') !== srcBefore) {
-    stop(ctx, 'GUARD FAILED: source files were modified during Red tests');
-  }
-  // Only the tests this task added or changed (or existing red tests on a resumed run) are run: the rest of the suite is
-  // slow, and an unrelated failure there must not make a new test that passes look red.
-  const added = newTestFiles(ctx);
-  const allTaskTests = [...new Set([...existingTests, ...added])];
-  if (allTaskTests.length === 0) stop(ctx, `RED GATE FAILED: the Red tests agent added or changed no test file. See ${ctx.log}/tests.log`);
-  const gateFiles = added.length > 0 ? added : existingTests;
-  const redPassed = hasImplSince(ctx, firstRedSha) && !fixing
-    ? testsPassAt(ctx, firstRedSha, allTaskTests, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true })
-    : testsPass(ctx, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true });
-  if (redPassed) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
-  // Some new tests failing is not enough: a new test that already passes proves nothing about the new work.
-  const vacuous = newPassingTests(ctx, baseSha, gateFiles);
-  if (vacuous.length > 0) {
-    const list = vacuous.map(t => `${t.file} :: ${t.name}`);
-    const shown = list.slice(0, 20).concat(list.length > 20 ? [`... and ${list.length - 20} more (see ${ctx.log}/red-passing.md)`] : []);
-    const head = `RED GATE FAILED: ${vacuous.length} new test(s) already pass before implementation: they test behaviour that already exists, which the spec or plan did not identify as existing. Fix the spec or plan (mark that behaviour as existing), then run again from Spec or Plan.`;
-    fs.writeFileSync(at(ctx, `${ctx.log}/red-passing.md`), `${head}\n${list.join('\n')}\n`);
-    keepError(ctx, 'red gate', `${head}\n${list.join('\n')}`);
+  // The agent runs at most twice: a retry (not in the Review fix loop) when the new tests repeat a name or already pass.
+  const maxAttempts = fixing ? 1 : 2;
+  let gateFiles: string[] = [];
+  for (let attempt = 1; ; attempt++) {
+    ctx.status.attempt = `${attempt}/${fixing ? 1 : maxAttempts}`;
+    ctx.status.write();
+    ctx.status?.beginStep?.('agent');
+    if (attempt === 1) await runAgent(ctx, 'tests', 'red-tests');
+    else {
+      const before = ctx.promptExtra;
+      ctx.promptExtra = { ...before, HANDOFF: [handed, retryNote].filter(Boolean).join('\n\n') };
+      try { await runAgent(ctx, 'tests', 'red-tests'); } finally { ctx.promptExtra = before; }
+    }
+    await tick();
+    ctx.status?.beginStep?.('gate');
+    if (srcBefore !== undefined && ctx.git.sourceHash!(ctx.layout.sourceDirs || [], ctx.layout.testPathspecs || [], ctx.config.backlogDir || '') !== srcBefore) {
+      stop(ctx, 'GUARD FAILED: source files were modified during Red tests');
+    }
+    // Only the tests this task added or changed (or existing red tests on a resumed run) are run: the rest of the suite is
+    // slow, and an unrelated failure there must not make a new test that passes look red.
+    const added = newTestFiles(ctx);
+    const allTaskTests = [...new Set([...existingTests, ...added])];
+    if (allTaskTests.length === 0) stop(ctx, `RED GATE FAILED: the Red tests agent added or changed no test file. See ${ctx.log}/tests.log`);
+    gateFiles = added.length > 0 ? added : existingTests;
+    const redPassed = hasImplSince(ctx, firstRedSha) && !fixing
+      ? testsPassAt(ctx, firstRedSha, allTaskTests, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true })
+      : testsPass(ctx, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true });
+    if (redPassed) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
+    // A name that two new tests share cannot tell them apart in a result (and a re-run would mix them up): not in the fix loop.
+    const repeated = fixing ? [] : repeatedTestNames(ctx, gateFiles);
+    // Some new tests failing is not enough: a new test that already passes proves nothing about the new work.
+    const vacuous = newPassingTests(ctx, baseSha, gateFiles);
+    if (repeated.length === 0 && vacuous.length === 0) break;
+    const repeatedList = repeated.map(t => `${t.file} :: ${t.name}`);
+    const vacuousList = vacuous.map(t => `${t.file} :: ${t.name}`);
+    const retryable = attempt < maxAttempts;
+    if (retryable) {
+      ctx.out(`   .. Red tests retry (${repeated.length} repeated name(s), ${vacuous.length} test(s) that already pass): running the Red tests agent once more`);
+      retryNote = redRetryNote(repeatedList, vacuousList);
+      continue;
+    }
+    if (repeated.length > 0) {
+      const head = `RED GATE FAILED: ${repeated.length} test name(s) repeat in the new tests:`;
+      keepError(ctx, 'red gate', `${head}\n${repeatedList.join('\n')}`);
+      stop(ctx, [head, ...repeatedList.slice(0, 20), ...(repeatedList.length > 20 ? [`... and ${repeatedList.length - 20} more`] : [])].join('\n'), 1, 'red-tests');
+    }
+    const shown = vacuousList.slice(0, 20).concat(vacuousList.length > 20 ? [`... and ${vacuousList.length - 20} more (see ${ctx.log}/red-passing.md)`] : []);
+    const head = `RED GATE FAILED: ${vacuous.length} new test(s) already pass before implementation: they test behaviour that already exists, which the spec or plan did not identify as existing. Fix the spec or plan (mark that behaviour as existing), then run again from Spec or Plan.${maxAttempts > 1 ? ' (after one Red tests retry)' : ''}`;
+    fs.writeFileSync(at(ctx, `${ctx.log}/red-passing.md`), `${head}\n${vacuousList.join('\n')}\n`);
+    keepError(ctx, 'red gate', `${head}\n${vacuousList.join('\n')}`);
     stop(ctx, [head, ...shown].join('\n'), 1, 'plan');
   }
   await tick();

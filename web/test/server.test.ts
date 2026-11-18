@@ -180,6 +180,24 @@ describe('running a pipeline from the browser', () => {
     expect((await post('/api/projects/shop/runs/perm-one/permissions', { which: 'all', choice: 'allow' })).status).toBe(404);
   });
 
+  test('a note on start is written as the user part of the run\'s handoff, for the chosen stage; too long a note is refused', async () => {
+    const long = await post('/api/projects/shop/runs/ask-one/start', { from: 'plan', note: 'x'.repeat(4001) });
+    expect(long.status).toBe(400);
+    expect(long.json.error).toMatch(/4000/);
+    expect((await post('/api/projects/shop/runs/ask-one/start', { from: 'plan', note: 5 })).status).toBe(400);
+    expect((await run('ask-one')).handoff).toBeNull();
+
+    const started = await post('/api/projects/shop/runs/ask-one/start', { from: 'plan', note: `  ${'y'.repeat(4000)}  ` });
+    expect(started.json).toEqual(expect.objectContaining({ ok: true }));
+    const v = await run('ask-one');
+    expect(v.handoff).toEqual({ to: 'plan', user: { note: 'y'.repeat(4000), at: expect.any(String) } });
+  });
+
+  test('an empty note leaves the handoff alone', async () => {
+    await post('/api/projects/shop/runs/ask-one/start', { from: 'plan', note: '   ' });
+    expect((await run('ask-one')).handoff).toBeNull();
+  });
+
   test('bad input is refused before anything runs', async () => {
     expect((await post('/api/projects/shop/runs/BAD/start')).status).toBe(400);
     expect((await post('/api/projects/shop/runs/ask-one/start', { env: { 'NOT A NAME': 'x' } })).status).toBe(400);

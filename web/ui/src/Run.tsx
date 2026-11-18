@@ -9,6 +9,7 @@ import { hasUsage, openLock, skipped, usageText, verifiedLock } from './insights
 import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, GLYPH, Markdown, Panel, Spinner, stateClass, useApp } from './ui';
 import { defaultPick, needsResumeConfirm, resumeCommand, resumeOptions } from './resume';
+import { handoffBlocks, noteError, noteToSend } from './handoff';
 import { isMarkdownPath } from './markdown';
 import { addEnvKey, envVars, quickKeys, setEnvValue } from './env';
 import { usePoll } from './usePoll';
@@ -263,6 +264,8 @@ export function Run({ slug }: { slug: string }) {
   useEffect(() => { api.settings(project).then(setCatalog).catch(() => setCatalog(null)); }, [project]);
   const [picking, setPicking] = useState(false);
   const [pick, setPick] = useState('');
+  /** The user's optional instruction for the agent of the stage picked (kept apart from the pipeline's finding). */
+  const [note, setNote] = useState('');
   const [resumeAsk, setResumeAsk] = useState<{ key: string; name: string } | null>(null);
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
   const [fileView, setFileView] = useState<'rendered' | 'source'>('rendered');
@@ -627,12 +630,18 @@ export function Run({ slug }: { slug: string }) {
                 {o.note && <span class="small muted">{o.enabled ? o.note : o.note.startsWith('refused') ? `${o.name} ${o.note}` : o.note}</span>}
               </label>
             ))}
+            {handoffBlocks(v).finding && <p class="small muted pb col" id="handoff-finding" style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{handoffBlocks(v).finding}</p>}
+            <label class="col small muted" style={{ gap: '4px' }}>
+              {handoffBlocks(v).label(STAGES.find(s => s.key === pick)?.name || pick || 'resumed stage')}
+              <textarea class="inp" id="resume-note" rows={3} value={note} onInput={e => setNote((e.target as HTMLTextAreaElement).value)} />
+              {noteError(note) && <span class="s-failed">{noteError(note)}</span>}
+            </label>
             <div class="row" style={{ alignItems: 'center' }}>
-              <button class="btn btn-p" type="button" disabled={!pick || !!busy || running} onClick={() => {
+              <button class="btn btn-p" type="button" disabled={!pick || !!busy || running || !!noteError(note)} onClick={() => {
                 const key = pick;
                 const name = STAGES.find(s => s.key === key)?.name || key;
                 if (needsResumeConfirm(key)) { setResumeAsk({ key, name }); return; }
-                act(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj); setPicking(false); return o; });
+                act(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj, noteToSend(note)); setPicking(false); setNote(''); return o; });
               }}>{busy.startsWith('Resume at') ? <><Spinner /> Resuming…</> : 'Go'}</button>
               <button class="btn" type="button" onClick={() => { setPicking(false); document.getElementById('open-pick')?.focus(); }}>Cancel</button>
               {pick && <span class="mono small muted">{resumeCommand(slug, pick)}</span>}
@@ -1336,7 +1345,7 @@ export function Run({ slug }: { slug: string }) {
               <button class="btn btn-p" type="button" id="confirm-resume-go" disabled={!!busy || running} onClick={() => {
                 const { key, name } = resumeAsk;
                 setResumeAsk(null);
-                act(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj); setPicking(false); return o; });
+                act(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj, noteToSend(note)); setPicking(false); setNote(''); return o; });
               }}>Confirm resume at {resumeAsk.name}</button>
             </div>
           </div>

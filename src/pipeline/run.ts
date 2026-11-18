@@ -10,6 +10,7 @@ import { HARNESS_IDS, allowedTools, layout, resolve, type HarnessName } from '..
 import { snapshot } from '../changes/index.js';
 import { repoRulesFile } from '../permissions/index.js';
 import { Keys, testLayout } from '../testcheck/keys.js';
+import { HANDOFF_STAGES, takeHandoff, writeHandoff } from './handoff.js';
 import { AGENT_STAGES, Exit, FROM_STAGES, SetupError, at, setAside, stamp, stop, tick, type Ctx, type From } from './context.js';
 import { spawnAgentProcess, type AgentSpawn } from './agent.js';
 import { projectRoot } from '../runs/records.js';
@@ -134,7 +135,16 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
       Object.assign(ctx.status, { state: finalState(code), agent: '', model: '', effort: '', attempt: '', step: null });
       // A stop that names its resume stage (Exit.resumeFrom) says where the run resumes, which may not be the stage shown
       // (an inline Resolve conflicts stop after Plan resumes at Red tests): the status file keeps it for the run page.
-      if (code !== 0 && resumeFrom && (FROM_STAGES as readonly string[]).includes(resumeFrom)) ctx.status.resumeFrom = resumeFrom;
+      if (code !== 0 && resumeFrom && (FROM_STAGES as readonly string[]).includes(resumeFrom)) {
+        ctx.status.resumeFrom = resumeFrom;
+        // The agent of the stage the run returns to is told why: the reason is written for it, whichever stop named the stage.
+        if (reason) {
+          try { writeHandoff(ctx, { to: resumeFrom as From, from: ctx.status.stage || 'run', reason }); } catch (e) {
+            keepError(ctx, 'write the handoff', (e as Error).message);
+            out(`WARNING: could not write ${ctx.log}/handoff.json (see ${ctx.log}/errors.log)`);
+          }
+        }
+      }
       ctx.status.write();
       appendRound(at(ctx, ctx.log), { kind: 'end', at: stamp(), state: finalState(code), stage: ctx.status.stage });
       if (code !== 0) {
@@ -252,6 +262,11 @@ async function stages(ctx: Ctx): Promise<void> {
   if (n > 1) {
     const p = ctx.previousRun || {};
     ctx.out(`Start ${n} of this item, started from the ${trigger === 'ui' ? 'web UI' : 'command line'}: the previous start ended ${p.state || 'without a recorded state'} at ${p.stage || 'no stage'}${p.at ? ` (${p.at})` : ''}`);
+  }
+  const handoff = takeHandoff(ctx, ctx.from);
+  if (handoff) {
+    ctx.handoff = { to: handoff.to, from: handoff.finding?.from ?? 'user', text: handoff.text };
+    ctx.out(`Handoff from ${handoff.finding?.from ?? 'user'} to ${HANDOFF_STAGES.find(s => FROM_STAGES.indexOf(s) >= fromN - 1) || handoff.to}: ${ctx.log}/handoff.json`);
   }
   appendRound(at(ctx, ctx.log), {
     kind: 'run', at: stamp(), from: ctx.from, n, trigger,

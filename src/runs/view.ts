@@ -23,6 +23,7 @@ import { withAnswerLines } from '../pipeline/questions.js';
 import { redPattern } from '../pipeline/stages.js';
 import { cleanMergedRunBrief } from './completed.js';
 import { readRunDoc } from './run-docs.js';
+import { readHandoff } from '../pipeline/handoff.js';
 import { recentNotices, type Notice } from './notices.js';
 
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused';
@@ -75,6 +76,8 @@ export interface RunView {
   discarded: string;
   /** The --from value that resumes the run where it stopped ('' for the start). */
   resumeFrom: string;
+  /** logs/handoff.json: the pipeline's finding and the user's instruction for the stage the run resumes at; null when none. */
+  handoff: { to: string; finding?: { from: string; reason: string }; user?: { note: string; at: string } } | null;
   /** The short sha of the red-tests commit on the run's branch, '' when there is none (Plan and Red tests are refused once it exists). */
   redCommit: string;
   /** How old the git facts (changes, redCommit, PR state) are in ms; null when they were just read or not asked for. */
@@ -436,6 +439,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
     gitAgeMs,
     // Where the stop said the run resumes, when it named one; else from the stage it stopped at.
     resumeFrom: typeof s.resume_from === 'string' && s.resume_from && s.state !== 'running' ? s.resume_from : resumeStage(stage, exists(path.join(docsDir, 'test-issues.md'))),
+    handoff: (() => { const h = dir ? readHandoff({ root: logs, log: '.' }) : null; return h ? { to: h.to, ...(h.finding ? { finding: { from: h.finding.from, reason: h.finding.reason } } : {}), ...(h.user ? { user: h.user } : {}) } : null; })(),
     reviewRounds: (() => { const r = readJson(path.join(logs, 'review-rounds.json')); return Array.isArray(r) ? r as ReviewRoundView[] : []; })(),
     testIssues: exists(path.join(docsDir, 'test-issues.md')) ? readText(path.join(docsDir, 'test-issues.md')) : null,
     createPr: (() => {

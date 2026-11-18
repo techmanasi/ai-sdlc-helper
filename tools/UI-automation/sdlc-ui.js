@@ -58,6 +58,11 @@
     output: 'pre.out',
     usageTable: 'table.usage',
     resumePick: '#resume-pick',
+    openPick: '#open-pick',
+    handoffFinding: '#handoff-finding',
+    resumeNote: '#resume-note',
+    totals: '.totals .total',
+    rowCost: '.b-cost',
     question: 'textarea[id^="q"]',
     dialog: '[role="dialog"]',
     fileBody: '.file-md, pre.code',
@@ -169,6 +174,7 @@
         stages: strip ? strip.getAttribute('aria-label') || '' : '',
         stageStates: strip ? $$('i', strip).map(i => stateOf(i, 'st-') || 'pending') : [],
         pr: text($(SELECTORS.rowPr, row)),
+        cost: text($(SELECTORS.rowCost, row)),
         selected: box ? box.checked : row.classList.contains('brow-on'),
         actions: buttons($(SELECTORS.rowActions, row)).map(b => b.label),
       };
@@ -288,11 +294,33 @@
       recovery: recovery(),
       questions: questions().length,
       cost: cost ? text($('.chip', cost)) : '',
+      totals: $$(SELECTORS.totals).map(text),
+      handoff: handoff(),
       panels: panelTitles(),
       // the run's own buttons; the stage tiles are in stages, a panel's buttons are read through panel(<title>)
       buttons: buttons($('.col', main())).filter(b => !b.tile && !b.inPanel).map(b => b.label + (b.disabled ? ' (disabled)' : '')),
       output: output(8),
     };
+  }
+  /** The resume panel's pipeline finding and instruction box; null while the panel is closed. */
+  function handoff() {
+    const box = $(SELECTORS.resumeNote);
+    if (!box) return null;
+    return { finding: text($(SELECTORS.handoffFinding)), note: box.value };
+  }
+  /** Open "Resume at...", pick a stage by its label, type an instruction, press Go and confirm if asked. */
+  async function resumeWithNote(stage, note) {
+    if (!$(SELECTORS.resumePick)) click('Resume at', main());
+    await waitFor(SELECTORS.resumePick);
+    const l = $$('label', $(SELECTORS.resumePick)).find(x => text(x).toLowerCase().startsWith(stage.toLowerCase()));
+    if (!l) throw new Error('sdlcUI.resumeWithNote: no stage "' + stage + '"');
+    $('input', l).click();
+    if (note !== undefined) setValue($(SELECTORS.resumeNote), note);
+    click('Go', $(SELECTORS.resumePick));
+    await sleep(300);
+    const d = $(SELECTORS.dialog);
+    if (d) click('Resume', d);
+    return handoff();
   }
   /** The "Cost and tokens" table as rows of cells. */
   function costTable() {
@@ -349,6 +377,7 @@
     click, buttons, findButton, panel, panelTitles, setValue, setChecked, text,
     // board
     board, boardShow, boardFilter, pick, rowAction,
+    handoff, resumeWithNote,
     // run page
     run, stages, stage, output, questions, answer, recovery, env, setEnv, runOptions, autoAccept, costTable, openDoc, closeDialog,
     // new item

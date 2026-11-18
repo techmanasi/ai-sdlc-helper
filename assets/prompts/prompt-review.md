@@ -5,3 +5,4 @@ Write {{DOCS}}/{{REVIEW_FILE}}, a JSON object and nothing else:
 {"verdict": "pass" | "changes", "blockers": [{"file": "<path>", "criterion": "<the acceptance criterion or rule it breaks>", "reason": "<what is wrong and what a test should show>"}], "missingTests": [{"file": "<source file>", "criterion": "<the criterion with no test>", "reason": "<what the missing test must check>"}]}
 Use "pass" only when both lists are empty. Every finding must be specific enough for a failing test to be written from it.
 Also write a short human summary to {{DOCS}}/review-{{REVIEW_ROUND}}.md.
+{{HANDOFF}}
