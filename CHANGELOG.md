@@ -38,7 +38,8 @@ release notes. Keep new work under `## [Unreleased]`, and rename that heading to
   matched per occurrence.
 - Discarding a stage kept the run's stop and moved the run to the stage before, so a stage that had passed showed
   as stopped with the discarded stage's reason. Now the run stays at the discarded stage, in a new `ready` state, and
-  resumes there.
+  resumes there. The stages before it stay done, and the last one that ran can be discarded next, one stage at a
+  time back to Spec.
 
 ## [0.1.1] - 2026-11-01
 

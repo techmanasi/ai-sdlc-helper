@@ -30,8 +30,13 @@ A new run state, **`ready`**: nothing is running, the last stage was discarded, 
 - It writes `status.json` with:
   - `state: 'ready'`.
   - `stage`: the discarded stage itself. The run stays there, and it is the next stage to run. Before this change
-    the run moved back to the latest earlier stage that still had work. The stages before keep their work, and only
-    the stage the run is at can be discarded.
+    the run moved back to the latest earlier stage that still had work. The stages before keep their work and show
+    as done.
+- Which stage can be discarded (`discardableStage`, `src/runs/discardable.ts`): the last stage that ran. On a stopped
+  run (failed, paused, done, stopped) that is the stage it is at. On a `ready` run it is the latest stage before the
+  discarded one that still has work in `stage-files.json`. So after discarding Red tests, Plan can go next, then
+  Spec, one stage at a time. A later stage is always refused. `RunView.discardable` carries it, and the run page puts
+  the Discard button on that stage.
   - `resume_from`: the discarded stage's key.
   - `discarded_stage: { stage, at }`.
   - The `note`, `agent`, `attempt` and `step` cleared.
@@ -61,8 +66,9 @@ A new run state, **`ready`**: nothing is running, the last stage was discarded, 
 ## Tests (real code)
 
 - `test/runs.test.ts` (or the file that covers `discardStage`): after a failed Red tests stage is discarded, the
-  `runView` state is `ready`. `stage` is Red tests and `resumeFrom` is `red-tests`, and Plan can no longer be
-  discarded. Recovery is null and
+  `runView` state is `ready`. `stage` is Red tests and `resumeFrom` is `red-tests`, and Plan is the discardable
+  stage. Discarding Plan then moves the run to Plan, ready, and Spec becomes discardable; Red tests and later stages
+  are refused. Recovery is null and
   `discardedStage.stage` is Red tests. The same holds for a paused Plan: the state is `ready`, not `paused`.
 - A start after the discard makes the state `running` again, and `discarded_stage` is gone.
 - `test/insights.test.ts`:

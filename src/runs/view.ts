@@ -25,6 +25,7 @@ import { cleanMergedRunBrief } from './completed.js';
 import { readRunDoc } from './run-docs.js';
 import { readHandoff } from '../pipeline/handoff.js';
 import { recentNotices, type Notice } from './notices.js';
+import { discardableStage } from './discardable.js';
 
 /** `ready`: nothing runs and the last stage was discarded, so the run waits to retry it (see discardStage). */
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused' | 'ready';
@@ -77,6 +78,8 @@ export interface RunView {
   discarded: string;
   /** The stage a stage discard took back, while the run is `ready` to retry it; else null. */
   discardedStage: { stage: string; at: string } | null;
+  /** The stage Discard may take back now (see discardableStage): the stage the run is at, or after a discard the last one that ran; '' for none. */
+  discardable: string;
   /** The --from value that resumes the run where it stopped ('' for the start). */
   resumeFrom: string;
   /** logs/handoff.json: the pipeline's finding and the user's instruction for the stage the run resumes at; null when none. */
@@ -445,6 +448,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
     tail: dir && want('tail') ? tail(path.join(logs, 'run.out'), opts.tailLines ?? 40) : [],
     docs: docFiles(docsDir),
     discarded,
+    discardable: state === 'running' ? '' : discardableStage({ state, stage }, stageFiles && typeof stageFiles.stages === 'object' ? stageFiles.stages : null),
     discardedStage: state === 'ready' && s.discarded_stage && typeof s.discarded_stage.stage === 'string'
       ? { stage: s.discarded_stage.stage, at: String(s.discarded_stage.at || '') } : null,
     redCommit,

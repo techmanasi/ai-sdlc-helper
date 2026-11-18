@@ -62,7 +62,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   questions: Question[]; permissions: Ask[]; deniedPermissions?: Ask[];
   stageFiles: Record<string, string[]>;
   changes: { changed: number; uncommitted: number; files: string[] } | null;
-  tail: string[]; docs: string[]; discarded: string; discardedStage?: { stage: string; at: string } | null; movedFrom?: { branch: string; reason: string; reasonText?: string; pr?: string; at: string }; resumeFrom: string; handoff: { to: string; finding?: { from: string; reason: string }; user?: { note: string; at: string } } | null; redCommit: string; gitAgeMs: number | null;
+  tail: string[]; docs: string[]; discarded: string; discardedStage?: { stage: string; at: string } | null; discardable?: string; movedFrom?: { branch: string; reason: string; reasonText?: string; pr?: string; at: string }; resumeFrom: string; handoff: { to: string; finding?: { from: string; reason: string }; user?: { note: string; at: string } } | null; redCommit: string; gitAgeMs: number | null;
   createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean; undo?: { from: string; at: string } | null; mergeFix?: boolean;
   prCi?: CiState | null; prFailing?: string[]; prConflicts?: 'none' | 'conflicting' | 'unknown' | null; ciSummary?: string[];
   ci?: { enabled: boolean; state: string; pr: string | null; prDraft: boolean; reason?: string; failingChecks: string[]; warnings: string[]; sha?: string } | null;

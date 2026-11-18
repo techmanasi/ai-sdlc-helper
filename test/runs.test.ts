@@ -499,7 +499,19 @@ describe('discard and restart', () => {
     const marks = JSON.parse(fs.readFileSync(path.join(docs, 'logs/stage-files.json'), 'utf8'));
     expect(Object.keys(marks.stages).sort()).toEqual(['Plan', 'Spec']); // Red tests is forgotten
     expect(JSON.parse(fs.readFileSync(path.join(docs, 'logs/status.json'), 'utf8'))).toMatchObject({ stage: 'Red tests', state: 'ready', resume_from: 'red-tests' }); // the run stays at Red tests, the next to run
-    expect((await cli(['discard-stage', 'alpha', '--from', 'plan'])).status).toBe(2);
+    // Plan is now the last stage that ran, so it can go next; Red tests and later stages cannot
+    expect((await cli(['discard-stage', 'alpha', '--from', 'implement'])).status).toBe(2);
+    expect((await cli(['discard-stage', 'alpha', '--from', 'red-tests'])).status).toBe(2);
+    expect(fs.readFileSync(path.join(docs, 'plan-1.md'), 'utf8')).toBe('plan\n');
+    expect((await cli(['discard-stage', 'alpha', '--from', 'plan'])).status).toBe(0);
+    expect(fs.existsSync(path.join(docs, 'plan-1.md'))).toBe(false);
+    expect(fs.readFileSync(path.join(docs, 'specs-1.md'), 'utf8')).toBe('spec\n');
+    expect(JSON.parse(fs.readFileSync(path.join(docs, 'logs/status.json'), 'utf8'))).toMatchObject({ stage: 'Plan', state: 'ready', resume_from: 'plan' });
+    expect(Object.keys(JSON.parse(fs.readFileSync(path.join(docs, 'logs/stage-files.json'), 'utf8')).stages)).toEqual(['Spec']);
+    expect((await cli(['discard-stage', 'alpha', '--from', 'spec'])).status).toBe(0);
+    expect(fs.existsSync(path.join(docs, 'specs-1.md'))).toBe(false);
+    expect(JSON.parse(fs.readFileSync(path.join(docs, 'logs/status.json'), 'utf8'))).toMatchObject({ stage: 'Spec', state: 'ready', resume_from: 'spec' });
+    expect((await cli(['discard-stage', 'alpha'])).status).toBe(2); // nothing before Spec is left to discard
   });
 
   // A stopped run's status as the pipeline leaves it: the stage, the stop's state and the stage it said to resume at.
@@ -525,9 +537,11 @@ describe('discard and restart', () => {
     expect(v.discardedStage?.stage).toBe('Red tests');
     expect(v.note).toBe('');
     expect(v.attempt).toBe('');
-    // Plan's work stays: the run is at Red tests, so only Red tests can be discarded
-    expect((await cli(['discard-stage', 'fail-one', '--from', 'plan'])).status).toBe(2);
-    expect(runView(ctx, 'fail-one', { changes: false, checkPr: false })).toMatchObject({ state: 'ready', stage: 'Red tests', resumeFrom: 'red-tests' });
+    expect(v.discardable).toBe('Plan'); // the last stage that ran; its work is kept until it is discarded too
+    expect(v.stageFiles.Plan).toEqual(['b']);
+    // discarding Plan next moves the run to Plan, ready to retry it; Spec is then the one that can go
+    expect((await cli(['discard-stage', 'fail-one', '--from', 'plan'])).status).toBe(0);
+    expect(runView(ctx, 'fail-one', { changes: false, checkPr: false })).toMatchObject({ state: 'ready', stage: 'Plan', resumeFrom: 'plan', discardable: 'Spec', recovery: null });
   });
 
   test('discarding a paused stage keeps the run at that stage, ready, not waiting; a new start ends it', async () => {
@@ -538,7 +552,7 @@ describe('discard and restart', () => {
     stopped(wt, 'pause-one', 'Plan', 'paused', 'plan');
     expect((await cli(['discard-stage', 'pause-one', '--from', 'plan'])).status).toBe(0);
     const ctx = runContext(repo, baseEnv());
-    expect(runView(ctx, 'pause-one', { changes: false, checkPr: false })).toMatchObject({ state: 'ready', stage: 'Plan', resumeFrom: 'plan', recovery: null });
+    expect(runView(ctx, 'pause-one', { changes: false, checkPr: false })).toMatchObject({ state: 'ready', stage: 'Plan', resumeFrom: 'plan', recovery: null, discardable: 'Spec' });
 
     // a run started after the discard is not ready, even while status.json still says so
     await new Promise(r => setTimeout(r, 1100));
