@@ -1,5 +1,5 @@
-import { pageTrace } from './pageTrace';
-import type { NoticeItem } from './notices';
+import { pageTrace } from './pageTrace.js';
+import type { NoticeItem } from './notices.js';
 
 // The server's API, as the app uses it. The shapes mirror the engine's (RunView, BoardView …); the app keeps its own
 // copy so the browser build never pulls in Node code.
@@ -73,10 +73,13 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   attempts?: AttemptRound[];
   /** Every stage's steps, time, tokens and cost, and the test lock (from logs/attempts.jsonl); absent on an older server. */
   timeline?: Timeline;
+  /** The steps each stage runs, by stage name (absent from an older server). */
+  stepPlan?: Record<string, string[]>;
 }
 export interface StepSpan { key: string; label: string; started: string; ended: string | null }
 export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd?: number; unpriced?: number }
-export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; usage: UsageTotals }
+export interface StageRound { started: string; ended: string | null; steps: StepSpan[] }
+export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; rounds?: StageRound[]; usage: UsageTotals }
 export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
 export interface LockOpen { at: string; reason: 'retry' | 'review-findings' | 'test-repair'; sha: string }
 export interface Timeline { stages: StageSpan[]; lock: LockView | null; lockOpen?: LockOpen | null; usage: UsageTotals }

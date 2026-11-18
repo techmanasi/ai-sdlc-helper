@@ -15,6 +15,7 @@ import { ciSummaryOf, getPrFromBrief, getPrStatusCached, keepPrStatusIn, PR_STAT
 import { readRounds, type Round } from '../pipeline/observe.js';
 import { runTimeline, type Timeline, type UsageTotals } from './timeline.js';
 import { pricesNow } from '../models/prices.js';
+import { STEPS } from '../pipeline/steps.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
 import type { ReviewRound as ReviewRoundView } from '../pipeline/review-gate.js';
@@ -109,9 +110,13 @@ export interface RunView {
   attempts: Round[];
   /** Stages and steps with their times, usage and cost per stage, and the red-test lock (logs/attempts.jsonl); absent when there is no file. */
   timeline?: Timeline;
+  /** The steps each stage runs, by stage name, so a stage that has not started can show what it will do. */
+  stepPlan: Record<string, string[]>;
   /** CI full-suite gate status; null unless tests.fullSuite is "ci". */
   ci?: CiView | null;
 }
+
+const STEP_PLAN: Record<string, string[]> = Object.fromEntries(Object.entries(STEPS).map(([k, v]) => [k, v.map(x => x.label)]));
 
 /** The timeline of every start of the item: tolerant of a missing file, a half-written last line and malformed lines. */
 function timelineOf(logs: string): { timeline?: Timeline } {
@@ -500,6 +505,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
     // A round still marked running when the run is not running it (or runs another agent) was cut short.
     attempts: readRounds(logs).map(r => (r.running && !(state === 'running' && (s.agent || '') === r.agent) ? { ...r, running: false, warnings: [...r.warnings, 'the round did not finish: the run stopped'] } : r)),
     ...timelineOf(logs),
+    stepPlan: STEP_PLAN,
     recovery: ['paused', 'failed', 'refused', 'stopped', 'interrupted'].includes(state)
       ? stageRecoveryHint({
           slug,
