@@ -11,7 +11,10 @@ export interface StepSpan { key: string; label: string; started: string; ended: 
  * `unpriced` counts the rounds with tokens and neither a cost nor a known price, so the cost leaves them out.
  */
 export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd: number; unpriced: number }
-export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; usage: UsageTotals }
+/** One pass of a stage: when it began and ended and the steps it went through. */
+export interface StageRound { started: string; ended: string | null; steps: StepSpan[] }
+/** `steps` are the latest pass's; `rounds` holds every pass, oldest first (empty for an old file with no stage rows). */
+export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; rounds: StageRound[]; usage: UsageTotals }
 export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
 /**
  * The lock is open: tests that were locked are being changed on purpose, and stay open until they are committed again.
@@ -102,9 +105,15 @@ export function runTimeline(rows: unknown[], now?: string, prices: PriceTable = 
     locks.length = 0; guards.length = 0;
   };
 
+  /** The stage's open pass ends at <at> (and the stage with it). */
+  const endStage = (s: StageSpan, at: string): void => {
+    if (s.ended === null) s.ended = at;
+    const r = s.rounds[s.rounds.length - 1];
+    if (r && r.ended === null) r.ended = at;
+  };
   const spanFor = (name: string, started: string): StageSpan => {
     let s = stages.get(name);
-    if (!s) { s = { stage: name, started, ended: null, passes: 0, steps: [], usage: emptyUsage() }; stages.set(name, s); }
+    if (!s) { s = { stage: name, started, ended: null, passes: 0, steps: [], rounds: [], usage: emptyUsage() }; stages.set(name, s); }
     return s;
   };
 
@@ -126,11 +135,13 @@ export function runTimeline(rows: unknown[], now?: string, prices: PriceTable = 
         else if (name === 'Test repair') { if (locks.length) open = { at, reason: 'test-repair', sha: lastSha() }; }
         else if (open?.reason === 'test-repair') open = null;
         sawStage = true;
-        if (current && current.ended === null) current.ended = at;
+        if (current) endStage(current, at);
         closeAt(at);
         const s = spanFor(name, at);
         s.passes++;
-        s.steps = [];
+        const round: StageRound = { started: at, ended: null, steps: [] };
+        s.rounds.push(round);
+        s.steps = round.steps;
         s.ended = null;
         current = s;
         break;
@@ -148,7 +159,7 @@ export function runTimeline(rows: unknown[], now?: string, prices: PriceTable = 
       }
       case 'end': {
         if (open?.reason === 'test-repair') open = null;
-        if (current && current.ended === null && at) current.ended = at;
+        if (current && at) endStage(current, at);
         closeAt(at);
         current = null;
         break;

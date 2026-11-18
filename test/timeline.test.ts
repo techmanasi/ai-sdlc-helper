@@ -49,6 +49,25 @@ describe('runTimeline', () => {
     expect(impl.usage).toMatchObject({ rounds: 2, tokens: 30, input: 20, output: 10, cacheRead: 200, cacheWrite: 14, costUsd: 0.75, durationSec: 4, turns: 2 });
   });
 
+  test('every pass of a stage is kept as a round with its own steps and times; the latest round holds the open step', () => {
+    const tl = runTimeline([
+      { kind: 'stage', at: t(0), stage: 'Implement' },
+      { kind: 'step', at: t(1), stage: 'Implement', key: 'old', label: 'Old' },
+      { kind: 'stage', at: t(10), stage: 'Test repair' },
+      { kind: 'stage', at: t(20), stage: 'Implement' },
+      { kind: 'step', at: t(21), stage: 'Implement', key: 'new', label: 'New' },
+    ]);
+    const impl = tl.stages[0];
+    expect(impl.rounds.map(r => ({ started: r.started, ended: r.ended, steps: r.steps.map(x => x.key) })))
+      .toEqual([{ started: t(0), ended: t(10), steps: ['old'] }, { started: t(20), ended: null, steps: ['new'] }]);
+    expect(impl.steps).toBe(impl.rounds[1].steps);
+    expect(tl.stages[1].rounds).toHaveLength(1);
+  });
+
+  test('a file with no stage rows has no rounds', () => {
+    expect(runTimeline([{ kind: 'step', at: t(1), stage: 'Spec', key: 'a', label: 'A' }]).stages[0].rounds).toEqual([]);
+  });
+
   test('cost is null when no round reported one, and totals sum over stages', () => {
     const none = runTimeline([{ kind: 'stage', at: t(0), stage: 'Spec' }, round('spec', 1), round('spec', 2, { usage: usage(null) })]);
     expect(none.stages[0].usage.costUsd).toBeNull();

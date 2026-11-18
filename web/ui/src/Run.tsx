@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, type RunView, type SettingsView } from './api';
 import { ModelSelect } from './ModelSelect';
 import { elapsedText, linkPaths, resolveShown, showTestIssues, stepBanner } from './stages';
-import { Guarantees, LockDetail, OutputPanel, StageRail, StepList, UsagePanel, type RailStage } from './RunInsights';
+import { BackBar, Guarantees, LockDetail, OutputPanel, RoundChips, StageRail, StepList, UsagePanel, usePhone, type RailStage } from './RunInsights';
+import { backBar, followNote, followedStage, phoneOpens, pickRound, prBadge, roundsOf, shownStage, waitsFor } from './stagePane';
 import { hasUsage, openLock, skipped, stageStates, usageText, verifiedLock, type StageState } from './insights';
 import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, GLYPH, Markdown, Panel, Spinner, stateClass, useApp } from './ui';
@@ -260,8 +261,13 @@ export function Run({ slug }: { slug: string }) {
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
   const [stageDirs, setStageDirs] = useState<StageDirState>({});
   const [issuesDraft, setIssuesDraft] = useState<string | null>(null);
-  /** The stage whose details are open under the rail ('' for none). */
-  const [openStage, setOpenStage] = useState('');
+  /** The stage the user picked in the rail, and the run's followed stage when they picked it (the pick lapses once the run moves on). */
+  const [picked, setPicked] = useState<{ key: string; at: string }>({ key: '', at: '' });
+  /** The round of that stage on view (0: the latest). */
+  const [pickedRound, setPickedRound] = useState(0);
+  /** On a phone the details open under a tapped stage; 'auto' leaves it to the run (a stop opens it). */
+  const [phoneMode, setPhoneMode] = useState<'auto' | 'open' | 'shut'>('auto');
+  const phone = usePhone();
 
   const testIssuesRejects = useMemo(() => {
     if (!v?.tail) return [];
@@ -358,6 +364,17 @@ export function Run({ slug }: { slug: string }) {
     state: skipped(s.name, states[i], v.timeline?.stages, v.stageFiles) ? 'skipped' as const : states[i],
     model: v.models[s.key]?.model || '', files: v.stageFiles[s.name]?.length || 0,
   })).filter(s => !s.afterPr || resolveShown(v));
+  const paneStages = railStages.map(r => ({ key: r.key, name: r.name, state: r.state }));
+  const followedKey = followedStage(paneStages, { state: v.state, stage: v.stage });
+  const shownKey = shownStage(paneStages, followedKey, picked.at === followedKey ? picked.key : '');
+  const paneStage = STAGES.find(x => x.key === shownKey);
+  const followedState = paneStages.find(x => x.key === followedKey)?.state;
+  const phoneIsOpen = phone && (phoneMode === 'open' || (phoneMode === 'auto' && phoneOpens(followedState)));
+  const phoneAuto = phone && phoneMode === 'auto' && phoneOpens(followedState);
+  const pickStage = (key: string) => {
+    if (phone && phoneIsOpen && key === shownKey) { setPhoneMode('shut'); return; }
+    setPicked({ key, at: followedKey }); setPickedRound(0); setPhoneMode('open');
+  };
   const unanswered = v.questions.filter(q => !(answers[q.n] !== undefined ? answers[q.n] : q.answer).trim()).length;
   // A run with no recorded stage resumes at Spec, named and sent as such: no button starts without saying where.
   const resumeKey = v.resumeFrom || 'spec';
@@ -712,16 +729,30 @@ export function Run({ slug }: { slug: string }) {
       {v.discarded && <p class="small muted" style={{ margin: 0 }}>Discarded before. To get that branch back: <span class="mono">{v.discarded}</span></p>}
 
       <Panel title="Stages" extra={<span class="small muted">Pick a stage to see its steps and set its agent, model and effort (they apply when the run starts or resumes)</span>}>
-        <StageRail stages={railStages} timeline={v.timeline} step={v.state === 'running' ? v.step : undefined} locked={!!lock} lockOpen={lockOpen} selected={openStage} onSelect={setOpenStage}>
-          {openStage && (() => {
-              const i = STAGES.findIndex(x => x.key === openStage);
-              const s = STAGES[i];
-              if (!s) return null;
+        <StageRail
+          stages={railStages} timeline={v.timeline} step={v.state === 'running' ? v.step : undefined} locked={!!lock} lockOpen={lockOpen}
+          shown={shownKey} followed={followedKey} pr={prBadge(v)} phone={phone} phoneOpen={phoneIsOpen} onSelect={pickStage}
+        >
+          {paneStage && (() => {
+              const s = paneStage;
+              const i = STAGES.findIndex(x => x.key === s.key);
               const st = states[i];
               const inUse = s.key && v.models[s.key];
               const locked = running && st !== 'pending';
+              const span = spanOf(s.name);
+              const rounds = roundsOf(span);
+              const roundNo = pickRound(rounds, pickedRound);
+              const round = rounds[roundNo - 1];
+              const latest = roundNo === rounds.length;
+              const plan = st === 'pending' || (latest && (st === 'active' || st === 'paused')) ? v.stepPlan?.[s.name] : undefined;
+              const bar = backBar(paneStages, followedKey, shownKey);
+              const note = followNote(st, shownKey === followedKey);
+              const waits = st === 'pending' ? waitsFor(s.name) : [];
               return (
                 <div id="stage-detail" class="stage-detail" role="tabpanel" aria-label={s.name}>
+                 {bar && <BackBar text={bar.text} back={bar.back} onBack={() => { setPicked({ key: '', at: '' }); setPickedRound(0); }} />}
+                 {phoneAuto && !bar && <p class="pane-auto small muted">Opened by itself because the run stopped here</p>}
+                 <div class="pane-grid">
                  <div class="rail-controls">
                   <h3>{s.name} · {s.key === 'finalise' ? 'options' : 'agent, model and effort'}</h3>
                   {v.attempt && st === 'active' && (
@@ -772,11 +803,12 @@ export function Run({ slug }: { slug: string }) {
                     </div>
                   )}
                   {s.key && s.key !== 'finalise' && (locked || running
-                    ? <span class="row small" style={{ gap: '4px', alignItems: 'center' }}>{overrideBadge}<span class="mono muted">{inUse ? `${inUse.model} · ${inUse.effort}` : 'default'}{st === 'active' ? ' · in use' : ''}</span></span>
+                    ? <><span class="row small" style={{ gap: '4px', alignItems: 'center' }}>{overrideBadge}<span class="mono muted">{inUse ? `${inUse.model} · ${inUse.effort}` : 'default'}{st === 'active' ? ' · in use' : ''}</span></span>{st === 'active' && <span class="small muted">Locked while the stage runs. Changes apply when the run starts or resumes.</span>}</>
                     : (
                       <div class="col" style={{ gap: '2px' }}>
                         {stagePickers(s)}
                         {forceActive && <span class="mono small" style={{ color: 'var(--wait, #e3b341)' }}>[override] {effectiveOf(s.key)}</span>}
+                        {st === 'pending' && <span class="small muted">You can change these now. {s.name} uses them when it starts.</span>}
                       </div>
                     ))}
                   {s.key === 'test-repair' && v.models['test-audit'] && <span class="row small" style={{ gap: '4px', alignItems: 'center' }}>{overrideBadge}<span class="mono small muted">audit: {v.models['test-audit'].model} · {v.models['test-audit'].effort}</span></span>}
@@ -788,10 +820,14 @@ export function Run({ slug }: { slug: string }) {
                   )}
                   {s.name === 'Finalise' && v.deniedPermissions && v.deniedPermissions.length > 0 && <span class="small s-failed">{v.deniedPermissions.length} denied</span>}
                  </div>
-                 <div>
-                  <h3>Steps{spanOf(s.name)?.started ? ` · started ${spanOf(s.name)!.started.slice(11, 16)}` : ''}</h3>
-                  <StepList span={spanOf(s.name)} running={st === 'active'} />
+                 <div class="pane-steps">
+                  <h3>{st === 'pending' ? 'Steps · not started' : `Steps · round ${roundNo}`}{round?.started ? ` · started ${round.started.slice(11, 16)}` : ''}{note && <span class="pane-follow"> · {note}</span>}</h3>
+                  {waits.length > 0 && <p class="small muted pane-waits">Starts after {waits.join(' and ')}</p>}
+                  <RoundChips count={rounds.length} picked={roundNo} onPick={setPickedRound} />
+                  <StepList steps={round?.steps || []} running={st === 'active' && latest} plan={plan} />
+                  {st === 'pending' && plan && <p class="small muted pane-foot">These are the steps {s.name} will run. Each one turns into a normal pill with its time once it starts.</p>}
                   {s.key === 'red-tests' && <><h3 style={{ marginTop: '14px' }}>Test lock</h3><LockDetail lock={lock} open={lockOpen} /></>}
+                 </div>
                  </div>
                 </div>
               );

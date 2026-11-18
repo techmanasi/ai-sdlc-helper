@@ -52,6 +52,9 @@
     tileLine: '.tile-line',
     tileCost: '.tile-cost',
     tileLock: '.tile-lock',
+    tileRound: '.tile-round',
+    tilePr: '.tile-pr',
+    paneBack: '.pane-back',
     stageDetail: '#stage-detail',
     step: '.steps .step',
     stepLabel: '.step-label',
@@ -204,11 +207,13 @@
       model: text($(SELECTORS.tileModel, t)),
       line: text($(SELECTORS.tileLine, t)),
       cost: text($(SELECTORS.tileCost, t)),
+      round: text($(SELECTORS.tileRound, t)),
+      pr: text($(SELECTORS.tilePr, t)),
       lock: ($(SELECTORS.tileLock, t) || { getAttribute: () => '' }).getAttribute('aria-label') || '',
       selected: t.getAttribute('aria-selected') === 'true',
     }));
   }
-  /** Opens a stage on the rail and returns its steps. */
+  /** Picks a stage on the rail (the pane under it always shows one) and returns its steps. */
   async function stage(name) {
     const t = $$(SELECTORS.tile).find(x => text($(SELECTORS.tileName, x)).toLowerCase() === name.toLowerCase());
     if (!t) throw new Error(`sdlcUI.stage: no stage ${name}; stages: ${stages().map(s => s.name).join(', ')}`);
@@ -217,6 +222,7 @@
     return {
       name,
       heading: text($('h3', d)),
+      following: !$(SELECTORS.paneBack, d),
       steps: $$(SELECTORS.step, d).map(s => ({ label: text($(SELECTORS.stepLabel, s)), time: text($(SELECTORS.stepTime, s)), state: stateOf(s, 'step-') })),
       text: text(d).slice(0, 600),
     };

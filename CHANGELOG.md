@@ -24,6 +24,9 @@ release notes. Keep new work under `## [Unreleased]`, and rename that heading to
   no longer repeats the same work and the same stop.
 
 ### Changed
+- Run page: an always-visible stage pane under the stage rail, joined to the selected tile, showing the steps of the
+  running (or stopped) stage, its rounds, agent, model and effort. Tiles show a round pill and a pull request badge; a
+  stage that has not started lists the steps it will run.
 - Static files are compressed and cached, there is no Google Fonts request, and the theme is set before the first
   paint (#162).
 - An open test lock is recognisable at a glance (#174).
