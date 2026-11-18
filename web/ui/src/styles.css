@@ -63,7 +63,7 @@ textarea.inp { resize: vertical; }
 .col { display: flex; flex-direction: column; gap: 14px; }
 .grow { flex: 1 1 auto; }
 .code { background: var(--code); padding: 12px; font-size: 12px; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
-.s-running { color: var(--run); } .s-paused { color: var(--wait); } .s-failed, .s-refused, .s-stopped { color: var(--fail); }
+.s-running { color: var(--run); } .s-paused, .s-ready { color: var(--wait); } .s-failed, .s-refused, .s-stopped { color: var(--fail); }
 .s-done { color: var(--done); } .s-pr { color: var(--wait); } .pr-icon { vertical-align: -0.125em; } .s-interrupted { color: var(--wait); } .s-not-started { color: var(--mu); }
 
 @keyframes spin {
@@ -185,7 +185,7 @@ textarea.inp { resize: vertical; }
 /* a state as a chip: colour, tint and a mark, never colour alone */
 .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--pn2); color: var(--tx); border: 1px solid var(--ln); white-space: nowrap; }
 .chip-running { background: var(--run-bg); color: var(--run); border-color: transparent; }
-.chip-paused, .chip-interrupted { background: var(--wait-bg); color: var(--wait); border-color: transparent; }
+.chip-paused, .chip-interrupted, .chip-ready { background: var(--wait-bg); color: var(--wait); border-color: transparent; }
 .chip-failed, .chip-refused, .chip-stopped { background: var(--fail-bg); color: var(--fail); border-color: transparent; }
 .chip-done { background: var(--done-bg); color: var(--done); border-color: transparent; }
 .chip-pending, .chip-not-started { color: var(--mu); }

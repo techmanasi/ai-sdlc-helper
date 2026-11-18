@@ -35,7 +35,28 @@ export function stripStates(r: { state: string; stage: string }): TileState[] {
     if (r.state === 'not started' || at < 0) return 'pending';
     if (i < at) return 'done';
     if (i > at) return 'pending';
-    return r.state === 'running' ? 'active' : r.state === 'paused' ? 'paused' : 'failed';
+    // Ready: the run stays at the stage that was discarded, which waits to run again.
+    return r.state === 'running' ? 'active' : r.state === 'paused' ? 'paused' : r.state === 'ready' ? 'pending' : 'failed';
+  });
+}
+
+export type StageState = 'done' | 'active' | 'paused' | 'failed' | 'pending';
+
+/**
+ * One state per stage for the run page's rail: the stages before the current one are done, the current one takes the
+ * run's state (a run ready after a stage discard has it waiting to run again), the rest wait. A running run with no stage yet shows
+ * the stage it started from.
+ */
+export function stageStates(v: { state: string; stage: string; record?: { from?: string } | null }, stages: readonly { name: string; key: string }[]): StageState[] {
+  const name = stageName(v.stage || (v.state === 'running' && v.record?.from ? (stages.find(s => s.key === v.record?.from)?.name || '') : ''));
+  const at = v.state === 'done' ? stages.length : Math.max(0, stages.findIndex(s => s.name === name));
+  return stages.map((_, i) => {
+    if (v.state === 'done' || i < at) return 'done';
+    if (i > at || v.state === 'not started' || (!v.stage && (v.state === 'ready' || (!v.record?.from && v.state !== 'running')))) return 'pending';
+    if (v.state === 'running') return 'active';
+    if (v.state === 'paused') return 'paused';
+    if (v.state === 'ready') return 'pending';
+    return 'failed';
   });
 }
 

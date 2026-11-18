@@ -15,7 +15,7 @@ export const Ctx = createContext<AppContext>({ project: '', go: () => {}, toast:
 export const useApp = () => useContext(Ctx);
 
 export const GLYPH: Record<ViewState, string> = {
-  'not started': '○', running: '●', paused: '⏸', done: '✔', failed: '✘', interrupted: '■', stopped: '✘', refused: '✘',
+  'not started': '○', running: '●', paused: '⏸', done: '✔', failed: '✘', interrupted: '■', stopped: '✘', refused: '✘', ready: '↺',
 };
 /** The pull-request mark (git-pull-request), shown for a finished run whose PR is not merged yet. */
 export const PrIcon = ({ title = 'Pull request open' }: { title?: string }) => (

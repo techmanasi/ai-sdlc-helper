@@ -7,6 +7,7 @@ import { main } from '../src/cli/main.js';
 import { alive, killTree, projectRoot } from '../src/runs/records.js';
 import { repoRulesFile } from '../src/permissions/index.js';
 import { pipelineArgv, pipelineEnv, readCheckpoint, runContext, undoLast } from '../src/runs/index.js';
+import { runView } from '../src/runs/view.js';
 import { resolve } from '../src/config/settings.js';
 import { tmp as mkTmp } from './helpers.js';
 
@@ -497,9 +498,53 @@ describe('discard and restart', () => {
     expect(fs.existsSync(path.join(docs, 'logs/status.json'))).toBe(true);
     const marks = JSON.parse(fs.readFileSync(path.join(docs, 'logs/stage-files.json'), 'utf8'));
     expect(Object.keys(marks.stages).sort()).toEqual(['Plan', 'Spec']); // Red tests is forgotten
-    expect(JSON.parse(fs.readFileSync(path.join(docs, 'logs/status.json'), 'utf8')).stage).toBe('Plan'); // the run stands at Plan now: it is the one to discard next
-    expect((await cli(['discard-stage', 'alpha', '--from', 'spec'])).status).toBe(2);
-    expect((await cli(['discard-stage', 'alpha', '--from', 'plan'])).status).toBe(0);
+    expect(JSON.parse(fs.readFileSync(path.join(docs, 'logs/status.json'), 'utf8'))).toMatchObject({ stage: 'Red tests', state: 'ready', resume_from: 'red-tests' }); // the run stays at Red tests, the next to run
+    expect((await cli(['discard-stage', 'alpha', '--from', 'plan'])).status).toBe(2);
+  });
+
+  // A stopped run's status as the pipeline leaves it: the stage, the stop's state and the stage it said to resume at.
+  const stopped = (wt: string, slug: string, stage: string, state: string, resumeFrom: string) => fs.writeFileSync(
+    path.join(wt, `Docs/backlog/${slug}/logs/status.json`), JSON.stringify({ slug, state, stage, attempt: '2/2', note: 'waiting', resume_from: resumeFrom }));
+
+  test('discarding a failed stage keeps the run at that stage, ready to retry it: the stage before is not shown as stopped', async () => {
+    await cli(['start', 'fail-one']);
+    expect(await finished('fail-one')).toMatchObject({ exit_code: '1' });
+    const wt = record('fail-one').worktree;
+    fs.writeFileSync(path.join(wt, 'red.test.txt'), 'red\n');
+    fs.writeFileSync(path.join(wt, 'Docs/backlog/fail-one/logs/stage-files.json'), JSON.stringify({ marker: { files: {}, head: git(wt, 'rev-parse', 'HEAD') }, stages: { Spec: ['a'], Plan: ['b'], 'Red tests': ['red.test.txt'] } }));
+    stopped(wt, 'fail-one', 'Red tests', 'failed', 'plan');
+    const ctx = runContext(repo, baseEnv());
+    expect(runView(ctx, 'fail-one', { changes: false, checkPr: false }).state).toBe('failed');
+
+    expect((await cli(['discard-stage', 'fail-one', '--from', 'red-tests'])).status).toBe(0);
+    const v = runView(ctx, 'fail-one', { changes: false, checkPr: false });
+    expect(v.state).toBe('ready');
+    expect(v.stage).toBe('Red tests');
+    expect(v.resumeFrom).toBe('red-tests');
+    expect(v.recovery).toBeNull();
+    expect(v.discardedStage?.stage).toBe('Red tests');
+    expect(v.note).toBe('');
+    expect(v.attempt).toBe('');
+    // Plan's work stays: the run is at Red tests, so only Red tests can be discarded
+    expect((await cli(['discard-stage', 'fail-one', '--from', 'plan'])).status).toBe(2);
+    expect(runView(ctx, 'fail-one', { changes: false, checkPr: false })).toMatchObject({ state: 'ready', stage: 'Red tests', resumeFrom: 'red-tests' });
+  });
+
+  test('discarding a paused stage keeps the run at that stage, ready, not waiting; a new start ends it', async () => {
+    await cli(['start', 'pause-one']);
+    expect(await finished('pause-one')).toMatchObject({ exit_code: '2' });
+    const wt = record('pause-one').worktree;
+    fs.writeFileSync(path.join(wt, 'Docs/backlog/pause-one/logs/stage-files.json'), JSON.stringify({ marker: { files: {}, head: git(wt, 'rev-parse', 'HEAD') }, stages: { Spec: ['a'], Plan: ['b'] } }));
+    stopped(wt, 'pause-one', 'Plan', 'paused', 'plan');
+    expect((await cli(['discard-stage', 'pause-one', '--from', 'plan'])).status).toBe(0);
+    const ctx = runContext(repo, baseEnv());
+    expect(runView(ctx, 'pause-one', { changes: false, checkPr: false })).toMatchObject({ state: 'ready', stage: 'Plan', resumeFrom: 'plan', recovery: null });
+
+    // a run started after the discard is not ready, even while status.json still says so
+    await new Promise(r => setTimeout(r, 1100));
+    await cli(['start', 'pause-one']);
+    await finished('pause-one');
+    expect(runView(ctx, 'pause-one', { changes: false, checkPr: false }).state).toBe('paused');
   });
 
   test('discard works when the worktree was deleted by hand, and uses the record\'s path when the settings changed', async () => {

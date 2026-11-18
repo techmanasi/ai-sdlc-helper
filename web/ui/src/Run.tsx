@@ -5,7 +5,7 @@ import { api, type RunView, type SettingsView } from './api';
 import { ModelSelect } from './ModelSelect';
 import { elapsedText, linkPaths, resolveShown, showTestIssues, stepBanner } from './stages';
 import { Guarantees, LockDetail, OutputPanel, StageRail, StepList, UsagePanel, type RailStage } from './RunInsights';
-import { hasUsage, openLock, skipped, usageText, verifiedLock } from './insights';
+import { hasUsage, openLock, skipped, stageStates, usageText, verifiedLock, type StageState } from './insights';
 import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, GLYPH, Markdown, Panel, Spinner, stateClass, useApp } from './ui';
 import { defaultPick, needsResumeConfirm, resumeCommand, resumeOptions } from './resume';
@@ -62,18 +62,6 @@ function saveEnv(project: string, slug: string, rows: [string, string][]): void 
 
 
 
-type StageState = 'done' | 'active' | 'paused' | 'failed' | 'pending';
-function stageStates(v: RunView): StageState[] {
-  const stageName = v.stage || (v.state === 'running' && v.record?.from ? (STAGES.find(s => s.key === v.record?.from)?.name || '') : '');
-  const at = v.state === 'done' ? STAGES.length : Math.max(0, STAGES.findIndex(s => s.name === stageName || (s.name === 'Finalise' && (stageName === 'Finalise' || stageName === '6/6 Finalise'))));
-  return STAGES.map((_, i) => {
-    if (v.state === 'done' || i < at) return 'done';
-    if (i > at || v.state === 'not started' || (!v.stage && !v.record?.from && v.state !== 'running')) return 'pending';
-    if (v.state === 'running') return 'active';
-    if (v.state === 'paused') return 'paused';
-    return 'failed';
-  });
-}
 const STAGE_GLYPH: Record<StageState, string> = { done: '✔', active: '●', paused: '⏸', failed: '✘', pending: '○' };
 const STAGE_CLASS: Record<StageState, string> = { done: 's-done', active: 's-running', paused: 's-paused', failed: 's-failed', pending: 's-not-started' };
 
@@ -361,7 +349,7 @@ export function Run({ slug }: { slug: string }) {
   if (!v) return <div class="col"><div class="hero"><h1>{slug}</h1></div>{error ? <ErrorBox error={error} /> : <><div class="skel" style={{ height: '64px' }} /><div class="skel" style={{ height: '150px' }} /><div class="skel" style={{ height: '320px' }} /><span class="sr" role="status">Loading the run</span></>}</div>;
 
   const running = v.state === 'running';
-  const states = stageStates(v);
+  const states = stageStates(v, STAGES);
   const spanOf = (name: string) => v.timeline?.stages.find(x => x.stage === name);
   const lock = verifiedLock(v);
   const lockOpen = openLock(v);
@@ -971,6 +959,14 @@ export function Run({ slug }: { slug: string }) {
                   </button>
                 </div>
               </div>
+            </Panel>
+          )}
+
+          {v.state === 'ready' && (
+            <Panel title={<span class="s-ready">Ready to retry</span>}>
+              <p class="pb" id="discarded-stage" style={{ margin: 0 }}>
+                {v.discardedStage?.stage || STAGES.find(s => s.key === v.resumeFrom)?.name || 'The last stage'} was discarded{v.discardedStage?.at ? ` at ${v.discardedStage.at.replace('T', ' ')}` : ''}. Its files are gone; the stages before it are kept. {startLabel} to run it again.
+              </p>
             </Panel>
           )}
 
