@@ -290,6 +290,16 @@ describe('flaky-suite guard', () => {
     expect(r).toMatchObject({ ok: false, retried: { files: ['test/bad.test.js'], flaky: [] } });
     expect(keys(r)).toEqual(['failed test/bad.test.js :: never', 'passed test/steady.test.js :: always']);
   });
+
+  test('two tests with one name, one passing and one failing: the failure is not flaky and still counts', () => {
+    const files = {
+      'test/twin.test.js': "const { test } = require('node:test');\ntest('same name', () => {});\ntest('same name', () => { throw new Error('real'); });\n",
+    };
+    const r = runSuite(suite('node-test', { testCmd: 'node --test test/twin.test.js' }), { root: project(files), retry: true });
+    expect(r.ok).toBe(false);
+    expect(r.retried?.flaky).toEqual([]);
+    expect(keys(r)).toEqual(['failed test/twin.test.js :: same name', 'passed test/twin.test.js :: same name']);
+  });
 });
 
 describe('command line', () => {

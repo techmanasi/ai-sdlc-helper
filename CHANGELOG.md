@@ -19,14 +19,23 @@ release notes. Keep new work under `## [Unreleased]`, and rename that heading to
 - Desktop and sound notifications when a run needs you, a sign-in screen and a loading state (#163).
 - Review reports its findings and they go back through Red tests (#165).
 - `tools/UI-automation/sdlc-ui.js`, a browser script that reads and drives the web UI (#178).
+- **Handoff.** When a stop names the stage a run resumes at, its reason is written to `logs/handoff.json` and given to
+  that stage's agent at the next start (`{{HANDOFF}}` in the Spec, Plan, Red tests and Implement prompts), so a resume
+  no longer repeats the same work and the same stop.
 
 ### Changed
 - Static files are compressed and cached, there is no Google Fonts request, and the theme is set before the first
   paint (#162).
 - An open test lock is recognisable at a glance (#174).
+- New tests that already pass before implementation get one Red tests retry, told which tests pass, before the run
+  stops and goes back to Plan.
+- Every new test, and every row of a parameterised test, must have a unique name in its file; the red gate stops names
+  that repeat after one Red tests retry.
 
 ### Fixed
 - The env quick buttons add a row for you to fill in (#179).
+- A failing test was labelled flaky when a same-named test in its file passed on the re-run; retry results are now
+  matched per occurrence.
 
 ## [0.1.1] - 2026-11-01
 

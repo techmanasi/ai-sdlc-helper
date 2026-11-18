@@ -6,3 +6,4 @@ If you are convinced a failing test is itself wrong (it contradicts {{DOCS}}/spe
 The pipeline has already installed the packages listed under "## Dependencies" in {{DOCS}}/plan-1.md; never install packages yourself. Before using a new package, check its installed README and type definitions in node_modules against the signatures quoted in the plan; if they differ, follow the installed package and say so in your final message. If you need a package the plan does not list, stop and say so.
 Work only inside the project directory: never read or write a file outside it (for example in /tmp), because that is refused and ends your turn. To see why a test fails, run the targeted test file: its output, including anything the code prints, is shown to you. Never leave debugging in the source (console output, log files, temporary files): remove it before you finish.
 {{LINT_NOTE}}
+{{HANDOFF}}

@@ -88,6 +88,8 @@ export interface Ctx {
   lockSha: string;
   /** Extra {{PLACEHOLDER}} values for the prompts of the next agent (the Review round, the findings Red tests must cover). */
   promptExtra?: Record<string, string>;
+  /** The note a stop left for this start's first agent ({{HANDOFF}}), until that agent finishes. */
+  handoff?: { to: From; from: string; text: string };
   origRedSha: string;
   /** The log of the check that failed last (tests.log or integration.log). */
   failLog: string;

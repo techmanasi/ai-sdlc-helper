@@ -92,8 +92,19 @@ export function runSuite(suite: RunSuite, opts: RunOptions): RunResult {
   if (again.noReport) return { ...first, retried: { files, flaky: [] } };
   const redone = new Set(files);
   const kept = (f: string | null) => !whole && !redone.has(f as string);
-  const passedAgain = new Set(again.tests.filter(t => t.status === 'passed').map(t => `${t.file}\0${t.name}`));
-  const flaky = first.tests.filter(t => t.status === 'failed' && passedAgain.has(`${t.file}\0${t.name}`)).map(t => ({ file: t.file, name: t.name }));
+  // Matched per occurrence (file, name, index among the results with that file and name, in report order): two rows with one name
+  // are two tests, and a failing row whose same-named sibling passed is not flaky.
+  const occurrences = (tests: RunResult['tests']): { t: RunResult['tests'][number]; key: string }[] => {
+    const seen = new Map<string, number>();
+    return tests.map(t => {
+      const base = `${t.file}\0${t.name}`;
+      const i = seen.get(base) ?? 0;
+      seen.set(base, i + 1);
+      return { t, key: `${base}\0${i}` };
+    });
+  };
+  const passedAgain = new Set(occurrences(again.tests).filter(o => o.t.status === 'passed').map(o => o.key));
+  const flaky = occurrences(first.tests).filter(o => o.t.status === 'failed' && passedAgain.has(o.key)).map(o => ({ file: o.t.file, name: o.t.name }));
   // A file that failed to load and loaded on the re-run is flaky too.
   if (!whole) {
     for (const e of first.suiteErrors) {

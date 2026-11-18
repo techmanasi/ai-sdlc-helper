@@ -13,6 +13,27 @@ describe('stageRecoveryHint diagnostics engine', () => {
     expect(recovery.diagnosis).toContain('2 new test(s)');
   });
 
+  it('sends repeated test names to Red tests only, with no escape hatch', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: 'Red tests', state: 'failed', exitCode: 1,
+      runOut: ['SDLC: x on branch b', 'RED GATE FAILED: 2 test name(s) repeat in the new tests:', 'src/a.test.mjs :: one'],
+    });
+    expect(recovery.stage).toBe('Red tests');
+    expect(recovery.autoAction?.command).toBe('ai-sdlc-helper pipeline x --from red-tests');
+    expect(recovery.manualAction.file).toBe('logs/tests.log');
+    expect(recovery.escapeHatch).toBeUndefined();
+    expect(recovery.diagnosis).toContain('2 test name(s)');
+  });
+
+  it('keeps the Plan card for a vacuous stop after the Red tests retry', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: 'Red tests', state: 'failed', exitCode: 1,
+      runOut: ['SDLC: x on branch b', 'RED GATE FAILED: 1 new test(s) already pass before implementation: they test behaviour that already exists. (after one Red tests retry)'],
+    });
+    expect(recovery.stage).toBe('Plan');
+    expect(recovery.manualAction.file).toBe('logs/red-passing.md');
+  });
+
   it('names the refusal to resume at Red tests once its commit exists, instead of "stage unknown" and a restart at Spec', () => {
     const recovery = stageRecoveryHint({
       slug: 'x', stage: '', state: 'failed', exitCode: 1,
