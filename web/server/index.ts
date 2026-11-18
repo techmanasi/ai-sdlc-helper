@@ -92,6 +92,8 @@ const syncing = async (key: string, run: (onStep: (label: string) => void) => Re
   try { return await run(label => { syncProgress.set(key, label); }); } finally { syncProgress.delete(key); }
 };
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
+/** The longest instruction a user may leave for a resumed stage. */
+const MAX_NOTE = 4000;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const COMMAND_TIMEOUT_MS = 120000;
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -191,6 +193,15 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     if (v === undefined || v === null || v === '') return undefined;
     if (typeof v !== 'string' || !SLUG.test(v)) throw new HttpError(400, `not a stage: '${String(v)}'`);
     return v;
+  };
+
+  /** The user's optional instruction for the resumed stage: trimmed, at most 4000 characters, for stage <to>. */
+  const noteOf = (v: unknown, to: string | undefined): { to: string; text: string } | undefined => {
+    if (v === undefined || v === null) return undefined;
+    if (typeof v !== 'string') throw new HttpError(400, 'note must be text');
+    const text = v.trim();
+    if (text.length > MAX_NOTE) throw new HttpError(400, `note is ${text.length} characters; the limit is ${MAX_NOTE}`);
+    return text ? { to: to || 'spec', text } : undefined;
   };
 
   /** Runs a command line of this tool in <cwd>, as the palette does: a separate process, so a long one cannot block us. */
@@ -355,7 +366,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       }
       if (method !== 'POST') throw new HttpError(405, 'use POST');
       const ctx = contextFor(p, envOf(body.env));
-      if (action === 'start') return send(200, outcome(start(ctx, slug, { from: fromOf(body.from) })));
+      if (action === 'start') {
+        const from = fromOf(body.from);
+        const note = noteOf(body.note, from || (body.note ? runView(ctx, slug, { changes: false, tailLines: 0 }).resumeFrom : ''));
+        return send(200, outcome(start(ctx, slug, { from, note })));
+      }
       if (action === 'stop') return send(200, outcome(await stop(ctx, slug)));
       if (action === 'undo') return send(200, outcome(await undoLast(ctx, slug, { stop: true })));
       if (action === 'discard') return send(200, outcome(await discard(ctx, slug, { yes: true, stop: body.stop === true })));
@@ -365,7 +380,10 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const resumed = start(ctx, slug, { from: typeof body.stage === 'string' ? body.stage : undefined });
         return send(200, { ...outcome(d), resumed: outcome(resumed) });
       }
-      if (action === 'restart') return send(200, outcome(await restart(ctx, slug, { yes: true, from: fromOf(body.from) })));
+      if (action === 'restart') {
+        const from = fromOf(body.from);
+        return send(200, outcome(await restart(ctx, slug, { yes: true, from, note: noteOf(body.note, from) })));
+      }
       if (action === 'options') {
         const v = runView(ctx, slug, { changes: false, tailLines: 0 });
         if (v.stage === 'Finalise' || v.state === 'done') {

@@ -161,6 +161,16 @@ describe('runView', () => {
     expect(v.changes!.files.some(f => f.includes('status.json'))).toBe(true);
   });
 
+  test('the handoff is read from the run\'s logs: the pipeline finding and the user note stay apart; none gives null', () => {
+    const none = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Red tests' } });
+    expect(runView(none.ctx, 'add-tokens').handoff).toBeNull();
+    const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, {
+      'logs/status.json': { state: 'failed', stage: 'Red tests', resume_from: 'plan' },
+      'logs/handoff.json': { to: 'plan', finding: { from: 'Red tests', reason: 'RED GATE FAILED', at: '2026-11-18T10:00:00' }, user: { note: 'keep it small', at: '2026-11-18T10:05:00' } },
+    });
+    expect(runView(ctx, 'add-tokens').handoff).toEqual({ to: 'plan', finding: { from: 'Red tests', reason: 'RED GATE FAILED' }, user: { note: 'keep it small', at: '2026-11-18T10:05:00' } });
+  });
+
   test('a stop that named where to resume: the run resumes there, not at the stage shown; without one, the stage decides', () => {
     const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: 'Plan', resume_from: 'red-tests' } });
     expect(runView(ctx, 'add-tokens').resumeFrom).toBe('red-tests');

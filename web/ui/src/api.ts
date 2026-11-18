@@ -62,7 +62,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   questions: Question[]; permissions: Ask[]; deniedPermissions?: Ask[];
   stageFiles: Record<string, string[]>;
   changes: { changed: number; uncommitted: number; files: string[] } | null;
-  tail: string[]; docs: string[]; discarded: string; movedFrom?: { branch: string; reason: string; reasonText?: string; pr?: string; at: string }; resumeFrom: string; redCommit: string; gitAgeMs: number | null;
+  tail: string[]; docs: string[]; discarded: string; movedFrom?: { branch: string; reason: string; reasonText?: string; pr?: string; at: string }; resumeFrom: string; handoff: { to: string; finding?: { from: string; reason: string }; user?: { note: string; at: string } } | null; redCommit: string; gitAgeMs: number | null;
   createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean; undo?: { from: string; at: string } | null; mergeFix?: boolean;
   prCi?: CiState | null; prFailing?: string[]; prConflicts?: 'none' | 'conflicting' | 'unknown' | null; ciSummary?: string[];
   ci?: { enabled: boolean; state: string; pr: string | null; prDraft: boolean; reason?: string; failingChecks: string[]; warnings: string[]; sha?: string } | null;
@@ -228,12 +228,12 @@ export const api = {
   syncPr: (project: string, slug: string) => call<PrSync>('POST', `${r(project, slug)}/pr-sync`, {}),
   syncPrProgress: (project: string, slug: string) => call<{ label: string }>('GET', `${r(project, slug)}/pr-sync-progress`),
   ciFix: (project: string, slug: string, env?: Record<string, string>) => call<{ ok: boolean; summary: string[]; err?: string[]; resumed: Outcome }>('POST', `${r(project, slug)}/ci-fix`, { env }),
-  start: (project: string, slug: string, from?: string, env?: Record<string, string>) => call<Outcome>('POST', `${r(project, slug)}/start`, { from, env }),
+  start: (project: string, slug: string, from?: string, env?: Record<string, string>, note?: string) => call<Outcome>('POST', `${r(project, slug)}/start`, { from, env, note }),
   stop: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/stop`, {}),
   discard: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/discard`, { stop: true }),
   undo: (project: string, slug: string) => call<Outcome>('POST', `${r(project, slug)}/undo`, {}),
   discardStage: (project: string, slug: string, stage?: string, resume = false) => call<Outcome & { resumed?: Outcome }>('POST', `${r(project, slug)}/discard-stage`, { stage, stop: true, resume }),
-  restart: (project: string, slug: string, from?: string, env?: Record<string, string>) => call<Outcome>('POST', `${r(project, slug)}/restart`, { from, env }),
+  restart: (project: string, slug: string, from?: string, env?: Record<string, string>, note?: string) => call<Outcome>('POST', `${r(project, slug)}/restart`, { from, env, note }),
   answers: (project: string, slug: string, answers: Record<number, string>, env?: Record<string, string>) =>
     call<{ total: number; answered: number; resumed: Outcome | null }>('POST', `${r(project, slug)}/answers`, { answers, env }),
   permit: (project: string, slug: string, which: string, choice: 'allow' | 'always' | 'deny', env?: Record<string, string>) =>
