@@ -16,6 +16,14 @@ export default tseslint.config(
     languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
   },
   {
+    // tools/UI-automation: a plain script loaded into a page of the web UI, not a module.
+    files: ['tools/UI-automation/**/*.js'],
+    languageOptions: {
+      sourceType: 'script',
+      globals: Object.fromEntries(['document', 'location', 'setTimeout', 'Event', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLSelectElement', 'globalThis'].map(g => [g, 'readonly'])),
+    },
+  },
+  {
     // The web app stays apart from the engine: it uses only the package's public entry ('ai-sdlc-helper').
     files: ['web/**'],
     rules: {

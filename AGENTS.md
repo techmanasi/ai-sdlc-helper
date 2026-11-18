@@ -63,6 +63,9 @@ ESLint. Plan: `docs/PLAN.md`.
 - Tests in `test/` exercise real code (import it or run via `test/helpers.ts`);
   never assert on Markdown or comments.
 - User-facing prompts and skills live in `assets/`.
+- Drive and read the web UI with `tools/UI-automation/sdlc-ui.js` (`sdlcUI.snapshot()`, `click(label)`, ...), not by
+  reading the whole DOM. A change to the UI's markup or button labels updates that tool's `SELECTORS` and functions in
+  the same PR; `test/ui-automation.test.ts` fails when a selector leaves `web/ui/src`.
 - Name SDLC stages, never number them.
 - Worktrees: `../ai-sdlc-helper-sdlc/<slug>`.
 - Work goes via PRs into `main`; confirm each merge with the user, naming the PR
