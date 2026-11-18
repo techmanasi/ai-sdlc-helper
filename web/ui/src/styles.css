@@ -122,7 +122,7 @@ textarea.inp { resize: vertical; }
 .stage { padding: 12px 14px; border-right: 1px solid var(--ln); display: flex; flex-direction: column; gap: 6px; }
 .stage:last-child { border-right: 0; }
 .stage-active { background: var(--sel); } .stage-paused { background: var(--waitbg); }
-.sel { font: inherit; font-size: 12px; background: var(--bg); border: 1px solid var(--ln); color: var(--tx); border-radius: 4px; min-height: 30px; padding: 0 6px; }
+.sel { font: inherit; font-size: 12px; background: #0d1117; border: 1px solid #323c49; color: #dbe2ea; border-radius: 6px; padding: 6px 10px; }
 
 /* the searchable model dropdown: a compact trigger plus a panel with a filter box */
 .picker { position: relative; display: block; width: 100%; min-width: 0; }
@@ -301,23 +301,28 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .pane-follow { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .pane-waits, .pane-foot, .pane-auto { margin: 0 0 8px; }
 .rchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
-.rchip { font: inherit; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--ln2); background: var(--pn); color: var(--tx); cursor: pointer; }
+.rchip { font: inherit; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid #323c49; background: transparent; color: var(--tx); cursor: pointer; }
 .rchip-on { background: #dbe2ea; color: #18202c; border-color: #dbe2ea; }
 .phone-pane { margin: 4px 0 8px; }
 .phone-pane .stage-pane { border-radius: 0 0 8px 8px; }
 .rail2-phone .rail2 { flex-direction: column; overflow: visible; }
 .rail2-phone .tile { flex: 0 0 auto; min-height: 0; }
 .stage-detail { display: block; }
-.stage-detail h3 { margin: 0 0 8px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--mu); font-weight: 600; }
-.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.step { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px 0; position: relative; font-size: 13px; }
-.step + .step::before { content: ''; position: absolute; left: 9px; top: -8px; height: 12px; width: 1px; background: var(--ln2); }
-.step-dot { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; font-size: 11px; background: var(--pn2); color: var(--mu); }
+.eyebrow { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8f9baa; font-weight: 600; }
+.test-lock-eyebrow { color: var(--wait); }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.step { display: inline-flex; gap: 7px; align-items: center; padding: 5px 10px; position: relative; font-size: 13px; border: 1px solid #323c49; border-radius: 999px; background: #1a212b; }
+.step-dot { display: inline-grid; place-items: center; width: 16px; height: 16px; flex: 0 0 16px; border-radius: 50%; font-size: 11px; background: var(--pn2); color: var(--mu); }
 .step-done .step-dot { background: var(--done-bg); color: var(--done); }
-.step-open .step-dot { background: var(--run-bg); color: var(--run); } .step-open .step-label { color: var(--run); font-weight: 600; }
-.step-cut .step-dot { background: var(--fail-bg); color: var(--fail); } .step-cut .step-label, .step-cut .step-time { color: var(--fail); }
-.step-plan .step-dot { background: transparent; border: 1px dashed var(--ln2); } .step-plan .step-label { color: var(--mu); }
+.step-open { background: #10323a; border-color: var(--run); } .step-open .step-dot { background: transparent; color: var(--run); } .step-open .step-label { color: var(--run); font-weight: 600; }
+.step-cut { background: var(--fail-bg); border-color: var(--fail); } .step-cut .step-dot { background: transparent; color: var(--fail); } .step-cut .step-label, .step-cut .step-time { color: var(--fail); }
+.step-stop { display: block; width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
+.step-plan { background: transparent; border-style: dashed; } .step-plan .step-dot { background: transparent; border: 1px dashed var(--mu); } .step-plan .step-label { color: var(--mu); }
 .step-time { color: var(--mu); font-size: 12px; }
+.lock-detail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lock-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; line-height: 1; padding: 4px 7px; border-radius: 999px; white-space: nowrap; }
+.lock-badge-closed { color: var(--done); background: var(--done-bg); }
+.lock-badge-open { color: var(--wait); background: transparent; border: 1px dashed var(--wait); }
 
 /* recovery: the cause, then three ways on */
 .recov { border: 1px solid color-mix(in srgb, var(--wait) 55%, var(--ln)); border-radius: var(--r); background: var(--pn); box-shadow: var(--shadow); overflow: hidden; }
