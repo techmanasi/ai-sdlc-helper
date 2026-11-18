@@ -210,6 +210,22 @@ fi`,
     expect(fs.readdirSync(path.join(f.dir, LOG, 'previous')).length).toBeGreaterThan(0);
   });
 
+  test('a handoff with a user note reaches the Red tests agent on the first attempt and on the retry', async () => {
+    const f = fixture(twice(PASSING, PASSING));
+    let r = await pipeline(f);
+    expect(r.status).toBe(1);
+    fs.writeFileSync(path.join(f.dir, LOG, 'handoff.json'), JSON.stringify({ to: 'red-tests', user: { note: 'cover the empty list too', at: '2026-01-01T00:00:00.000Z' } }));
+    fs.writeFileSync(path.join(f.fake, 'red-tests.sh'), `set -e\n${twice(PASSING, FAILING)['red-tests']}\n`);
+    fs.rmSync(path.join(f.fake, 'prompts.txt'));
+    r = await pipeline(f, { FROM: 'red-tests' });
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    const prompts = r.prompts.split('\n== ').filter(p => /^(== )?red-tests\n/.test(p));
+    expect(prompts).toHaveLength(2);
+    for (const p of prompts) expect(p).toContain('Instruction from the user:\ncover the empty list too');
+    expect(prompts[1]).toContain('src/sum.test.mjs :: already true');
+    expect(fs.existsSync(path.join(f.dir, LOG, 'handoff.json'))).toBe(false);
+  });
+
   const DUP = "test('dup', built);\ntest('dup', built);";
   const UNIQUE = "test('dup one', built);\ntest('dup two', built);";
 

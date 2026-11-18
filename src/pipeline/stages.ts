@@ -294,6 +294,8 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   // Red tests for Review findings: the code is implemented already, so a new test must fail against the tree as it is now.
   const fixing = !!ctx.promptExtra?.REVIEW_FINDINGS;
   let retryNote = '';
+  // The handoff (pipeline finding and user instruction) is consumed by the first attempt; the retry still reads it, before its own note.
+  const handed = ctx.handoff?.text ?? '';
   const baseSha = (firstRedSha && !fixing ? ctx.git.tryRun('rev-parse', '--verify', `${firstRedSha}^`)?.trim() : '') || ctx.git.head();
   // The agent runs at most twice: a retry (not in the Review fix loop) when the new tests repeat a name or already pass.
   const maxAttempts = fixing ? 1 : 2;
@@ -305,7 +307,7 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
     if (attempt === 1) await runAgent(ctx, 'tests', 'red-tests');
     else {
       const before = ctx.promptExtra;
-      ctx.promptExtra = { ...before, HANDOFF: retryNote };
+      ctx.promptExtra = { ...before, HANDOFF: [handed, retryNote].filter(Boolean).join('\n\n') };
       try { await runAgent(ctx, 'tests', 'red-tests'); } finally { ctx.promptExtra = before; }
     }
     await tick();
