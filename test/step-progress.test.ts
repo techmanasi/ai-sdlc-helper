@@ -89,17 +89,20 @@ describe('Status.beginStep', () => {
     expect('step' in s.line()).toBe(false);
   });
 
-  test('performance: a write carrying the step takes well under a millisecond', () => {
+  test('performance: a write carrying the step takes well under a millisecond of CPU', () => {
     const { s } = tmpStatus('Test repair');
     s.step = { i: 5, n: 12, label: 'Repairing the claimed tests', started: '2026-01-01T00:00:00' };
     const N = 300;
     s.write(); // the first write also looks up this process's start time, once; what is timed is every write after it
-    const t0 = performance.now();
+    // CPU time, not wall time: this guards what the write costs, and a write waits on the disk. A loaded CI runner can
+    // wait a millisecond between a write and its rename, which says nothing about the code and used to fail this test.
+    const wall = performance.now();
+    const before = process.cpuUsage();
     for (let k = 0; k < N; k++) s.write();
-    const perWrite = (performance.now() - t0) / N;
-    console.log(`Status.write() with a step: ${perWrite.toFixed(3)} ms per write`);
-    // 5 ms: a loaded CI runner measured 1.0-1.1 ms; this guards against a slow write (a re-read of ps per write), not a precise cost.
-    expect(perWrite).toBeLessThan(5);
+    const used = process.cpuUsage(before);
+    const perWrite = (used.user + used.system) / 1000 / N;
+    console.log(`Status.write() with a step: ${perWrite.toFixed(3)} ms of CPU per write (${((performance.now() - wall) / N).toFixed(3)} ms wall)`);
+    expect(perWrite).toBeLessThan(1);
   });
 });
 

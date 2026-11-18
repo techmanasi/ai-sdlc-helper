@@ -260,6 +260,9 @@ async function stages(ctx: Ctx): Promise<void> {
   // A previous run's test logs describe another state of the code: this run writes its own before anyone reads them. They are moved
   // aside, not deleted: a run never throws its logs away.
   setAside(ctx, ['tests.log', 'tests.json', 'integration.log'].map(f => `${ctx.log}/${f}`));
+  // A start from Spec writes the code again: an earlier pull request's CI failure, merge failure and review comments are about code
+  // that is being redone, and an agent given them works on those instead of the task. Moved aside like the logs.
+  if (fromN <= 1) setAside(ctx, ['ci-failure.md', 'merge-failure.md', 'pr-comments.md'].map(f => `${ctx.docs}/${f}`));
 
   // Baseline of already-dirty files, so Finalise commits only what this cycle changed (never the developer's own work).
   const baseline = path.join(ctx.root, ctx.log, 'baseline.json');

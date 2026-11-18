@@ -59,7 +59,7 @@ describe('stageRecoveryHint diagnostics engine', () => {
     expect(recovery.diagnosis).toContain('1 clarifying question(s)');
     expect(recovery.autoAction?.label).toContain('Auto-answer');
     expect(recovery.autoAction?.command).toContain('ai-sdlc-helper pipeline add-user-auth --from spec');
-    expect(recovery.autoAction?.env?.SDLC_AUTO_ANSWER).toBe('1');
+    expect(recovery.autoAction?.env?.SDLC_AUTO_ACCEPT).toBe('1');
     expect(recovery.manualAction?.file).toBe('questions.md');
     expect(recovery.escapeHatch?.command).toContain('--from plan');
   });

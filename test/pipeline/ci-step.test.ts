@@ -224,6 +224,7 @@ describe('real CI failure classification (spec 8)', () => {
     ['side-effect', ['test/old.test.ts > suite rejects input'], 'FAIL test/old.test.ts\nTests: 1 failed'],
     ['side-effect', ['test/old.test.ts'], 'FAIL test/old.test.ts\nFAIL test/new.test.ts\nTests: 2 failed'],
     ['infrastructure', [], 'Runner could not start: service unavailable'],
+    ['side-effect', [], "web/test/x.test.ts(23,14): error TS18046: 'view' is of type 'unknown'.\n##[error]Process completed with exit code 2."],
   ] as const)('I14 classifies missing-artifact logs as %s', async (classification, entries, log) => {
     const { waitForCiAndClassify } = await import('../../src/pipeline/ci.js');
     vi.useFakeTimers(); classificationFixture({ artifact: false, log });
