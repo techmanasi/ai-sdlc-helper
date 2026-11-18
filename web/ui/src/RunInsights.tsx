@@ -159,7 +159,7 @@ export function StepList({ steps, running, plan }: { steps: StageStepLike[]; run
         const sec = spanSeconds(st.started, st.ended, now);
         return (
           <li class={`step ${open && running ? 'step-open' : open ? 'step-cut' : 'step-done'}`}>
-            <span class="step-dot" aria-hidden="true">{open && running ? <Spinner /> : open ? '✕' : '✓'}</span>
+            <span class="step-dot" aria-hidden="true">{open && running ? <Spinner /> : open ? <span class="step-stop" /> : '✓'}</span>
             <span class="step-label">{st.label}</span>
             <span class="step-time mono">{open && !running ? `failed at ${durationText(sec)}` : durationText(sec)}</span>
           </li>
@@ -214,11 +214,11 @@ export function Guarantees({ v }: { v: Parameters<typeof guarantees>[0] }) {
  * engine records that locked tests are being changed; without either it says when the lock is set and claims nothing.
  */
 export function LockDetail({ lock, open }: { lock: LockView | null; open?: LockOpen | null }) {
-  if (open) return <p class="s-paused" style={{ margin: 0 }}><LockIcon open /> {openSentence(open)}</p>;
+  if (open) return <p class="lock-detail" style={{ margin: 0 }}><span class="lock-badge lock-badge-open"><LockIcon open /> OPEN</span><span class="s-paused">{openSentence(open)}</span></p>;
   if (!lock) return <p class="small muted" style={{ margin: 0 }}>No test lock is recorded for this run. It is set when Red tests commits the tests, and removed if a stage at or before Red tests is run again.</p>;
   return (
     <div class="col" style={{ gap: '8px' }}>
-      <p style={{ margin: 0 }}><LockIcon /> {lockSentence(lock)}</p>
+      <p class="lock-detail" style={{ margin: 0 }}><span class="lock-badge lock-badge-closed"><LockIcon /> CLOSED</span><span>{lockSentence(lock)}</span></p>
       {(lock.guards.length > 0 || lock.relocks > 0) && (
         <ol class="locklog">
           {lock.guards.map(g => (

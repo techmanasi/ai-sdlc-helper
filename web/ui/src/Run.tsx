@@ -886,8 +886,8 @@ export function Run({ slug }: { slug: string }) {
                   {waits.length > 0 && <p class="small muted pane-waits">Starts after {waits.join(' and ')}</p>}
                   <RoundChips count={rounds.length} picked={roundNo} onPick={setPickedRound} />
                   <StepList steps={round?.steps || []} running={st === 'active' && latest} plan={plan} />
-                  {st === 'pending' && plan && <p class="small muted pane-foot">These are the steps {s.name} will run. Each one turns into a normal pill with its time once it starts.</p>}
-                  {s.key === 'red-tests' && <><h3 style={{ marginTop: '14px' }}>Test lock</h3><LockDetail lock={lock} open={lockOpen} /></>}
+                  {plan && <p class="small muted pane-foot">A pill appears when its step starts. The running one counts up; the others keep their final time.</p>}
+                  {s.key === 'red-tests' && <><h3 class="eyebrow test-lock-eyebrow" style={{ marginTop: '14px' }}>TEST LOCK</h3><LockDetail lock={lock} open={lockOpen} /></>}
                  </div>
                  </div>
                 </div>
