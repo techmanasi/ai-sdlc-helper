@@ -181,7 +181,8 @@ describe('Test repair', () => {
     expect(subjects(f.dir)).toEqual([
       `chore(backlog): mark ${SLUG} done`, `[finalise] feat(${SLUG}): implement per ${DOCS}/specs-1.md`,
       `[test-repair] test(${SLUG}): repair invalid tests (mechanically checked and audited)`, `Merge branch 'main' into feature/${SLUG}`,
-      `[red-tests] test(${SLUG}): add failing tests and spec/plan docs`,
+      `[red-tests] test(${SLUG}): add failing tests`,
+      `[plan] docs(${SLUG}): add the plan`, `[spec] docs(${SLUG}): add the spec`,
     ]);
     expect(filesIn(f.dir, 'HEAD~2')).toEqual(['src/sum.test.mjs', `${DOCS}/test-audit.md`, `${DOCS}/test-issues.md`, `${DOCS}/test-repair-1.md`]);
     expect(read(f.dir, `${LOG}/test-repair.diff`)).toContain('+test(\'sum adds\', () => assert.equal(sum(2, 3), 5));');
@@ -198,7 +199,7 @@ describe('Test repair', () => {
     expect(r.status).toBe(1);
     expect(r.stdout).toContain('TEST REPAIR REJECTED: independent auditor did not return VERDICT: VALID\n   tests restored to ');
     expect(read(f.dir, 'src/sum.test.mjs')).toContain('sum(2, 3), 6');
-    expect(subjects(f.dir)).toEqual([`[red-tests] test(${SLUG}): add failing tests and spec/plan docs`]);
+    expect(subjects(f.dir)).toEqual([`[red-tests] test(${SLUG}): add failing tests`, `[plan] docs(${SLUG}): add the plan`, `[spec] docs(${SLUG}): add the spec`]);
   });
 
   test('FROM=test-repair checks its preconditions first: no red-tests commit means no agent and no change', async () => {

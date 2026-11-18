@@ -26,10 +26,13 @@ describe('a full run', () => {
     expect(r.calls).toEqual(['spec', 'plan', 'red-tests', 'implement', 'review']);
     expect(git(f.dir, 'branch', '--show-current')).toBe(`feature/${SLUG}`);
     expect(subjects(f.dir)).toEqual([
-      `chore(backlog): mark ${SLUG} done`, `[finalise] feat(${SLUG}): implement per ${DOCS}/specs-1.md`, `[red-tests] test(${SLUG}): add failing tests and spec/plan docs`,
+      `chore(backlog): mark ${SLUG} done`, `[finalise] feat(${SLUG}): implement per ${DOCS}/specs-1.md`, `[red-tests] test(${SLUG}): add failing tests`,
+      `[plan] docs(${SLUG}): add the plan`, `[spec] docs(${SLUG}): add the spec`,
     ]);
-    // the red-tests commit holds the docs and the new test; the implementation comes after
-    expect(filesIn(f.dir, 'HEAD~2')).toEqual(['src/sum.test.mjs', `${DOCS}/manual-inputs.md`, `${DOCS}/plan-1.md`, `${DOCS}/specs-1.md`, `${DOCS}/test-cases-1.md`]);
+    // Spec and Plan committed their own docs; the red-tests commit holds the new test and its cases; the implementation comes after
+    expect(filesIn(f.dir, 'HEAD~2')).toEqual(['src/sum.test.mjs', `${DOCS}/test-cases-1.md`]);
+    expect(filesIn(f.dir, 'HEAD~3')).toContain(`${DOCS}/plan-1.md`);
+    expect(filesIn(f.dir, 'HEAD~4')).toContain(`${DOCS}/specs-1.md`);
     expect(filesIn(f.dir, 'HEAD~1')).toEqual(['src/sum.mjs', `${DOCS}/review-1.md`]);
     expect(read(f.dir, 'work/items/index.md')).toContain(`- [x] \`${SLUG}\``);
     expect(read(f.dir, `${LOG}/finalise-skipped.md`)).toBe('');
@@ -119,7 +122,8 @@ describe('a full run', () => {
     expect(r.status).toBe(1);
     expect(r.stdout).toContain(`RED GATE FAILED: new tests pass before implementation. See ${LOG}/tests.log`);
     expect(read(f.dir, `${LOG}/tests.log`)).not.toContain('broken.test.mjs');
-    expect(subjects(f.dir)).toEqual([]);
+    // Spec and Plan commit their own documents; nothing else was committed.
+    expect(subjects(f.dir)).toEqual([`[plan] docs(${SLUG}): add the plan`, `[spec] docs(${SLUG}): add the spec`]);
     expect(r.calls).toEqual(['spec', 'plan', 'red-tests']);
     expect(statusOf(f.dir)).toMatchObject({ state: 'failed', stage: 'Red tests' });
   });
@@ -135,7 +139,8 @@ describe('a full run', () => {
     expect(r.stdout).not.toContain('fails now');
     expect(read(f.dir, `${LOG}/red-passing.md`)).toContain('src/sum.test.mjs :: already true');
     expect(read(f.dir, `${LOG}/errors.log`)).toContain('already true');
-    expect(subjects(f.dir)).toEqual([]);
+    // Spec and Plan commit their own documents; nothing else was committed.
+    expect(subjects(f.dir)).toEqual([`[plan] docs(${SLUG}): add the plan`, `[spec] docs(${SLUG}): add the spec`]);
     expect(r.calls).toEqual(['spec', 'plan', 'red-tests']);
     expect(statusOf(f.dir)).toMatchObject({ state: 'failed', stage: 'Red tests' });
   });
@@ -193,7 +198,8 @@ describe('a full run', () => {
     expect(r.status).toBe(1);
     expect(r.stdout).toContain('RED GATE FAILED: the Red tests agent added or changed no test file');
     expect(r.calls).toEqual(['spec', 'plan', 'red-tests']);
-    expect(subjects(f.dir)).toEqual([]);
+    // Spec and Plan commit their own documents; nothing else was committed.
+    expect(subjects(f.dir)).toEqual([`[plan] docs(${SLUG}): add the plan`, `[spec] docs(${SLUG}): add the spec`]);
   });
 
   test('a test changed during Implement stops the run (guard)', async () => {

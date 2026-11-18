@@ -7,6 +7,7 @@ Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 - [x] `add-ui-triage-agent` - Feature: run the triage agent in the web UI (E-8)
 - [x] `add-setup-branch-pr` - Feature: commit `add` setup files on a chore/sdlc-setup branch from main, then optionally push and open a PR
 - [x] `stage-files-tree-viewer` - Feature: collapsible tree viewer for files changed per stage in web UI
+- [ ] `branch-sync-every-stage` - Improvement: sync the run's branch with GitHub before every stage (fast-forward, rebase, stash, resolver modes)
 - [ ] `non-node-ecosystem-support` - Feature: support non-Node/non-TypeScript ecosystems (Python, Go, Rust) for test detection, red-checks, and execution
 - [ ] `fix-dependabot-alerts` - Bug: fix the open Dependabot alerts (13: 1 critical, 1 high, 10 medium, 1 low)
 - [ ] `ui-code-indexer-setup` - Feature: interactive UI button to configure and build graft/graphify code indexers
