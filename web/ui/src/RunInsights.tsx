@@ -4,7 +4,7 @@ import { memo } from 'preact/compat';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { LockOpen, LockView, RunView, StageSpan, Timeline, UsageTotals } from './api';
-import { cacheShare, costCell, costNotes, durationText, guarantees, hasUsage, lockSentence, openSentence, spanSeconds, tileLine, tokensText, usageText, type TileState } from './insights';
+import { cacheShare, costCell, costNotes, durationText, guarantees, hasUsage, lockSentence, openSentence, spanSeconds, tileLine, tokensText, usageText, type TileState, totalCells } from './insights';
 import { Panel, Spinner } from './ui';
 
 /** The time now, refreshed every second while `on` (a running stage shows its elapsed time). */
@@ -168,6 +168,9 @@ export const UsagePanel = memo(function UsagePanel({ timeline }: { timeline?: Ti
   return (
     <Panel title="Cost and tokens" extra={<span class="chip">{usageText(timeline.usage)}</span>}>
       <div class="pb col" style={{ gap: '10px' }}>
+        <dl class="totals" aria-label="Whole run">
+          {totalCells(timeline.usage).map(c => <div class="total" title={c.title}><dt>{c.label}</dt><dd>{c.value}</dd></div>)}
+        </dl>
         <div class="usage-bars" aria-hidden="true">
           {rows.map(s => <span class="usage-bar" style={{ flexGrow: Math.max(0.04, s.usage.tokens / max) }} title={`${s.stage}: ${tokensText(s.usage.tokens)} tokens`}><span>{s.stage}</span></span>)}
         </div>

@@ -6,7 +6,7 @@ import { useSyncLabel } from './useSyncLabel';
 import { useStream } from './useStream';
 import { applyRunEvent } from './stream';
 import { awaitsMerge } from './stages';
-import { PIPELINE, stageName, stripStates } from './insights';
+import { PIPELINE, boardCost, stageName, stripStates } from './insights';
 import { PrCi } from './PrCi';
 import { Cli, ErrorBox, GLYPH, Notices, Panel, PrIcon, Spinner, stateClass, useApp } from './ui';
 
@@ -85,11 +85,24 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
           : <span class="muted">{r.state === 'done' ? 'no PR' : r.changes ? `${r.changes.changed} files` : '—'}</span>}
         {r.state === 'done' && r.pullRequest?.state === 'OPEN' && <PrCi ci={r.pullRequest.ci} failing={r.pullRequest.failing} summary={summary} busy={fixing} onFix={fix} conflicts={r.pullRequest.conflicts} resolveBusy={resolving} onResolve={resolve} />}
       </div>
+      <RunCost r={r} />
       <div class="brow-acts">
         {r.state === 'done' && <button type="button" class="btn btn-xs" disabled={syncing} onClick={sync} title={`Ask GitHub now for this PR's state, CI status and review comments (checked once an hour otherwise)${r.pullRequest?.checkedAt ? `; last checked ${clock(r.pullRequest.checkedAt)}` : ''}`}>{syncing ? <><Spinner /> {syncLabel || 'Syncing'}…</> : 'Sync PR'}</button>}
         <a class={`btn btn-xs ${needsYou(r) ? 'btn-p' : ''}`} href={`#/run/${r.slug}`} onClick={open}>{r.questions ? 'Answer' : r.permissions ? 'Decide' : 'Open'}</a>
       </div>
     </div>
+  );
+}
+
+/** The Cost column: the run's cost so far (≈ for an estimate) over its tokens. */
+function RunCost({ r }: { r: RunCard }) {
+  const c = boardCost(r.usage);
+  if (!c) return <span class="b-cost muted small">—</span>;
+  return (
+    <span class="b-cost col" title="Cost and tokens of every start of this item so far (the run page's Cost and tokens panel)">
+      <span class="b-cost-usd">{c.cost}</span>
+      {c.tokens && <span class="brow-sub">{c.tokens}</span>}
+    </span>
   );
 }
 
@@ -202,7 +215,7 @@ export function Board({ board, error }: { board: BoardData | null; error: string
       {board.items === null && <div class="banner">This project has no backlog index yet. <a href="#/new" onClick={e => { e.preventDefault(); go('/new'); }}>Write the first item</a>; it creates the index.</div>}
       {chosen.length > 0 && <Cli commands={chosen.map(s => ['start', s])} />}
       <section class="pn blist" aria-label="Items">
-        <div class="bhead lbl"><span /><span>Item</span><span>Stages</span><span>Status</span><span>Pull request</span><span /></div>
+        <div class="bhead lbl"><span /><span>Item</span><span>Stages</span><span>Status</span><span>Pull request</span><span>Cost</span><span /></div>
         {runs.map(r => <RunCardView key={r.slug} r={r} on={selected === r.slug} select={() => setSelected(s => (s === r.slug ? '' : r.slug))} />)}
         {items.map(i => (
           <div class={`brow ${picked[i.slug] ? 'brow-on' : ''}`} key={i.slug}>
@@ -217,6 +230,7 @@ export function Board({ board, error }: { board: BoardData | null; error: string
             </div>
             <span><span class="chip chip-pending">{i.status === 'completed' ? 'completed' : 'not started'}</span></span>
             <span class="b-pr muted small">—</span>
+            <span class="b-cost muted small">—</span>
             <div class="brow-acts">
               <a class="btn btn-xs" href={`#/edit/board/${i.slug}`} onClick={e => { e.preventDefault(); go(`/edit/board/${i.slug}`); }}>Edit</a>
             </div>

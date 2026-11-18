@@ -179,3 +179,29 @@ export function lockSentence(lock: LockView): string {
   const how = lock.source === 'test-repair' ? 'locked again after Test repair' : 'locked when Red tests committed them';
   return `${n}${where} ${lock.tests === 1 ? 'was' : 'were'} ${how}, at ${lock.sha.slice(0, 7)}. A later stage that changes them is stopped.`;
 }
+
+/** One figure of the run page's totals strip. */
+export interface TotalCell { label: string; value: string; title?: string }
+
+/**
+ * The run's totals as big figures above the cost table: cost (an estimate marked ≈), tokens, cache share, agent time and
+ * agent rounds. A figure the run has nothing for shows a dash, never a zero.
+ */
+export function totalCells(u: UsageTotals): TotalCell[] {
+  const tok = u.tokens || u.input + u.output;
+  const cache = cacheShare(u);
+  return [
+    { label: 'cost', value: costCell(u), title: costNotes(u).join(' ') || undefined },
+    { label: 'tokens', value: tok > 0 ? tokensText(tok) : '—', title: `${u.input.toLocaleString()} in · ${u.output.toLocaleString()} out · ${u.cacheRead.toLocaleString()} cache read · ${u.cacheWrite.toLocaleString()} cache write` },
+    { label: 'cached', value: cache === null ? '—' : `${cache}%` },
+    { label: 'agent time', value: u.durationSec > 0 ? durationText(u.durationSec) : '—' },
+    { label: 'rounds', value: u.rounds ? String(u.rounds) : '—' },
+  ];
+}
+
+/** The board's Cost cell for a run: the cost on top ("$0.42", "≈$0.42", "free" or "—") and its tokens below; null before any round. */
+export function boardCost(u: UsageTotals | null | undefined): { cost: string; tokens: string } | null {
+  if (!u || !hasUsage(u)) return null;
+  const tok = u.tokens || u.input + u.output;
+  return { cost: costCell(u), tokens: tok > 0 ? `${tokensText(tok)} tok` : '' };
+}
