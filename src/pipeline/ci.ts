@@ -260,6 +260,9 @@ function checksOf(pr: PrStatus, headSha: string): Check[] {
 
 const TEST_OUTPUT = /\b(?:FAIL|PASS)\b|\bTests?:|Test Files|[✓✗✕×]|# (?:pass|fail)\b|\bnot ok\b|\d+ (?:passing|failing|passed|failed)/;
 const hasTestOutput = (log: string): boolean => TEST_OUTPUT.test(log);
+// A step that failed on the code before any test ran: the compiler, a linter or a module that does not load. Not infrastructure.
+const CODE_ERROR = /\berror TS\d+:|^\s*\d+:\d+\s+error\s|\b(?:SyntaxError|ReferenceError|TypeError):|Cannot find module|ERR_MODULE_NOT_FOUND/m;
+const failedOnCode = (log: string): boolean => hasTestOutput(log) || CODE_ERROR.test(log);
 
 function failingFilesOf(log: string): string[] {
   const files = new Set<string>();
@@ -397,7 +400,7 @@ async function classify(ctx: Ctx, failed: FailedCheck[], startTime: number, limi
   for (const c of byCheck) {
     if (!reported.has(ctx)) { reported.add(ctx); ctx.out(REPORT_MISSING_LINE); }
     const log = c.runId ? failedLog(ctx, c.runId) : '';
-    if (!hasTestOutput(log)) { nonBlocking.push(strip(infoOf(c, '', '', 'no test output in the log', 'infrastructure'))); continue; }
+    if (!failedOnCode(log)) { nonBlocking.push(strip(infoOf(c, '', '', 'no test output or code error in the log', 'infrastructure'))); continue; }
     const baseline = await baseResults();
     if (baseline.failedChecks.includes(c.name)) { nonBlocking.push(strip(infoOf(c, '', '', 'failed on the base too', 'pre-existing'))); continue; }
     const files = failingFilesOf(log);
