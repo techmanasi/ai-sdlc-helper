@@ -201,6 +201,12 @@ printf 'FILE: src/existing.mjs :: kept both comments\\nVERDICT: SAFE\\n' > "$FAK
     expect(newRed).not.toBe(oldRed);
     expect(r.stdout).toContain(`tests commit is now ${newRed.slice(0, 7)}`);
     expect(read(f.dir, `${LOG}/resolve-conflicts.md`)).toContain('src/existing.mjs (code');
+    // the agent ran after Finalise's commit: its cost goes in a last commit, pushed with the rebased branch
+    expect(git(remote, 'log', '--format=%s', '-1', BRANCH)).toBe(`chore(${SLUG}): cost log`);
+    expect(git(f.dir, 'show', '--name-only', '--format=', 'HEAD').split('\n')).toEqual([`${DOCS}/cost/cost.json`, `${DOCS}/cost/cost.md`]);
+    const cost = JSON.parse(git(remote, 'show', `${BRANCH}:${DOCS}/cost/cost.json`));
+    expect(cost.stages.map((s: { stage: string; usage: { rounds: number } }) => [s.stage, s.usage.rounds])).toContainEqual(['Resolve conflicts', 1]);
+    expect(git(f.dir, 'status', '--porcelain', '--', DOCS)).toBe('');
   });
 
   test('without a remote the stage is skipped and the run stays at Finalise', async () => {

@@ -3,11 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, type RunView, type SettingsView } from './api';
 import { ModelSelect } from './ModelSelect';
-import { elapsedText, linkPaths, showTestIssues, stepBanner } from './stages';
+import { elapsedText, linkPaths, resolveShown, showTestIssues, stepBanner } from './stages';
+import { Guarantees, LockDetail, OutputPanel, StageRail, StepList, UsagePanel, type RailStage } from './RunInsights';
+import { hasUsage, openLock, skipped, usageText, verifiedLock } from './insights';
 import { PrCi } from './PrCi';
-import { Cli, CopyButton, ErrorBox, Future, GLYPH, Markdown, Panel, Spinner, StateTag, stateClass, useApp } from './ui';
+import { Cli, CopyButton, ErrorBox, GLYPH, Markdown, Panel, Spinner, stateClass, useApp } from './ui';
 import { defaultPick, needsResumeConfirm, resumeCommand, resumeOptions } from './resume';
 import { isMarkdownPath } from './markdown';
+import { addEnvKey, envVars, quickKeys, setEnvValue } from './env';
 import { usePoll } from './usePoll';
 import { useSyncLabel } from './useSyncLabel';
 import { useStream } from './useStream';
@@ -180,73 +183,54 @@ function DocTreeNodeView({
 
 function RecoveryCard({
   recovery,
+  state,
   busy,
   onAutoAction,
   onOpenFile,
   onEscapeHatch,
 }: {
   recovery: NonNullable<RunView['recovery']>;
+  state: string;
   busy: string;
   onAutoAction: () => void;
   onOpenFile: (file: string) => void;
   onEscapeHatch: () => void;
 }) {
+  const failed = state !== 'paused';
   return (
-    <div
-      class="panel"
-      style={{
-        border: '1px solid var(--accent, #e53e3e)',
-        backgroundColor: 'rgba(229, 62, 62, 0.05)',
-        borderRadius: '8px',
-        margin: '10px 0',
-      }}
-    >
-      <div class="ph" style={{ borderBottom: '1px solid rgba(229, 62, 62, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <strong>Stage Recovery: {recovery.stage}</strong>
-        <span class="tag s-paused">Guaranteed Forward Progress</span>
+    <section class={`recov ${failed ? 'recov-failed' : ''}`} aria-label="How to go on">
+      <div class="recov-head">
+        <strong>{recovery.stage} {failed ? 'stopped' : 'is waiting'}: {recovery.diagnosis}</strong>
+        <span class="chip" title="Every stop names its cause and offers a way on: a fix the tool can make, what you can do, and a way around">No dead ends · {[recovery.autoAction, recovery.manualAction, recovery.escapeHatch].filter(Boolean).length} ways on</span>
       </div>
-      <div class="pb col" style={{ gap: '10px' }}>
-        <p style={{ margin: 0, fontWeight: 500 }}>{recovery.diagnosis}</p>
-        <div class="row" style={{ gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {recovery.autoAction && (
-            <button
-              class="btn btn-p"
-              type="button"
-              disabled={!!busy}
-              onClick={onAutoAction}
-              title={recovery.autoAction.command}
-            >
-              {busy ? <Spinner /> : null} 1. Auto: {recovery.autoAction.label}
+      <div class="recov-ways">
+        {recovery.autoAction && (
+          <div class="way way-first">
+            <span class="lbl">Let the tool fix it <span class="chip chip-running">recommended</span></span>
+            <p>{recovery.autoAction.label}</p>
+            <button class="btn btn-p" type="button" disabled={!!busy} onClick={onAutoAction} title={recovery.autoAction.command}>
+              {busy ? <Spinner /> : null} {recovery.autoAction.label}
             </button>
-          )}
-          {recovery.manualAction && (
-            <div class="row" style={{ gap: '6px', alignItems: 'center' }}>
-              <span class="small">2. Manual: {recovery.manualAction.instruction}</span>
-              {recovery.manualAction.file && (
-                <button
-                  class="btn btn-s"
-                  type="button"
-                  onClick={() => onOpenFile(recovery.manualAction!.file!)}
-                >
-                  Open {recovery.manualAction.file}
-                </button>
-              )}
-            </div>
-          )}
-          {recovery.escapeHatch && (
-            <button
-              class="btn"
-              type="button"
-              disabled={!!busy}
-              onClick={onEscapeHatch}
-              title={recovery.escapeHatch.command}
-            >
-              3. Bailout: {recovery.escapeHatch.label}
-            </button>
-          )}
-        </div>
+          </div>
+        )}
+        {recovery.manualAction && (
+          <div class="way">
+            <span class="lbl">Do it yourself</span>
+            <p>{recovery.manualAction.instruction}</p>
+            {recovery.manualAction.file && (
+              <button class="btn" type="button" onClick={() => onOpenFile(recovery.manualAction!.file!)}>Open {recovery.manualAction.file}</button>
+            )}
+          </div>
+        )}
+        {recovery.escapeHatch && (
+          <div class="way">
+            <span class="lbl">Go around it</span>
+            <p>{recovery.escapeHatch.label}</p>
+            <button class="btn" type="button" disabled={!!busy} onClick={onEscapeHatch} title={recovery.escapeHatch.command}>{recovery.escapeHatch.label}</button>
+          </div>
+        )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -285,6 +269,8 @@ export function Run({ slug }: { slug: string }) {
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
   const [stageDirs, setStageDirs] = useState<StageDirState>({});
   const [issuesDraft, setIssuesDraft] = useState<string | null>(null);
+  /** The stage whose details are open under the rail ('' for none). */
+  const [openStage, setOpenStage] = useState('');
 
   const testIssuesRejects = useMemo(() => {
     if (!v?.tail) return [];
@@ -337,9 +323,9 @@ export function Run({ slug }: { slug: string }) {
   });
   useEffect(() => saveEnv(project, slug, env), [env]);
 
-  const envObj = Object.fromEntries(env.filter(([k]) => k.trim()).map(([k, val]) => [k.trim(), val]));
+  const envObj = envVars(env);
   const envArgs = Object.entries(envObj).map(([k, val]) => `${k}=${val}`);
-  const setEnvVar = (k: string, val: string) => setEnv(rows => (val ? [...rows.filter(r => r[0] !== k), [k, val]] : rows.filter(r => r[0] !== k)));
+  const setEnvVar = (k: string, val: string) => setEnv(rows => setEnvValue(rows, k, val));
 
   /** Applies a confirmed run-level override; an agent change also drops a model the new agent does not offer. */
   const applyForce = (key: string, value: string) => {
@@ -369,10 +355,18 @@ export function Run({ slug }: { slug: string }) {
     setBusy('');
   }
 
-  if (!v) return <div class="col"><h1 class="mono">{slug}</h1>{error ? <ErrorBox error={error} /> : <p class="muted">Loading…</p>}</div>;
+  if (!v) return <div class="col"><div class="hero"><h1>{slug}</h1></div>{error ? <ErrorBox error={error} /> : <><div class="skel" style={{ height: '64px' }} /><div class="skel" style={{ height: '150px' }} /><div class="skel" style={{ height: '320px' }} /><span class="sr" role="status">Loading the run</span></>}</div>;
 
   const running = v.state === 'running';
   const states = stageStates(v);
+  const spanOf = (name: string) => v.timeline?.stages.find(x => x.stage === name);
+  const lock = verifiedLock(v);
+  const lockOpen = openLock(v);
+  const railStages: RailStage[] = STAGES.map((s, i) => ({
+    name: s.name, key: s.key, afterPr: s.key === 'resolve-conflicts',
+    state: skipped(s.name, states[i], v.timeline?.stages, v.stageFiles) ? 'skipped' as const : states[i],
+    model: v.models[s.key]?.model || '', files: v.stageFiles[s.name]?.length || 0,
+  })).filter(s => !s.afterPr || resolveShown(v));
   const unanswered = v.questions.filter(q => !(answers[q.n] !== undefined ? answers[q.n] : q.answer).trim()).length;
   // A run with no recorded stage resumes at Spec, named and sent as such: no button starts without saying where.
   const resumeKey = v.resumeFrom || 'spec';
@@ -415,6 +409,49 @@ export function Run({ slug }: { slug: string }) {
             {running ? <span class="row small" style={{ gap: '4px', alignItems: 'center' }}>{overrideBadge}<span class="mono muted">{v.models['resolve-judge'] ? `${v.models['resolve-judge'].model} · ${v.models['resolve-judge'].effort}` : 'default'}</span></span> : stagePickers({ key: 'resolve-judge', name: 'Judge' })}
           </div>
         )}
+      </div>
+    );
+  };
+
+  // Review: one reviewer (default), or several different models whose findings a summariser merges.
+  const reviewConfig = () => {
+    const multi = envObj.SDLC_REVIEW_MODE === 'multi';
+    const count = /^\d+$/.test(envObj.SDLC_REVIEW_REVIEWERS || '') ? Math.min(5, Math.max(2, Number(envObj.SDLC_REVIEW_REVIEWERS))) : 2;
+    const stageKey = (i: number) => (i === 0 ? 'review' : `review-${i + 1}`);
+    const keyOf = (stage: string) => {
+      const st = catalog?.config?.agent?.stages?.[stage];
+      const agent = envObj[AGENT_ENV(stage)] || st?.harness || catalog?.config?.agent?.harness || 'claude';
+      const model = envObj[envKey('MODEL', stage)] || st?.model || (agent === (catalog?.config?.agent?.harness || 'claude') ? catalog?.stageDefaults?.[stage]?.model : '') || '(default)';
+      return `${agent}:${model}`;
+    };
+    const names = [...Array.from({ length: count }, (_, i) => stageKey(i)), 'review-summary'];
+    const keys = names.map(keyOf);
+    const clash = keys.map((k, i) => (keys.indexOf(k) !== i || keys.lastIndexOf(k) !== i ? i : -1)).filter(i => i >= 0);
+    return (
+      <div class="col" style={{ gap: '6px' }}>
+        <label class="row small" style={{ gap: '6px', alignItems: 'center' }}>
+          <span>Review</span>
+          <select class="sel" aria-label="review mode" disabled={running} value={multi ? 'multi' : 'single'} onChange={e => setEnvVar('SDLC_REVIEW_MODE', (e.target as HTMLSelectElement).value === 'multi' ? 'multi' : '')}>
+            <option value="single">single (default)</option>
+            <option value="multi">multi-model</option>
+          </select>
+        </label>
+        {multi && (
+          <label class="row small" style={{ gap: '6px', alignItems: 'center' }}>
+            <span>Reviewers</span>
+            <select class="sel" aria-label="number of review reviewers" disabled={running} value={String(count)} onChange={e => setEnvVar('SDLC_REVIEW_REVIEWERS', (e.target as HTMLSelectElement).value === '2' ? '' : (e.target as HTMLSelectElement).value)}>
+              {[2, 3, 4, 5].map(n => <option value={String(n)}>{n === 2 ? '2 (default)' : String(n)}</option>)}
+            </select>
+          </label>
+        )}
+        {multi && names.map((stage, i) => (
+          <div class="row small" style={{ gap: '6px', alignItems: 'center' }}>
+            <span class="muted" style={{ minWidth: '70px' }}>{stage === 'review-summary' ? 'Summariser' : `Reviewer ${i + 1}`}</span>
+            {running ? <span class="row small" style={{ gap: '4px', alignItems: 'center' }}>{overrideBadge}<span class="mono muted">{v.models[stage] ? `${v.models[stage].model} · ${v.models[stage].effort}` : 'default'}</span></span> : stagePickers({ key: stage, name: stage === 'review-summary' ? 'Summariser' : `Reviewer ${i + 1}`, taken: keys.filter((_, j) => j !== i) })}
+          </div>
+        ))}
+        {multi && clash.length > 0 && <span class="small s-failed">{clash.map(i => (names[i] === 'review-summary' ? 'The summariser' : `Reviewer ${i + 1}`)).join(', ')} share an agent and model, and the run would be refused. Give each its own: pick another model or agent.</span>}
+        <span class="small muted">Review only reports. Its findings go back through Red tests and Implement, up to the project's review loop limit.</span>
       </div>
     );
   };
@@ -481,11 +518,10 @@ export function Run({ slug }: { slug: string }) {
   return (
     <div class="col">
       <a href="#/board" onClick={e => { e.preventDefault(); go('/board'); }} class="small">← Board</a>
-      <div class="row" style={{ gap: '10px 16px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <h1 class="mono" style={{ fontWeight: 500 }}>{slug}</h1>
+      <div class="hero">
+        <h1>{slug}</h1>
         <a class="btn btn-s" href={`#/edit/run/${slug}`} onClick={e => { e.preventDefault(); go(`/edit/run/${slug}`); }}>Edit</a>
-        <StateTag state={v.state} />
-        {v.stage && <span class="tag">at {v.stage}</span>}
+        <span class={`chip chip-${v.state.replace(' ', '-')}`}>{v.state === 'running' ? <Spinner /> : GLYPH[v.state]} {v.state}{v.stage ? ` · ${v.stage}` : ''}</span>
         {v.attempt && (
           <span class={`tag ${v.state === 'running' ? 's-running' : v.state === 'paused' ? 's-paused' : ''}`}>
             {v.state === 'running' ? `running iteration ${v.attempt}` : `iteration ${v.attempt}`}
@@ -518,10 +554,12 @@ export function Run({ slug }: { slug: string }) {
       </div>
       <ErrorBox error={error} />
       {v.message && <div class="error">{v.message}</div>}
+      <Guarantees v={v} />
 
       {v.recovery && ['paused', 'failed', 'refused'].includes(v.state) && (
         <RecoveryCard
           recovery={v.recovery}
+          state={v.state}
           busy={busy}
           onAutoAction={() => {
             const auto = v.recovery!.autoAction;
@@ -612,6 +650,7 @@ export function Run({ slug }: { slug: string }) {
               />
               <span>Auto-accept suggested answers (Spec, Plan, Triage)</span>
             </label>
+            {catalog && <details class="small"><summary style={{ cursor: 'pointer' }}>Review: {envObj.SDLC_REVIEW_MODE === 'multi' ? 'multi-model' : 'single'}</summary><div style={{ marginTop: '6px' }}>{reviewConfig()}</div></details>}
             {catalog && <details class="small"><summary style={{ cursor: 'pointer' }}>Resolve conflicts: reviewers when the agent is unsure</summary><div style={{ marginTop: '6px' }}>{reviewerConfig()}</div></details>}
             {catalog && !running && (
               <div class="col" style={{ gap: '8px' }}>
@@ -675,17 +714,19 @@ export function Run({ slug }: { slug: string }) {
       {v.movedFrom && <p class="small muted" style={{ margin: 0 }}>moved from <span class="mono">{v.movedFrom.branch}</span>: {v.movedFrom.reasonText || v.movedFrom.reason}</p>}
       {v.discarded && <p class="small muted" style={{ margin: 0 }}>Discarded before. To get that branch back: <span class="mono">{v.discarded}</span></p>}
 
-      <Panel title="Stages" extra={<span class="small muted">A stage's agent, model and effort apply when the run starts or resumes (MODEL_&lt;STAGE&gt;, EFFORT_&lt;STAGE&gt;). Changing them while it runs: <Future id="E-2" /></span>}>
-        <div class="rail-scroll">
-          <div class="rail">
-            {STAGES.map((s, i) => {
+      <Panel title="Stages" extra={<span class="small muted">Pick a stage to see its steps and set its agent, model and effort (they apply when the run starts or resumes)</span>}>
+        <StageRail stages={railStages} timeline={v.timeline} step={v.state === 'running' ? v.step : undefined} locked={!!lock} lockOpen={lockOpen} selected={openStage} onSelect={setOpenStage}>
+          {openStage && (() => {
+              const i = STAGES.findIndex(x => x.key === openStage);
+              const s = STAGES[i];
+              if (!s) return null;
               const st = states[i];
-              if (s.key === 'resolve-conflicts') return null;
               const inUse = s.key && v.models[s.key];
               const locked = running && st !== 'pending';
               return (
-                <div class={`stage ${st === 'active' ? 'stage-active' : st === 'paused' ? 'stage-paused' : ''}`}>
-                  <strong class={STAGE_CLASS[st]}>{st === 'active' ? <Spinner /> : STAGE_GLYPH[st]} {s.name}</strong>
+                <div id="stage-detail" class="stage-detail" role="tabpanel" aria-label={s.name}>
+                 <div class="rail-controls">
+                  <h3>{s.name} · {s.key === 'finalise' ? 'options' : 'agent, model and effort'}</h3>
                   {v.attempt && st === 'active' && (
                     <span class="tag small s-running" style={{ marginTop: '2px', fontSize: '11px', padding: '2px 6px', alignSelf: 'flex-start' }}>
                       running iteration {v.attempt}
@@ -749,12 +790,16 @@ export function Run({ slug }: { slug: string }) {
                       : <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => setConfirm(`discard-stage:${s.key}`)}>Discard {s.name}…</button>
                   )}
                   {s.name === 'Finalise' && v.deniedPermissions && v.deniedPermissions.length > 0 && <span class="small s-failed">{v.deniedPermissions.length} denied</span>}
-                  {s.key && s.key !== 'implement' && s.key !== 'finalise' && s.key !== 'resolve-conflicts' && <span class="small"><Future id="E-7" /> skip</span>}
+                 </div>
+                 <div>
+                  <h3>Steps{spanOf(s.name)?.started ? ` · started ${spanOf(s.name)!.started.slice(11, 16)}` : ''}</h3>
+                  <StepList span={spanOf(s.name)} running={st === 'active'} />
+                  {s.key === 'red-tests' && <><h3 style={{ marginTop: '14px' }}>Test lock</h3><LockDetail lock={lock} open={lockOpen} /></>}
+                 </div>
                 </div>
               );
-            })}
-          </div>
-        </div>
+          })()}
+        </StageRail>
       </Panel>
       <StepBar v={v} />
 
@@ -1088,9 +1133,7 @@ export function Run({ slug }: { slug: string }) {
           )}
 
           {v.state !== 'not started' && (
-            <Panel title="Output"extra={<div class="row"><span class="mono small muted">logs/run.out</span><CopyButton text={v.tail.join('\n')} /><button class="btn btn-s" type="button" onClick={() => openFile('logs/run.out')}>Whole file</button></div>}>
-              <pre class="code mono" style={{ borderRadius: '0 0 8px 8px', maxHeight: '420px', overflowY: 'auto' }}>{v.tail.join('\n') || 'No output yet.'}</pre>
-            </Panel>
+            <OutputPanel tail={v.tail} extra={<div class="row"><span class="mono small muted">logs/run.out</span><CopyButton text={v.tail.join('\n')} /><button class="btn btn-s" type="button" onClick={() => openFile('logs/run.out')}>Whole file</button></div>} />
           )}
         </div>
 
@@ -1103,9 +1146,11 @@ export function Run({ slug }: { slug: string }) {
               <dt class="muted">Tests</dt><dd>{v.tests ? `${v.tests.passed} passed · ${v.tests.failed} failing · ${v.tests.total} total` : 'not run yet'}</dd>
               {v.worktree && <><dt class="muted">Worktree</dt><dd class="mono">{v.worktree}</dd></>}
               {v.updated && <><dt class="muted">Updated</dt><dd>{v.updated}</dd></>}
-              <dt class="muted">Usage</dt><dd>— <Future id="E-9" /></dd>
+              {hasUsage(v.timeline?.usage) && <><dt class="muted">Cost</dt><dd>{usageText(v.timeline!.usage)} · {v.timeline!.usage.rounds} agent round{v.timeline!.usage.rounds === 1 ? '' : 's'}</dd></>}
             </dl>
           </Panel>
+
+          <UsagePanel timeline={v.timeline} />
 
           <Panel title="Environment for this run" extra={<span class="small muted">applies on start, resume and restart</span>}>
             <div class="pb col" style={{ gap: '6px' }}>
@@ -1126,10 +1171,27 @@ export function Run({ slug }: { slug: string }) {
               ))}
               <div class="row">
                 <button class="btn btn-s" type="button" onClick={() => setEnv(rows => [...rows, ['', '']])}>Add variable</button>
-                {['SDLC_AUTO_ACCEPT', 'SDLC_BASE', 'SDLC_LIMIT_RETRY', 'SDLC_LIMIT_MAX_WAIT', 'SDLC_DEP_SCRIPTS', 'SDLC_ALLOW_MERGED'].filter(k => !envObj[k]).map(k => <button class="btn btn-s" type="button" onClick={() => setEnvVar(k, k === 'SDLC_AUTO_ACCEPT' ? '1' : '')}>{k}</button>)}
+                {quickKeys(env, ['SDLC_AUTO_ACCEPT', 'SDLC_BASE', 'SDLC_LIMIT_RETRY', 'SDLC_LIMIT_MAX_WAIT', 'SDLC_DEP_SCRIPTS', 'SDLC_ALLOW_MERGED']).map(k => <button class="btn btn-s" type="button" onClick={() => setEnv(rows => addEnvKey(rows, k, k === 'SDLC_AUTO_ACCEPT' ? '1' : ''))}>{k}</button>)}
               </div>
             </div>
           </Panel>
+
+          {(v.reviewRounds?.length || 0) > 0 && (
+            <Panel title="Review rounds" extra={<span class="mono small muted">logs/review-rounds.json</span>}>
+              <div class="pb col" style={{ gap: '8px' }}>
+                {v.reviewRounds!.map(r => (
+                  <details open={r.verdict === 'changes'}>
+                    <summary>
+                      Round {r.round}: <strong class={r.verdict === 'pass' ? 's-done' : 's-failed'}>{r.verdict === 'pass' ? 'pass' : `${r.findings.length} finding${r.findings.length === 1 ? '' : 's'}`}</strong> <span class="small muted">{r.outcome}</span>
+                    </summary>
+                    <ul class="small" style={{ margin: '4px 0', paddingLeft: '18px' }}>
+                      {r.findings.map(f => <li><span class="mono">{f.file}</span> {f.kind === 'missing-test' ? '(missing test) ' : ''}{f.criterion}: {f.reason} <span class="muted">[{f.status}]</span></li>)}
+                    </ul>
+                  </details>
+                ))}
+              </div>
+            </Panel>
+          )}
 
           {(v.attempts?.length || 0) > 0 && (
             <Panel title="Agent rounds" extra={<span class="mono small muted">logs/attempts.jsonl</span>}>

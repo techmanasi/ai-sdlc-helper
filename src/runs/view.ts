@@ -13,8 +13,11 @@ import { liveBranch, projectSlugs, readCheckpoint, runChanges, runWorktree, type
 import { moveReasonText } from '../pipeline/status.js';
 import { ciSummaryOf, getPrFromBrief, getPrStatusCached, keepPrStatusIn, PR_STATUS_FILE, prCommentsEmpty, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
 import { readRounds, type Round } from '../pipeline/observe.js';
+import { runTimeline, type Timeline, type UsageTotals } from './timeline.js';
+import { pricesNow } from '../models/prices.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
+import type { ReviewRound as ReviewRoundView } from '../pipeline/review-gate.js';
 import { commonDirOf, stampOf, worktreeInputs } from '../gitdir.js';
 import { withAnswerLines } from '../pipeline/questions.js';
 import { redPattern } from '../pipeline/stages.js';
@@ -90,11 +93,27 @@ export interface RunView {
   /** The last Resolve conflicts stopped on a failed check and its merged result is kept: "Fix with Implement" can repair it. */
   mergeFix?: boolean;
   testIssues?: string | null;
+  /** Each Review round: its verdict, findings (open, fixed or still open) and outcome (logs/review-rounds.json). */
+  reviewRounds?: ReviewRoundView[];
   recovery?: StageRecovery | null;
   /** What each agent round did (logs/attempts.jsonl), with its warnings; empty before the first round. */
   attempts: Round[];
+  /** Stages and steps with their times, usage and cost per stage, and the red-test lock (logs/attempts.jsonl); absent when there is no file. */
+  timeline?: Timeline;
   /** CI full-suite gate status; null unless tests.fullSuite is "ci". */
   ci?: CiView | null;
+}
+
+/** The timeline of every start of the item: tolerant of a missing file, a half-written last line and malformed lines. */
+function timelineOf(logs: string): { timeline?: Timeline } {
+  let text: string;
+  try { text = fs.readFileSync(path.join(logs, 'attempts.jsonl'), 'utf8'); } catch { return {}; }
+  const rows: unknown[] = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try { rows.push(JSON.parse(line)); } catch { /* half-written or malformed */ }
+  }
+  return { timeline: runTimeline(rows, undefined, pricesNow()) };
 }
 
 export interface CiView {
@@ -417,6 +436,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
     gitAgeMs,
     // Where the stop said the run resumes, when it named one; else from the stage it stopped at.
     resumeFrom: typeof s.resume_from === 'string' && s.resume_from && s.state !== 'running' ? s.resume_from : resumeStage(stage, exists(path.join(docsDir, 'test-issues.md'))),
+    reviewRounds: (() => { const r = readJson(path.join(logs, 'review-rounds.json')); return Array.isArray(r) ? r as ReviewRoundView[] : []; })(),
     testIssues: exists(path.join(docsDir, 'test-issues.md')) ? readText(path.join(docsDir, 'test-issues.md')) : null,
     createPr: (() => {
       const optFile = path.join(logs, 'finalise-options.json');
@@ -459,6 +479,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
     ciSummary: ciSummaryOf(runDoc('ci-failure.md') || ''),
     // A round still marked running when the run is not running it (or runs another agent) was cut short.
     attempts: readRounds(logs).map(r => (r.running && !(state === 'running' && (s.agent || '') === r.agent) ? { ...r, running: false, warnings: [...r.warnings, 'the round did not finish: the run stopped'] } : r)),
+    ...timelineOf(logs),
     recovery: ['paused', 'failed', 'refused', 'stopped', 'interrupted'].includes(state)
       ? stageRecoveryHint({
           slug,
@@ -483,6 +504,8 @@ export type RunCard = Pick<RunView, 'slug' | 'state' | 'stage' | 'agent' | 'mode
   changes: { changed: number; uncommitted: number } | null;
   /** The pull request of a finished run, as last read from GitHub (once an hour, or when the user syncs it); null for a run that is not done. */
   pullRequest: PrCard | null;
+  /** Tokens, time and cost of every start of the item so far (the run page's "Whole run"); null before any agent round. */
+  usage: UsageTotals | null;
 };
 
 export interface PrCard {
@@ -602,6 +625,7 @@ export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): Bo
       changes: v.changes && { changed: v.changes.changed, uncommitted: v.changes.uncommitted },
       // Never waits for gh: the last known status, asked again at most once an hour (a cold cache fills within a poll).
       pullRequest: pr ? prCard(v.pr || null, pr) : null,
+      usage: v.timeline?.usage ?? null,
     };
   });
   // A backlog item's PR link: the pipeline commits it on the run's branch and never writes the main checkout, whose brief has

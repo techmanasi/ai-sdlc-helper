@@ -36,6 +36,8 @@ export interface RunCard {
   changes: { changed: number; uncommitted: number } | null;
   /** The pull request of a finished run, last read from GitHub; null while the run is not done. */
   pullRequest?: PrCard | null;
+  /** Tokens, time and cost of the whole run so far; null (or absent from an older server) before any agent round. */
+  usage?: UsageTotals | null;
 }
 export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
 export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; checkedAt: string | null; failed: boolean; ci: CiState | null; failing: string[]; conflicts: 'none' | 'conflicting' | 'unknown' | null }
@@ -65,13 +67,24 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   prCi?: CiState | null; prFailing?: string[]; prConflicts?: 'none' | 'conflicting' | 'unknown' | null; ciSummary?: string[];
   ci?: { enabled: boolean; state: string; pr: string | null; prDraft: boolean; reason?: string; failingChecks: string[]; warnings: string[]; sha?: string } | null;
   testIssues?: string | null;
+  reviewRounds?: { round: number; verdict: 'pass' | 'changes'; outcome: string; findings: { kind: 'blocker' | 'missing-test'; file: string; criterion: string; reason: string; status: 'open' | 'fixed' | 'still open' }[] }[];
   recovery?: StageRecovery | null;
   /** What each agent round did, with its warnings (logs/attempts.jsonl). */
   attempts?: AttemptRound[];
+  /** Every stage's steps, time, tokens and cost, and the test lock (from logs/attempts.jsonl); absent on an older server. */
+  timeline?: Timeline;
 }
+export interface StepSpan { key: string; label: string; started: string; ended: string | null }
+export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd?: number; unpriced?: number }
+export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; usage: UsageTotals }
+export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
+export interface LockOpen { at: string; reason: 'retry' | 'review-findings' | 'test-repair'; sha: string }
+export interface Timeline { stages: StageSpan[]; lock: LockView | null; lockOpen?: LockOpen | null; usage: UsageTotals }
 export interface AttemptRound {
   at: string; stage: string; agent: string; durationSec: number | null; exitCode: number; responseChars: number;
   turns: number | null; tokens: number | null;
+  usage?: { input: number | null; output: number | null; cacheRead: number | null; cacheWrite: number | null; costUsd: number | null };
+  model?: string;
   denied: Array<{ tool: string; detail: string }>;
   filesChanged: string[]; warnings: string[];
   /** The round has started and not finished. */

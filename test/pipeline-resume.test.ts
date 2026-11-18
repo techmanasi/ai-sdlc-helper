@@ -183,7 +183,7 @@ describe('Test repair', () => {
       `[test-repair] test(${SLUG}): repair invalid tests (mechanically checked and audited)`, `Merge branch 'main' into feature/${SLUG}`,
       `[red-tests] test(${SLUG}): add failing tests and spec/plan docs`,
     ]);
-    expect(filesIn(f.dir, 'HEAD~2')).toEqual(['src/sum.test.mjs', `${DOCS}/test-audit.md`, `${DOCS}/test-issues.md`, `${DOCS}/test-repair-1.md`]);
+    expect(filesIn(f.dir, 'HEAD~2')).toEqual(['src/sum.test.mjs', `${DOCS}/cost/cost.json`, `${DOCS}/cost/cost.md`, `${DOCS}/test-audit.md`, `${DOCS}/test-issues.md`, `${DOCS}/test-repair-1.md`]);
     expect(read(f.dir, `${LOG}/test-repair.diff`)).toContain('+test(\'sum adds\', () => assert.equal(sum(2, 3), 5));');
     expect(read(f.dir, `${DOCS}/test-audit.md`)).toBe('VERDICT: VALID\n');
     // the auditor runs read-only, with its own model

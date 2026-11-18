@@ -77,6 +77,8 @@ export interface Config {
   git: { branchPrefix: string; base: string | null; conflictSuffixStart: number };
   agent: { harness: HarnessName; model: string | null; effort: string | null; stages: Record<string, StageSetting>; allowCommands: string[]; codeSearch: string; codeIndexer: CodeIndexer | null; notesDir: string };
   finalise: { envExample: boolean; maxFileBytes: number };
+  /** Review: how many times its findings may send the run back through Red tests and Implement, and whether one agent or several models review. */
+  review: { maxLoops: number; mode: 'single' | 'multi'; reviewers: number };
   ui: { timezone: string };
   /** The trace of repeating actions (src/trace.ts): on by default, rotating by size and age. */
   trace: TraceSettings;
@@ -157,6 +159,7 @@ export const SCHEMA: Json = {
     stages: { '*': { harness: [...HARNESS_IDS], model: 'string', effort: [...EFFORT_LEVELS] } },
     allowCommands: 'string[]', notesDir: 'string', codeSearch: 'string', codeSearchOrder: 'string[]', codeIndexers: { '*': INDEXER_SCHEMA } },
   finalise: { envExample: 'boolean', maxFileBytes: 'integer' },
+  review: { maxLoops: 'integer', mode: ['single', 'multi'], reviewers: 'integer' },
   ui: { timezone: 'string' },
   trace: { enabled: 'boolean', maxSizeKb: 'number', keepFiles: 'integer', maxAgeHours: 'number' },
   node: { version: 'string', manager: ['auto', ...NODE_MANAGERS, 'none'] },
@@ -385,6 +388,12 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
     finalise: {
       envExample: (file.finalise && typeof file.finalise.envExample === 'boolean') ? file.finalise.envExample : true,
       maxFileBytes: (file.finalise && file.finalise.maxFileBytes) || 1024 * 1024,
+    },
+    review: {
+      maxLoops: file.review && Number.isInteger(file.review.maxLoops) ? file.review.maxLoops : 2,
+      // SDLC_REVIEW_MODE and SDLC_REVIEW_REVIEWERS are the run's own choice (Run options): they win over the file.
+      mode: ['single', 'multi'].includes(String(env.SDLC_REVIEW_MODE)) ? env.SDLC_REVIEW_MODE as 'single' | 'multi' : (file.review && file.review.mode) || 'single',
+      reviewers: Math.min(5, Math.max(2, /^\d+$/.test(env.SDLC_REVIEW_REVIEWERS || '') ? Number(env.SDLC_REVIEW_REVIEWERS) : (file.review && file.review.reviewers) || 2)),
     },
     ui,
     trace,

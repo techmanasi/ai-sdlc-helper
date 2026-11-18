@@ -22,6 +22,7 @@ import { cleanRunMainBrief, linkPrInBrief } from './pr-link.js';
 import { installDeps } from './deps.js';
 import { agentLastMessage, appendRound, repeatedFailures } from './observe.js';
 import { keepError } from './errors.js';
+import { isCostFile, writeCostLog } from './cost-log.js';
 import { withAnswerLines } from './questions.js';
 import { openMovedPr } from './branch-move.js';
 import { ensurePushable, pushCheckSkipped } from './push-check.js';
@@ -50,6 +51,28 @@ export function stage(ctx: Ctx, title: string): void {
   ctx.status.attempt = '';
   ctx.status.step = null; // the new stage names its own first step
   ctx.status.write();
+  appendRound(at(ctx, ctx.log), { kind: 'stage', at: stamp(), stage: ctx.status.stage });
+}
+
+/** Records that the tests are locked at the current lockSha (<log>/attempts.jsonl); never throws. */
+function recordLock(ctx: Ctx, source: 'red-tests' | 'test-repair'): void {
+  try {
+    // The tests the run wrote (the files of its red-tests and test-repair commits) are what the lock is about. A count
+    // of tests is kept only when the results at red name them: a test file that cannot load yet reports none.
+    let tests: number | null = null;
+    try {
+      const j = JSON.parse(fs.readFileSync(at(ctx, `${ctx.log}/red.json`), 'utf8'));
+      if (Array.isArray(j?.tests) && j.tests.length > 0) tests = j.tests.length;
+    } catch { /* red.json missing or unreadable */ }
+    let files: number | null = null;
+    try { files = redCommitTestFiles(ctx).length || null; } catch { /* not known */ }
+    appendRound(at(ctx, ctx.log), { kind: 'lock', at: stamp(), sha: ctx.lockSha, origRedSha: ctx.origRedSha, source, tests, files });
+  } catch { /* best effort */ }
+}
+
+/** Records that a guard found locked tests changed by an agent (<log>/attempts.jsonl). */
+function recordGuard(ctx: Ctx, stageName: string, restored: string[]): void {
+  appendRound(at(ctx, ctx.log), { kind: 'guard', at: stamp(), stage: stageName, restored });
 }
 
 const countLines = (file: string, re: RegExp) => (exists(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(l => re.test(l)).length : 0);
@@ -260,7 +283,9 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   const existingTests = firstRedSha ? redCommitTestFiles(ctx) : [];
   const srcBefore = ctx.git.sourceHash ? ctx.git.sourceHash(ctx.layout.sourceDirs || [], ctx.layout.testPathspecs || [], ctx.config.backlogDir || '') : undefined;
   // What "new" means for the red gate: the tree before the agent ran, or before the first red commit on a resumed run.
-  const baseSha = (firstRedSha ? ctx.git.tryRun('rev-parse', '--verify', `${firstRedSha}^`)?.trim() : '') || ctx.git.head();
+  // Red tests for Review findings: the code is implemented already, so a new test must fail against the tree as it is now.
+  const fixing = !!ctx.promptExtra?.REVIEW_FINDINGS;
+  const baseSha = (firstRedSha && !fixing ? ctx.git.tryRun('rev-parse', '--verify', `${firstRedSha}^`)?.trim() : '') || ctx.git.head();
   ctx.status.attempt = '1/1';
   ctx.status.write();
   ctx.status?.beginStep?.('agent');
@@ -276,7 +301,7 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   const allTaskTests = [...new Set([...existingTests, ...added])];
   if (allTaskTests.length === 0) stop(ctx, `RED GATE FAILED: the Red tests agent added or changed no test file. See ${ctx.log}/tests.log`);
   const gateFiles = added.length > 0 ? added : existingTests;
-  const redPassed = hasImplSince(ctx, firstRedSha)
+  const redPassed = hasImplSince(ctx, firstRedSha) && !fixing
     ? testsPassAt(ctx, firstRedSha, allTaskTests, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true })
     : testsPass(ctx, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true });
   if (redPassed) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
@@ -294,8 +319,10 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   ctx.status?.beginStep?.('commit');
   ctx.git.run('add', '-A', '--', ctx.docs);
   ctx.git.addTests(ctx.layout.testPathspecs);
-  const hasStaged = !firstRedSha || !ctx.git.findCommits || ctx.git.lines('diff', '--cached', '--name-only').some(f => f.trim() !== '');
+  const hasStaged = !firstRedSha || !ctx.git.findCommits || ctx.git.lines('diff', '--cached', '--name-only').some(f => f.trim() !== '' && !isCostFile(ctx, f));
   if (hasStaged) {
+    const cost = await writeCostLog(ctx);
+    if (cost.length) ctx.git.run('add', '--', ...cost);
     ctx.git.run('commit', '-q', '-m', `[red-tests] test(${ctx.slug}): add failing tests and spec/plan docs`);
     ctx.redSha = ctx.git.head();
   } else {
@@ -304,6 +331,7 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   }
   ctx.origRedSha = firstRedSha || ctx.redSha;
   ctx.lockSha = ctx.git.head();
+  recordLock(ctx, 'red-tests');
   // The full suite in CI: the tests are locked, so push and open the draft PR now (a failed red gate never gets here).
   if (ctx.config.tests.fullSuite === 'ci') await openCi(ctx);
   else if (ctx.movedFrom) await openMovedPr(ctx);
@@ -442,6 +470,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
     const touched = ctx.git.testsChangedSince(ctx.lockSha, ctx.layout.testPathspecs);
     if (touched.length) {
       ctx.out('GUARD FAILED: tests were modified during implementation');
+      recordGuard(ctx, ctx.status.stage, touched);
       for (const f of touched) ctx.out(f);
       stop(ctx, null);
     }
@@ -458,7 +487,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
       let sha: string;
       let committed = false;
       try {
-        committed = commitAttempt(ctx, i);
+        committed = await commitAttempt(ctx, i);
         ctx.git.run('push', '-u', 'origin', ctx.branch);
         sha = ctx.git.head();
       } catch (e) {
@@ -539,11 +568,14 @@ function headIsPushed(ctx: Ctx): boolean {
   } catch { return false; }
 }
 
-/** Commits the files this attempt changed (Finalise's rules: baseline-filtered, no secrets, generated or large files). False when there are none. */
-function commitAttempt(ctx: Ctx, attempt: number): boolean {
+/** Commits the files this attempt changed (Finalise's rules: baseline-filtered, no secrets, generated or large files), with the cost log. False when there are none. */
+async function commitAttempt(ctx: Ctx, attempt: number): Promise<boolean> {
   let include: string[] = [];
   try { include = changed(at(ctx, `${ctx.log}/baseline.json`), { root: ctx.root, maxBytes: ctx.config.finalise.maxFileBytes }).include; } catch { include = []; }
+  // The cost log alone is no work: it rides along only with a commit that has some.
+  include = include.filter(f => !isCostFile(ctx, f));
   if (!include.length) return false;
+  for (const f of await writeCostLog(ctx)) if (!include.includes(f)) include.push(f);
   ctx.git.run('add', '-A', '--', ...include);
   ctx.git.run('commit', '-q', '-m', `[implement] feat(${ctx.slug}): implement (attempt ${attempt})`, '-m', include.slice(0, 50).join('\n'), '--', ...include);
   return true;
@@ -692,30 +724,14 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   await tick();
   if (!(await successCheck(ctx))) reject(`checks still fail after an audited repair; see ${ctx.failLog}`);
   ctx.status?.beginStep?.('commit');
+  await writeCostLog(ctx);
   ctx.git.run('add', '-A', '--', ctx.docs);
   ctx.git.addTests(specs);
   ctx.git.run('commit', '-q', '-m', `[test-repair] test(${ctx.slug}): repair invalid tests (mechanically checked and audited)`);
   ctx.redSha = ctx.git.head();
   ctx.lockSha = ctx.redSha;
+  recordLock(ctx, 'test-repair');
   ctx.out(` test repair accepted; tests locked again at ${short(ctx.redSha)}`);
-}
-
-/** Review: the agent reviews and fixes the source; the tests must not change and every check must still pass. */
-export async function reviewStage(ctx: Ctx): Promise<void> {
-  stage(ctx, '5/6 Review');
-  // A run resumed here is a new process that has not asked about CI yet; without the answer the check after the review
-  // would run the whole suite here.
-  if (ctx.config.tests.fullSuite === 'ci' && ctx.ciAvailable === undefined) await openCi(ctx);
-  await tick();
-  ctx.status.attempt = '1/1';
-  ctx.status.write();
-  ctx.status?.beginStep?.('agent');
-  await runAgent(ctx, 'review', 'review');
-  await tick();
-  ctx.status?.beginStep?.('guard');
-  if (ctx.git.testsChangedSince(ctx.lockSha, ctx.layout.testPathspecs).length) stop(ctx, 'GUARD FAILED: review modified tests');
-  await tick();
-  if (!(await successCheck(ctx))) stop(ctx, `Checks broke after review. See ${ctx.failLog}`);
 }
 
 /** Finalise: commits the cycle's files, ticks the backlog item, and optionally creates a PR. */
@@ -736,7 +752,9 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
   // The PR opened after Red tests: from this run's status, or (a resumed run, a new process) the link in brief.md, read
   // before finalise() can record a PR of its own there.
   const opened = ctx.config.tests.fullSuite === 'ci' ? (ctx.status.ci?.pr || briefPr(ctx)) : null;
+  const costFiles = await writeCostLog(ctx);
   const res = finalise({
+    alongside: costFiles,
     git: ctx.git, slug: ctx.slug, docs: ctx.docs, baseline: `${ctx.log}/baseline.json`, backlog: ctx.backlog,
     maxBytes: ctx.config.finalise.maxFileBytes, envExample: ctx.config.finalise.envExample,
     createPr, baseBranch: ctx.config.git.base || undefined,

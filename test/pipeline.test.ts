@@ -22,17 +22,22 @@ describe('a full run', () => {
     expect([r.status, r.stderr]).toEqual([0, '']);
     expect(r.stdout).toContain(`SDLC: ${SLUG} on branch feature/${SLUG}\n`);
     expect(r.stdout).toContain('\n== 1/6 Spec\n   -> agent: spec-1\n   model=opus effort=medium\n');
-    expect(r.stdout).toContain(`DONE: ${SLUG} on feature/${SLUG}. Committed 2 file(s), skipped 0 (see ${LOG}/finalise-skipped.md).`);
+    expect(r.stdout).toContain(`DONE: ${SLUG} on feature/${SLUG}. Committed 3 file(s), skipped 0 (see ${LOG}/finalise-skipped.md).`);
     expect(r.calls).toEqual(['spec', 'plan', 'red-tests', 'implement', 'review']);
     expect(git(f.dir, 'branch', '--show-current')).toBe(`feature/${SLUG}`);
     expect(subjects(f.dir)).toEqual([
       `chore(backlog): mark ${SLUG} done`, `[finalise] feat(${SLUG}): implement per ${DOCS}/specs-1.md`, `[red-tests] test(${SLUG}): add failing tests and spec/plan docs`,
     ]);
     // the red-tests commit holds the docs and the new test; the implementation comes after
-    expect(filesIn(f.dir, 'HEAD~2')).toEqual(['src/sum.test.mjs', `${DOCS}/manual-inputs.md`, `${DOCS}/plan-1.md`, `${DOCS}/specs-1.md`, `${DOCS}/test-cases-1.md`]);
-    expect(filesIn(f.dir, 'HEAD~1')).toEqual(['src/sum.mjs', `${DOCS}/review-1.md`]);
+    // each stage commit carries the task's cost log as it stood then
+    expect(filesIn(f.dir, 'HEAD~2')).toEqual(['src/sum.test.mjs', `${DOCS}/cost/cost.json`, `${DOCS}/cost/cost.md`, `${DOCS}/manual-inputs.md`, `${DOCS}/plan-1.md`, `${DOCS}/specs-1.md`, `${DOCS}/test-cases-1.md`]);
+    expect(filesIn(f.dir, 'HEAD~1')).toEqual(['src/sum.mjs', `${DOCS}/cost/cost.json`, `${DOCS}/cost/cost.md`, `${DOCS}/review-1.md`, `${DOCS}/review.json`]);
     expect(read(f.dir, 'work/items/index.md')).toContain(`- [x] \`${SLUG}\``);
     expect(read(f.dir, `${LOG}/finalise-skipped.md`)).toBe('');
+    // the cost log at Finalise counts every agent round of the run, Review included
+    const cost = JSON.parse(git(f.dir, 'show', `HEAD~1:${DOCS}/cost/cost.json`));
+    expect(cost.stages.map((x: { stage: string }) => x.stage)).toEqual(['Spec', 'Plan', 'Red tests', 'Implement', 'Review', 'Finalise']);
+    expect(cost.usage.rounds).toBe(5);
 
     // the tests at the red commit: the new file failed to load, the old tests passed
     const red = JSON.parse(read(f.dir, `${LOG}/red.json`));
@@ -74,6 +79,9 @@ describe('a full run', () => {
       spec: { model: 'opus', effort: 'medium' }, plan: { model: 'opus', effort: 'medium' }, 'red-tests': { model: 'sonnet', effort: 'medium' },
       implement: { model: 'sonnet', effort: 'medium' }, 'test-repair': { model: 'sonnet', effort: 'medium' },
       'test-audit': { model: 'opus', effort: 'medium' }, review: { model: 'opus', effort: 'medium' },
+      'review-2': { model: 'sonnet', effort: 'medium' }, 'review-3': { model: 'haiku', effort: 'medium' },
+      'review-4': { model: 'opus', effort: 'high' }, 'review-5': { model: 'sonnet', effort: 'high' },
+      'review-summary': { model: 'haiku', effort: 'medium' },
       'resolve-conflicts': { model: 'opus', effort: 'medium' },
       'resolve-review-1': { model: 'opus', effort: 'medium' }, 'resolve-review-2': { model: 'sonnet', effort: 'medium' },
       'resolve-review-3': { model: 'haiku', effort: 'medium' }, 'resolve-review-4': { model: 'sonnet', effort: 'medium' },

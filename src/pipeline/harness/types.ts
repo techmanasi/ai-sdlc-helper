@@ -7,7 +7,7 @@
 export type BuiltinHarnessId = 'claude' | 'agy' | 'codex' | 'opencode';
 export type HarnessId = BuiltinHarnessId | (string & {});
 
-export type StageName = 'spec' | 'plan' | 'red-tests' | 'implement' | 'test-repair' | 'test-audit' | 'review' | 'resolve-conflicts'
+export type StageName = 'spec' | 'plan' | 'red-tests' | 'implement' | 'test-repair' | 'test-audit' | 'review' | 'review-2' | 'review-3' | 'review-4' | 'review-5' | 'review-summary' | 'resolve-conflicts'
   | 'resolve-review-1' | 'resolve-review-2' | 'resolve-review-3' | 'resolve-review-4' | 'resolve-review-5' | 'resolve-judge';
 
 export interface HarnessModel {

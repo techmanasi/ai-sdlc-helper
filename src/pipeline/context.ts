@@ -13,7 +13,7 @@ export const FROM_STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repa
 export type From = typeof FROM_STAGES[number];
 
 /** The stages that run an agent, each with its own prompt, model and effort. */
-export const AGENT_STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'test-audit', 'review', 'resolve-conflicts', 'resolve-review-1', 'resolve-review-2', 'resolve-review-3', 'resolve-review-4', 'resolve-review-5', 'resolve-judge'] as const;
+export const AGENT_STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'test-audit', 'review', 'review-2', 'review-3', 'review-4', 'review-5', 'review-summary', 'resolve-conflicts', 'resolve-review-1', 'resolve-review-2', 'resolve-review-3', 'resolve-review-4', 'resolve-review-5', 'resolve-judge'] as const;
 export type AgentStage = typeof AGENT_STAGES[number];
 
 /** Ends the run with an exit code: 0 done, 1 failed, 2 paused for the developer. What to say was printed already. */
@@ -86,6 +86,8 @@ export interface Ctx {
   permRepo: string;
   redSha: string;
   lockSha: string;
+  /** Extra {{PLACEHOLDER}} values for the prompts of the next agent (the Review round, the findings Red tests must cover). */
+  promptExtra?: Record<string, string>;
   origRedSha: string;
   /** The log of the check that failed last (tests.log or integration.log). */
   failLog: string;

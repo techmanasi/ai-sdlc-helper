@@ -22,7 +22,8 @@ const text = (file: string) => fs.readFileSync(file, 'utf8').replace(/\n+$/, '')
 export function renderPrompt(
   stage: string, values: Record<string, string>, guide: string, promptsDir = PROMPTS_DIR, notes = '', harness = 'claude',
 ): string {
-  const file = path.join(promptsDir, `prompt-${stage}.md`);
+  // The extra reviewers of a multi-model Review (review-2 to review-5) share the Review prompt.
+  const file = path.join(promptsDir, `prompt-${/^review-[2-5]$/.test(stage) ? 'review' : stage}.md`);
   if (!exists(file)) throw new SetupError(`ERROR: missing prompt file ${file}`);
   let t = text(file);
   const codexTools = path.join(promptsDir, 'parts', 'tools.codex.md');

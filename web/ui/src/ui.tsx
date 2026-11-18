@@ -1,6 +1,6 @@
 // Small pieces every screen uses: the CLI strip, state and Future tags, a Markdown preview, and the shared app context.
 import { createContext } from 'preact';
-import { useContext, useState } from 'preact/hooks';
+import { useContext, useMemo, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { cliLine, type ViewState } from './api';
 import { parseMarkdown, type Inline } from './markdown';
@@ -34,7 +34,7 @@ export function StateTag({ state }: { state: ViewState }) {
 }
 
 /** A control the engine cannot back yet: the request it waits on, from docs/web-ui.md. */
-export const Future = ({ id }: { id: string }) => <span class="tag fut" title={`Waits on engine request ${id} (docs/web-ui.md)`}>Future · {id}</span>;
+export const Future = ({ id }: { id: string }) => <span class="tag fut" title={`Not built yet (engine request ${id}, docs/web-ui.md)`}>Soon</span>;
 
 async function copy(text: string): Promise<boolean> {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
@@ -98,7 +98,8 @@ const renderInline = (items: Inline[]): ComponentChildren =>
 
 /** A Markdown preview built as elements from parsed data (nothing from the text runs as HTML). */
 export function Markdown({ text }: { text: string }) {
-  const blocks = parseMarkdown(text).map((b): ComponentChildren => {
+  const parsed = useMemo(() => parseMarkdown(text), [text]);
+  const blocks = parsed.map((b): ComponentChildren => {
     switch (b.t) {
       case 'heading': { const H = `h${Math.min(b.level, 6)}` as 'h1'; return <H>{renderInline(b.inline)}</H>; }
       case 'para': return <p>{renderInline(b.inline)}</p>;
