@@ -322,9 +322,9 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 /* Cost: the board's Cost column and the run page's totals strip */
 .b-cost { gap: 2px; min-width: 0; text-align: right; }
 .b-cost-usd { font-family: var(--monof); font-weight: 600; font-size: 13px; }
-.totals { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); border: 1px solid var(--ln); border-radius: 8px; overflow: hidden; }
-.total { padding: 10px 12px; border-left: 1px solid var(--ln); display: flex; flex-direction: column-reverse; gap: 2px; min-width: 0; }
+.totals { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); border: 1px solid var(--ln); border-radius: 8px; overflow: hidden; }
+.total { padding: 8px 8px; border-left: 1px solid var(--ln); display: flex; flex-direction: column-reverse; gap: 2px; min-width: 0; }
 .total:first-child { border-left: 0; }
-.total dd { margin: 0; font-family: var(--monof); font-size: 20px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.total dd { margin: 0; font-family: var(--monof); font-size: 16px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .total dt { font-size: 12px; color: var(--mu); }
 .total:first-child dd { color: var(--pri); }
