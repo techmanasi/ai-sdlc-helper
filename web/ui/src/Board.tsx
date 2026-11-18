@@ -20,7 +20,7 @@ export function columnOf(r: RunCard): string {
 
 const clock = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null);
 
-export const needsYou = (r: RunCard) => r.state === 'paused' || r.questions > 0 || r.permissions > 0;
+export const needsYou = (r: RunCard) => r.state === 'paused' || r.state === 'ready' || r.questions > 0 || r.permissions > 0;
 
 /** One run on the board: its name, the stages as a strip, where it is, its state, its pull request. */
 function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): void }) {

@@ -43,6 +43,7 @@
     guarantee: '.guar .guar-item',
     recovery: 'section.recov',
     recoveryWays: '.recov-ways',
+    discardedStage: '#discarded-stage',
     panel: 'section.pn',
     panelHead: '.ph h2',
     tile: '.rail2 .tile',
@@ -296,6 +297,8 @@
       cost: cost ? text($('.chip', cost)) : '',
       totals: $$(SELECTORS.totals).map(text),
       handoff: handoff(),
+      // a run ready after a stage discard: which stage was discarded and how to retry it
+      discarded: text($(SELECTORS.discardedStage)),
       panels: panelTitles(),
       // the run's own buttons; the stage tiles are in stages, a panel's buttons are read through panel(<title>)
       buttons: buttons($('.col', main())).filter(b => !b.tile && !b.inPanel).map(b => b.label + (b.disabled ? ' (disabled)' : '')),

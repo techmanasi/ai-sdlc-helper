@@ -21,6 +21,7 @@ import { keepError } from '../pipeline/errors.js';
 import { redPattern } from '../pipeline/git.js';
 import { writeUserNote } from '../pipeline/handoff.js';
 import type { From } from '../pipeline/context.js';
+import { discardableStage, STAGE_ORDER } from './discardable.js';
 
 /** The controls' own environment variables: read here, never passed to the pipeline. */
 export const CONTROL_ENV = ['SDLC_BASE', 'SDLC_WT_BASE', 'SDLC_MAX_PARALLEL', 'SDLC_ALLOW_MERGED', 'FROM', 'AI_SDLC_HELPER_PIPELINE_CMD', 'WATCH_REPORT_DEPENDENCIES'];
@@ -552,15 +553,19 @@ export async function discardStage(ctx: RunContext, slug: string, opts: StageDis
     if (!await stopRun(ctx, slug, rec!)) return fail(1, `could not stop ${slug} (pid ${rec!.pid})`);
   }
   const statusFile = path.join(wt, ctx.backlogDir, slug, 'logs', 'status.json');
-  let status: { stage?: string } = {};
+  let status: { stage?: string; state?: string } = {};
   try { status = JSON.parse(fs.readFileSync(statusFile, 'utf8')); } catch { /* use requested stage */ }
-  const stage = stageKey(opts.stage || status.stage || '');
+  const marks = path.join(wt, ctx.backlogDir, slug, 'logs', 'stage-files.json');
+  let marked: Record<string, unknown> | null = null;
+  try { marked = (JSON.parse(fs.readFileSync(marks, 'utf8')) as { stages?: Record<string, unknown> }).stages || {}; } catch { /* no marks */ }
+  // Only the last stage that ran may go (see discardableStage): after a discard, the one before the discarded stage.
+  const last = discardableStage(status, marked);
+  if (status.state === 'ready' && !last) return fail(2, `Nothing left to discard for ${slug}: no stage before ${status.stage} has work`);
+  const stage = stageKey(opts.stage || last || '');
   if (!stage) return fail(2, `Could not determine the current stage for ${slug}; pass --stage <stage>`);
-  // Only the latest stage may go: discarding an earlier one would leave the later stages built on files that are gone.
-  if (status.stage && stageKey(status.stage) !== stage) return fail(2, `Only the latest stage (${status.stage}) can be discarded, not ${stage}`);
+  if (last && stageKey(last) !== stage) return fail(2, `Only the last stage that ran (${last}) can be discarded, not ${stage}`);
   // Only what this stage made is discarded: the files stage-files.json credits to it and what changed since the last mark.
   // Another stage's files (the Spec and Plan documents are uncommitted until the red-tests commit) are never touched.
-  const marks = path.join(wt, ctx.backlogDir, slug, 'logs', 'stage-files.json');
   const own = (name: string): boolean => stageKey(name) === stage;
   const work = stageWork(marks, { root: wt }, own);
   const tracked = new Set(git(wt, ['ls-tree', '-r', '--name-only', '-z', 'HEAD'], ctx.env).stdout.split('\0').filter(Boolean));
@@ -572,13 +577,15 @@ export async function discardStage(ctx: RunContext, slug: string, opts: StageDis
     }
   }
   try { forgetStage(marks, { root: wt }, own); } catch { /* the pane's file list is best effort */ }
-  // The run now stands at the latest earlier stage that still has work, so that is the one that can be discarded next.
-  try {
-    const order = ['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise', 'Resolve conflicts'];
-    const left = Object.keys((JSON.parse(fs.readFileSync(marks, 'utf8')) as { stages?: Record<string, unknown> }).stages || {});
-    const before = order.filter(n => stageKey(n) !== stage && order.findIndex(m => stageKey(m) === stage) > order.indexOf(n) && left.includes(n));
-    fs.writeFileSync(statusFile, `${JSON.stringify({ ...status, stage: before[before.length - 1] || '' })}\n`);
-  } catch { /* no marks or status: nothing to move */ }
+  // The run stays at the discarded stage, which is the next to run: it is ready to retry it, and the stage before it
+  // that has work is the one a further discard takes back. No stage failed or waits
+  // any more, so the old stop (its state, note and resume stage) goes, and no other stage is shown as the one that stopped.
+  const name = STAGE_ORDER.find(n => stageKey(n) === stage) || status.stage || stage;
+  const ready = {
+    ...status, state: 'ready', stage: name, agent: '', model: '', effort: '', attempt: '', note: '', step: undefined,
+    resume_from: stage, discarded_stage: { stage: name, at: now() }, updated: now(),
+  };
+  try { fs.writeFileSync(statusFile, `${JSON.stringify(ready)}\n`); } catch (e) { return fail(1, `Discarded ${work.length} file(s) made by ${stage}, but could not write ${statusFile}: ${(e as Error).message}`); }
   fs.appendFileSync(path.join(wt, ctx.backlogDir, slug, 'logs', 'run.out'), `stage ${stage} discarded; ready to retry\n`);
   return ok(`Discarded ${work.length} file(s) made by ${stage} in ${wt}; ready to retry. Resume with: ai-sdlc-helper start ${slug} --from ${stage}`);
 }

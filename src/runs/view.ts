@@ -25,8 +25,10 @@ import { cleanMergedRunBrief } from './completed.js';
 import { readRunDoc } from './run-docs.js';
 import { readHandoff } from '../pipeline/handoff.js';
 import { recentNotices, type Notice } from './notices.js';
+import { discardableStage } from './discardable.js';
 
-export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused';
+/** `ready`: nothing runs and the last stage was discarded, so the run waits to retry it (see discardStage). */
+export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused' | 'ready';
 
 /** One question of questions.md: "### Q<n>: <title>", a body, "**Suggested:** ...", "**Answer:** ...". */
 export interface Question { n: number; title: string; body: string; suggested: string; answer: string }
@@ -74,6 +76,10 @@ export interface RunView {
   docs: string[];
   /** The command that brings a discarded branch back, '' when none was discarded. */
   discarded: string;
+  /** The stage a stage discard took back, while the run is `ready` to retry it; else null. */
+  discardedStage: { stage: string; at: string } | null;
+  /** The stage Discard may take back now (see discardableStage): the stage the run is at, or after a discard the last one that ran; '' for none. */
+  discardable: string;
   /** The --from value that resumes the run where it stopped ('' for the start). */
   resumeFrom: string;
   /** logs/handoff.json: the pipeline's finding and the user's instruction for the stage the run resumes at; null when none. */
@@ -234,14 +240,21 @@ export function stepOf(raw: any): { step?: NonNullable<RunView['step']> } {
 }
 
 function viewState(rec: Partial<RunRecord> | null, status: any): ViewState {
+  // A stage discard writes `ready` after the run's end, so it stands over the stop the record still holds; a run started
+  // after the discard (its record is newer) is not ready, even before its pipeline rewrites status.json.
+  const at = typeof status?.discarded_stage?.at === 'string' ? status.discarded_stage.at : '';
+  const ready = status?.state === 'ready' && (!rec?.started || at >= rec.started);
   if (rec) {
     const rs = runState(rec);
-    if (rs === 'running' || rs === 'interrupted' || rs === 'stopped') return rs;
+    if (rs === 'running') return rs;
+    if (ready) return 'ready';
+    if (rs === 'interrupted' || rs === 'stopped') return rs;
     if (rec.exit_code === '0') return 'done';
     if (rec.exit_code === '2') return 'paused';
     return !rec.worktree && rec.message ? 'refused' : 'failed';
   }
   if (!status) return 'not started';
+  if (ready) return 'ready';
   if (status.state === 'running') return alive(status.pid, typeof status.pid_start === 'string' && status.pid_start ? status.pid_start : undefined) ? 'running' : 'stopped';
   return ['paused', 'done', 'failed'].includes(status.state) ? status.state : 'failed';
 }
@@ -435,6 +448,9 @@ export function runView(ctx: RunContext, slug: string, opts: {
     tail: dir && want('tail') ? tail(path.join(logs, 'run.out'), opts.tailLines ?? 40) : [],
     docs: docFiles(docsDir),
     discarded,
+    discardable: state === 'running' ? '' : discardableStage({ state, stage }, stageFiles && typeof stageFiles.stages === 'object' ? stageFiles.stages : null),
+    discardedStage: state === 'ready' && s.discarded_stage && typeof s.discarded_stage.stage === 'string'
+      ? { stage: s.discarded_stage.stage, at: String(s.discarded_stage.at || '') } : null,
     redCommit,
     gitAgeMs,
     // Where the stop said the run resumes, when it named one; else from the stage it stopped at.

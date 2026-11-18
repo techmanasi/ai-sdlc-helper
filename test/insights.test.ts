@@ -1,9 +1,25 @@
 import { describe, expect, test } from 'vitest';
-import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, openLock, openSentence, skipped, spanSeconds, stripStates, tileLine, tokensText, verifiedLock, usageText, costCell, costNotes, totalCells, boardCost } from '../web/ui/src/insights.js';
+import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, openLock, openSentence, skipped, spanSeconds, stageStates, stripStates, tileLine, tokensText, verifiedLock, usageText, costCell, costNotes, totalCells, boardCost } from '../web/ui/src/insights.js';
 
 const usage = (o: Partial<{ rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd: number; unpriced: number }> = {}) =>
   ({ rounds: 1, durationSec: 60, turns: 3, tokens: 1000, input: 200, output: 800, cacheRead: 600, cacheWrite: 200, costUsd: 0.5, ...o });
 const span = (stage: string, o: Record<string, unknown> = {}) => ({ stage, started: '2026-11-17T10:00:00', ended: '2026-11-17T10:02:05', passes: 1, steps: [], usage: usage(), ...o });
+
+const RAIL = ['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise', 'Resolve conflicts'].map(name => ({ name, key: name.toLowerCase().replace(' ', '-') }));
+
+describe('a run ready to retry a discarded stage', () => {
+  test('it stays at the discarded stage, which waits to run again; the stages before stay done', () => {
+    expect(stripStates({ state: 'ready', stage: 'Red tests' })).toEqual(['done', 'done', 'pending', 'pending', 'pending', 'pending', 'pending']);
+    expect(stageStates({ state: 'ready', stage: 'Red tests' }, RAIL).slice(0, 4)).toEqual(['done', 'done', 'pending', 'pending']);
+    expect(stageStates({ state: 'ready', stage: 'Spec' }, RAIL).every(s => s === 'pending')).toBe(true);
+  });
+  test('a stopped run still marks its stage: failed, waiting, running', () => {
+    expect(stageStates({ state: 'failed', stage: 'Red tests' }, RAIL).slice(0, 4)).toEqual(['done', 'done', 'failed', 'pending']);
+    expect(stageStates({ state: 'paused', stage: 'Plan' }, RAIL)[1]).toBe('paused');
+    expect(stageStates({ state: 'running', stage: '', record: { from: 'implement' } }, RAIL).slice(2, 4)).toEqual(['done', 'active']);
+    expect(stageStates({ state: 'done', stage: 'Finalise' }, RAIL).every(s => s === 'done')).toBe(true);
+  });
+});
 
 describe('the stage strip on a board row', () => {
   test('stages before the current one are done, the current one takes the state, the rest wait', () => {
