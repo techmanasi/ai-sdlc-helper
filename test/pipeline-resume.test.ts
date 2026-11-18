@@ -135,6 +135,27 @@ describe('a re-attempt', () => {
     expect(second.previous.stage).toBeTruthy();
     expect(statusOf(f.dir)).toMatchObject({ run_number: 2, previous_run: { state: 'failed' } });
   });
+
+  test('a start from Spec sets aside an earlier pull request\'s CI failure, merge failure and review comments; a resume at Implement keeps them', async () => {
+    const f = fixture();
+    const feedback = { 'ci-failure.md': '# CI failure of the pull request\n\nSTALE-CI no-useless-escape\n', 'merge-failure.md': 'STALE-MERGE conflict\n', 'pr-comments.md': 'STALE-COMMENT rename the button\n' };
+    fs.mkdirSync(path.join(f.dir, DOCS), { recursive: true });
+    for (const [name, body] of Object.entries(feedback)) fs.writeFileSync(path.join(f.dir, DOCS, name), body);
+    git(f.dir, 'add', '-A');
+    git(f.dir, 'commit', '-qm', 'an earlier run left its pull request feedback');
+
+    let r = await pipeline(f);
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    expect(r.prompts).not.toMatch(/STALE-(CI|MERGE|COMMENT)/);
+    for (const name of Object.keys(feedback)) expect(fs.existsSync(path.join(f.dir, DOCS, name))).toBe(false);
+    const aside = fs.readdirSync(path.join(f.dir, LOG, 'previous')).flatMap(d => fs.readdirSync(path.join(f.dir, LOG, 'previous', d)));
+    expect(aside).toEqual(expect.arrayContaining(Object.keys(feedback)));
+
+    // "Restart Implement with the CI failure": a resume at Implement is given the failure.
+    fs.writeFileSync(path.join(f.dir, DOCS, 'ci-failure.md'), '# CI failure of the pull request\n\nCURRENT-CI check (18)\n');
+    r = await pipeline(f, { FROM: 'implement' });
+    expect(r.prompts).toContain('CURRENT-CI check (18)');
+  });
 });
 
 describe('Test repair', () => {

@@ -26,4 +26,5 @@ Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 - [x] `ci-after-review-changes` - Bug: a run says done while CI on Review's last commit is still pending; wait for CI when Review changes source
 - [ ] `review-findings-acted-on` - Improvement: Review's blockers and missing-test findings send the run back to Implement or Red tests, or stop it, instead of sitting unread in review-1.md
 - [ ] `review-loop-limit-ui-setting` - Feature: set the Review loop limit (default 2) in the web UI
+- [ ] `ui-orchestration-gaps` - Feature: make every run decision in the web UI (stage guidance, finding waivers, claim edits) and flag edits made outside it
 - [x] `pr-link-committed-not-main` - Bug: commit and push the PR link on the run's branch whenever a PR opens or is replaced, and stop writing it into the main checkout

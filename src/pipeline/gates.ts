@@ -125,19 +125,44 @@ export function newPassingTests(ctx: Ctx, base: string, files: string[]): { file
     return [];
   }
   const wanted = new Set(files);
-  const baseText = new Map<string, string | null>();
-  const before = (f: string): string | null => {
-    if (!baseText.has(f)) baseText.set(f, ctx.git.tryRun('show', `${base}:${f}`));
-    return baseText.get(f)!;
+  const baseTitles = new Map<string, BaseTitles | null>();
+  const before = (f: string): BaseTitles | null => {
+    if (!baseTitles.has(f)) {
+      const text = ctx.git.tryRun('show', `${base}:${f}`);
+      baseTitles.set(f, text === null ? null : titlesOf(text));
+    }
+    return baseTitles.get(f)!;
   };
   const found: { file: string; name: string }[] = [];
   for (const t of tests) {
     if (t.status !== 'passed' || !t.file || !wanted.has(t.file)) continue;
     const old = before(t.file);
-    const known = old !== null && [t.name, ...leafNames(t.name)].some(n => ['\'', '"', '`'].some(q => old.includes(`${q}${n}${q}`)));
+    const known = old !== null && [t.name, ...leafNames(t.name)].some(n => old.has(n));
     if (!known) found.push({ file: t.file, name: t.name });
   }
   return found;
+}
+
+interface BaseTitles { has(name: string): boolean }
+
+/** A placeholder in a parameterised title: test.each's %s, %i, %j... and $name, or a template literal's ${...}. */
+const PLACEHOLDER = /%[sdifjoOpc#]|\$\{[^}\n]*\}|\$[A-Za-z_][\w.]*/g;
+
+/**
+ * The test titles a file's text could hold. A title counts as a whole string literal, read with its escapes undone
+ * ('the summariser\\'s union' holds "the summariser's union"). A literal with placeholders ('%s: the run stops',
+ * `${name} stops`) holds every name it expands to, when it has enough fixed text (8 characters) not to match anything.
+ */
+function titlesOf(text: string): BaseTitles {
+  const plain = text.replace(/\\(['"`\\])/g, '$1');
+  const patterns: RegExp[] = [];
+  for (const m of text.matchAll(/(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g)) {
+    const literal = m[2].replace(/\\(.)/g, '$1');
+    const fixed = literal.split(PLACEHOLDER);
+    if (fixed.length < 2 || fixed.join('').trim().length < 8) continue;
+    patterns.push(new RegExp(`^${fixed.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*?')}$`, 's'));
+  }
+  return { has: name => ['\'', '"', '`'].some(q => plain.includes(`${q}${name}${q}`)) || patterns.some(p => p.test(name)) };
 }
 
 /** A test's title alone: its name joins describe titles and the title with spaces, so a file holds the title, not the name. A title counts only as a whole string literal. */

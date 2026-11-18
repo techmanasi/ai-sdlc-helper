@@ -371,7 +371,8 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
     },
     git: {
       branchPrefix: (file.git && file.git.branchPrefix) || 'sdlc/',
-      base: (file.git && file.git.base) || null,
+      // A run started from another branch (SDLC_BASE) gets it as SDLC_RUN_BASE: its pull request, push check and conflicts use it.
+      base: env.SDLC_RUN_BASE || (file.git && file.git.base) || null,
       conflictSuffixStart: (file.git && file.git.conflictSuffixStart) || 10001,
     },
     agent: {
