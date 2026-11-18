@@ -6,6 +6,7 @@ import { Exit, at, setAside, stop, tick, type Ctx } from './context.js';
 import { runAgent, stageModelKey } from './agent.js';
 import { redCommitTestFiles, resultsAt } from './gates.js';
 import { resumeCommand } from './hints.js';
+import { consumeHandoff } from './handoff.js';
 import { keepError } from './errors.js';
 import { implementStage, redTestsStage, stage, testRepairStage } from './stages.js';
 import type { AgentStage } from './context.js';
@@ -210,6 +211,7 @@ export async function reviewLoop(ctx: Ctx): Promise<void> {
     stage(ctx, `5/6 Review${round > 1 ? ` (round ${round})` : ''}`);
     await tick();
     const v = await reviewRound(ctx, round);
+    if (ctx.handoff) { ctx.handoff = undefined; consumeHandoff(ctx); }
     // The earlier round's findings: fixed unless this round reports them again.
     const prev = rounds[rounds.length - 1];
     if (prev && prev.verdict === 'changes') {

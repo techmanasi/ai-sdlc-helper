@@ -226,6 +226,19 @@ fi`,
     expect(fs.existsSync(path.join(f.dir, LOG, 'handoff.json'))).toBe(false);
   });
 
+  test('a user note for Review reaches the reviewer and is set aside once the round ends', async () => {
+    const f = fixture({});
+    let r = await pipeline(f);
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    fs.writeFileSync(path.join(f.dir, LOG, 'handoff.json'), JSON.stringify({ to: 'review', user: { note: 'check the empty-list case', at: '2026-01-01T00:00:00.000Z' } }));
+    fs.rmSync(path.join(f.fake, 'prompts.txt'));
+    r = await pipeline(f, { FROM: 'review' });
+    expect([r.status, r.stderr]).toEqual([0, '']);
+    const review = r.prompts.split('\n== ').find(p => /^(== )?review\n/.test(p)) ?? '';
+    expect(review).toContain('Instruction from the user:\ncheck the empty-list case');
+    expect(fs.existsSync(path.join(f.dir, LOG, 'handoff.json'))).toBe(false);
+  });
+
   const DUP = "test('dup', built);\ntest('dup', built);";
   const UNIQUE = "test('dup one', built);\ntest('dup two', built);";
 

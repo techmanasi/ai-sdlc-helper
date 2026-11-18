@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { FROM_STAGES, at, setAside, stamp, type Ctx, type From } from './context.js';
 
 /** The stages whose prompt holds {{HANDOFF}}. */
-export const HANDOFF_STAGES: readonly From[] = ['spec', 'plan', 'red-tests', 'implement'];
+export const HANDOFF_STAGES: readonly From[] = ['spec', 'plan', 'red-tests', 'implement', 'review'];
 
 /** What the pipeline found (written by the harness only) and what the user said (written from the UI only); never merged. */
 export interface Finding { from: string; reason: string; at: string }

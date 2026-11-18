@@ -385,8 +385,8 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promi
     }
     stop(ctx, `agent '${name}' failed: ${failure.summary}`, 1);
   }
-  // The agent that was given the handoff finished: the note is done.
-  if (ctx.handoff && HANDOFF_STAGES.includes(stage as From) && !ctx.promptExtra?.HANDOFF) {
+  // The agent that was given the handoff finished: the note is done (Review's note is set aside once its round ends, so every reviewer reads it).
+  if (ctx.handoff && HANDOFF_STAGES.includes(stage as From) && !stage.startsWith('review') && !ctx.promptExtra?.HANDOFF) {
     ctx.handoff = undefined;
     consumeHandoff(ctx);
   }

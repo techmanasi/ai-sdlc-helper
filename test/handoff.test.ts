@@ -62,7 +62,7 @@ describe('handoff', () => {
   test('a stage without the placeholder, an unreadable file and a missing file give nothing', () => {
     const c = ctx();
     expect(takeHandoff(c, 'spec')).toBeNull();
-    writeHandoff(c, { to: 'review', from: 'x', reason: 'why' });
+    writeHandoff(c, { to: 'finalise', from: 'x', reason: 'why' });
     expect(takeHandoff(c, 'spec')).toBeNull();
     fs.writeFileSync(path.join(c.root, c.log, 'handoff.json'), 'not json');
     expect(takeHandoff(c, 'spec')).toBeNull();
