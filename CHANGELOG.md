@@ -10,6 +10,24 @@ release notes. Keep new work under `## [Unreleased]`, and rename that heading to
 
 ## [Unreleased]
 
+### Added
+- Run page: the test lock, the steps of each stage, time, tokens and cost per stage, and the pipeline's guarantees as
+  live facts; recovery shown as three cards; an output panel that follows the log (#161, #164).
+- Board as rows with a stage strip, filters (All, Running, Needs you, Failed) and a Cost column; a whole-run totals
+  strip on the run page (#164, #180).
+- Dollars and tokens for every agent and model, and each task's cost, tokens and time kept in git (#175, #176).
+- Desktop and sound notifications when a run needs you, a sign-in screen and a loading state (#163).
+- Review reports its findings and they go back through Red tests (#165).
+- `tools/UI-automation/sdlc-ui.js`, a browser script that reads and drives the web UI (#178).
+
+### Changed
+- Static files are compressed and cached, there is no Google Fonts request, and the theme is set before the first
+  paint (#162).
+- An open test lock is recognisable at a glance (#174).
+
+### Fixed
+- The env quick buttons add a row for you to fill in (#179).
+
 ## [0.1.1] - 2026-11-01
 
 ### Fixed
