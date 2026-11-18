@@ -13,7 +13,7 @@ import { liveBranch, projectSlugs, readCheckpoint, runChanges, runWorktree, type
 import { moveReasonText } from '../pipeline/status.js';
 import { ciSummaryOf, getPrFromBrief, getPrStatusCached, keepPrStatusIn, PR_STATUS_FILE, prCommentsEmpty, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
 import { readRounds, type Round } from '../pipeline/observe.js';
-import { runTimeline, type Timeline } from './timeline.js';
+import { runTimeline, type Timeline, type UsageTotals } from './timeline.js';
 import { pricesNow } from '../models/prices.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
 import { Git } from '../pipeline/git.js';
@@ -504,6 +504,8 @@ export type RunCard = Pick<RunView, 'slug' | 'state' | 'stage' | 'agent' | 'mode
   changes: { changed: number; uncommitted: number } | null;
   /** The pull request of a finished run, as last read from GitHub (once an hour, or when the user syncs it); null for a run that is not done. */
   pullRequest: PrCard | null;
+  /** Tokens, time and cost of every start of the item so far (the run page's "Whole run"); null before any agent round. */
+  usage: UsageTotals | null;
 };
 
 export interface PrCard {
@@ -623,6 +625,7 @@ export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): Bo
       changes: v.changes && { changed: v.changes.changed, uncommitted: v.changes.uncommitted },
       // Never waits for gh: the last known status, asked again at most once an hour (a cold cache fills within a poll).
       pullRequest: pr ? prCard(v.pr || null, pr) : null,
+      usage: v.timeline?.usage ?? null,
     };
   });
   // A backlog item's PR link: the pipeline commits it on the run's branch and never writes the main checkout, whose brief has

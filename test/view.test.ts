@@ -196,6 +196,18 @@ test('boardView lists the backlog and a card per recorded run', () => {
   expect(b.running).toBe(0);
 });
 
+test('boardView gives each run card its usage so far (the board Cost column); null before any agent round', () => {
+  const rounds = [
+    { kind: 'stage', at: '2026-10-19T10:00:00Z', stage: 'Spec' },
+    { kind: 'agent', at: '2026-10-19T10:00:05Z', stage: 'Spec', agent: 'spec-1', durationSec: 30, turns: 4, tokens: 1500, usage: { input: 1000, output: 500, cacheRead: 8000, cacheWrite: 200, costUsd: 0.25 } },
+    { kind: 'agent', at: '2026-10-19T10:01:00Z', stage: 'Spec', agent: 'spec-2', durationSec: 10, turns: 1, tokens: 300, usage: { input: 200, output: 100, cacheRead: 0, cacheWrite: 0, costUsd: 0.05 } },
+  ].map(r => JSON.stringify(r)).join('\n');
+  const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '2' }, { 'logs/status.json': { state: 'paused', stage: 'Spec' }, 'logs/attempts.jsonl': `${rounds}\n` });
+  expect(boardView(ctx, { changes: false }).runs[0].usage).toMatchObject({ rounds: 2, input: 1200, output: 600, durationSec: 40, costUsd: 0.3 });
+  const { ctx: fresh } = repoWithRun('add-tokens', { state: 'exited', exit_code: '2' }, { 'logs/status.json': { state: 'paused', stage: 'Spec' } });
+  expect(boardView(fresh, { changes: false }).runs[0].usage).toBeNull();
+});
+
 test('boardView gives a finished run its pull request, read in the background and not asked for again within the hour', async () => {
   const { root } = repoWithRun('add-tokens', { state: 'exited', exit_code: '0' }, { 'logs/status.json': { state: 'done', stage: 'Finalise' } });
   const bin = path.join(root, '..', 'bin');

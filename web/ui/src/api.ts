@@ -36,6 +36,8 @@ export interface RunCard {
   changes: { changed: number; uncommitted: number } | null;
   /** The pull request of a finished run, last read from GitHub; null while the run is not done. */
   pullRequest?: PrCard | null;
+  /** Tokens, time and cost of the whole run so far; null (or absent from an older server) before any agent round. */
+  usage?: UsageTotals | null;
 }
 export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
 export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; checkedAt: string | null; failed: boolean; ci: CiState | null; failing: string[]; conflicts: 'none' | 'conflicting' | 'unknown' | null }

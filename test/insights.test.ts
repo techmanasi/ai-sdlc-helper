@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, openLock, openSentence, skipped, spanSeconds, stripStates, tileLine, tokensText, verifiedLock, usageText, costCell, costNotes } from '../web/ui/src/insights.js';
+import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, openLock, openSentence, skipped, spanSeconds, stripStates, tileLine, tokensText, verifiedLock, usageText, costCell, costNotes, totalCells, boardCost } from '../web/ui/src/insights.js';
 
 const usage = (o: Partial<{ rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd: number; unpriced: number }> = {}) =>
   ({ rounds: 1, durationSec: 60, turns: 3, tokens: 1000, input: 200, output: 800, cacheRead: 600, cacheWrite: 200, costUsd: 0.5, ...o });
@@ -193,5 +193,28 @@ describe('cost and tokens together', () => {
     const notes = costNotes(usage({ estimatedUsd: 0.2, unpriced: 2 }));
     expect(notes).toHaveLength(2);
     expect(notes[1]).toMatch(/^2 agent rounds reported tokens but no cost/);
+  });
+});
+
+describe('cost totals: the run page strip and the board Cost column', () => {
+  test('totalCells gives cost, tokens, cache share, agent time and rounds; an estimate is marked ≈', () => {
+    const cells = totalCells(usage({ rounds: 179, durationSec: 3526, tokens: 12_300_000, input: 2_000_000, output: 300_000, cacheRead: 6_000_000, cacheWrite: 4_000_000, costUsd: 5.22, estimatedUsd: 1.1 }));
+    expect(cells.map(c => [c.label, c.value])).toEqual([['cost', '≈$5.22'], ['tokens', tokensText(12_300_000)], ['cached', `${cacheShare(usage({ input: 2_000_000, output: 300_000, cacheRead: 6_000_000, cacheWrite: 4_000_000 }))}%`], ['agent time', durationText(3526)], ['rounds', '179']]);
+    expect(cells[0].title).toMatch(/estimate/);
+  });
+
+  test('totalCells shows a dash, never a zero, for what the run has nothing for', () => {
+    const cells = totalCells(usage({ rounds: 0, durationSec: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: null }));
+    expect(cells.map(c => c.value)).toEqual(['—', '—', '—', '—', '—']);
+    expect(totalCells(usage({ costUsd: 0 }))[0].value).toBe('free');
+  });
+
+  test('boardCost: cost over tokens; null before any agent round or for an older server without usage', () => {
+    expect(boardCost(usage({ costUsd: 0.5, tokens: 1000 }))).toEqual({ cost: '$0.50', tokens: `${tokensText(1000)} tok` });
+    expect(boardCost(usage({ costUsd: 0.5, estimatedUsd: 0.5 }))?.cost).toBe('≈$0.50');
+    expect(boardCost(usage({ costUsd: null }))?.cost).toBe('—');
+    expect(boardCost(usage({ rounds: 0, tokens: 0 }))).toBeNull();
+    expect(boardCost(null)).toBeNull();
+    expect(boardCost(undefined)).toBeNull();
   });
 });
