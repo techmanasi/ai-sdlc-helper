@@ -76,7 +76,8 @@ export function runContext(dir: string, env: NodeJS.ProcessEnv = process.env): R
   return {
     root, reg: registryDir(root), backlogDir,
     branchPrefix: config ? config.git.branchPrefix : (fromFile('branchPrefix') || 'sdlc/'),
-    base: env.SDLC_BASE || (config ? config.git.base : fromFile('base')),
+    // The file's git.base, not the resolved one: a pipeline's SDLC_RUN_BASE is no choice of the runner's.
+    base: env.SDLC_BASE || fromFile('base'),
     wtBase,
     links: config ? config.worktree.link : (file.worktree && Array.isArray(file.worktree.link) ? file.worktree.link : ['node_modules']),
     setup: config ? config.suites.filter(s => s.setup).map(s => ({ name: s.name, dir: s.dir, cmd: s.setup! })) : [],
@@ -239,6 +240,9 @@ export function pipelineEnv(ctx: RunContext, slug: string): NodeJS.ProcessEnv {
   const plugins = ctx.env.SDLC_PLUGIN_DIRS ?? (isDir(guard) ? guard : '');
   if (plugins) env.CLAUDE_CODE_PLUGIN_DIRS = plugins;
   env.SDLC_SLUG = slug;
+  // SDLC_BASE is a control and stays out; the base it names reaches the pipeline as SDLC_RUN_BASE, its git.base.
+  if (ctx.base) env.SDLC_RUN_BASE = ctx.base;
+  else delete env.SDLC_RUN_BASE;
   // The run's worktree is not the registered folder: hand it the personal agent settings of the project.
   delete env[PERSONAL_ENV];
   const personal = personalAgentOf(ctx.root, ctx.env);

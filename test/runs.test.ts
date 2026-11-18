@@ -7,6 +7,7 @@ import { main } from '../src/cli/main.js';
 import { alive, killTree, projectRoot } from '../src/runs/records.js';
 import { repoRulesFile } from '../src/permissions/index.js';
 import { pipelineArgv, pipelineEnv, readCheckpoint, runContext, undoLast } from '../src/runs/index.js';
+import { resolve } from '../src/config/settings.js';
 import { tmp as mkTmp } from './helpers.js';
 
 const GIT_ENV = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
@@ -782,6 +783,14 @@ describe('runs of other checkouts of the repository', () => {
     expect(env.SDLC_BASE).toBeUndefined();
     expect(env.SDLC_WT_BASE).toBeUndefined();
     expect(env.FROM).toBeUndefined();
+  });
+
+  test('a run started from another branch (SDLC_BASE) gives the pipeline that branch as its git.base, for its pull request, push check and conflicts', () => {
+    const env = pipelineEnv(runContext(repo, { ...baseEnv(), SDLC_BASE: 'feat/ui' }), 'item-slug');
+    expect(env.SDLC_BASE).toBeUndefined();
+    expect(resolve(repo, { env }).config?.git.base).toBe('feat/ui');
+    const plain = pipelineEnv(runContext(repo, { ...baseEnv(), SDLC_RUN_BASE: 'stale' }), 'item-slug');
+    expect(resolve(repo, { env: plain }).config?.git.base).toBeNull();
   });
 });
 
