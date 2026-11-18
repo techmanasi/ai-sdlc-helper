@@ -10,6 +10,7 @@ import { PrCi } from './PrCi';
 import { Cli, CopyButton, ErrorBox, GLYPH, Markdown, Panel, Spinner, stateClass, useApp } from './ui';
 import { defaultPick, needsResumeConfirm, resumeCommand, resumeOptions } from './resume';
 import { isMarkdownPath } from './markdown';
+import { addEnvKey, envVars, quickKeys, setEnvValue } from './env';
 import { usePoll } from './usePoll';
 import { useSyncLabel } from './useSyncLabel';
 import { useStream } from './useStream';
@@ -322,9 +323,9 @@ export function Run({ slug }: { slug: string }) {
   });
   useEffect(() => saveEnv(project, slug, env), [env]);
 
-  const envObj = Object.fromEntries(env.filter(([k]) => k.trim()).map(([k, val]) => [k.trim(), val]));
+  const envObj = envVars(env);
   const envArgs = Object.entries(envObj).map(([k, val]) => `${k}=${val}`);
-  const setEnvVar = (k: string, val: string) => setEnv(rows => (val ? [...rows.filter(r => r[0] !== k), [k, val]] : rows.filter(r => r[0] !== k)));
+  const setEnvVar = (k: string, val: string) => setEnv(rows => setEnvValue(rows, k, val));
 
   /** Applies a confirmed run-level override; an agent change also drops a model the new agent does not offer. */
   const applyForce = (key: string, value: string) => {
@@ -1170,7 +1171,7 @@ export function Run({ slug }: { slug: string }) {
               ))}
               <div class="row">
                 <button class="btn btn-s" type="button" onClick={() => setEnv(rows => [...rows, ['', '']])}>Add variable</button>
-                {['SDLC_AUTO_ACCEPT', 'SDLC_BASE', 'SDLC_LIMIT_RETRY', 'SDLC_LIMIT_MAX_WAIT', 'SDLC_DEP_SCRIPTS', 'SDLC_ALLOW_MERGED'].filter(k => !envObj[k]).map(k => <button class="btn btn-s" type="button" onClick={() => setEnvVar(k, k === 'SDLC_AUTO_ACCEPT' ? '1' : '')}>{k}</button>)}
+                {quickKeys(env, ['SDLC_AUTO_ACCEPT', 'SDLC_BASE', 'SDLC_LIMIT_RETRY', 'SDLC_LIMIT_MAX_WAIT', 'SDLC_DEP_SCRIPTS', 'SDLC_ALLOW_MERGED']).map(k => <button class="btn btn-s" type="button" onClick={() => setEnv(rows => addEnvKey(rows, k, k === 'SDLC_AUTO_ACCEPT' ? '1' : ''))}>{k}</button>)}
               </div>
             </div>
           </Panel>
