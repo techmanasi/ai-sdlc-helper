@@ -1,4 +1,4 @@
-# Dark Factory
+# Software Factory
 
 **ai-sdlc-helper** runs an AI-driven SDLC pipeline on your project with Claude Code agents: Spec, Plan, Red tests, Implement, Review and Ship, each stage checked before the next starts.
 
