@@ -21,6 +21,7 @@
     error: '.error',
     banner: '.banner',
     // board
+    completedTab: '.completed-tab',
     boardRow: '.blist .brow',
     rowSlug: '.brow-slug',
     rowSub: '.brow-sub',
@@ -367,11 +368,21 @@
     return { slug: $(SELECTORS.slug).value, title: $(SELECTORS.title).value, briefChars: ($(SELECTORS.brief) || { value: '' }).value.length, buttons: buttons().filter(b => /^save/i.test(b.label)) };
   }
 
+  function completedTabs() {
+    return $$(SELECTORS.completedTab).map(t => ({ slug: text($('strong', t)), selected: t.getAttribute('aria-selected') === 'true' }));
+  }
+  function selectCompleted(slug) {
+    const tab = $$(SELECTORS.completedTab).find(t => text($('strong', t)) === slug);
+    if (!tab) throw new Error(`No completed task named ${slug}`);
+    tab.click();
+  }
+
   /** A short summary of the current screen: start here. */
   function snapshot() {
     const r = route();
     const base = { route: r, top: top(), toasts: toasts(), errors: errors() };
     if (r.startsWith('/run/')) return { ...base, run: run() };
+    if (r === '/completed') return { ...base, tasks: completedTabs(), panels: panelTitles() };
     if (r === '/board') {
       const b = board();
       return { ...base, board: { ...b, rows: b.rows.map(x => `${x.kind === 'run' ? '▶' : '·'} ${x.slug} | ${x.status} | ${x.where} | ${x.stages} | ${x.pr}`) } };
@@ -387,7 +398,7 @@
     click, buttons, findButton, panel, panelTitles, setValue, setChecked, text,
     // board
     board, boardShow, boardFilter, pick, rowAction,
-    handoff, resumeWithNote,
+    completedTabs, selectCompleted, handoff, resumeWithNote,
     // run page
     run, stages, stage, output, questions, answer, recovery, env, setEnv, runOptions, autoAccept, costTable, openDoc, closeDialog,
     // new item

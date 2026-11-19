@@ -62,18 +62,21 @@ export function Completed() {
     }, () => id === loadId.current);
   };
 
-  const loadDetail = async (slug: string) => {
-    setSelectedSlug(slug);
+  const [detailVersion, setDetailVersion] = useState(0);
+  useEffect(() => {
+    if (!selectedSlug) return;
+    let current = true;
+    setDetail(null);
     setLoadingDetail(true);
-    try {
-      const res = await api.completedTask(project, slug);
-      setDetail(res);
-    } catch (e) {
-      toast(`Failed to load task details: ${(e as Error).message}`);
-    } finally {
-      setLoadingDetail(false);
-    }
-  };
+    api.completedTask(project, selectedSlug).then(res => {
+      if (current) setDetail(res);
+    }).catch(e => {
+      if (current) toast(`Failed to load task details: ${(e as Error).message}`);
+    }).finally(() => {
+      if (current) setLoadingDetail(false);
+    });
+    return () => { current = false; };
+  }, [project, selectedSlug, detailVersion]);
 
   useEffect(() => {
     marked.current = false;
@@ -104,9 +107,7 @@ export function Completed() {
       if (!res.archived) throw new Error(`${slug} could not be archived`);
       toast(`Archived ${slug}`);
       markArchived([slug]);
-      if (selectedSlug === slug && detail) {
-        setDetail({ ...detail, archived: true });
-      }
+      setDetail(d => d?.slug === slug ? { ...d, archived: true } : d);
     } catch (e) {
       toast(`Archive failed: ${(e as Error).message}`);
     } finally {
@@ -120,9 +121,7 @@ export function Completed() {
       const res = await api.archiveAll(project, { olderThanDays: undefined });
       toast(`Archived ${res.count} task(s)`);
       markArchived(res.archived || []);
-      if (detail && (res.archived || []).includes(detail.slug)) {
-        setDetail({ ...detail, archived: true });
-      }
+      setDetail(d => d && res.archived?.includes(d.slug) ? { ...d, archived: true } : d);
     } catch (e) {
       toast(`Archive failed: ${(e as Error).message}`);
     } finally {
@@ -139,7 +138,7 @@ export function Completed() {
         // Asked for again: whether the task stays in the list depends on the new PR's state, which the answer does not hold.
         await loadTasks();
         if (selectedSlug === slug) {
-          await loadDetail(slug);
+          setDetailVersion(n => n + 1);
         }
       } else {
         toast(`Create PR failed: ${(res.err || []).join(' ')}`);
@@ -157,7 +156,7 @@ export function Completed() {
       const res = await api.syncCompletedPrComments(project, slug);
       if (res.ok) {
         toast(`PR ${res.pr.state ? res.pr.state.toLowerCase() : 'status unknown'}; ${res.count} comment(s)`);
-        await loadDetail(slug);
+        setDetailVersion(n => n + 1);
       } else {
         toast(`Sync failed: ${(res.err || []).join(' ')}`);
       }
@@ -178,17 +177,10 @@ export function Completed() {
     return true;
   });
 
-  // Automatically select the first task when loading completes or filters change
+  const visibleSlug = filteredTasks.find(t => t.slug === selectedSlug)?.slug ?? filteredTasks[0]?.slug ?? null;
   useEffect(() => {
-    if (!loading && filteredTasks.length > 0) {
-      if (!selectedSlug || !filteredTasks.some(t => t.slug === selectedSlug)) {
-        loadDetail(filteredTasks[0].slug);
-      }
-    } else if (!loading && filteredTasks.length === 0) {
-      setSelectedSlug(null);
-      setDetail(null);
-    }
-  }, [filteredTasks.length, loading, selectedSlug]);
+    if (!loading) setSelectedSlug(visibleSlug);
+  }, [loading, visibleSlug]);
 
   return (
     <div class="col" style={{ gap: '16px' }}>
@@ -248,90 +240,59 @@ export function Completed() {
         </div>
       </div>
 
-      <div class="split" style={{ alignItems: 'flex-start' }}>
-        <div class="col" style={{ flex: '1 1 360px', minWidth: '320px' }}>
+      <div class="completed-workspace">
+        <div class="completed-list" role="tablist" aria-label="Completed tasks" aria-orientation="vertical">
           {loading && <p class="muted">Loading completed tasks…</p>}
           {!loading && filteredTasks.length === 0 && (
             <p class="muted">No completed tasks match your criteria.</p>
           )}
-          {filteredTasks.map(t => (
-            <div
-              class={`card ${selectedSlug === t.slug ? 'selected' : ''}`}
-              style={{
-                cursor: 'pointer',
-                padding: '14px',
-                border: selectedSlug === t.slug ? '1.5px solid var(--ac)' : '1px solid var(--bd)',
-                borderRadius: '8px',
-                backgroundColor: selectedSlug === t.slug ? 'var(--bg-card-selected, var(--sub))' : 'var(--bg-card)',
-                boxShadow: selectedSlug === t.slug ? '0 0 0 1px var(--ac)' : 'none',
-                transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
-                marginBottom: '8px',
-              }}
-              onClick={() => loadDetail(t.slug)}
-            >
-              <div class="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                <strong class="mono" style={{ fontSize: '1.05em' }}>{t.slug}</strong>
-                <div class="col" style={{ gap: '4px', alignItems: 'flex-end' }}>
-                  <button
-                    class="btn btn-xs"
-                    type="button"
-                    style={{ fontSize: '0.75rem', padding: '2px 8px' }}
-                    onClick={e => { e.stopPropagation(); loadDetail(t.slug); }}
-                  >
-                    Show details
-                  </button>
-                  <div class="row" style={{ gap: '4px' }}>
-                    {t.archived && <span class="tag muted">Archived</span>}
-                    {t.prError && <span class="tag s-failed" title={t.prError}>PR check failed</span>}
-                    {t.prPending ? (
-                      <span class="tag muted mono" title="Asking GitHub for this pull request">{t.pr ? 'PR ↗ (checking…)' : 'checking PR…'}</span>
-                    ) : t.pr ? (
-                      <a
-                        href={t.pr}
-                        target="_blank"
-                        rel="noreferrer"
-                        class="tag s-done mono"
-                        onClick={e => e.stopPropagation()}
-                      >
-                        PR ↗ {t.prState ? `(${t.prState.toLowerCase()})` : ''}
-                      </a>
-                    ) : (
-                      <button
-                        class="btn btn-xs"
-                        type="button"
-                        disabled={busyAction === `pr-${t.slug}`}
-                        onClick={e => { e.stopPropagation(); handleCreatePr(t.slug); }}
-                      >
-                        {busyAction === `pr-${t.slug}` ? 'Creating…' : 'Create PR'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <p style={{ margin: '6px 0', fontSize: '0.9em' }}>{t.title}</p>
-              <div class="row" style={{ gap: '8px', fontSize: '0.8em', color: 'var(--mu)' }}>
-                <span>branch: <span class="mono">{t.branch}</span></span>
-                {t.date && <span>• {t.date.split('T')[0]}</span>}
-              </div>
-            </div>
+          {filteredTasks.map((t, index) => (
+            <button key={t.slug} type="button" class="completed-tab" role="tab"
+              id={`completed-tab-${t.slug}`} aria-controls="completed-task-detail"
+              aria-selected={t.slug === selectedSlug} tabIndex={t.slug === visibleSlug ? 0 : -1}
+              onClick={() => setSelectedSlug(t.slug)}
+              onKeyDown={e => {
+                const count = filteredTasks.length;
+                const next = { ArrowDown: (index + 1) % count, ArrowUp: (index + count - 1) % count,
+                  Home: 0, End: count - 1 }[e.key];
+                if (next === undefined) return;
+                e.preventDefault();
+                const slug = filteredTasks[next].slug;
+                document.getElementById(`completed-tab-${slug}`)?.focus();
+                setSelectedSlug(slug);
+              }}>
+              <strong class="mono">{t.slug}</strong>
+              <span>{t.title}</span>
+              <span class="small muted">{[
+                t.date?.split('T')[0], t.archived && 'Archived',
+                t.prError ? 'PR check failed' : t.prPending ? 'Checking PR…' : t.pr && `PR ${t.prState?.toLowerCase() || 'linked'}`,
+              ].filter(Boolean).join(' · ')}</span>
+            </button>
           ))}
         </div>
 
-        <div class="col" style={{ flex: '2 1 500px', minWidth: '340px' }}>
+        <div class="completed-detail" id="completed-task-detail" role="tabpanel" tabIndex={0}
+          aria-labelledby={selectedSlug ? `completed-tab-${selectedSlug}` : undefined} aria-busy={!!selectedSlug && loadingDetail}>
           {!selectedSlug && (
             <Panel title="Task Details">
               <p class="muted" style={{ margin: '14px' }}>Select a completed task from the left to view git commits, changed files, and pull request information.</p>
             </Panel>
           )}
 
-          {loadingDetail && (
+          {selectedSlug && loadingDetail && (
             <Panel title="Loading…">
               <p class="muted" style={{ margin: '14px' }}><Spinner /> Loading details directly from git…</p>
             </Panel>
           )}
 
+          {selectedSlug && !loadingDetail && !detail && (
+            <div class="pb">
+              <button class="btn btn-s" type="button" onClick={() => setDetailVersion(n => n + 1)}>Reload task details</button>
+            </div>
+          )}
+
           {detail && !loadingDetail && selectedSlug === detail.slug && (
-            <div class="col" style={{ gap: '14px' }}>
+            <div class="completed-sections">
               <Panel
                 title={<span class="mono">{detail.slug}</span>}
                 extra={
@@ -416,7 +377,7 @@ export function Completed() {
                 <Panel title={`Commits (${detail.commits.length})`}>
                   <div class="pb col" style={{ gap: '6px' }}>
                     {detail.commits.map(c => (
-                      <div class="row" style={{ justifyContent: 'space-between', borderBottom: '1px solid var(--bd)', paddingBottom: '6px' }}>
+                      <div class="row" style={{ justifyContent: 'space-between', borderBottom: '1px solid var(--ln)', paddingBottom: '6px' }}>
                         <div class="col" style={{ gap: '2px' }}>
                           <span class="mono small" style={{ fontWeight: 600 }}>{c.message}</span>
                           <span class="small muted">{c.author} · {c.date ? c.date.split('T')[0] : ''}</span>
@@ -435,7 +396,7 @@ export function Completed() {
                 >
                   <div class="pb col" style={{ gap: '4px' }}>
                     {detail.files.map(f => (
-                      <div class="row" style={{ justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--bd)' }}>
+                      <div class="row" style={{ justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--ln)' }}>
                         <div class="row" style={{ gap: '8px', alignItems: 'center' }}>
                           <span class={`tag ${f.status === 'A' ? 's-done' : f.status === 'D' ? 's-failed' : ''}`}>{f.status}</span>
                           <span class="mono small">{f.path}</span>
