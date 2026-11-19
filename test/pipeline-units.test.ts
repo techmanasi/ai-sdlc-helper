@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { snapshot } from '../src/changes/index.js';
 import { Git } from '../src/pipeline/git.js';
-import { envModels, providerEnv, resolveProvider, stageModel, stageModels, type ModelEnv } from '../src/pipeline/models.js';
+import { envModels, providerEnv, resolveProvider, stageModel, stageModels, validateStageCatalogs, type ModelEnv } from '../src/pipeline/models.js';
 import { manualInput, renderPrompt } from '../src/pipeline/prompts.js';
 import { finalise } from '../src/pipeline/finalise.js';
 import { Status } from '../src/pipeline/status.js';
@@ -95,6 +95,18 @@ describe('model and provider resolution', () => {
     const agy = { ...menv({}), project: () => ({ harness: 'agy', model: 'gemini-3.8-flash-medium' }) };
     expect(stageModel('spec', agy).effort).toBe('');
     expect(Object.keys(stageModels(menv({}), 'implement'))[0]).toBe('implement');
+  });
+
+  test.each([
+    ['project', { effort: 'medium' }, {}],
+    ['environment', {}, { SDLC_EFFORT: 'low' }],
+  ] as const)('catalog validation ignores %s effort for a fixed-effort model override', async (_source, settings, env) => {
+    const modelEnv: ModelEnv = {
+      ...menv({ PATH: '', AGY: '/missing/agy', MODEL_SPEC: 'gemini-3.8-flash-high', ...env }),
+      project: stage => stage === 'spec' ? { harness: 'agy', model: 'gemini-3.8-flash-medium', ...settings } : {},
+    };
+    await validateStageCatalogs(modelEnv);
+    expect(stageModels(modelEnv).spec).toEqual({ model: 'gemini-3.8-flash-high', effort: '' });
   });
 
   test('a model that belongs to another harness fails at the start, naming the stage, whatever source set it', () => {

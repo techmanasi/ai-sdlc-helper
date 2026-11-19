@@ -199,13 +199,10 @@ export async function validateStageCatalogs(menv: ModelEnv, from?: From): Promis
       const allowed = models.slice(0, 20).map(entry => entry.id).join(', ');
       throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) is not supported by ${harness.name}${allowed ? ` (discovered: ${allowed})` : ''}`);
     }
-    const explicitEffort = menv.force?.effort || menv.env[`EFFORT_${up}`] || configured.effort || menv.env.SDLC_EFFORT;
-    if (model.supportedEfforts !== undefined && model.supportedEfforts.length > 0 && !model.supportedEfforts.includes(selected.effort)) {
-      const allowed = model.supportedEfforts.length ? model.supportedEfforts.join(', ') : 'none';
-      throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) does not support effort '${selected.effort}' (supported: ${allowed})`);
-    }
-    if (model.supportedEfforts?.length === 0 && explicitEffort) {
-      throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) has a fixed effort encoded in its model id; clear the separate effort setting`);
+    // Fixed-effort models have no separate effort argument to validate.
+    const allowed = model.supportedEfforts;
+    if (allowed?.length && !allowed.includes(selected.effort)) {
+      throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) does not support effort '${selected.effort}' (supported: ${allowed.join(', ')})`);
     }
   }
 }
