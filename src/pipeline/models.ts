@@ -175,6 +175,11 @@ export async function validateStageCatalogs(menv: ModelEnv): Promise<void> {
     const configured = menv.project ? menv.project(stage) : {};
     const harness = defaultRegistry.get(configured.harness || 'claude');
     if (!harness || !ownsModelIds(harness)) continue;
+    const up = stage.toUpperCase().replace(/-/g, '_');
+    const explicitlySelected = menv.force?.model || menv.env[`MODEL_${up}`] || configured.model || menv.env.SDLC_MODEL;
+    // A harness with no explicit model uses its account/CLI default. There is
+    // no identifier to validate, and discovery must not replace that default.
+    if (!explicitlySelected) continue;
     const key = `${harness.id}\u0000${selected.model}\u0000${selected.effort}`;
     if (checked.has(key)) continue;
     checked.add(key);

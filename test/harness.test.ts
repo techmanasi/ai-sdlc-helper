@@ -303,7 +303,9 @@ describe('Pluggable Agent Harness Subsystem', () => {
   describe('existing harness golden regression', () => {
     it('keeps claude, agy and codex models and stage invocations unchanged', async () => {
       const previous = process.env.SDLC_AGY_OUTPUT;
+      const previousAgy = process.env.AGY;
       process.env.SDLC_AGY_OUTPUT = 'json';
+      process.env.AGY = '/definitely-not-an-agy-binary';
       try {
         const codexCatalog = {
           harnessId: 'codex',
@@ -330,6 +332,8 @@ describe('Pluggable Agent Harness Subsystem', () => {
       } finally {
         if (previous === undefined) delete process.env.SDLC_AGY_OUTPUT;
         else process.env.SDLC_AGY_OUTPUT = previous;
+        if (previousAgy === undefined) delete process.env.AGY;
+        else process.env.AGY = previousAgy;
       }
     });
   });

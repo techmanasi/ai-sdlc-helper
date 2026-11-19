@@ -24,6 +24,7 @@ exports[`Pluggable Agent Harness Subsystem > existing harness golden regression 
     "models": [
       {
         "defaultEffort": "high",
+        "description": "Recommended: extreme speed, high reasoning, 1M context",
         "harness": "agy",
         "id": "gemini-3.8-flash-high",
         "name": "Gemini 3.8 Flash (High)",
@@ -32,6 +33,7 @@ exports[`Pluggable Agent Harness Subsystem > existing harness golden regression 
       },
       {
         "defaultEffort": "medium",
+        "description": "Balanced speed and reasoning",
         "harness": "agy",
         "id": "gemini-3.8-flash-medium",
         "name": "Gemini 3.8 Flash (Medium)",
@@ -39,29 +41,16 @@ exports[`Pluggable Agent Harness Subsystem > existing harness golden regression 
         "supportsEffort": false,
       },
       {
-        "defaultEffort": "low",
+        "defaultEffort": "high",
+        "description": "Deep reasoning for complex architectural refactoring",
         "harness": "agy",
-        "id": "gemini-3.8-flash-low",
-        "name": "Gemini 3.8 Flash (Low)",
-        "supportedEfforts": [],
-        "supportsEffort": false,
-      },
-      {
-        "harness": "agy",
-        "id": "claude-sonnet-4-6",
-        "name": "Claude Sonnet 4.6 (Thinking)",
-        "supportedEfforts": undefined,
-        "supportsEffort": true,
-      },
-      {
-        "harness": "agy",
-        "id": "claude-opus-4-6-thinking",
-        "name": "Claude Opus 4.6 (Thinking)",
-        "supportedEfforts": undefined,
+        "id": "gemini-3.8-pro",
+        "name": "Gemini 3.8 Pro",
         "supportsEffort": true,
       },
       {
         "defaultEffort": "medium",
+        "description": "Open-weight foundation model via Antigravity runtime",
         "harness": "agy",
         "id": "gpt-oss-120b-medium",
         "name": "GPT-OSS 120B (Medium)",

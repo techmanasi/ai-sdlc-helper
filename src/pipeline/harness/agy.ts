@@ -3,7 +3,6 @@ import { spawnSync } from 'node:child_process';
 import { which } from '../../shell.js';
 import type { AgentHarness, HarnessDetection, HarnessInvocation, HarnessModel, HarnessResult, StageCompileOptions } from './types.js';
 
-let modelCache: { models: HarnessModel[]; expiresAt: number } | null = null;
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export class AgyHarness implements AgentHarness {
@@ -12,6 +11,7 @@ export class AgyHarness implements AgentHarness {
   readonly defaultBinary = 'agy';
   /** Gemini ids go to the CLI as they are: no provider indirection. */
   readonly ownsModelIds = true;
+  private modelCache: { models: HarnessModel[]; expiresAt: number } | null = null;
 
   selectStageModel(opts: { configuredModel?: string; configuredEffort?: string }): { model: string; effort?: string } {
     return { model: opts.configuredModel || '', effort: opts.configuredEffort };
@@ -32,12 +32,12 @@ export class AgyHarness implements AgentHarness {
       { id: 'gemini-3.8-pro', name: 'Gemini 3.8 Pro', harness: this.id, supportsEffort: true, defaultEffort: 'high', description: 'Deep reasoning for complex architectural refactoring' },
       { id: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B (Medium)', harness: this.id, supportsEffort: false, supportedEfforts: [], defaultEffort: 'medium', description: 'Open-weight foundation model via Antigravity runtime' },
     ];
-    if (modelCache && modelCache.expiresAt > Date.now()) return modelCache.models;
+    if (this.modelCache && this.modelCache.expiresAt > Date.now()) return this.modelCache.models;
     const env = _env;
     const binary = env.AGY || which(this.defaultBinary, { env });
-    if (!binary) { modelCache = { models: fallback, expiresAt: Date.now() + MODEL_CACHE_TTL_MS }; return fallback; }
+    if (!binary) { this.modelCache = { models: fallback, expiresAt: Date.now() + MODEL_CACHE_TTL_MS }; return fallback; }
     const result = spawnSync(binary, ['models'], { env, encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024 });
-    if (result.status !== 0) { modelCache = { models: fallback, expiresAt: Date.now() + MODEL_CACHE_TTL_MS }; return fallback; }
+    if (result.status !== 0) { this.modelCache = { models: fallback, expiresAt: Date.now() + MODEL_CACHE_TTL_MS }; return fallback; }
     const models: HarnessModel[] = [];
     for (const line of result.stdout.split(/\r?\n/)) {
       const [id, ...label] = line.trim().split(/\t+/);
@@ -46,7 +46,7 @@ export class AgyHarness implements AgentHarness {
       models.push({ id, name: label.join(' '), harness: this.id, supportsEffort: !fixed, supportedEfforts: fixed ? [] : undefined, ...(fixed ? { defaultEffort: fixed } : {}) });
     }
     const out = models.length ? models : fallback;
-    modelCache = { models: out, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };
+    this.modelCache = { models: out, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };
     return out;
   }
 
