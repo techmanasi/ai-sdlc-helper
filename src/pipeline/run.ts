@@ -112,8 +112,8 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
   try {
     ctx = await setup(opts, from, env, out, err);
     // Resolved model and effort of every stage, for the status file (and a bad value fails here, before any agent).
-    ctx.status.models = stageModels(modelEnvOf(ctx));
-    await validateStageCatalogs(modelEnvOf(ctx));
+    await validateStageCatalogs(modelEnvOf(ctx), from);
+    ctx.status.models = stageModels(modelEnvOf(ctx), from);
     ctx.status.write();
     await stages(ctx);
   } catch (e) {

@@ -73,6 +73,11 @@ describe('Pluggable Agent Harness Subsystem', () => {
       expect(models.length).toBeGreaterThan(0);
     });
 
+    it('does not pass a separate effort for fixed model variants', () => {
+      expect(harness.selectStageModel({ configuredModel: 'gemini-3.8-flash-medium', configuredEffort: 'medium' }))
+        .toEqual({ model: 'gemini-3.8-flash-medium', effort: undefined });
+    });
+
     it('compiles stage arguments with --mode accept-edits and --settings', () => {
       const inv = harness.compileStageArgs({
         prompt: 'build feature',

@@ -7,7 +7,7 @@ import { has } from '../util.js';
 import { loadRegistry, resolvePath } from '../models/index.js';
 import { EFFORT_LEVELS, agentFor } from '../config/settings.js';
 import { defaultRegistry, ownsModelIds } from './harness/registry.js';
-import { AGENT_STAGES, SetupError, type AgentStage, type Ctx } from './context.js';
+import { AGENT_STAGES, SetupError, type AgentStage, type Ctx, type From } from './context.js';
 
 /** The default "<model> <effort>" of each stage; MODEL_<STAGE>, EFFORT_<STAGE>, SDLC_MODEL and SDLC_EFFORT override it. */
 export const STAGE_DEFAULTS: Record<AgentStage, { model: string; effort: string }> = {
@@ -149,7 +149,9 @@ export function stageModel(stage: AgentStage, menv: ModelEnv): StageModel {
   if (!EFFORTS.includes(effort)) throw new SetupError(`ERROR: invalid effort '${effort}' for stage ${stage} (use low, medium, high, xhigh or max)`);
   const owner = defaultRegistry.ownerOf(model);
   if (owner && owner !== harness.id) throw harnessMismatch(model, stage, harness.id, owner);
-  if (ownsModelIds(harness)) return { model, effort, provider: { active: false, model, endpoint: '', key: '', effortFlag: true } };
+  const cached = harness.catalog?.getCachedModel?.(model);
+  const fixedAgy = harness.id === 'agy' && /-(low|medium|high|xhigh|max)$/i.test(model);
+  if (ownsModelIds(harness)) return { model, effort: fixedAgy || cached?.supportsEffort === false ? '' : effort, provider: { active: false, model, endpoint: '', key: '', effortFlag: true } };
   return { model, effort, provider: resolveProvider(model, stage, menv) };
 }
 
@@ -160,17 +162,24 @@ export const modelEnvOf = (ctx: Ctx): ModelEnv => ({
 });
 
 /** Every stage's model and effort, for status.json; a bad value fails the run at the start. */
-export function stageModels(menv: ModelEnv): Record<string, { model: string; effort: string }> {
+const firstAgentStage = (from?: From): number => {
+  if (!from) return 0;
+  if (from === 'finalise') return AGENT_STAGES.indexOf('resolve-conflicts');
+  const index = AGENT_STAGES.indexOf(from as AgentStage);
+  return index >= 0 ? index : AGENT_STAGES.length;
+};
+
+export function stageModels(menv: ModelEnv, from?: From): Record<string, { model: string; effort: string }> {
   registryCheck(menv.registryFile);
   const out: Record<string, { model: string; effort: string }> = {};
-  for (const st of AGENT_STAGES) { const { model, effort } = stageModel(st, menv); out[st] = { model, effort }; }
+  for (const st of AGENT_STAGES.slice(firstAgentStage(from))) { const { model, effort } = stageModel(st, menv); out[st] = { model, effort }; }
   return out;
 }
 
 /** Validate harness-owned models against the live account/CLI catalog before the first stage starts. */
-export async function validateStageCatalogs(menv: ModelEnv): Promise<void> {
+export async function validateStageCatalogs(menv: ModelEnv, from?: From): Promise<void> {
   const checked = new Set<string>();
-  for (const stage of AGENT_STAGES) {
+  for (const stage of AGENT_STAGES.slice(firstAgentStage(from))) {
     const selected = stageModel(stage, menv);
     const configured = menv.project ? menv.project(stage) : {};
     const harness = defaultRegistry.get(configured.harness || 'claude');
@@ -190,16 +199,20 @@ export async function validateStageCatalogs(menv: ModelEnv): Promise<void> {
       const allowed = models.slice(0, 20).map(entry => entry.id).join(', ');
       throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) is not supported by ${harness.name}${allowed ? ` (discovered: ${allowed})` : ''}`);
     }
-    if (model.supportedEfforts !== undefined && !model.supportedEfforts.includes(selected.effort)) {
+    const explicitEffort = menv.force?.effort || menv.env[`EFFORT_${up}`] || configured.effort || menv.env.SDLC_EFFORT;
+    if (model.supportedEfforts !== undefined && model.supportedEfforts.length > 0 && !model.supportedEfforts.includes(selected.effort)) {
       const allowed = model.supportedEfforts.length ? model.supportedEfforts.join(', ') : 'none';
       throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) does not support effort '${selected.effort}' (supported: ${allowed})`);
+    }
+    if (model.supportedEfforts?.length === 0 && explicitEffort) {
+      throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) has a fixed effort encoded in its model id; clear the separate effort setting`);
     }
   }
 }
 
 /** The claude flags for a stage's model. */
 export const modelFlags = ({ effort, provider }: StageModel): string[] =>
-  ['--model', provider.model, ...(provider.effortFlag ? ['--effort', effort] : [])];
+  ['--model', provider.model, ...(provider.effortFlag && effort ? ['--effort', effort] : [])];
 
 /**
  * The environment the agent of a custom provider runs with: its endpoint and key, with ANTHROPIC_API_KEY emptied so a real

@@ -26,7 +26,8 @@ export class OpencodeHarness implements AgentHarness {
   }
 
   selectStageModel(opts: { configuredModel?: string; configuredEffort?: string }): { model: string; effort?: string } {
-    return { model: opts.configuredModel || '', effort: opts.configuredEffort };
+    const model = opts.configuredModel || '';
+    return { model, effort: this.catalog.getCachedModel(model)?.supportsEffort === false ? undefined : opts.configuredEffort };
   }
 
   async detect(env: NodeJS.ProcessEnv = process.env): Promise<HarnessDetection> {

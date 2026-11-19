@@ -100,6 +100,8 @@ export interface ModelCatalogAdapter {
   validateModel(modelId: string, env?: NodeJS.ProcessEnv): Promise<boolean>;
   /** Invalidate any cached catalog (e.g. after a model-incompatibility error) */
   invalidateCache(): void;
+  /** Return a model already loaded into this adapter without triggering discovery. */
+  getCachedModel?(modelId: string): HarnessModel | undefined;
 }
 
 /** Core contract every coding agent harness must implement. */

@@ -14,7 +14,8 @@ export class AgyHarness implements AgentHarness {
   private modelCache: { models: HarnessModel[]; expiresAt: number } | null = null;
 
   selectStageModel(opts: { configuredModel?: string; configuredEffort?: string }): { model: string; effort?: string } {
-    return { model: opts.configuredModel || '', effort: opts.configuredEffort };
+    const model = opts.configuredModel || '';
+    return { model, effort: /-(low|medium|high|xhigh|max)$/i.test(model) ? undefined : opts.configuredEffort };
   }
 
   async detect(env: NodeJS.ProcessEnv = process.env): Promise<HarnessDetection> {
@@ -27,10 +28,10 @@ export class AgyHarness implements AgentHarness {
 
   async listModels(_env: NodeJS.ProcessEnv = process.env): Promise<HarnessModel[]> {
     const fallback: HarnessModel[] = [
-      { id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)', harness: this.id, supportsEffort: false, supportedEfforts: [], defaultEffort: 'high', description: 'Recommended: extreme speed, high reasoning, 1M context' },
-      { id: 'gemini-3.8-flash-medium', name: 'Gemini 3.8 Flash (Medium)', harness: this.id, supportsEffort: false, supportedEfforts: [], defaultEffort: 'medium', description: 'Balanced speed and reasoning' },
+      { id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)', harness: this.id, supportsEffort: false, supportedEfforts: [], description: 'Recommended: extreme speed, high reasoning, 1M context' },
+      { id: 'gemini-3.8-flash-medium', name: 'Gemini 3.8 Flash (Medium)', harness: this.id, supportsEffort: false, supportedEfforts: [], description: 'Balanced speed and reasoning' },
       { id: 'gemini-3.8-pro', name: 'Gemini 3.8 Pro', harness: this.id, supportsEffort: true, defaultEffort: 'high', description: 'Deep reasoning for complex architectural refactoring' },
-      { id: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B (Medium)', harness: this.id, supportsEffort: false, supportedEfforts: [], defaultEffort: 'medium', description: 'Open-weight foundation model via Antigravity runtime' },
+      { id: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B (Medium)', harness: this.id, supportsEffort: false, supportedEfforts: [], description: 'Open-weight foundation model via Antigravity runtime' },
     ];
     if (this.modelCache && this.modelCache.expiresAt > Date.now()) return this.modelCache.models;
     const env = _env;
@@ -43,7 +44,7 @@ export class AgyHarness implements AgentHarness {
       const [id, ...label] = line.trim().split(/\t+/);
       if (!id || !label.length) continue;
       const fixed = /-((low|medium|high|xhigh|max))$/i.exec(id)?.[1];
-      models.push({ id, name: label.join(' '), harness: this.id, supportsEffort: !fixed, supportedEfforts: fixed ? [] : undefined, ...(fixed ? { defaultEffort: fixed } : {}) });
+      models.push({ id, name: label.join(' '), harness: this.id, supportsEffort: !fixed, supportedEfforts: fixed ? [] : undefined });
     }
     const out = models.length ? models : fallback;
     this.modelCache = { models: out, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };

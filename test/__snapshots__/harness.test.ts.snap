@@ -23,7 +23,6 @@ exports[`Pluggable Agent Harness Subsystem > existing harness golden regression 
     },
     "models": [
       {
-        "defaultEffort": "high",
         "description": "Recommended: extreme speed, high reasoning, 1M context",
         "harness": "agy",
         "id": "gemini-3.8-flash-high",
@@ -32,7 +31,6 @@ exports[`Pluggable Agent Harness Subsystem > existing harness golden regression 
         "supportsEffort": false,
       },
       {
-        "defaultEffort": "medium",
         "description": "Balanced speed and reasoning",
         "harness": "agy",
         "id": "gemini-3.8-flash-medium",
@@ -49,7 +47,6 @@ exports[`Pluggable Agent Harness Subsystem > existing harness golden regression 
         "supportsEffort": true,
       },
       {
-        "defaultEffort": "medium",
         "description": "Open-weight foundation model via Antigravity runtime",
         "harness": "agy",
         "id": "gpt-oss-120b-medium",

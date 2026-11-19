@@ -118,6 +118,10 @@ export class CodexModelCatalogAdapter implements ModelCatalogAdapter {
     this.cache = null;
   }
 
+  getCachedModel(modelId: string): HarnessModel | undefined {
+    return this.cache?.models.find(model => model.id === modelId);
+  }
+
   getCacheSource(): 'app-server' | 'api' | 'fallback' | null {
     return this.cache?.source || null;
   }

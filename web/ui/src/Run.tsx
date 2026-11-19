@@ -510,6 +510,7 @@ export function Run({ slug }: { slug: string }) {
           <select class="sel" aria-label={`${name} agent`} value={envObj[AGENT_ENV(key)] || ''} onChange={e => {
             setEnvVar(AGENT_ENV(key), (e.target as HTMLSelectElement).value);
             setEnvVar(envKey('MODEL', key), '');
+            setEnvVar(envKey('EFFORT', key), '');
           }}>
             <option value="">{(() => { const h = catalog.config?.agent?.stages?.[key]?.harness || catalog.config?.agent?.harness; return h ? `default (${h})` : 'agent'; })()}</option>
             {unique(catalog.harnesses).map(h => <option value={h}>{h}</option>)}
@@ -517,9 +518,9 @@ export function Run({ slug }: { slug: string }) {
         )}
         <ModelSelect name={name} models={models} value={selectedModel} harness={activeHarness} taken={taken}
           defaultLabel={inUse && inUse.model ? `default (${inUse.model})` : 'default'}
-          onChange={model => setEnvVar(envKey('MODEL', key), model)} />
+          onChange={model => { setEnvVar(envKey('MODEL', key), model); setEnvVar(envKey('EFFORT', key), ''); }} />
         <select class="sel" aria-label={`${name} effort`} value={envObj[envKey('EFFORT', key)] || ''} onChange={e => setEnvVar(envKey('EFFORT', key), (e.target as HTMLSelectElement).value)}>
-          {unique(efforts).map(m => <option value={m}>{m || (inUse && inUse.effort ? `default (${inUse.effort})` : 'default')}</option>)}
+          {unique(efforts).map(m => <option value={m}>{m || (selectedInfo?.supportsEffort === false ? 'not used' : inUse && inUse.effort ? `default (${inUse.effort})` : 'default')}</option>)}
         </select>
       </div>
     );
