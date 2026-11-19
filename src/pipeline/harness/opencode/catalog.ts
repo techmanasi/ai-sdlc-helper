@@ -3,20 +3,20 @@ import { EFFORT_LEVELS } from '../../../config/settings.js';
 import { which } from '../../../shell.js';
 import type { HarnessModel, ModelCatalogAdapter } from '../types.js';
 
-const CONSOLE_PROVIDERS = new Set(['opencode', 'opencode-go']);
 const MODEL_LIST_PATH = '/api/model';
 const DEFAULT_MODEL_PATH = '/api/model/default';
-
-type Effort = NonNullable<HarnessModel['defaultEffort']>;
 
 interface OpencodeModelItem {
   modelID?: string;
   providerID?: string;
+  providerName?: string;
   name?: string;
   family?: string;
   capabilities?: { tools?: boolean };
   variants?: Array<{
-    settings?: { reasoning?: { effort?: string } };
+    id?: string;
+    name?: string;
+    settings?: { reasoning?: { enabled?: boolean; effort?: string } };
   }>;
 }
 
@@ -62,11 +62,16 @@ function canonicalModelId(item: OpencodeModelItem): string | undefined {
   return item.modelID.includes('/') ? item.modelID : `${item.providerID}/${item.modelID}`;
 }
 
-function supportedEfforts(item: OpencodeModelItem): Effort[] {
+function supportedEfforts(item: OpencodeModelItem): string[] {
   if (!Array.isArray(item.variants)) return [];
   return item.variants
-    .map(variant => variant?.settings?.reasoning?.effort)
-    .filter((effort): effort is Effort => typeof effort === 'string' && (EFFORT_LEVELS as readonly string[]).includes(effort));
+    .flatMap(variant => {
+      const explicit = variant?.settings?.reasoning?.effort;
+      if (typeof explicit === 'string' && (EFFORT_LEVELS as readonly string[]).includes(explicit)) return [explicit];
+      const id = variant?.id || variant?.name;
+      if (id === 'none' || variant?.settings?.reasoning?.enabled === false) return [];
+      return typeof id === 'string' && id ? [id] : [];
+    });
 }
 
 /** Map the `/api/model` envelope to the dynamic OpenCode Console model catalog. */
@@ -77,7 +82,7 @@ export function opencodeModelsFromPayload(payload: unknown): HarnessModel[] {
   for (const value of data) {
     if (!value || typeof value !== 'object') continue;
     const item = value as OpencodeModelItem;
-    if (!item.providerID || !CONSOLE_PROVIDERS.has(item.providerID)) continue;
+    if (!item.providerID) continue;
     const id = canonicalModelId(item);
     if (!id) continue;
     const efforts = supportedEfforts(item);
@@ -85,6 +90,9 @@ export function opencodeModelsFromPayload(payload: unknown): HarnessModel[] {
       id,
       name: item.name || id,
       harness: 'opencode',
+      providerId: item.providerID,
+      providerName: item.providerName || item.providerID,
+      supportedEfforts: efforts,
       supportsEffort: efforts.length > 0,
       defaultEffort: efforts[0],
       description: item.family || (item.capabilities?.tools ? 'Tool-capable OpenCode model' : undefined),
@@ -103,7 +111,7 @@ export class OpencodeModelCatalogAdapter implements ModelCatalogAdapter {
   readonly harnessId = 'opencode' as const;
 
   private cache: CatalogCache | null = null;
-  private readonly defaultTtlMs = 60 * 60 * 1000;
+  private readonly defaultTtlMs = 24 * 60 * 60 * 1000;
   private readonly fallbackTtlMs = 10 * 1000;
   lastError: string | null = null;
 

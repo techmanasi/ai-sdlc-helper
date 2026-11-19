@@ -167,6 +167,31 @@ export function stageModels(menv: ModelEnv): Record<string, { model: string; eff
   return out;
 }
 
+/** Validate harness-owned models against the live account/CLI catalog before the first stage starts. */
+export async function validateStageCatalogs(menv: ModelEnv): Promise<void> {
+  const checked = new Set<string>();
+  for (const stage of AGENT_STAGES) {
+    const selected = stageModel(stage, menv);
+    const configured = menv.project ? menv.project(stage) : {};
+    const harness = defaultRegistry.get(configured.harness || 'claude');
+    if (!harness || !ownsModelIds(harness)) continue;
+    const key = `${harness.id}\u0000${selected.model}\u0000${selected.effort}`;
+    if (checked.has(key)) continue;
+    checked.add(key);
+    const models = await harness.listModels(menv.env);
+    if (models.length === 0) continue;
+    const model = models.find(entry => entry.id === selected.model);
+    if (!model) {
+      const allowed = models.slice(0, 20).map(entry => entry.id).join(', ');
+      throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) is not supported by ${harness.name}${allowed ? ` (discovered: ${allowed})` : ''}`);
+    }
+    if (model.supportedEfforts !== undefined && !model.supportedEfforts.includes(selected.effort)) {
+      const allowed = model.supportedEfforts.length ? model.supportedEfforts.join(', ') : 'none';
+      throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) does not support effort '${selected.effort}' (supported: ${allowed})`);
+    }
+  }
+}
+
 /** The claude flags for a stage's model. */
 export const modelFlags = ({ effort, provider }: StageModel): string[] =>
   ['--model', provider.model, ...(provider.effortFlag ? ['--effort', effort] : [])];

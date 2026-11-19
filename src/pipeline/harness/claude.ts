@@ -1,6 +1,9 @@
 import { which } from '../../shell.js';
 import type { AgentHarness, HarnessDetection, HarnessInvocation, HarnessModel, HarnessResult, StageCompileOptions } from './types.js';
 
+let modelCache: { models: HarnessModel[]; expiresAt: number } | null = null;
+const MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
 export class ClaudeHarness implements AgentHarness {
   readonly id = 'claude' as const;
   readonly name = 'Anthropic Claude Code';
@@ -28,11 +31,34 @@ export class ClaudeHarness implements AgentHarness {
   }
 
   async listModels(_env: NodeJS.ProcessEnv = process.env): Promise<HarnessModel[]> {
-    return [
+    const fallback: HarnessModel[] = [
       { id: 'opus', name: 'Claude Opus 4.6', harness: this.id, supportsEffort: true, defaultEffort: 'medium', description: 'Anthropic flagship reasoning model' },
       { id: 'sonnet', name: 'Claude Sonnet 4.6', harness: this.id, supportsEffort: true, defaultEffort: 'medium', description: 'Fast and capable architectural & coding model' },
       { id: 'haiku', name: 'Claude Haiku 4.5', harness: this.id, supportsEffort: false, description: 'High-speed, low-latency utility model' },
     ];
+    if (modelCache && modelCache.expiresAt > Date.now()) return modelCache.models;
+    const token = _env.ANTHROPIC_API_KEY;
+    if (!token) { modelCache = { models: fallback, expiresAt: Date.now() + MODEL_CACHE_TTL_MS }; return fallback; }
+    try {
+      const base = (_env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
+      const res = await fetch(`${base}/v1/models`, { headers: { 'x-api-key': token, 'anthropic-version': '2023-06-01' } });
+      if (!res.ok) { modelCache = { models: fallback, expiresAt: Date.now() + MODEL_CACHE_TTL_MS }; return fallback; }
+      const body = await res.json() as { data?: Array<{ id?: string; display_name?: string }> };
+      const models = (body.data || []).filter(m => m.id).map(m => ({
+        id: m.id as string,
+        name: m.display_name || m.id as string,
+        harness: this.id,
+        supportsEffort: true,
+        supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultEffort: 'medium',
+      }));
+      const out = models.length ? models : fallback;
+      modelCache = { models: out, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };
+      return out;
+    } catch {
+      modelCache = { models: fallback, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };
+      return fallback;
+    }
   }
 
   compileStageArgs(opts: StageCompileOptions): HarnessInvocation {

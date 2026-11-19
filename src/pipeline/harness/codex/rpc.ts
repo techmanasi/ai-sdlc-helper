@@ -7,8 +7,8 @@ export interface CodexAppServerModel {
   model: string;
   displayName?: string;
   description?: string;
-  supportedReasoningEfforts?: Array<{ effort: string; description?: string }>;
-  defaultReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  supportedReasoningEfforts?: Array<{ effort?: string; reasoningEffort?: string; description?: string }>;
+  defaultReasoningEffort?: string;
   isDefault?: boolean;
   hidden?: boolean;
 }
@@ -118,9 +118,10 @@ export async function queryCodexAppServerModels(
                 id: m.id || m.model,
                 name: m.displayName || m.id || m.model,
                 harness: 'codex',
-                supportsEffort:
-                  Array.isArray(m.supportedReasoningEfforts) &&
-                  m.supportedReasoningEfforts.length > 0,
+                supportsEffort: Array.isArray(m.supportedReasoningEfforts) && m.supportedReasoningEfforts.length > 0,
+                supportedEfforts: Array.isArray(m.supportedReasoningEfforts)
+                  ? m.supportedReasoningEfforts.map(e => e.reasoningEffort || e.effort || '').filter(Boolean)
+                  : [],
                 defaultEffort: m.defaultReasoningEffort,
                 description: m.description,
               }));

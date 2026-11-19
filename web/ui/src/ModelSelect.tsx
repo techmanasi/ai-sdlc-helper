@@ -8,6 +8,8 @@ import { filterModels, nextIndex } from './modelFilter';
 export interface ModelChoice {
   id: string;
   name: string;
+  providerId?: string;
+  providerName?: string;
 }
 
 interface ModelSelectProps {
@@ -39,13 +41,16 @@ const EDGE = 8;
 export function ModelSelect({ name, models, value, defaultLabel, harness, taken, onChange }: ModelSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [provider, setProvider] = useState('');
   const [active, setActive] = useState(0);
   const [panel, setPanel] = useState<Panel | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
 
-  const matching = useMemo(() => filterModels(models, query), [models, query]);
+  const providers = useMemo(() => Array.from(new Map(models.filter(m => m.providerId).map(m => [m.providerId, m.providerName || m.providerId!])).entries()).sort((a, b) => (a[1] || '').localeCompare(b[1] || '')), [models]);
+  const providerModels = useMemo(() => provider ? models.filter(m => m.providerId === provider) : models, [models, provider]);
+  const matching = useMemo(() => filterModels(providerModels, query), [providerModels, query]);
   const rows = useMemo(() => [
     { id: '', label: defaultLabel, detail: '', disabled: false },
     ...matching.map(model => ({
@@ -68,6 +73,7 @@ export function ModelSelect({ name, models, value, defaultLabel, harness, taken,
     const height = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, up ? above : below));
     setPanel({ left, top: up ? rect.top - GAP - height : rect.bottom + GAP, width, height });
     setQuery('');
+    setProvider('');
     const at = value ? models.findIndex(model => model.id === value) : -1;
     setActive(at >= 0 ? at + 1 : 0);
     setOpen(true);
@@ -132,6 +138,10 @@ export function ModelSelect({ name, models, value, defaultLabel, harness, taken,
         <div ref={box} class="pick-panel" style={{ left: `${panel.left}px`, top: `${panel.top}px`, width: `${panel.width}px` }}>
           <input ref={search} class="inp mono" aria-label={`${name} model search`} placeholder="Search models…" value={query}
             onInput={e => { setQuery((e.target as HTMLInputElement).value); setActive(0); }} onKeyDown={onKeyDown} />
+          {providers.length > 1 && <select class="sel pick-provider" aria-label={`${name} provider filter`} value={provider} onChange={e => { setProvider((e.target as HTMLSelectElement).value); setActive(0); }}>
+            <option value="">All providers</option>
+            {providers.map(([id, label]) => <option value={id}>{label}</option>)}
+          </select>}
           <div class="pick-list" role="listbox" aria-label={`${name} models`} style={{ maxHeight: `${panel.height - 44}px` }}>
             {rows.map((row, i) => (
               <button type="button" role="option" aria-selected={row.id === value} disabled={row.disabled}

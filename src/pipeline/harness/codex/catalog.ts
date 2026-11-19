@@ -38,7 +38,7 @@ export class CodexModelCatalogAdapter implements ModelCatalogAdapter {
   readonly harnessId = 'codex' as const;
 
   private cache: CatalogCache | null = null;
-  private readonly defaultTtlMs = 60 * 60 * 1000; // 1 hour for authenticated catalogs
+  private readonly defaultTtlMs = 24 * 60 * 60 * 1000; // daily for authenticated catalogs
   private readonly fallbackTtlMs = 10 * 1000; // 10s for unauthenticated fallbacks
 
   constructor(

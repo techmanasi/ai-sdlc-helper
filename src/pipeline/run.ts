@@ -15,7 +15,7 @@ import { AGENT_STAGES, Exit, FROM_STAGES, SetupError, at, setAside, stamp, stop,
 import { spawnAgentProcess, type AgentSpawn } from './agent.js';
 import { projectRoot } from '../runs/records.js';
 import { Git } from './git.js';
-import { envModels, modelEnvOf, registryFile, stageModels } from './models.js';
+import { envModels, modelEnvOf, registryFile, stageModels, validateStageCatalogs } from './models.js';
 import { PROMPTS_DIR } from './prompts.js';
 import { Status, finalState, previousBranch, previousStage, previousState } from './status.js';
 import { isRunBranch } from './branch-move.js';
@@ -113,6 +113,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
     ctx = await setup(opts, from, env, out, err);
     // Resolved model and effort of every stage, for the status file (and a bad value fails here, before any agent).
     ctx.status.models = stageModels(modelEnvOf(ctx));
+    await validateStageCatalogs(modelEnvOf(ctx));
     ctx.status.write();
     await stages(ctx);
   } catch (e) {

@@ -8,7 +8,7 @@ import type { HarnessModel } from '../src/pipeline/harness/types.js';
 const fixture = () => JSON.parse(fs.readFileSync(path.resolve('test/fixtures/opencode/model-list.json'), 'utf8'));
 
 describe('OpencodeModelCatalogAdapter', () => {
-  it('unwraps data, keeps both Console providers and composes canonical ids', async () => {
+  it('unwraps data, keeps every provider and composes canonical ids', async () => {
     const adapter = new OpencodeModelCatalogAdapter(async () => fixture());
     const models = await adapter.listModels();
 
@@ -17,17 +17,20 @@ describe('OpencodeModelCatalogAdapter', () => {
       'opencode-go/kimi-k3.1-pro',
       'opencode-go/gemini-3.1-pro',
       'opencode/legacy-model',
+      'nex-agi/nex-n2.6',
+      'ollama/qwen3-coder',
     ]);
     expect(models.every(model => model.harness === 'opencode')).toBe(true);
     expect(models[0]).toMatchObject({
       name: 'Claude Fable 5.2',
       supportsEffort: true,
-      defaultEffort: 'high',
+      defaultEffort: 'minimal',
       description: 'claude-fable',
     });
     expect(models[1]).toMatchObject({ supportsEffort: true, defaultEffort: 'medium' });
-    expect(models[2]).toMatchObject({ supportsEffort: false, defaultEffort: undefined });
-    expect(models.some(model => model.id.includes('openrouter') || model.id.includes('ollama'))).toBe(false);
+    expect(models[2]).toMatchObject({ supportsEffort: true, defaultEffort: 'thinking' });
+    expect(models.find(model => model.providerId === 'openrouter')).toMatchObject({ providerName: 'openrouter' });
+    expect(models.find(model => model.providerId === 'ollama')).toMatchObject({ providerName: 'ollama' });
   });
 
   it('caches a live result and reports its source', async () => {
@@ -84,11 +87,11 @@ describe('OpencodeModelCatalogAdapter', () => {
     expect(await firstOnly.getDefaultModel()).toBe('opencode/claude-fable-5-2');
   });
 
-  it('validates only ids in the filtered catalog', async () => {
+  it('validates only ids in the discovered catalog', async () => {
     const adapter = new OpencodeModelCatalogAdapter(async () => fixture());
     expect(await adapter.validateModel('opencode/claude-fable-5-2')).toBe(true);
     expect(await adapter.validateModel('claude-fable-5-2')).toBe(false);
-    expect(await adapter.validateModel('nex-agi/nex-n2.6')).toBe(false);
+    expect(await adapter.validateModel('nex-agi/nex-n2.6')).toBe(true);
     expect(await adapter.validateModel('')).toBe(false);
   });
 
