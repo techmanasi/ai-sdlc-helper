@@ -1,0 +1,217 @@
+{
+  "version": 1,
+  "slug": "ui-code-indexer-setup",
+  "generatedAt": "2026-11-20T01:18:43",
+  "priced": true,
+  "runs": [
+    {
+      "n": 1,
+      "started": "2026-11-20T00:59:06",
+      "from": "spec",
+      "ended": "2026-11-20T01:04:29",
+      "state": "paused",
+      "wallSec": 323,
+      "stages": [
+        {
+          "stage": "Spec",
+          "passes": 1,
+          "wallSec": 322,
+          "models": [
+            "gemini-3.8-flash-high"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 315.388522,
+            "turns": 1,
+            "tokens": 148010,
+            "input": 122906,
+            "output": 25104,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "costUsd": null,
+            "estimatedUsd": 0,
+            "unpriced": 1
+          }
+        }
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 315.388522,
+        "turns": 1,
+        "tokens": 148010,
+        "input": 122906,
+        "output": 25104,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costUsd": null,
+        "estimatedUsd": 0,
+        "unpriced": 1
+      }
+    },
+    {
+      "n": 2,
+      "started": "2026-11-20T01:04:48",
+      "from": "spec",
+      "ended": null,
+      "state": null,
+      "wallSec": 835,
+      "stages": [
+        {
+          "stage": "Spec",
+          "passes": 1,
+          "wallSec": 237,
+          "models": [
+            "gemini-3.8-flash-high"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 231.529702,
+            "turns": 1,
+            "tokens": 141186,
+            "input": 121439,
+            "output": 19747,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "costUsd": null,
+            "estimatedUsd": 0,
+            "unpriced": 1
+          }
+        },
+        {
+          "stage": "Plan",
+          "passes": 1,
+          "wallSec": 266,
+          "models": [
+            "gpt-6.2-sol"
+          ],
+          "usage": {
+            "rounds": 2,
+            "durationSec": 246.89999999999998,
+            "turns": 2,
+            "tokens": 1360756,
+            "input": 1352333,
+            "output": 8423,
+            "cacheRead": 1247360,
+            "cacheWrite": 0,
+            "costUsd": 0.41891199999999995,
+            "estimatedUsd": 0.41891199999999995,
+            "unpriced": 0
+          }
+        },
+        {
+          "stage": "Red tests",
+          "passes": 1,
+          "wallSec": 331,
+          "models": [
+            "gpt-6.2-astra"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 294.5,
+            "turns": 1,
+            "tokens": 1481374,
+            "input": 1471383,
+            "output": 9991,
+            "cacheRead": 1395840,
+            "cacheWrite": 0,
+            "costUsd": 1.56232,
+            "estimatedUsd": 1.56232,
+            "unpriced": 0
+          }
+        }
+      ],
+      "usage": {
+        "rounds": 4,
+        "durationSec": 772.9297019999999,
+        "turns": 4,
+        "tokens": 2983316,
+        "input": 2945155,
+        "output": 38161,
+        "cacheRead": 2643200,
+        "cacheWrite": 0,
+        "costUsd": 1.9812319999999999,
+        "estimatedUsd": 1.9812319999999999,
+        "unpriced": 1
+      }
+    }
+  ],
+  "stages": [
+    {
+      "stage": "Spec",
+      "passes": 2,
+      "wallSec": 559,
+      "models": [
+        "gemini-3.8-flash-high"
+      ],
+      "usage": {
+        "rounds": 2,
+        "durationSec": 546.918224,
+        "turns": 2,
+        "tokens": 289196,
+        "input": 244345,
+        "output": 44851,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costUsd": null,
+        "estimatedUsd": 0,
+        "unpriced": 2
+      }
+    },
+    {
+      "stage": "Plan",
+      "passes": 1,
+      "wallSec": 266,
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "usage": {
+        "rounds": 2,
+        "durationSec": 246.89999999999998,
+        "turns": 2,
+        "tokens": 1360756,
+        "input": 1352333,
+        "output": 8423,
+        "cacheRead": 1247360,
+        "cacheWrite": 0,
+        "costUsd": 0.41891199999999995,
+        "estimatedUsd": 0.41891199999999995,
+        "unpriced": 0
+      }
+    },
+    {
+      "stage": "Red tests",
+      "passes": 1,
+      "wallSec": 331,
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 294.5,
+        "turns": 1,
+        "tokens": 1481374,
+        "input": 1471383,
+        "output": 9991,
+        "cacheRead": 1395840,
+        "cacheWrite": 0,
+        "costUsd": 1.56232,
+        "estimatedUsd": 1.56232,
+        "unpriced": 0
+      }
+    }
+  ],
+  "usage": {
+    "rounds": 5,
+    "durationSec": 1088.318224,
+    "turns": 5,
+    "tokens": 3131326,
+    "input": 3068061,
+    "output": 63265,
+    "cacheRead": 2643200,
+    "cacheWrite": 0,
+    "costUsd": 1.9812319999999999,
+    "estimatedUsd": 1.9812319999999999,
+    "unpriced": 2
+  },
+  "wallSec": 1158
+}
