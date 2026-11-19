@@ -17,10 +17,12 @@ export class OpencodeHarness implements AgentHarness {
 
   /**
    * OpenCode ids are "<provider>/<model>", and its providers include ids of their own ("opencode-go"), so its ids are
-   * claimed by prefix as well as once the catalog has discovered them.
+   * claimed by prefix as well as once the catalog has discovered them. Only a routed id is ours: a display name like
+   * "gpt-6.1-sol" is another harness's model too (codex lists it), and claiming it would name every such stage a
+   * mismatch.
    */
   ownsModel(model: string): boolean {
-    return model.startsWith(`${this.id}/`) || model.startsWith(`${this.id}-`) || this.catalog?.getCachedModel(model) !== undefined;
+    return model.startsWith(`${this.id}/`) || model.startsWith(`${this.id}-`) || this.catalog?.modelById(model) !== undefined;
   }
 
   constructor(catalog: OpencodeModelCatalogAdapter = defaultOpencodeCatalog) {

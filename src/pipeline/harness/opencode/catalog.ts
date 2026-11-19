@@ -180,15 +180,19 @@ export class OpencodeModelCatalogAdapter implements ModelCatalogAdapter {
     return this.cache?.source || null;
   }
 
+  /** The last discovered model with exactly this provider-routed id, so another harness's model is never claimed. */
+  modelById(id: string): HarnessModel | undefined {
+    return this.cache?.models.find(model => model.id === id);
+  }
+
   /**
    * The last discovered model, for synchronous argument compilation after catalog discovery. A config names a model by
    * its provider-routed id or, as before, by its display name; a display name several providers share resolves to none.
    */
   getCachedModel(modelId: string): HarnessModel | undefined {
-    const models = this.cache?.models || [];
-    const routed = models.find(model => model.id === modelId);
+    const routed = this.modelById(modelId);
     if (routed) return routed;
-    const named = models.filter(model => model.displayName === modelId);
+    const named = (this.cache?.models || []).filter(model => model.displayName === modelId);
     return named.length === 1 ? named[0] : undefined;
   }
 }
