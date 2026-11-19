@@ -194,8 +194,15 @@ export async function validateStageCatalogs(menv: ModelEnv, from?: From): Promis
     checked.add(key);
     const models = await harness.listModels(menv.env);
     if (models.length === 0) continue;
-    const model = models.find(entry => entry.id === selected.model);
+    // A config names a model by the provider-routed id, or by its display name (the provider's own id, as the picker
+    // showed it). A display name several providers share cannot pick one: name the routed id instead.
+    const byId = models.find(entry => entry.id === selected.model);
+    const byName = models.filter(entry => entry.displayName === selected.model);
+    const model = byId || (byName.length === 1 ? byName[0] : undefined);
     if (!model) {
+      if (byName.length > 1) {
+        throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) is offered by several ${harness.name} providers: name the provider-routed id (${byName.slice(0, 20).map(entry => entry.id).join(', ')})`);
+      }
       const allowed = models.slice(0, 20).map(entry => entry.id).join(', ');
       throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) is not supported by ${harness.name}${allowed ? ` (discovered: ${allowed})` : ''}`);
     }

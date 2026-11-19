@@ -17,7 +17,7 @@ describe('OpencodeModelCatalogAdapter', () => {
       'opencode-go/kimi-k3.1-pro',
       'opencode-go/gemini-3.1-pro',
       'opencode/legacy-model',
-      'nex-agi/nex-n2.6',
+      'openrouter/nex-agi/nex-n2.6',
       'ollama/qwen3-coder',
     ]);
     expect(models.every(model => model.harness === 'opencode')).toBe(true);
@@ -29,8 +29,8 @@ describe('OpencodeModelCatalogAdapter', () => {
     });
     expect(models[1]).toMatchObject({ supportsEffort: true, defaultEffort: 'medium' });
     expect(models[2]).toMatchObject({ supportsEffort: true, defaultEffort: 'thinking' });
-    expect(models.find(model => model.providerId === 'openrouter')).toMatchObject({ providerName: 'openrouter' });
-    expect(models.find(model => model.providerId === 'ollama')).toMatchObject({ providerName: 'ollama' });
+    expect(models.find(model => model.providerId === 'openrouter')).toMatchObject({ providerName: 'openrouter', displayName: 'nex-agi/nex-n2.6' });
+    expect(models.find(model => model.providerId === 'ollama')).toMatchObject({ providerName: 'ollama', displayName: 'qwen3-coder' });
   });
 
   it('caches a live result and reports its source', async () => {
@@ -87,12 +87,38 @@ describe('OpencodeModelCatalogAdapter', () => {
     expect(await firstOnly.getDefaultModel()).toBe('opencode/claude-fable-5-2');
   });
 
-  it('validates only ids in the discovered catalog', async () => {
+  it('validates only ids in the discovered catalog, by routed id or display name', async () => {
     const adapter = new OpencodeModelCatalogAdapter(async () => fixture());
     expect(await adapter.validateModel('opencode/claude-fable-5-2')).toBe(true);
-    expect(await adapter.validateModel('claude-fable-5-2')).toBe(false);
+    expect(await adapter.validateModel('claude-fable-5-2')).toBe(true);
+    expect(await adapter.validateModel('openrouter/nex-agi/nex-n2.6')).toBe(true);
     expect(await adapter.validateModel('nex-agi/nex-n2.6')).toBe(true);
+    expect(await adapter.validateModel('claude-fable-5-3')).toBe(false);
     expect(await adapter.validateModel('')).toBe(false);
+  });
+
+  it('resolves a config display name to the provider-routed id the CLI needs', async () => {
+    const adapter = new OpencodeModelCatalogAdapter(async () => fixture());
+    await adapter.listModels();
+    const routed = adapter.getCachedModel('nex-agi/nex-n2.6');
+    expect(routed?.id).toBe('openrouter/nex-agi/nex-n2.6');
+    expect(adapter.getCachedModel('openrouter/nex-agi/nex-n2.6')?.id).toBe('openrouter/nex-agi/nex-n2.6');
+    expect(adapter.getCachedModel('qwen3-coder')?.id).toBe('ollama/qwen3-coder');
+    expect(adapter.getCachedModel('nosuch-model')).toBeUndefined();
+  });
+
+  it('does not resolve a display name two providers share', async () => {
+    const shared = {
+      data: [
+        { modelID: 'kimi-k3', providerID: 'opencode', name: 'Kimi K3' },
+        { modelID: 'kimi-k3', providerID: 'opencode-go', name: 'Kimi K3' },
+      ],
+    };
+    const adapter = new OpencodeModelCatalogAdapter(async () => shared);
+    await adapter.listModels();
+    expect(adapter.getCachedModel('kimi-k3')).toBeUndefined();
+    expect(adapter.getCachedModel('opencode/kimi-k3')?.providerId).toBe('opencode');
+    expect(adapter.getCachedModel('opencode-go/kimi-k3')?.providerId).toBe('opencode-go');
   });
 
   it('plugs into the harness without exposing provider-specific catalog details', async () => {

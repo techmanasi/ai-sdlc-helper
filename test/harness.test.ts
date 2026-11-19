@@ -253,6 +253,7 @@ describe('Pluggable Agent Harness Subsystem', () => {
       expect(h.id).toBe('opencode');
       expect(h.name).toBe('OpenCode');
       expect(h.defaultBinary).toBe('opencode');
+      expect(h.multipleProvider).toBe(true);
       expect(h.catalog).toBeDefined();
       expect((await h.listModels()).map(model => model.id)).toContain('opencode/claude-fable-5-2');
     });
@@ -261,6 +262,13 @@ describe('Pluggable Agent Harness Subsystem', () => {
       expect(harness().selectStageModel({ configuredEffort: 'high' })).toEqual({ model: '', effort: 'high' });
       expect(harness().selectStageModel({ configuredModel: 'opencode/claude-fable-5-2', configuredEffort: 'max' }))
         .toEqual({ model: 'opencode/claude-fable-5-2', effort: 'max' });
+    });
+
+    it('runs a model the config names by display name as the provider-routed id', async () => {
+      const h = harness();
+      await h.listModels();
+      expect(h.selectStageModel({ configuredModel: 'nex-agi/nex-n2.6', configuredEffort: 'high' }))
+        .toEqual({ model: 'openrouter/nex-agi/nex-n2.6', effort: 'high' });
     });
 
     it('compiles run arguments with canonical model variants and --format json', async () => {

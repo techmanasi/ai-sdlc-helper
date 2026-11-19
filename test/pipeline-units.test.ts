@@ -10,6 +10,9 @@ import { finalise } from '../src/pipeline/finalise.js';
 import { Status } from '../src/pipeline/status.js';
 import { autoAcceptQuestions, formatCheckFailures, isAutoAccept } from '../src/pipeline/stages.js';
 import type { AgentRequest } from '../src/pipeline/agent.js';
+import { defaultRegistry } from '../src/pipeline/harness/registry.js';
+import type { AgentHarness, HarnessModel } from '../src/pipeline/harness/types.js';
+import type { HarnessName } from '../src/config/settings.js';
 import { tmp, write } from './helpers.js';
 import { DOCS, SLUG, fixture, pipeline, read, statusOf } from './pipeline-fixture.js';
 
@@ -107,6 +110,58 @@ describe('model and provider resolution', () => {
     };
     await validateStageCatalogs(modelEnv);
     expect(stageModels(modelEnv).spec).toEqual({ model: 'gemini-3.8-flash-high', effort: '' });
+  });
+
+  // A harness whose catalog is a fixture: no CLI or account is needed to know which models it runs.
+  const fakeHarness = (models: HarnessModel[]): AgentHarness => ({
+    id: 'catalog-fake',
+    name: 'Fake Catalog',
+    defaultBinary: 'fake',
+    ownsModelIds: true,
+    listModels: async () => models,
+    detect: async () => ({ installed: false }),
+    compileStageArgs: () => ({ command: 'fake', args: [], env: {} }),
+    compileAuditArgs: () => ({ command: 'fake', args: [], env: {} }),
+    parseOutput: () => ({ text: '', exitCode: 0, denials: [], rateLimitedUntil: null }),
+  });
+  const routed: HarnessModel[] = [{
+    id: 'openrouter/openai/gpt-6.2-sol-pro', displayName: 'openai/gpt-6.2-sol-pro', name: 'GPT-6.2 Sol Pro',
+    harness: 'opencode', supportsEffort: true, supportedEfforts: ['low', 'medium', 'high'], defaultEffort: 'medium', providerId: 'openrouter',
+  }];
+  const catalogEnv = (model: string, effort = 'high'): ModelEnv => ({
+    ...menv({}),
+    project: st => st === 'spec' ? { harness: 'catalog-fake' as HarnessName, model, effort } : { harness: 'claude' },
+  });
+  const withFake = async <T>(models: HarnessModel[], work: () => Promise<T>): Promise<T> => {
+    defaultRegistry.register(fakeHarness(models));
+    try { return await work(); } finally { defaultRegistry.unregister('catalog-fake'); }
+  };
+
+  test('catalog validation accepts a model named by its display name, as the picker stores it', async () => {
+    await withFake(routed, async () => {
+      const modelEnv = catalogEnv('openai/gpt-6.2-sol-pro');
+      await validateStageCatalogs(modelEnv);
+      // The config keeps the display name; the stage selection later resolves it to the provider-routed id.
+      expect(stageModels(modelEnv).spec).toEqual({ model: 'openai/gpt-6.2-sol-pro', effort: 'high' });
+    });
+  });
+
+  test('catalog validation checks the effort of the model a display name resolves to', async () => {
+    await withFake(routed, async () => {
+      const failure = await validateStageCatalogs(catalogEnv('openai/gpt-6.2-sol-pro', 'max')).catch((e: Error) => e.message);
+      expect(failure).toBe("ERROR: model 'openai/gpt-6.2-sol-pro' (stage spec) does not support effort 'max' (supported: low, medium, high)");
+    });
+  });
+
+  test('catalog validation refuses a display name two providers share and names their routed ids', async () => {
+    const shared: HarnessModel[] = [
+      { id: 'opencode/kimi-k3', displayName: 'kimi-k3', name: 'Kimi K3', harness: 'opencode', supportsEffort: false, providerId: 'opencode' },
+      { id: 'opencode-go/kimi-k3', displayName: 'kimi-k3', name: 'Kimi K3', harness: 'opencode', supportsEffort: false, providerId: 'opencode-go' },
+    ];
+    await withFake(shared, async () => {
+      const failure = await validateStageCatalogs(catalogEnv('kimi-k3')).catch((e: Error) => e.message);
+      expect(failure).toBe("ERROR: model 'kimi-k3' (stage spec) is offered by several Fake Catalog providers: name the provider-routed id (opencode/kimi-k3, opencode-go/kimi-k3)");
+    });
   });
 
   test('a model that belongs to another harness fails at the start, naming the stage, whatever source set it', () => {

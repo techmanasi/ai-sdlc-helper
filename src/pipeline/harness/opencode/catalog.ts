@@ -57,9 +57,14 @@ function responseData(payload: unknown): unknown {
   throw new Error('OpenCode model response did not contain data');
 }
 
+/**
+ * The id OpenCode's CLI routes "<provider>/<model>" by. A provider that namespaces its own ids (OpenRouter lists
+ * "openai/gpt-6.2-sol-pro") keeps that name as the display name; routing it without the provider prefix would send the
+ * model to a provider named after the namespace ("openai"), which no route serves.
+ */
 function canonicalModelId(item: OpencodeModelItem): string | undefined {
   if (!item.modelID || !item.providerID) return undefined;
-  return item.modelID.includes('/') ? item.modelID : `${item.providerID}/${item.modelID}`;
+  return item.modelID.startsWith(`${item.providerID}/`) ? item.modelID : `${item.providerID}/${item.modelID}`;
 }
 
 function supportedEfforts(item: OpencodeModelItem): string[] {
@@ -89,6 +94,7 @@ export function opencodeModelsFromPayload(payload: unknown): HarnessModel[] {
     models.push({
       id,
       name: item.name || id,
+      displayName: item.modelID,
       harness: 'opencode',
       providerId: item.providerID,
       providerName: item.providerName || item.providerID,
@@ -163,7 +169,7 @@ export class OpencodeModelCatalogAdapter implements ModelCatalogAdapter {
   async validateModel(modelId: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
     if (!modelId) return false;
     const models = await this.listModels(env);
-    return models.some(model => model.id === modelId);
+    return models.some(model => model.id === modelId || model.displayName === modelId);
   }
 
   invalidateCache(): void {
@@ -174,9 +180,16 @@ export class OpencodeModelCatalogAdapter implements ModelCatalogAdapter {
     return this.cache?.source || null;
   }
 
-  /** The last discovered model, for synchronous argument compilation after catalog discovery. */
+  /**
+   * The last discovered model, for synchronous argument compilation after catalog discovery. A config names a model by
+   * its provider-routed id or, as before, by its display name; a display name several providers share resolves to none.
+   */
   getCachedModel(modelId: string): HarnessModel | undefined {
-    return this.cache?.models.find(model => model.id === modelId);
+    const models = this.cache?.models || [];
+    const routed = models.find(model => model.id === modelId);
+    if (routed) return routed;
+    const named = models.filter(model => model.displayName === modelId);
+    return named.length === 1 ? named[0] : undefined;
   }
 }
 

@@ -12,6 +12,8 @@ export class OpencodeHarness implements AgentHarness {
   readonly catalog: OpencodeModelCatalogAdapter;
   /** OpenCode ids go to the CLI as they are: no provider indirection. */
   readonly ownsModelIds = true;
+  /** One model is often offered by several providers ("opencode", "opencode-go", "openrouter"): pickers filter by one. */
+  readonly multipleProvider = true;
 
   /**
    * OpenCode ids are "<provider>/<model>", and its providers include ids of their own ("opencode-go"), so its ids are
@@ -26,8 +28,11 @@ export class OpencodeHarness implements AgentHarness {
   }
 
   selectStageModel(opts: { configuredModel?: string; configuredEffort?: string }): { model: string; effort?: string } {
-    const model = opts.configuredModel || '';
-    return { model, effort: this.catalog.getCachedModel(model)?.supportsEffort === false ? undefined : opts.configuredEffort };
+    // The config names a model by its display name (the provider's own id); the CLI is routed by the catalog's id.
+    const configured = opts.configuredModel || '';
+    const found = configured ? this.catalog.getCachedModel(configured) : undefined;
+    const model = found?.id || configured;
+    return { model, effort: found?.supportsEffort === false ? undefined : opts.configuredEffort };
   }
 
   async detect(env: NodeJS.ProcessEnv = process.env): Promise<HarnessDetection> {
