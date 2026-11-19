@@ -63,6 +63,7 @@
     usageTable: 'table.usage',
     resumePick: '#resume-pick',
     openPick: '#open-pick',
+    providerFilter: '.pick-provider',
     handoffFinding: '#handoff-finding',
     resumeNote: '#resume-note',
     totals: '.totals .total',

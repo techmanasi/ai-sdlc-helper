@@ -235,8 +235,8 @@ export function stageFlags(ctx: Ctx, stage: AgentStage): { args: string[]; env: 
   const sm = stageModel(stage, modelEnvOf(ctx));
   ctx.status.model = sm.model;
   ctx.status.effort = sm.effort;
-  ctx.out(sm.provider.effortFlag ? `   model=${sm.model} effort=${sm.effort}` : `   model=${sm.model} (provider without effort)`);
-  return { args: modelFlags(sm), env: providerEnv(sm.provider), model: sm.provider.model, effort: sm.effort, hasEffort: sm.provider.effortFlag };
+  ctx.out(sm.provider.effortFlag && sm.effort ? `   model=${sm.model} effort=${sm.effort}` : `   model=${sm.model} (provider without effort)`);
+  return { args: modelFlags(sm), env: providerEnv(sm.provider), model: sm.provider.model, effort: sm.effort, hasEffort: sm.provider.effortFlag && Boolean(sm.effort) };
 }
 
 /** "<agent>:<model>" a stage runs with (the agent's own default when no model is chosen). Two reviewers with the same one are not independent. */

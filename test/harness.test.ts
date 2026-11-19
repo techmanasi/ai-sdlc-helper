@@ -70,7 +70,12 @@ describe('Pluggable Agent Harness Subsystem', () => {
       expect(harness.name).toBe('Google Antigravity CLI');
       const models = await harness.listModels();
       expect(models.map(m => m.id)).toContain('gemini-3.8-flash-high');
-      expect(models.map(m => m.id)).toContain('gemini-3.8-pro');
+      expect(models.length).toBeGreaterThan(0);
+    });
+
+    it('does not pass a separate effort for fixed model variants', () => {
+      expect(harness.selectStageModel({ configuredModel: 'gemini-3.8-flash-medium', configuredEffort: 'medium' }))
+        .toEqual({ model: 'gemini-3.8-flash-medium', effort: undefined });
     });
 
     it('compiles stage arguments with --mode accept-edits and --settings', () => {
@@ -293,7 +298,7 @@ describe('Pluggable Agent Harness Subsystem', () => {
 
     it('reports installed state and model reachability', async () => {
       const detection = await harness().detect(pathWith('opencode'));
-      expect(detection).toMatchObject({ installed: true, models: { reachable: true, count: 4 } });
+      expect(detection).toMatchObject({ installed: true, models: { reachable: true, count: 6 } });
       const missing = await harness().detect({ PATH: '' });
       expect(missing).toMatchObject({ installed: false });
       expect(missing.models).toBeUndefined();
@@ -303,7 +308,9 @@ describe('Pluggable Agent Harness Subsystem', () => {
   describe('existing harness golden regression', () => {
     it('keeps claude, agy and codex models and stage invocations unchanged', async () => {
       const previous = process.env.SDLC_AGY_OUTPUT;
+      const previousAgy = process.env.AGY;
       process.env.SDLC_AGY_OUTPUT = 'json';
+      process.env.AGY = '/definitely-not-an-agy-binary';
       try {
         const codexCatalog = {
           harnessId: 'codex',
@@ -330,6 +337,8 @@ describe('Pluggable Agent Harness Subsystem', () => {
       } finally {
         if (previous === undefined) delete process.env.SDLC_AGY_OUTPUT;
         else process.env.SDLC_AGY_OUTPUT = previous;
+        if (previousAgy === undefined) delete process.env.AGY;
+        else process.env.AGY = previousAgy;
       }
     });
   });

@@ -26,7 +26,8 @@ export class OpencodeHarness implements AgentHarness {
   }
 
   selectStageModel(opts: { configuredModel?: string; configuredEffort?: string }): { model: string; effort?: string } {
-    return { model: opts.configuredModel || '', effort: opts.configuredEffort };
+    const model = opts.configuredModel || '';
+    return { model, effort: this.catalog.getCachedModel(model)?.supportsEffort === false ? undefined : opts.configuredEffort };
   }
 
   async detect(env: NodeJS.ProcessEnv = process.env): Promise<HarnessDetection> {
@@ -49,10 +50,11 @@ export class OpencodeHarness implements AgentHarness {
 
   private modelWithEffort(model?: string, effort?: string): string | undefined {
     if (!model) return undefined;
-    if (!effort || !(EFFORT_LEVELS as readonly string[]).includes(effort)) return model;
-    // Discovery is asynchronous while compilation is synchronous. Once discovered, never
-    // send a variant to a model without one; otherwise trust a valid configured effort.
-    if (this.catalog.getCachedModel(model)?.supportsEffort === false) return model;
+    if (!effort) return model;
+    const discovered = this.catalog.getCachedModel(model);
+    if (discovered?.supportedEfforts && !discovered.supportedEfforts.includes(effort)) return model;
+    if (discovered?.supportsEffort === false) return model;
+    if (!discovered && !(EFFORT_LEVELS as readonly string[]).includes(effort)) return model;
     return `${model}#${effort}`;
   }
 

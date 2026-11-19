@@ -19,8 +19,14 @@ export interface HarnessModel {
   harness: HarnessId;
   /** Whether reasoning effort can be configured for this model */
   supportsEffort: boolean;
+  /** The effort/variant identifiers accepted by this model, when discovered. */
+  supportedEfforts?: string[];
   /** Default reasoning effort, if supported */
-  defaultEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  defaultEffort?: string;
+  /** Provider identity exposed by a multi-provider harness such as OpenCode. */
+  providerId?: string;
+  /** Provider display name, when the catalog supplies one. */
+  providerName?: string;
   /** Optional context window limit or description */
   description?: string;
 }
@@ -94,6 +100,8 @@ export interface ModelCatalogAdapter {
   validateModel(modelId: string, env?: NodeJS.ProcessEnv): Promise<boolean>;
   /** Invalidate any cached catalog (e.g. after a model-incompatibility error) */
   invalidateCache(): void;
+  /** Return a model already loaded into this adapter without triggering discovery. */
+  getCachedModel?(modelId: string): HarnessModel | undefined;
 }
 
 /** Core contract every coding agent harness must implement. */

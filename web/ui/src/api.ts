@@ -6,7 +6,7 @@ import type { NoticeItem } from './notices.js';
 
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused' | 'ready';
 export interface StageSetting { harness?: string; model?: string; effort?: string }
-export interface ModelInfo { id: string; name: string; supportsEffort: boolean; defaultEffort?: string }
+export interface ModelInfo { id: string; name: string; supportsEffort: boolean; supportedEfforts?: string[]; defaultEffort?: string; providerId?: string; providerName?: string }
 export interface SettingsView {
   config: {
     agent?: { harness: string; model: string | null; effort: string | null; stages: Record<string, StageSetting> };

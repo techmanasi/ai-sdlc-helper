@@ -166,8 +166,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   /** The models each harness offers, with whether they take an effort, for the pickers. */
   const harnessModels = async () => {
     const reg = new DefaultHarnessRegistry();
-    const out: Record<string, { id: string; name: string; supportsEffort: boolean; defaultEffort?: string }[]> = {};
-    for (const h of reg.list()) out[h.id] = (await h.listModels(env)).map(m => ({ id: m.id, name: m.name, supportsEffort: m.supportsEffort, defaultEffort: m.defaultEffort }));
+    const out: Record<string, { id: string; name: string; supportsEffort: boolean; supportedEfforts?: string[]; defaultEffort?: string; providerId?: string; providerName?: string }[]> = {};
+    for (const h of reg.list()) out[h.id] = (await h.listModels(env)).map(m => ({
+      id: m.id, name: m.name, supportsEffort: m.supportsEffort, supportedEfforts: m.supportedEfforts,
+      defaultEffort: m.defaultEffort, providerId: m.providerId, providerName: m.providerName,
+    }));
     return out;
   };
 

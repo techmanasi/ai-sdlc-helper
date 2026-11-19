@@ -1,7 +1,7 @@
 // One run: its stages, the questions and refused actions it waits on, its environment, files and live output, and every
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { api, type RunView, type SettingsView } from './api';
+import { api, type ModelInfo, type RunView, type SettingsView } from './api';
 import { ModelSelect } from './ModelSelect';
 import { elapsedText, linkPaths, resolveShown, showTestIssues, stepBanner } from './stages';
 import { BackBar, Guarantees, LockDetail, OutputPanel, RoundChips, StageRail, StepList, UsagePanel, usePhone, type RailStage } from './RunInsights';
@@ -501,13 +501,16 @@ export function Run({ slug }: { slug: string }) {
     const inUse = v.models[key];
     const activeHarness = envObj[AGENT_ENV(key)] || catalog?.config?.agent?.stages?.[key]?.harness || catalog?.config?.agent?.harness || 'claude';
     const selectedModel = envObj[envKey('MODEL', key)] || '';
-    const models = catalog ? (catalog.models[activeHarness] || []) : MODELS.slice(1).map(id => ({ id, name: id }));
+    const models: ModelInfo[] = catalog ? (catalog.models[activeHarness] || []) : MODELS.slice(1).map(id => ({ id, name: id, supportsEffort: false }));
+    const selectedInfo = models.find(m => m.id === selectedModel);
+    const efforts = selectedInfo?.supportedEfforts !== undefined ? ['', ...selectedInfo.supportedEfforts] : EFFORTS;
     return (
       <div class="row" style={{ gap: '4px' }}>
         {catalog && (
           <select class="sel" aria-label={`${name} agent`} value={envObj[AGENT_ENV(key)] || ''} onChange={e => {
             setEnvVar(AGENT_ENV(key), (e.target as HTMLSelectElement).value);
             setEnvVar(envKey('MODEL', key), '');
+            setEnvVar(envKey('EFFORT', key), '');
           }}>
             <option value="">{(() => { const h = catalog.config?.agent?.stages?.[key]?.harness || catalog.config?.agent?.harness; return h ? `default (${h})` : 'agent'; })()}</option>
             {unique(catalog.harnesses).map(h => <option value={h}>{h}</option>)}
@@ -515,9 +518,9 @@ export function Run({ slug }: { slug: string }) {
         )}
         <ModelSelect name={name} models={models} value={selectedModel} harness={activeHarness} taken={taken}
           defaultLabel={inUse && inUse.model ? `default (${inUse.model})` : 'default'}
-          onChange={model => setEnvVar(envKey('MODEL', key), model)} />
+          onChange={model => { setEnvVar(envKey('MODEL', key), model); setEnvVar(envKey('EFFORT', key), ''); }} />
         <select class="sel" aria-label={`${name} effort`} value={envObj[envKey('EFFORT', key)] || ''} onChange={e => setEnvVar(envKey('EFFORT', key), (e.target as HTMLSelectElement).value)}>
-          {unique(EFFORTS).map(m => <option value={m}>{m || (inUse && inUse.effort ? `default (${inUse.effort})` : 'default')}</option>)}
+          {unique(efforts).map(m => <option value={m}>{m || (selectedInfo?.supportsEffort === false ? 'not used' : inUse && inUse.effort ? `default (${inUse.effort})` : 'default')}</option>)}
         </select>
       </div>
     );

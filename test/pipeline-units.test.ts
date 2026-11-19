@@ -91,6 +91,12 @@ describe('model and provider resolution', () => {
     expect(errorOf(() => stageModel('spec', claude))).toBe("ERROR: model 'opencode/gemini-4-carbon' belongs to the opencode harness; stage spec runs on claude (set agent.stages.spec.harness, or pick a claude model)");
   });
 
+  test('fixed Antigravity variants clear the default effort and resuming starts validation at the requested stage', () => {
+    const agy = { ...menv({}), project: () => ({ harness: 'agy', model: 'gemini-3.8-flash-medium' }) };
+    expect(stageModel('spec', agy).effort).toBe('');
+    expect(Object.keys(stageModels(menv({}), 'implement'))[0]).toBe('implement');
+  });
+
   test('a model that belongs to another harness fails at the start, naming the stage, whatever source set it', () => {
     const mismatch = (stage: string, harness: string) =>
       `ERROR: model 'opencode/gemini-4-carbon' belongs to the opencode harness; stage ${stage} runs on ${harness} (set agent.stages.${stage}.harness, or pick a ${harness} model)`;
