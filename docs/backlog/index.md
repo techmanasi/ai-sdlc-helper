@@ -24,15 +24,15 @@ Markers: [ ] pending, [x] completed, [!] blocked, [~] parked (skipped).
 - [ ] `github-enterprise-support` - Feature: recognise GitHub Enterprise remotes, so a company GitHub on another domain gets the start-up PR fill
 - [ ] `board-quiet-time-setting` - Improvement: set the board watcher's quiet time (30 s, now only `SDLC_BOARD_SILENCE_MS`) from the web UI's Config
 - [x] `ci-after-review-changes` - Bug: a run says done while CI on Review's last commit is still pending; wait for CI when Review changes source
-- [ ] `review-findings-acted-on` - Improvement: Review's blockers and missing-test findings send the run back to Implement or Red tests, or stop it, instead of sitting unread in review-1.md
+- [x] `review-findings-acted-on` - Improvement: Review's blockers and missing-test findings send the run back to Implement or Red tests, or stop it, instead of sitting unread in review-1.md
 - [ ] `review-loop-limit-ui-setting` - Feature: set the Review loop limit (default 2) in the web UI
 - [ ] `ui-orchestration-gaps` - Feature: make every run decision in the web UI (stage guidance, finding waivers, claim edits) and flag edits made outside it
 - [x] `pr-link-committed-not-main` - Bug: commit and push the PR link on the run's branch whenever a PR opens or is replaced, and stop writing it into the main checkout
 - [ ] `runs-survive-ui-restart` - Bug: a run started from the UI dies when the UI server stops
-- [ ] `fix-loop-red-gate-kind` - Bug: the Review fix loop's red gate rejects every test for a missing-test finding, its stop gets the wrong diagnosis, and the loop limit resets on each start
+- [!] `fix-loop-red-gate-kind` - Bug: the Review fix loop's red gate rejects every test for a missing-test finding, its stop gets the wrong diagnosis, and the loop limit resets on each start
 - [ ] `ui-signin-links-and-domain` - Feature: ui prints both local sign-in links, and a domain set by SDLC_UI_DOMAIN with how to point it at the port
 - [ ] `inspect-run-docs-anytime` - Feature: Inspect brief, spec, plan and the agent's questions and answers at any point of a run
-- [ ] `red-tests-unique-names` - Bug: Red tests: every new test has a unique name; no false flaky label
+- [x] `red-tests-unique-names` - Bug: Red tests: every new test has a unique name; no false flaky label
 - [ ] `ui-confirm-dialogs` - Feature: Replace the inline Confirm / Keep it buttons with a confirmation dialog
 - [ ] `repair-stale-stage-discards` - Bug: Runs discarded before the stage-discard fix still show the earlier stage as stopped
 - [ ] `orchestrator-agent` - Feature: optional agent that drives a run and decides pauses, with limits and a decision log

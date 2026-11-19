@@ -20,7 +20,22 @@ branching from `origin/main`, worktrees under `../ai-sdlc-helper-sdlc/<slug>`.
 - Commit trailers: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` is for Claude; use your own identity.
 - Keep the user's email and tokens out of external services.
 
-## Items, in order
+## Status on 2026-11-20
+
+The always-on stage pane, unique test names, and the Review findings loop have merged. [Pane #185](https://github.com/techmanasi/ai-sdlc-helper/pull/185) · [Unique names #182](https://github.com/techmanasi/ai-sdlc-helper/pull/182) · [Review loop #165](https://github.com/techmanasi/ai-sdlc-helper/pull/165)
+
+| Remaining item | Status | Next step |
+| --- | --- | --- |
+| Stage pane redesign | Partial. Local commit `cd080b9` on `feat/stage-tabs` matches the deck. | Show the Running, Stopped and Pending screenshots from that worktree’s `docs/plans/screenshots/` before pushing. Open a fresh PR from current main. |
+| README demo GIFs | Partial. The `demo-gifs` worktree has untracked capture and build scripts and screenshot sequences. | Generate the animations and add them to the README. |
+| README repo links and stale text | Pending. Old repository references and outdated release and Settings instructions remain. | Update the README, releasing guide and plan. Account for the subsequent README title change to “Software Factory”. |
+| `ui-confirm-dialogs` | Pending. The redesign has a brief. | Implement the shared confirmation dialog and migrate the inline controls. |
+| `runs-survive-ui-restart` | Pending. Survival and reattachment after a UI restart still need verification. | Exercise both restart cases in the brief and fix any failures. |
+| `ui-orchestration-gaps` | Partial. Stage guidance and Red tests recovery have landed. | Finish the brief, including finding waivers and detection of edits outside the UI. |
+| `fix-loop-red-gate-kind` | Partial, blocked. UI runs have started. The latest Implement resume exited during model validation. Draft [PR #184](https://github.com/techmanasi/ai-sdlc-helper/pull/184) has conflicts and failing Node checks. | Resolve the incompatible Spec model effort and resume through the UI. |
+| `cost-record-last-stretch` | Partial. Resolve conflicts can commit costs on an existing push. | Ensure the final agent costs reach the PR branch at run completion. |
+
+## Original work order (2026-11-19)
 1. **PR #185** (`feat/stage-tabs`, worktree `../ai-sdlc-helper-sdlc/stage-tabs`): read `gh pr checks 185`. If red, fix on
    that branch and push. If green, report to the user for merge.
 2. **Pane redesign to the design deck** (artifact https://claude.ai/artifact/RrbUCYRhYmxVz1DjTsnggz, page "Run page
@@ -42,4 +57,4 @@ branching from `origin/main`, worktrees under `../ai-sdlc-helper-sdlc/<slug>`.
 8. `fix-loop-red-gate-kind` (PR #184): only through the UI, "Resume at..." the discarded stage.
 9. `cost-record-last-stretch`: commit the final cost record to the PR.
 
-Open PRs: #185, #184, #186 (this handover and the decisions), #170 (excluded), #167, #158, #91 (never merge).
+Open PRs at handover on 2026-11-19: #185, #184, #186 (this handover and the decisions), #170 (excluded), #167, #158, #91 (never merge).
