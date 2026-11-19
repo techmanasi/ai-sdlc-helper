@@ -359,3 +359,23 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .total dd { margin: 0; font-family: var(--monof); font-size: 16px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .total dt { font-size: 12px; color: var(--mu); }
 .total:first-child dd { color: var(--pri); }
+
+/* The active task opens into the detail sheet across the list gutter. */
+.completed-workspace { --gutter: 12px; display: grid; grid-template-columns: minmax(0, .92fr) minmax(0, 1.5fr); gap: var(--gutter); }
+.completed-list { display: grid; gap: 7px; align-content: start; }
+.completed-tab { min-width: 0; display: grid; gap: 6px; padding: 13px 15px; font: inherit; color: var(--tx); text-align: left; overflow-wrap: anywhere; background: var(--pn); border: 1px solid color-mix(in srgb, var(--pri) 42%, var(--ln2)); border-radius: 7px; cursor: pointer; }
+.completed-tab:hover { border-color: var(--pri); }
+.completed-tab:focus-visible { outline: 2px solid var(--pri); outline-offset: 2px; }
+.completed-tab[aria-selected=true] { position: relative; z-index: 1; background: var(--sel); border-color: var(--pri); box-shadow: inset 3px 0 var(--pri); }
+.completed-tab[aria-selected=true] strong { color: var(--pri); }
+.completed-detail { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--pri); border-radius: var(--r); background: var(--sel); }
+.completed-detail .pn { background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+.completed-sections > .pn + .pn { border-top: 1px solid var(--ln2); }
+@media (min-width: 801px) {
+  .completed-tab[aria-selected=true] { border-right: 0; border-radius: 7px 0 0 7px; }
+  .completed-tab[aria-selected=true]::after { content: ''; position: absolute; left: 100%; width: calc(var(--gutter) + 1px); top: -1px; bottom: -1px; background: var(--sel); border-block: 1px solid var(--pri); pointer-events: none; }
+  .completed-workspace:has(.completed-tab:first-child[aria-selected=true]) .completed-detail { border-top-left-radius: 0; }
+}
+@media (max-width: 800px) {
+  .completed-workspace { grid-template-columns: minmax(0, 1fr); }
+}
