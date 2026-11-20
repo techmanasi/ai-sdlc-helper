@@ -6,7 +6,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, test } from 'vitest';
 
-const root = path.resolve(__dirname, '..');
+const root = process.cwd();
 const tool = path.join(root, 'tools/UI-automation/sdlc-ui.js');
 const srcDir = path.join(root, 'web/ui/src');
 

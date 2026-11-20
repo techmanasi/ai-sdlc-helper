@@ -146,6 +146,30 @@ describe('project code search setup over HTTP', () => {
     await expect(calls()).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('refuses a build when the indexer exists but its declared builder is missing', async () => {
+    const data = JSON.stringify({ agent: { codeSearch: 'none', codeIndexers: {
+      local: { command: 'graft', guide: 'search', build: 'build locally', buildArgv: ['missing-builder', 'build'] },
+    } } });
+    await fs.writeFile(config, data);
+    expect(await inspect()).toMatchObject({ status: 200, json: { indexers: expect.arrayContaining([
+      expect.objectContaining({ name: 'local', installed: true, canBuild: false }),
+    ]) } });
+    expect(await setup({ indexer: 'local', build: true })).toMatchObject({ status: 400, json: { ok: false,
+      error: "cannot build indexer 'local': no executable build command or binary not on PATH" } });
+    expect(await saved()).toBe(data);
+    await expect(calls()).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('allows configure-only selection of a known indexer whose binary is missing', async () => {
+    await fs.unlink(path.join(bin, 'graft'));
+    expect(await setup({ indexer: 'graft', build: false })).toMatchObject({ status: 200, json: {
+      ok: true, codeSearch: 'graft', checks: expect.arrayContaining([expect.objectContaining({ name: 'code indexer', ok: false })]),
+    } });
+    expect(JSON.parse(await saved()).agent).toMatchObject({ codeSearch: 'graft', model: 'keep-me' });
+    expect(await inspect()).toMatchObject({ status: 200, json: { setting: 'graft', current: 'none' } });
+    await expect(calls()).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('returns a structured error when the configuration path is a directory', async () => {
     await fs.unlink(config);
     await fs.mkdir(config);

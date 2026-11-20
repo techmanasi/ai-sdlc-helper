@@ -54,5 +54,7 @@ Use the built UI and `sdlcUI.snapshot()` with actions scoped to the owning row, 
 | `web/test/code-search-route.test.ts` | Builder exits 7 or dies from SIGKILL | The failure names `graft build` and the actual exit code or signal, and leaves settings intact. |
 | Same | Config path is a directory | Setup responds with HTTP 400 and a diagnostic naming the config file. |
 | Same | Timeout of a SIGTERM-resistant builder, immediately followed by another build | The first response waits for child exit or the second build is rejected while the first child remains alive. |
+| Same | Installed custom indexer declares a builder absent from PATH | Inspection reports it installed but unable to build; setup rejects the build without changing settings. |
+| Same | Configure a known indexer with its binary missing | Configure-only succeeds, preserves sibling settings, and inspection and Doctor report that it is unavailable. |
 
 Browser acceptance remains necessary to verify that the actual entry points consume these decisions, open the same selected-project dialog, close on Escape and backdrop, trap and restore focus, render the output in `pre.code.mono`, and refresh Doctor and Settings. Review the implementation and test changes for unique names, real-code coverage, and compliance with the test-file restrictions; these are review items rather than tests about tests.

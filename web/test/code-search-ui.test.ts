@@ -56,7 +56,7 @@ describe('code search setup presentation', () => {
 
   it('exposes failure output for the preformatted diagnostic', async () => {
     const { setupFailure } = await load();
-    const { ApiError } = await import('../ui/src/api');
+    const { ApiError } = await import('../ui/src/api.js');
     const error = Object.assign(new ApiError('build failed'), { output: 'compiler output' });
     expect(setupFailure(error)).toMatchObject({ error: 'build failed', output: 'compiler output' });
   });
