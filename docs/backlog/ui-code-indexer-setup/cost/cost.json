@@ -1,7 +1,7 @@
 {
   "version": 1,
   "slug": "ui-code-indexer-setup",
-  "generatedAt": "2026-11-21T03:25:29",
+  "generatedAt": "2026-11-21T03:35:02",
   "priced": true,
   "runs": [
     {
@@ -832,23 +832,23 @@
       "from": "implement",
       "ended": null,
       "state": null,
-      "wallSec": 345,
+      "wallSec": 918,
       "stages": [
         {
           "stage": "Implement",
-          "passes": 1,
-          "wallSec": 150,
+          "passes": 2,
+          "wallSec": 694,
           "models": [
             "opencode/hy4-flash-free"
           ],
           "usage": {
-            "rounds": 1,
-            "durationSec": 91.5,
-            "turns": 11,
-            "tokens": 55711,
-            "input": 43431,
-            "output": 12280,
-            "cacheRead": 245504,
+            "rounds": 5,
+            "durationSec": 505.5,
+            "turns": 77,
+            "tokens": 239736,
+            "input": 184262,
+            "output": 55474,
+            "cacheRead": 2295808,
             "cacheWrite": 0,
             "costUsd": 0,
             "estimatedUsd": 0,
@@ -879,7 +879,7 @@
         {
           "stage": "Red tests",
           "passes": 1,
-          "wallSec": 83,
+          "wallSec": 112,
           "models": [],
           "usage": {
             "rounds": 1,
@@ -897,13 +897,13 @@
         }
       ],
       "usage": {
-        "rounds": 3,
-        "durationSec": 274.9,
-        "turns": 24,
-        "tokens": 774912,
-        "input": 754136,
-        "output": 20776,
-        "cacheRead": 1338227,
+        "rounds": 7,
+        "durationSec": 688.9000000000001,
+        "turns": 90,
+        "tokens": 958937,
+        "input": 894967,
+        "output": 63970,
+        "cacheRead": 3388531,
         "cacheWrite": 69039,
         "costUsd": 0.6186318,
         "estimatedUsd": 0,
@@ -957,7 +957,7 @@
     {
       "stage": "Red tests",
       "passes": 4,
-      "wallSec": 1229,
+      "wallSec": 1258,
       "models": [
         "gpt-6.2-astra",
         "gpt-6.1-terra"
@@ -978,8 +978,8 @@
     },
     {
       "stage": "Implement",
-      "passes": 17,
-      "wallSec": 4330,
+      "passes": 18,
+      "wallSec": 4874,
       "models": [
         "claude-opus-4-6-thinking",
         "openai/gpt-6.2-sol-pro",
@@ -987,13 +987,13 @@
         "opencode/hy4-flash-free"
       ],
       "usage": {
-        "rounds": 17,
-        "durationSec": 2488.8,
-        "turns": 171,
-        "tokens": 462455,
-        "input": 362341,
-        "output": 100114,
-        "cacheRead": 12331264,
+        "rounds": 21,
+        "durationSec": 2902.8,
+        "turns": 237,
+        "tokens": 646480,
+        "input": 503172,
+        "output": 143308,
+        "cacheRead": 14381568,
         "cacheWrite": 0,
         "costUsd": 0,
         "estimatedUsd": 0,
@@ -1023,17 +1023,17 @@
     }
   ],
   "usage": {
-    "rounds": 28,
-    "durationSec": 4433.618224,
-    "turns": 209,
-    "tokens": 7437782,
-    "input": 7247035,
-    "output": 190747,
-    "cacheRead": 19640009,
+    "rounds": 32,
+    "durationSec": 4847.618224,
+    "turns": 275,
+    "tokens": 7621807,
+    "input": 7387866,
+    "output": 233941,
+    "cacheRead": 21690313,
     "cacheWrite": 130732,
     "costUsd": 3.3926885999999996,
     "estimatedUsd": 2.1433568,
     "unpriced": 5
   },
-  "wallSec": 12427
+  "wallSec": 13000
 }

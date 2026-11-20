@@ -29,13 +29,21 @@ const invocation = (ix: CodeIndexerStatus): string | null => {
   return m ? m[2] : (build || null);
 };
 
-/** The command to install a missing binary, separated from the trailing instructions ("…, then graft build"). */
+/**
+ * The command to install a missing binary, separated from the rest of the display-only instructions.
+ * The copied command ends at the first alternative (" (or pipx …)") or the trailing ", then …"; everything
+ * after stays visible, so Graphify copies only `uv tool install graphifyy` while its pipx alternative and
+ * build step remain in the instructions.
+ */
 const installOf = (setup: string | null): { command: string | null; instructions: string | null } => {
   const text = setup || '';
-  const comma = text.indexOf(',');
+  const alternative = text.indexOf(' (');
+  const trailing = text.indexOf(',');
+  const cut = Math.min(alternative < 0 ? text.length : alternative, trailing < 0 ? text.length : trailing);
+  const rest = text.slice(cut).replace(/^\s*,\s*/, '').trim();
   return {
-    command: (comma < 0 ? text : text.slice(0, comma)).trim() || null,
-    instructions: (comma < 0 ? '' : text.slice(comma + 1)).trim() || null,
+    command: text.slice(0, cut).trim() || null,
+    instructions: rest || null,
   };
 };
 
