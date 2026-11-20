@@ -194,18 +194,22 @@ export async function validateStageCatalogs(menv: ModelEnv, from?: From): Promis
     checked.add(key);
     const models = await harness.listModels(menv.env);
     if (models.length === 0) continue;
-    const model = models.find(entry => entry.id === selected.model);
+    // A config names a model by the provider-routed id, or by its display name (the provider's own id, as the picker
+    // showed it). A display name several providers share cannot pick one: name the routed id instead.
+    const byId = models.find(entry => entry.id === selected.model);
+    const byName = models.filter(entry => entry.displayName === selected.model);
+    const model = byId || (byName.length === 1 ? byName[0] : undefined);
     if (!model) {
+      if (byName.length > 1) {
+        throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) is offered by several ${harness.name} providers: name the provider-routed id (${byName.slice(0, 20).map(entry => entry.id).join(', ')})`);
+      }
       const allowed = models.slice(0, 20).map(entry => entry.id).join(', ');
       throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) is not supported by ${harness.name}${allowed ? ` (discovered: ${allowed})` : ''}`);
     }
-    const explicitEffort = menv.force?.effort || menv.env[`EFFORT_${up}`] || configured.effort || menv.env.SDLC_EFFORT;
-    if (model.supportedEfforts !== undefined && model.supportedEfforts.length > 0 && !model.supportedEfforts.includes(selected.effort)) {
-      const allowed = model.supportedEfforts.length ? model.supportedEfforts.join(', ') : 'none';
-      throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) does not support effort '${selected.effort}' (supported: ${allowed})`);
-    }
-    if (model.supportedEfforts?.length === 0 && explicitEffort) {
-      throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) has a fixed effort encoded in its model id; clear the separate effort setting`);
+    // Fixed-effort models have no separate effort argument to validate.
+    const allowed = model.supportedEfforts;
+    if (allowed?.length && !allowed.includes(selected.effort)) {
+      throw new SetupError(`ERROR: model '${selected.model}' (stage ${stage}) does not support effort '${selected.effort}' (supported: ${allowed.join(', ')})`);
     }
   }
 }

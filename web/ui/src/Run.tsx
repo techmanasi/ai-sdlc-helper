@@ -2,6 +2,7 @@
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, type ModelInfo, type RunView, type SettingsView } from './api';
+import { configValue } from './modelFilter';
 import { ModelSelect } from './ModelSelect';
 import { elapsedText, linkPaths, resolveShown, showTestIssues, stepBanner } from './stages';
 import { BackBar, Guarantees, LockDetail, OutputPanel, RoundChips, StageRail, StepList, UsagePanel, usePhone, type RailStage } from './RunInsights';
@@ -329,7 +330,8 @@ export function Run({ slug }: { slug: string }) {
     setEnvVar(key, value);
     if (key === 'SDLC_FORCE_AGENT' && envObj.SDLC_FORCE_MODEL) {
       const list = catalog?.models[value || catalog?.config?.agent?.harness || 'claude'] || [];
-      if (!list.some(m => m.id === envObj.SDLC_FORCE_MODEL)) setEnvVar('SDLC_FORCE_MODEL', '');
+      const held = envObj.SDLC_FORCE_MODEL;
+      if (!list.some(m => m.id === held || configValue(m, list) === held)) setEnvVar('SDLC_FORCE_MODEL', '');
     }
     setForceAsk(null);
   };
@@ -502,8 +504,10 @@ export function Run({ slug }: { slug: string }) {
     const activeHarness = envObj[AGENT_ENV(key)] || catalog?.config?.agent?.stages?.[key]?.harness || catalog?.config?.agent?.harness || 'claude';
     const selectedModel = envObj[envKey('MODEL', key)] || '';
     const models: ModelInfo[] = catalog ? (catalog.models[activeHarness] || []) : MODELS.slice(1).map(id => ({ id, name: id, supportsEffort: false }));
-    const selectedInfo = models.find(m => m.id === selectedModel);
+    // The config stores a display name; an id saved before this was so, or by a provider-shared name, must match too.
+    const selectedInfo = models.find(m => m.id === selectedModel || configValue(m, models) === selectedModel);
     const efforts = selectedInfo?.supportedEfforts !== undefined ? ['', ...selectedInfo.supportedEfforts] : EFFORTS;
+    const multipleProvider = !!catalog?.multipleProviderHarnesses?.includes(activeHarness);
     return (
       <div class="row" style={{ gap: '4px' }}>
         {catalog && (
@@ -517,6 +521,7 @@ export function Run({ slug }: { slug: string }) {
           </select>
         )}
         <ModelSelect name={name} models={models} value={selectedModel} harness={activeHarness} taken={taken}
+          multipleProvider={multipleProvider}
           defaultLabel={inUse && inUse.model ? `default (${inUse.model})` : 'default'}
           onChange={model => { setEnvVar(envKey('MODEL', key), model); setEnvVar(envKey('EFFORT', key), ''); }} />
         <select class="sel" aria-label={`${name} effort`} value={envObj[envKey('EFFORT', key)] || ''} onChange={e => setEnvVar(envKey('EFFORT', key), (e.target as HTMLSelectElement).value)}>
@@ -702,6 +707,7 @@ export function Run({ slug }: { slug: string }) {
                     models={catalog.models[envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'] || []}
                     value={envObj.SDLC_FORCE_MODEL || ''}
                     harness={envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'}
+                    multipleProvider={!!catalog.multipleProviderHarnesses?.includes(envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude')}
                     defaultLabel="model: per stage" onChange={model => askForce('SDLC_FORCE_MODEL', model)} />
                 </span>
                 <select class="sel" aria-label="run effort" value={envObj.SDLC_FORCE_EFFORT || ''} onChange={e => askForce('SDLC_FORCE_EFFORT', (e.target as HTMLSelectElement).value)}>

@@ -253,6 +253,7 @@ describe('Pluggable Agent Harness Subsystem', () => {
       expect(h.id).toBe('opencode');
       expect(h.name).toBe('OpenCode');
       expect(h.defaultBinary).toBe('opencode');
+      expect(h.multipleProvider).toBe(true);
       expect(h.catalog).toBeDefined();
       expect((await h.listModels()).map(model => model.id)).toContain('opencode/claude-fable-5-2');
     });
@@ -261,6 +262,30 @@ describe('Pluggable Agent Harness Subsystem', () => {
       expect(harness().selectStageModel({ configuredEffort: 'high' })).toEqual({ model: '', effort: 'high' });
       expect(harness().selectStageModel({ configuredModel: 'opencode/claude-fable-5-2', configuredEffort: 'max' }))
         .toEqual({ model: 'opencode/claude-fable-5-2', effort: 'max' });
+    });
+
+    it('runs a model the config names by display name as the provider-routed id', async () => {
+      const h = harness();
+      await h.listModels();
+      expect(h.selectStageModel({ configuredModel: 'nex-agi/nex-n2.6', configuredEffort: 'high' }))
+        .toEqual({ model: 'openrouter/nex-agi/nex-n2.6', effort: 'high' });
+      // The routed id the CLI is given is the harness's own, whatever provider serves it.
+      expect(h.ownsModel('openrouter/nex-agi/nex-n2.6')).toBe(true);
+    });
+
+    it('claims only routed ids, not another harness model that shares a display name', async () => {
+      // OpenCode offers "gpt-6.1-sol" too, and codex stages name it by that id: claiming it by display name would
+      // report every codex stage as a harness mismatch.
+      const h = new OpencodeHarness(new OpencodeModelCatalogAdapter(async () => ({
+        data: [{ modelID: 'gpt-6.1-sol', providerID: 'opencode', name: 'GPT-6.1 Sol' }],
+      })));
+      await h.listModels();
+      expect(h.ownsModel('opencode/gpt-6.1-sol')).toBe(true);
+      expect(h.ownsModel('opencode-go/kimi-k3')).toBe(true);
+      expect(h.ownsModel('gpt-6.1-sol')).toBe(false);
+      // The catalog still resolves the display name for its own stages; ownership is the narrower question.
+      expect(h.catalog.getCachedModel('gpt-6.1-sol')?.id).toBe('opencode/gpt-6.1-sol');
+      expect(h.catalog.modelById('gpt-6.1-sol')).toBeUndefined();
     });
 
     it('compiles run arguments with canonical model variants and --format json', async () => {

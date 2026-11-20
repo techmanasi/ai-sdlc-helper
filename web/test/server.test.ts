@@ -312,6 +312,8 @@ describe('editing a project\'s setup', () => {
     expect(s.efforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
     expect(s.stageDefaults.review).toEqual({ model: 'opus', effort: 'medium' });
     expect(Object.keys(s.models)).toEqual(['claude', 'agy', 'codex', 'opencode']);
+    // Only OpenCode runs one model through several providers: only its picker gets a provider filter.
+    expect(s.multipleProviderHarnesses).toEqual(['opencode']);
     expect(s.models.claude.map((m: any) => m.id)).toEqual(['opus', 'sonnet', 'haiku']);
     expect(s.models.claude.find((m: any) => m.id === 'haiku').supportsEffort).toBe(false);
     expect(s.models.agy.map((m: any) => m.id)).toEqual(['gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'gemini-3.8-pro', 'gpt-oss-120b-medium']);

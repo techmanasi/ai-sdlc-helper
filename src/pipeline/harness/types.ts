@@ -15,6 +15,12 @@ export interface HarnessModel {
   id: string;
   /** Human-readable display label, e.g. "Gemini 3.8 Flash (High)", "OpenAI o3-mini", "Claude Opus 4.6" */
   name: string;
+  /**
+   * The model's own id in its provider's catalog, e.g. OpenRouter's "openai/gpt-6.2-sol-pro". A stage config may name a
+   * model by this display name; the harness resolves it to the provider-routed id the CLI needs. Absent when the id is
+   * already the provider's name.
+   */
+  displayName?: string;
   /** Owning harness identifier */
   harness: HarnessId;
   /** Whether reasoning effort can be configured for this model */
@@ -121,6 +127,13 @@ export interface AgentHarness {
    * named as a mismatch instead of looked up as a provider. Defaults to "<id>/...": the ids a harness lists are its own.
    */
   ownsModel?(model: string): boolean;
+
+  /**
+   * Whether one model is offered by several providers (OpenCode's "opencode", "opencode-go", "openrouter", …), so its
+   * model picker offers a provider filter before the name search. Off by default: the other harnesses list one
+   * provider's models, and a filter with nothing to filter would only take room.
+   */
+  readonly multipleProvider?: boolean;
 
   /** Optional pluggable model catalog adapter */
   readonly catalog?: ModelCatalogAdapter;

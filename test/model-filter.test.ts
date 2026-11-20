@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterModels, nextIndex } from '../web/ui/src/modelFilter.js';
+import { configValue, filterModels, nextIndex } from '../web/ui/src/modelFilter.js';
 
 const models = [
   { id: 'opencode/claude-fable-5-2', name: 'Claude Fable 5.2' },
@@ -20,8 +20,41 @@ describe('filterModels', () => {
     expect(filterModels(models, 'OPENCODE-GO')).toHaveLength(2);
   });
 
+  it('matches a provider display name and a provider label too', () => {
+    const routed = [
+      { id: 'openrouter/openai/gpt-6.2-sol-pro', name: 'GPT-6.2 Sol Pro', displayName: 'openai/gpt-6.2-sol-pro', providerName: 'openrouter' },
+      { id: 'opencode/gpt-6.2-sol', name: 'GPT-6.2 Sol', displayName: 'gpt-6.2-sol', providerName: 'opencode' },
+    ];
+    expect(filterModels(routed, 'openai/gpt-6.2-sol-pro').map(model => model.id)).toEqual(['openrouter/openai/gpt-6.2-sol-pro']);
+    expect(filterModels(routed, 'openrouter').map(model => model.id)).toEqual(['openrouter/openai/gpt-6.2-sol-pro']);
+  });
+
   it('returns an empty list when no model matches', () => {
     expect(filterModels(models, 'not-a-model')).toEqual([]);
+  });
+});
+
+describe('configValue', () => {
+  it('names a model by its display name when it is unique in the catalog', () => {
+    const routed = [
+      { id: 'openrouter/openai/gpt-6.2-sol-pro', displayName: 'openai/gpt-6.2-sol-pro' },
+      { id: 'opencode/gpt-6.2-sol', displayName: 'gpt-6.2-sol' },
+    ];
+    expect(configValue(routed[0], routed)).toBe('openai/gpt-6.2-sol-pro');
+    expect(configValue(routed[1], routed)).toBe('gpt-6.2-sol');
+  });
+
+  it('falls back to the provider-routed id when providers share the display name', () => {
+    const routed = [
+      { id: 'opencode/kimi-k3', displayName: 'kimi-k3' },
+      { id: 'opencode-go/kimi-k3', displayName: 'kimi-k3' },
+    ];
+    expect(configValue(routed[0], routed)).toBe('opencode/kimi-k3');
+    expect(configValue(routed[1], routed)).toBe('opencode-go/kimi-k3');
+  });
+
+  it('uses the id when the model has no display name', () => {
+    expect(configValue(models[0], models)).toBe('opencode/claude-fable-5-2');
   });
 });
 

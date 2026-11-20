@@ -3,11 +3,12 @@
 // `provider/model` id overflows the card. The panel is fixed-positioned because the rail scrolls and would clip
 // an absolutely positioned popup.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { filterModels, nextIndex } from './modelFilter';
+import { configValue, filterModels, nextIndex } from './modelFilter';
 
 export interface ModelChoice {
   id: string;
   name: string;
+  displayName?: string;
   providerId?: string;
   providerName?: string;
 }
@@ -22,6 +23,8 @@ interface ModelSelectProps {
   harness: string;
   /** "<harness>:<model>" choices other stages already hold: still offered, but disabled. */
   taken?: string[];
+  /** Whether this harness runs one model through several providers: only then is a provider filter offered. */
+  multipleProvider?: boolean;
   onChange: (value: string) => void;
 }
 
@@ -38,7 +41,7 @@ const MIN_HEIGHT = 120;
 const GAP = 4;
 const EDGE = 8;
 
-export function ModelSelect({ name, models, value, defaultLabel, harness, taken, onChange }: ModelSelectProps) {
+export function ModelSelect({ name, models, value, defaultLabel, harness, taken, multipleProvider, onChange }: ModelSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [provider, setProvider] = useState('');
@@ -51,15 +54,16 @@ export function ModelSelect({ name, models, value, defaultLabel, harness, taken,
   const providers = useMemo(() => Array.from(new Map(models.filter(m => m.providerId).map(m => [m.providerId, m.providerName || m.providerId!])).entries()).sort((a, b) => (a[1] || '').localeCompare(b[1] || '')), [models]);
   const providerModels = useMemo(() => provider ? models.filter(m => m.providerId === provider) : models, [models, provider]);
   const matching = useMemo(() => filterModels(providerModels, query), [providerModels, query]);
+  // A row's value is what the stage config stores: the display name, or the provider-routed id when providers share it.
   const rows = useMemo(() => [
-    { id: '', label: defaultLabel, detail: '', disabled: false },
-    ...matching.map(model => ({
-      id: model.id,
-      label: model.id,
-      detail: model.name === model.id ? '' : model.name,
-      disabled: model.id !== value && !!taken?.includes(`${harness}:${model.id}`),
-    })),
-  ], [matching, defaultLabel, harness, taken, value]);
+    { choice: '', label: defaultLabel, detail: '', disabled: false },
+    ...matching.map(model => {
+      const choice = configValue(model, models);
+      const providerLabel = model.providerName || model.providerId || '';
+      const detail = [model.name === choice ? '' : model.name, multipleProvider && !provider ? providerLabel : ''].filter(Boolean).join(' · ');
+      return { choice, label: choice, detail, disabled: choice !== value && !!taken?.includes(`${harness}:${choice}`) };
+    }),
+  ], [matching, models, defaultLabel, harness, taken, value, multipleProvider, provider]);
 
   const show = () => {
     const el = trigger.current;
@@ -74,7 +78,7 @@ export function ModelSelect({ name, models, value, defaultLabel, harness, taken,
     setPanel({ left, top: up ? rect.top - GAP - height : rect.bottom + GAP, width, height });
     setQuery('');
     setProvider('');
-    const at = value ? models.findIndex(model => model.id === value) : -1;
+    const at = value ? models.findIndex(model => model.id === value || configValue(model, models) === value) : -1;
     setActive(at >= 0 ? at + 1 : 0);
     setOpen(true);
   };
@@ -98,17 +102,20 @@ export function ModelSelect({ name, models, value, defaultLabel, harness, taken,
       setOpen(false);
     };
     const escape = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); trigger.current?.focus(); } };
-    const detach = () => setOpen(false);
+    // Any scroll outside the panel moves the trigger away from its popup, so the panel closes. A scroll of the panel's
+    // own model list is not that: capture hears it too, and closing here would make a long list unscrollable.
+    const pageScroll = (e: Event) => { if (box.current?.contains(e.target as Node)) return; setOpen(false); };
+    const resize = () => setOpen(false);
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', escape);
-    window.addEventListener('scroll', detach, true);
-    window.addEventListener('resize', detach);
+    window.addEventListener('scroll', pageScroll, true);
+    window.addEventListener('resize', resize);
     search.current?.focus();
     return () => {
       document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('keydown', escape);
-      window.removeEventListener('scroll', detach, true);
-      window.removeEventListener('resize', detach);
+      window.removeEventListener('scroll', pageScroll, true);
+      window.removeEventListener('resize', resize);
     };
   }, [open]);
 
@@ -122,7 +129,7 @@ export function ModelSelect({ name, models, value, defaultLabel, harness, taken,
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const row = rows[active];
-      if (row && !row.disabled) choose(row.id);
+      if (row && !row.disabled) choose(row.choice);
     }
   };
 
@@ -138,16 +145,16 @@ export function ModelSelect({ name, models, value, defaultLabel, harness, taken,
         <div ref={box} class="pick-panel" style={{ left: `${panel.left}px`, top: `${panel.top}px`, width: `${panel.width}px` }}>
           <input ref={search} class="inp mono" aria-label={`${name} model search`} placeholder="Search models…" value={query}
             onInput={e => { setQuery((e.target as HTMLInputElement).value); setActive(0); }} onKeyDown={onKeyDown} />
-          {providers.length > 1 && <select class="sel pick-provider" aria-label={`${name} provider filter`} value={provider} onChange={e => { setProvider((e.target as HTMLSelectElement).value); setActive(0); }}>
+          {multipleProvider && providers.length > 1 && <select class="sel pick-provider" aria-label={`${name} provider filter`} value={provider} onChange={e => { setProvider((e.target as HTMLSelectElement).value); setActive(0); }}>
             <option value="">All providers</option>
             {providers.map(([id, label]) => <option value={id}>{label}</option>)}
           </select>}
           <div class="pick-list" role="listbox" aria-label={`${name} models`} style={{ maxHeight: `${panel.height - 44}px` }}>
             {rows.map((row, i) => (
-              <button type="button" role="option" aria-selected={row.id === value} disabled={row.disabled}
-                class={`pick-item${i === active ? ' pick-active' : ''}${row.id === value ? ' pick-selected' : ''}`}
-                onMouseDown={e => e.preventDefault()} onMouseMove={() => { if (i !== active) setActive(i); }} onClick={() => choose(row.id)}>
-                <span class="pick-id mono">{row.id || row.label}</span>
+              <button type="button" role="option" aria-selected={row.choice === value} disabled={row.disabled}
+                class={`pick-item${i === active ? ' pick-active' : ''}${row.choice === value ? ' pick-selected' : ''}`}
+                onMouseDown={e => e.preventDefault()} onMouseMove={() => { if (i !== active) setActive(i); }} onClick={() => choose(row.choice)}>
+                <span class="pick-id mono">{row.choice || row.label}</span>
                 {row.detail && <span class="pick-detail small muted">{row.detail}</span>}
               </button>
             ))}

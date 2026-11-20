@@ -6,7 +6,7 @@ import type { NoticeItem } from './notices.js';
 
 export type ViewState = 'not started' | 'running' | 'paused' | 'done' | 'failed' | 'interrupted' | 'stopped' | 'refused' | 'ready';
 export interface StageSetting { harness?: string; model?: string; effort?: string }
-export interface ModelInfo { id: string; name: string; supportsEffort: boolean; supportedEfforts?: string[]; defaultEffort?: string; providerId?: string; providerName?: string }
+export interface ModelInfo { id: string; name: string; displayName?: string; supportsEffort: boolean; supportedEfforts?: string[]; defaultEffort?: string; providerId?: string; providerName?: string }
 export interface SettingsView {
   config: {
     agent?: { harness: string; model: string | null; effort: string | null; stages: Record<string, StageSetting> };
@@ -16,6 +16,8 @@ export interface SettingsView {
   hash: string; overrides: { worktreeBase?: string; maxParallel?: number; boardSilenceSeconds?: number }; registered: boolean;
   boardSilenceEnvSeconds?: number | null;
   harnesses: string[]; stages: string[]; efforts: string[];
+  /** Harnesses that run one model through several providers: their picker offers a provider filter (absent on an older server). */
+  multipleProviderHarnesses?: string[];
   stageDefaults: Record<string, { model: string; effort: string }>;
   models: Record<string, ModelInfo[]>;
   activeRuns: string[];
