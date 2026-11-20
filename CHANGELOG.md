@@ -43,6 +43,10 @@ release notes. Keep new work under `## [Unreleased]`, and rename that heading to
   as stopped with the discarded stage's reason. Now the run stays at the discarded stage, in a new `ready` state, and
   resumes there. The stages before it stay done, and the last one that ran can be discarded next, one stage at a
   time back to Spec.
+- A run that failed before its first stage (a bad model or effort, say) said it stopped at Spec and offered
+  `--from spec`, so resuming redid stages that had already passed. It now marks its own output as it starts, keeps
+  where it resumes in `resume_from`, and the recovery hint says `Setup (before <stage>)` with the stage's own error
+  and `--from <stage>`.
 
 ## [0.1.1] - 2026-11-01
 

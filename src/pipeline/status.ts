@@ -33,7 +33,7 @@ export interface StatusLine {
   previous_run?: PreviousRun;
   /** The branch the run is on when it is not <prefix><slug> (it moved: see branch-move.ts). */
   branch?: string;
-  /** Where a stopped run resumes (a FROM key), when its stop named a resume command; absent otherwise (the stage decides). */
+  /** Where a stopped run resumes (a FROM key): the stage its stop named, or the stage a stop before the first stage started from; absent otherwise (the stage decides). */
   resume_from?: string;
   moved_from?: MovedFrom;
 }
@@ -97,7 +97,7 @@ export class Status {
   previousRun?: PreviousRun;
   branch?: string;
   movedFrom?: MovedFrom;
-  /** Where this run resumes once it stopped, from the resume command its stop named (see runPipeline). */
+  /** Where this run resumes once it stopped: the stage its stop named, or the one it started from when it stopped before any stage. */
   resumeFrom?: string;
   private stepId = '';
   readonly runStarted = stamp();

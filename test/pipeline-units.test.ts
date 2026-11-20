@@ -234,13 +234,15 @@ describe('models in a run', () => {
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
 
-  test('a bad model setting fails the run before any agent, with status failed', async () => {
+  test('a bad model setting fails the run before any agent, with status failed and where it resumes', async () => {
     const f = fixture();
-    const r = await pipeline(f, { EFFORT_REVIEW: 'extreme' });
+    const r = await pipeline(f, { EFFORT_REVIEW: 'extreme' }, { from: 'implement' });
     expect(r.status).toBe(1);
     expect(r.stderr).toBe("ERROR: invalid effort 'extreme' for stage review (use low, medium, high, xhigh or max)\n");
     expect(r.calls).toEqual([]);
-    expect(statusOf(f.dir)).toMatchObject({ slug: SLUG, state: 'failed', stage: '' });
+    expect(statusOf(f.dir)).toMatchObject({ slug: SLUG, state: 'failed', stage: '', resume_from: 'implement' });
+    expect(r.stdout).toContain(`SDLC: ${SLUG} starting from implement`);
+    expect(r.stdout).toContain('SDLC PIPELINE PAUSED / STOPPED AT: Setup (before Implement)');
   });
 });
 

@@ -60,8 +60,36 @@ describe('stageRecoveryHint diagnostics engine', () => {
     expect(old.stage).toBe('Test repair');
   });
 
-  it('names the resume fallback a resume, not a restart', () => {
-    expect(stageRecoveryHint({ slug: 'x', stage: '', state: 'failed', exitCode: 1 }).escapeHatch?.label).toBe('Resume pipeline from Spec');
+  it('names the resume fallback a resume, and leaves out a bailout that repeats it', () => {
+    const r = stageRecoveryHint({ slug: 'x', stage: 'Commit', state: 'failed', exitCode: 1 });
+    expect(r.autoAction?.command).toBe('ai-sdlc-helper pipeline x --from spec');
+    expect(r.escapeHatch).toBeUndefined();
+  });
+
+  it('says a stop before the first stage resumes at the stage the run started from', () => {
+    const r = stageRecoveryHint({
+      slug: 'x', stage: '', state: 'failed', exitCode: 1, resumeFrom: 'implement',
+      runOut: ['SDLC: x starting from implement', "ERROR: invalid effort 'extreme' for stage review (use low, medium, high, xhigh or max)"],
+    });
+    expect(r.stage).toBe('Setup (before Implement)');
+    expect(r.diagnosis).toBe("invalid effort 'extreme' for stage review (use low, medium, high, xhigh or max)");
+    expect(r.autoAction?.command).toBe('ai-sdlc-helper pipeline x --from implement');
+    expect(r.escapeHatch).toEqual({ label: 'Resume pipeline from Spec', command: 'ai-sdlc-helper pipeline x --from spec' });
+  });
+
+  it('reads a stop before the first stage from its own run only, so an older failure is not its diagnosis', () => {
+    const r = stageRecoveryHint({
+      slug: 'x', stage: '', state: 'failed', exitCode: 1, resumeFrom: 'implement',
+      runOut: ["Agent 'impl-1' crashed or failed: Insufficient balance", 'SDLC: x starting from implement', "ERROR: invalid effort 'extreme' for stage review"],
+    });
+    expect(r.diagnosis).toBe("invalid effort 'extreme' for stage review");
+  });
+
+  it('offers no bailout when the run already resumes at Spec', () => {
+    const r = stageRecoveryHint({ slug: 'x', stage: '', state: 'failed', exitCode: 1, resumeFrom: 'spec', runOut: ['SDLC: x starting from spec', 'ERROR: bad setting'] });
+    expect(r.stage).toBe('Setup (before Spec)');
+    expect(r.autoAction?.command).toBe('ai-sdlc-helper pipeline x --from spec');
+    expect(r.escapeHatch).toBeUndefined();
   });
 
   it('diagnoses Spec pause when questions are unanswered', () => {
