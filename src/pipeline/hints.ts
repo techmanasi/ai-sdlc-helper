@@ -17,6 +17,12 @@ export const toFromStage = (stage: string, hasTestIssues = false): string => {
 
 export const resumeCommand = (slug: string, stage: string): string => `ai-sdlc-helper pipeline ${slug} --from ${stage}`;
 
+/** The stage names a FROM key stands for, as the run page and the recovery hint show them. */
+const FROM_NAMES: Record<string, string> = {
+  spec: 'Spec', plan: 'Plan', 'red-tests': 'Red tests', implement: 'Implement',
+  'test-repair': 'Test repair', review: 'Review', finalise: 'Finalise', 'resolve-conflicts': 'Resolve conflicts',
+};
+
 export interface StageRecovery {
   stage: string;
   diagnosis: string;
@@ -42,6 +48,8 @@ export interface RecoveryContext {
   exitCode?: number;
   docsDir?: string;
   failLog?: string;
+  /** Where the run resumes (a FROM key) when its stop named one: a stop before the first stage names no stage of its own. */
+  resumeFrom?: string;
   runOut?: string[];
   questions?: Array<{ n: number; title: string; answer: string; suggested?: string }>;
   permissions?: any[];
@@ -76,6 +84,24 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
       autoAction: { label: 'Resume at Implement', command: resumeCommand(ctx.slug, 'implement') },
       manualAction: { instruction: 'Restart the run (discards its branch and worktree) to redo this stage.' },
       escapeHatch: { label: 'Resume at Review', command: resumeCommand(ctx.slug, 'review') },
+    };
+  }
+
+  // A stop before the first stage names no stage of its own, and guessing one would be a lie. The status keeps the stage
+  // the run started from (resumeFrom): say that it stopped in setup, and resume there.
+  const resumeAt = ctx.resumeFrom && FROM_NAMES[ctx.resumeFrom] ? ctx.resumeFrom : '';
+  if (!ctx.stage && resumeAt) {
+    const name = FROM_NAMES[resumeAt];
+    const command = resumeCommand(ctx.slug, resumeAt);
+    const error = latest.split('\n').filter(l => /^ERROR: /.test(l)).pop();
+    const restart = resumeCommand(ctx.slug, 'spec');
+    return {
+      stage: `Setup (before ${name})`,
+      diagnosis: error ? error.replace(/^ERROR: /, '') : `The run stopped before ${name} started.`,
+      autoAction: { label: `Resume at ${name}`, command },
+      manualAction: { file: 'logs/run.out', instruction: 'Fix what the error above names, then resume.' },
+      // Restarting from Spec is a different command, so it stays on offer as the bailout; when it is the same, it is not.
+      ...(command !== restart ? { escapeHatch: { label: 'Resume pipeline from Spec', command: restart } } : {}),
     };
   }
 
@@ -137,7 +163,10 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     const reason = (agentFailMatch[2] || 'process exited with error').trim();
     const isQuota = /quota|rate limit|usage limit|RESOURCE_EXHAUSTED/i.test(reason);
     const isModelUnsupported = /model.*(?:not supported|unknown|invalid|not found)/i.test(reason);
-    const stageName = ctx.stage || 'Pipeline';
+    // The stop may name a resume stage that is not the stage shown (an inline Resolve conflicts stop after Plan resumes at
+    // Red tests): resume where the run says it will, and name that stage.
+    const stageName = ctx.stage || (resumeAt ? FROM_NAMES[resumeAt] : 'Pipeline');
+    const resumeKey = resumeAt || toFromStage(stageName, ctx.hasTestIssues);
 
     if (isModelUnsupported) {
       return {
@@ -145,7 +174,7 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
         diagnosis: `Agent '${agentName}' failed: model not supported with current account (${reason})`,
         autoAction: {
           label: `Switch to supported model & retry ${stageName}`,
-          command: `${resumeCommand(ctx.slug, toFromStage(stageName, ctx.hasTestIssues))} --model gpt-4o`,
+          command: `${resumeCommand(ctx.slug, resumeKey)} --model gpt-4o`,
         },
         manualAction: {
           file: `logs/${agentName}.err`,
@@ -165,7 +194,7 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
         : `Agent '${agentName}' crashed or failed: ${reason}`,
       autoAction: {
         label: isQuota ? `Retry ${stageName} after quota reset` : `Retry ${stageName} stage`,
-        command: resumeCommand(ctx.slug, toFromStage(stageName, ctx.hasTestIssues)),
+        command: resumeCommand(ctx.slug, resumeKey),
       },
       manualAction: {
         file: `logs/${agentName}.err`,
@@ -446,22 +475,23 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     };
   }
 
-  // Fallback recovery
+  // Fallback recovery: a stage no rule above knows. The command resumes at the stage the run was in, and the bailout that
+  // restarts from Spec is left out when it would repeat the auto command.
+  const auto = resumeCommand(ctx.slug, toFromStage(ctx.stage));
   return {
     stage: ctx.stage || 'Pipeline',
-    diagnosis: `Pipeline ${isPaused ? 'paused' : 'stopped'} at stage ${ctx.stage || 'unknown'}.`,
+    diagnosis: ctx.stage
+      ? `The run ${isPaused ? 'paused' : 'stopped'} at ${ctx.stage}; see logs/run.out for the cause.`
+      : `The run ${isPaused ? 'paused' : 'stopped'} before any stage started.`,
     autoAction: {
-      label: 'Resume pipeline where it stopped',
-      command: resumeCommand(ctx.slug, normStage || 'spec'),
+      label: ctx.stage ? `Resume at ${ctx.stage}` : 'Resume pipeline from Spec',
+      command: auto,
     },
     manualAction: {
       file: 'logs/run.out',
       instruction: 'Inspect logs/run.out for root cause details.',
     },
-    escapeHatch: {
-      label: 'Resume pipeline from Spec',
-      command: resumeCommand(ctx.slug, 'spec'),
-    },
+    ...(auto !== resumeCommand(ctx.slug, 'spec') ? { escapeHatch: { label: 'Resume pipeline from Spec', command: resumeCommand(ctx.slug, 'spec') } } : {}),
   };
 }
 

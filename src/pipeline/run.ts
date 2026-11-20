@@ -121,7 +121,10 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
     else {
       code = 1;
       const msg = (e as Error).message;
-      err(e instanceof SetupError || /^ERROR/.test(msg) ? msg : `ERROR: ${msg}`);
+      const line = e instanceof SetupError || /^ERROR/.test(msg) ? msg : `ERROR: ${msg}`;
+      err(line);
+      // What failed the run before its first stage is the diagnosis the hint needs: it is the last line of this run's output.
+      reason = line;
     }
   } finally {
     if (ctx) {
@@ -146,6 +149,9 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
           }
         }
       }
+      // A stop before the first stage leaves no stage to name, and the stage shown would be a guess: the status keeps where
+      // the run resumes instead (the stage it started from), so the run page and the next start both know it.
+      if (code !== 0 && !ctx.status.stage) ctx.status.resumeFrom = resumeFrom || from;
       ctx.status.write();
       appendRound(at(ctx, ctx.log), { kind: 'end', at: stamp(), state: finalState(code), stage: ctx.status.stage });
       if (code !== 0) {
@@ -156,6 +162,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
             state: finalState(code),
             exitCode: code,
             docsDir: ctx.docs,
+            resumeFrom: ctx.status.resumeFrom,
             runOut: [...(ctx.failLog && fs.existsSync(ctx.failLog) ? fs.readFileSync(ctx.failLog, 'utf8').split('\n') : []), ...(reason ? [reason] : [])],
             hasTestIssues: fs.existsSync(path.join(ctx.docs, 'test-issues.md')),
           });
@@ -206,6 +213,10 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
   // project's own .gitignore says.
   const logIgnore = path.join(root, log, '.gitignore');
   if (!exists(logIgnore)) fs.writeFileSync(logIgnore, '*\n');
+
+  // The run marks its own output before anything can fail: a stop before the first stage still leaves a "SDLC: " line, so
+  // the recovery hint reads this run's lines and never an earlier run's failure.
+  out(`SDLC: ${slug} starting from ${from}`);
 
   // Code search: the indexer in use (its tools and commands for the agents, its guide for {{CODE_SEARCH}}), else Grep and Glob.
   fs.writeFileSync(path.join(root, log, 'code-search.txt'), searchNote.map(w => `NOTE: ${w}\n`).join(''));
