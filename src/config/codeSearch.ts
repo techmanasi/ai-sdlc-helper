@@ -18,14 +18,16 @@ export interface CodeIndexer {
   guide?: string;
   guideFile?: string;
   setup?: string;
-  /** How to build the index once the command is installed. */
+  /** How to build the index once the command is installed (display text). */
   build?: string;
+  /** Literal process arguments for an executable build: program first, then its arguments. */
+  buildArgv?: string[];
 }
 
 export const CODE_INDEXERS: Record<string, Omit<CodeIndexer, 'name'>> = {
   graft: {
     command: 'graft', index: 'graft', tools: ['mcp__graft'], commands: ['graft'],
-    setup: 'npm install -g @nanonets/graft, then graft build', build: 'graft build',
+    setup: 'npm install -g @nanonets/graft, then graft build', build: 'graft build', buildArgv: ['graft', 'build'],
   },
   graphify: {
     command: 'graphify', index: 'graphify-out/graph.json', tools: [], commands: ['graphify'],
@@ -33,7 +35,7 @@ export const CODE_INDEXERS: Record<string, Omit<CodeIndexer, 'name'>> = {
     build: 'build the graph with /graphify . in Claude Code',
   },
 };
-export const INDEXER_SCHEMA = { command: 'string', index: 'string', tools: 'string[]', commands: 'string[]', guide: 'string', guideFile: 'string', setup: 'string', build: 'string' };
+export const INDEXER_SCHEMA = { command: 'string', index: 'string', tools: 'string[]', commands: 'string[]', guide: 'string', guideFile: 'string', setup: 'string', build: 'string', buildArgv: 'string[]' };
 export const SEARCH_SETTINGS = ['auto', 'none'];
 export const PARTS_DIR = path.join(ASSETS_DIR, 'prompts', 'parts');
 
@@ -45,7 +47,11 @@ export function codeIndexers(file: Json = {}): Record<string, CodeIndexer> {
   const own: Json = (file.agent && file.agent.codeIndexers) || {};
   const out: Record<string, CodeIndexer> = {};
   for (const name of [...Object.keys(CODE_INDEXERS), ...Object.keys(own)]) {
-    const merged: Json = { ...(CODE_INDEXERS[name] || {}), ...(own[name] || {}) };
+    const declared: Json = own[name] || {};
+    const merged: Json = { ...(CODE_INDEXERS[name] || {}), ...declared };
+    // Replacing a built-in's display `build` without declaring argv makes it display-only: the built-in's
+    // executable argv no longer describes the replacement. Unrelated overrides keep the built-in argv.
+    if (CODE_INDEXERS[name] && declared.build !== undefined && declared.buildArgv === undefined) delete merged.buildArgv;
     out[name] = { ...merged, name, tools: merged.tools || [], commands: merged.commands || [] } as CodeIndexer;
   }
   return out;
@@ -62,12 +68,77 @@ export function codeSearchErrors(file: Json = {}): string[] {
     if (!CODE_INDEXERS[name] && !ix.command) errors.push(`agent.codeIndexers.${name}: needs "command" (the program that must be on PATH)`);
     if (!CODE_INDEXERS[name] && !ix.guide && !ix.guideFile) errors.push(`agent.codeIndexers.${name}: needs "guide" or "guideFile" (how the agents should search with it)`);
     if (ix.command && !PROGRAM.test(ix.command)) errors.push(`agent.codeIndexers.${name}.command: a program name, not a command line`);
+    if (ix.buildArgv !== undefined) {
+      const at = `agent.codeIndexers.${name}.buildArgv`;
+      if (!Array.isArray(ix.buildArgv) || ix.buildArgv.length === 0) errors.push(`${at}: must be a non-empty list of strings`);
+      else {
+        if (typeof ix.buildArgv[0] !== 'string' || !PROGRAM.test(ix.buildArgv[0])) errors.push(`${at}: first element must be a program name`);
+        if (ix.buildArgv.some(v => typeof v !== 'string' || v.includes('\0'))) errors.push(`${at}: arguments must be strings without NUL bytes`);
+      }
+    }
   }
   if (agent.codeSearch && !SEARCH_SETTINGS.includes(agent.codeSearch) && !all[agent.codeSearch]) {
     errors.push(`agent.codeSearch: "${agent.codeSearch}" is not a code indexer (use auto, none, ${Object.keys(all).join(', ')})`);
   }
   for (const n of agent.codeSearchOrder || []) if (!all[n]) errors.push(`agent.codeSearchOrder: "${n}" is not a code indexer`);
   return errors;
+}
+
+/** A literal process declaration for an indexer's build: a program and the arguments that follow it. */
+export interface ExecutableBuild {
+  program: string;
+  argv: string[];
+}
+
+/**
+ * The process an indexer's build declares, or null when it has no executable build. Shared by inspection and the web
+ * server so the same rules decide `canBuild` and what is actually spawned. Both the indexer's own command and the build
+ * program must be on PATH: an indexer whose binary will be installed later cannot be built yet.
+ */
+export function executableBuild(ix: CodeIndexer, env: NodeJS.ProcessEnv): ExecutableBuild | null {
+  const argv = ix.buildArgv;
+  if (!Array.isArray(argv) || argv.length === 0) return null;
+  const [program, ...args] = argv;
+  if (typeof program !== 'string' || !PROGRAM.test(program)) return null;
+  if (argv.some(a => typeof a !== 'string' || a.includes('\0'))) return null;
+  if (!ix.command || !onPath(ix.command, env) || !onPath(program, env)) return null;
+  return { program, argv: args };
+}
+
+/** One indexer's availability for the setup UI. */
+export interface CodeIndexerStatus {
+  name: string;
+  command: string | null;
+  index: string | null;
+  installed: boolean;
+  indexed: boolean;
+  setup: string | null;
+  build: string | null;
+  canBuild: boolean;
+}
+
+/** What the setup UI needs to show for <root>: the setting, the effective indexer, and each indexer's status. */
+export interface CodeSearchInspection {
+  setting: string;
+  current: string;
+  indexers: CodeIndexerStatus[];
+}
+
+/** Inspects code search for setup: installation and indexing are independent, and absent text is null. */
+export function inspectCodeSearch(root: string, file: Json = {}, env: NodeJS.ProcessEnv = process.env): CodeSearchInspection {
+  const setting: string = (file.agent && file.agent.codeSearch) || 'auto';
+  const current = codeSearchFor(root, file, env).codeSearch;
+  const indexers = Object.values(codeIndexers(file)).map(ix => ({
+    name: ix.name,
+    command: ix.command || null,
+    index: ix.index || null,
+    installed: Boolean(ix.command && onPath(ix.command, env)),
+    indexed: Boolean(ix.index && exists(path.join(root, ix.index))),
+    setup: ix.setup || null,
+    build: ix.build || null,
+    canBuild: Boolean(executableBuild(ix, env)),
+  }));
+  return { setting, current, indexers };
 }
 
 /** Why <ix> cannot be used in <root>, or null when it can. */

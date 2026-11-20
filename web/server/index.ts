@@ -12,6 +12,7 @@ import {
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, completedListAsync, primeRepoPaths, warmCompletedPrs, keepError, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
   closeGoneRuns, loadOpencodePrices,
+  inspectCodeSearch, executableBuild, codeIndexers, fileErrors, applyPatch,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -221,6 +222,57 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       p.on('close', code => { clearTimeout(timer); res({ code, stdout, stderr, timedOut }); });
     });
 
+  const inFlightBuilds = new Set<string>();
+
+  /** Runs an indexer build process in <cwd> with the resolved program and argv. */
+  const runBuild = (
+    program: string,
+    args: string[],
+    cwd: string,
+  ): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean; error?: Error }> =>
+    new Promise(res => {
+      let stdout = '';
+      let stderr = '';
+      let timedOut = false;
+      let settled = false;
+      let killTimer: NodeJS.Timeout | null = null;
+      let openPipesTimer: NodeJS.Timeout | null = null;
+
+      const p = spawn(program, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+
+      const finish = (result: { code: number | null; error?: Error; timedOut: boolean }) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (openPipesTimer) clearTimeout(openPipesTimer);
+        res({ ...result, stdout, stderr });
+      };
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try { p.kill('SIGTERM'); } catch { /* ignore */ }
+        killTimer = setTimeout(() => {
+          try { p.kill('SIGKILL'); } catch { /* ignore */ }
+        }, 500);
+        killTimer.unref();
+        finish({ code: null, timedOut: true });
+      }, COMMAND_TIMEOUT_MS);
+
+      p.stdout?.on('data', d => { if (stdout.length < 1e6) stdout += d; });
+      p.stderr?.on('data', d => { if (stderr.length < 1e6) stderr += d; });
+
+      p.on('error', e => finish({ code: null, error: e, timedOut }));
+      p.on('close', code => {
+        // The child is gone: no need for the SIGKILL escalation if the timeout was reached.
+        if (killTimer) clearTimeout(killTimer);
+        finish({ code, timedOut });
+      });
+      p.on('exit', code => {
+        openPipesTimer = setTimeout(() => finish({ code, timedOut }), 100);
+        openPipesTimer.unref();
+      });
+    });
+
   /** A file of the item's folder (in the run's worktree when it has one), named relative to that folder. */
   function itemFile(ctx: RunContext, slug: string, rel: string): string {
     const v = runView(ctx, slug, { changes: false, tailLines: 0 });
@@ -260,6 +312,134 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     if (parts[0] !== 'projects' || !parts[1]) throw new HttpError(404, 'no such API');
     const p = await project(parts[1]);
     const what = parts[2];
+
+    if (what === 'code-search') {
+      if (parts.length === 3 && method === 'GET') {
+        const configFile = path.join(p.path, CONFIG_FILE);
+        let raw = '';
+        if (fs.existsSync(configFile)) {
+          try {
+            raw = fs.readFileSync(configFile, 'utf8');
+          } catch (e) {
+            throw new HttpError(400, `could not read ${CONFIG_FILE}: ${(e as Error).message}`);
+          }
+        }
+        let fileJson: any = {};
+        if (raw) {
+          try {
+            fileJson = JSON.parse(raw);
+          } catch (e) {
+            throw new HttpError(400, `malformed ${CONFIG_FILE}: ${(e as Error).message}`);
+          }
+        }
+        return send(200, inspectCodeSearch(p.path, fileJson, env));
+      }
+
+      if (parts.length === 4 && parts[3] === 'setup' && method === 'POST') {
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          return send(400, { ok: false, error: 'body must be an object' });
+        }
+        if (typeof body.indexer !== 'string' || !body.indexer) {
+          return send(400, { ok: false, error: 'indexer must be a non-empty string' });
+        }
+        if (body.build !== undefined && typeof body.build !== 'boolean') {
+          return send(400, { ok: false, error: 'build must be a boolean' });
+        }
+        const indexer = body.indexer;
+        const shouldBuild = body.build === true;
+
+        if (inFlightBuilds.has(p.path)) {
+          return send(400, { ok: false, error: `a build is already in progress for ${p.name}` });
+        }
+
+        const configFile = path.join(p.path, CONFIG_FILE);
+        const raw = fs.existsSync(configFile) ? fs.readFileSync(configFile, 'utf8') : '';
+        const initialHash = hashOf(raw);
+        let currentConfig: any = {};
+        if (raw) {
+          try {
+            currentConfig = JSON.parse(raw);
+          } catch (e) {
+            return send(400, { ok: false, error: `${CONFIG_FILE}: not valid JSON (${(e as Error).message})` });
+          }
+        }
+
+        const all = codeIndexers(currentConfig);
+        if (!Object.prototype.hasOwnProperty.call(all, indexer)) {
+          return send(400, { ok: false, error: `unknown indexer: '${indexer}'` });
+        }
+
+        // Validate prospective config before launching build
+        const prospective = applyPatch(currentConfig, { agent: { codeSearch: indexer } });
+        const prospectiveErrors = fileErrors(prospective).map(e => `${CONFIG_FILE}: ${e}`);
+        if (prospectiveErrors.length) {
+          return send(400, { ok: false, error: prospectiveErrors.join(', ') });
+        }
+
+        let buildOutput: string | undefined = undefined;
+
+        if (shouldBuild) {
+          const spec = executableBuild(all[indexer], env);
+          if (!spec) {
+            return send(400, {
+              ok: false,
+              error: `cannot build indexer '${indexer}': no executable build command or binary not on PATH`,
+            });
+          }
+
+          inFlightBuilds.add(p.path);
+          try {
+            const resBuild = await runBuild(spec.program, spec.argv, p.path);
+            buildOutput = [resBuild.stdout, resBuild.stderr].filter(Boolean).join('');
+            if (resBuild.timedOut) {
+              return send(400, {
+                ok: false,
+                error: 'build timed out after 120s',
+                ...(buildOutput ? { output: buildOutput } : {}),
+              });
+            }
+            if (resBuild.error) {
+              return send(400, {
+                ok: false,
+                error: resBuild.error.message,
+                ...(buildOutput ? { output: buildOutput } : {}),
+              });
+            }
+            if (resBuild.code !== 0) {
+              return send(400, {
+                ok: false,
+                error: `indexer exited with code ${resBuild.code}`,
+                ...(buildOutput ? { output: buildOutput } : {}),
+              });
+            }
+          } finally {
+            inFlightBuilds.delete(p.path);
+          }
+        }
+
+        // Apply setting change
+        const saveResult = editSettings(p.path, { agent: { codeSearch: indexer } }, initialHash);
+        if (!saveResult.ok) {
+          return send(400, {
+            ok: false,
+            error: saveResult.errors.join(', '),
+            ...(buildOutput !== undefined ? { output: buildOutput } : {}),
+          });
+        }
+
+        dropContext(p.name);
+        const checks = doctor(p.path, { env });
+        return send(200, {
+          ok: true,
+          codeSearch: indexer,
+          checks,
+          ...(buildOutput !== undefined ? { output: buildOutput } : {}),
+        });
+      }
+
+      throw new HttpError(404, 'no such API');
+    }
+
     // A project whose context must be built: git's part of it is asked first without blocking (about 150 ms of git).
     if (!contextFresh(p)) await primeRepoPaths(p.path, env);
 
