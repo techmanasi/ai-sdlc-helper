@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { CODE_INDEXERS } from 'ai-sdlc-helper';
 
 // The shared presentation module is consumed by the dialog and both entry points.
 const modulePath = '../ui/src/codeSearchSetup';
@@ -16,6 +17,16 @@ describe('code search setup presentation', () => {
     expect(view.copyText).toBe('npm install -g @nanonets/graft');
     expect(view.actions.length).toBeGreaterThan(0);
     expect(view.actions.every((action: { disabled: boolean }) => action.disabled)).toBe(true);
+  });
+
+  it('copies the Graphify install command separately from alternative and build instructions', async () => {
+    const { indexerPresentation } = await load();
+    const view = indexerPresentation({ name: 'graphify', command: 'graphify', index: 'graphify-out/graph.json',
+      installed: false, indexed: false, setup: CODE_INDEXERS.graphify.setup ?? null,
+      build: CODE_INDEXERS.graphify.build ?? null, canBuild: false }, false);
+    expect(view.copyText).toBe('uv tool install graphifyy');
+    expect(view.copyInstructions).toContain('or pipx install graphifyy');
+    expect(view.copyInstructions).toContain('build the graph with /graphify . in Claude Code');
   });
 
   it('offers use and rebuild with the correct requests for indexed graft', async () => {

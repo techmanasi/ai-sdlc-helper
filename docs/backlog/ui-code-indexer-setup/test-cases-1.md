@@ -58,3 +58,11 @@ Use the built UI and `sdlcUI.snapshot()` with actions scoped to the owning row, 
 | Same | Configure a known indexer with its binary missing | Configure-only succeeds, preserves sibling settings, and inspection and Doctor report that it is unavailable. |
 
 Browser acceptance remains necessary to verify that the actual entry points consume these decisions, open the same selected-project dialog, close on Escape and backdrop, trap and restore focus, render the output in `pre.code.mono`, and refresh Doctor and Settings. Review the implementation and test changes for unique names, real-code coverage, and compliance with the test-file restrictions; these are review items rather than tests about tests.
+
+## Round 2 regression coverage
+
+| Test file | Case | Expected observation |
+| --- | --- | --- |
+| `web/test/code-search-ui.test.ts` | Present the built-in Graphify setup when its binary is missing | Copy contains only `uv tool install graphifyy`; the alternative pipx command and Claude Code build step remain visible in the instructions. |
+
+The existing automated cases cover the engine, HTTP routes, API client and presentation decisions. Actual modal wiring, clipboard interaction, focus management and asynchronous view refresh remain browser acceptance cases above; documentation and test-file rules remain review items.
