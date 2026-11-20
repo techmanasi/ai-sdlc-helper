@@ -1,14 +1,14 @@
 # Cost of ui-code-indexer-setup
 
-Written by the pipeline at 2026-11-20 19:24 from `logs/attempts.jsonl`; updated with each stage's commit.
+Written by the pipeline at 2026-11-20 19:36 from `logs/attempts.jsonl`; updated with each stage's commit.
 `≈` marks dollars estimated from the model's list price (the agent reported tokens only); `free` is a model that cost
 nothing; `no price` is a round with tokens whose model has no known price.
 
-**Total: ≈$1.98 · 3.26M tokens · 2h 20m run time · 23m 49s agent time · 15 runs**
+**Total: ≈$2.61 · 5.02M tokens · 2h 32m run time · 32m 09s agent time · 15 runs**
 
-Estimated part: $1.98 of $1.98.
+Estimated part: $1.98 of $2.61.
 
-3 rounds with tokens and no price are not in the dollar figures.
+4 rounds with tokens and no price are not in the dollar figures.
 
 ## By stage, all runs
 
@@ -16,9 +16,10 @@ Estimated part: $1.98 of $1.98.
 | --- | --: | --: | --: | --: | --- | --: | --: | --: | --: | --: | --: |
 | Spec | 2 | 9m 19s | 9m 07s | 2 | gemini-3.8-flash-high | 244.3k | 44.9k | 0 | 0 | 289.2k | no price |
 | Plan | 1 | 4m 26s | 4m 07s | 2 | gpt-6.2-sol | 1.35M | 8.4k | 1.25M | 0 | 1.36M | ≈$0.42 |
-| Red tests | 1 | 6m 16s | 4m 55s | 1 | gpt-6.2-astra | 1.47M | 10.0k | 1.40M | 0 | 1.48M | ≈$1.56 |
-| Implement | 14 | 23m 02s | 5m 40s | 12 | claude-opus-4-6-thinking, openai/gpt-6.2-sol-pro, claude-sonnet-5-5, opencode/hy4-flash-free | 105.6k | 23.0k | 2.23M | 0 | 128.5k | free |
-| **Total** |  | **2h 20m** | **23m 49s** | **17** |  | 3.17M | 86.2k | 4.87M | 0 | **3.26M** | **≈$1.98** |
+| Red tests | 2 | 14m 04s | 11m 35s | 2 | gpt-6.2-astra | 3.22M | 17.1k | 3.09M | 0 | 3.23M | ≈$1.56 |
+| Implement | 14 | 26m 11s | 5m 40s | 12 | claude-opus-4-6-thinking, openai/gpt-6.2-sol-pro, claude-sonnet-5-5, opencode/hy4-flash-free | 105.6k | 23.0k | 2.23M | 0 | 128.5k | free |
+| Review | 1 | 1m 45s | 1m 39s | 1 | opus | 22 | 7.3k | 588.6k | 61.7k | 7.4k | $0.63 |
+| **Total** |  | **2h 32m** | **32m 09s** | **19** |  | 4.92M | 100.6k | 7.16M | 61.7k | **5.02M** | **≈$2.61** |
 
 ## By run
 
@@ -38,7 +39,7 @@ Estimated part: $1.98 of $1.98.
 | 12 | 2026-11-20 03:28 | implement | failed | 35s | 1 | 0 | — |
 | 13 | 2026-11-20 03:37 | implement | failed | 44s | 0 | 0 | — |
 | 14 | 2026-11-20 03:39 | implement | failed | 2m 13s | 1 | 0 | — |
-| 15 | 2026-11-20 19:17 | implement | running | 6m 27s | 1 | 128.5k | free |
+| 15 | 2026-11-20 19:17 | implement | running | 19m 09s | 3 | 1.89M | $0.63 |
 
 ### Run 1: 2026-11-20 00:59, from spec, paused
 
@@ -131,4 +132,6 @@ Estimated part: $1.98 of $1.98.
 
 | Stage | Time | Agent time | Rounds | Models | Tokens | Cost |
 | --- | --: | --: | --: | --- | --: | --: |
-| Implement | 6m 26s | 5m 27s | 1 | opencode/hy4-flash-free | 128.5k | free |
+| Implement | 9m 35s | 5m 27s | 1 | opencode/hy4-flash-free | 128.5k | free |
+| Review | 1m 45s | 1m 39s | 1 | opus | 7.4k | $0.63 |
+| Red tests | 7m 48s | 6m 41s | 1 | — | 1.75M | no price |

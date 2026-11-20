@@ -55,10 +55,10 @@ afterEach(async () => {
   await fs.rm(base, { recursive: true, force: true });
 });
 
-async function request(method: string, pathname: string, body?: unknown, headers: Record<string, string> = {}) {
+async function request(method: string, pathname: string, body?: unknown, headers: Record<string, string> = {}, signal?: AbortSignal) {
   const res = await fetch('http://127.0.0.1:' + server!.port + pathname, {
     method, headers: { 'x-sdlc-token': server!.token, 'content-type': 'application/json', connection: 'close', ...headers },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body), signal,
   });
   return { status: res.status, json: await res.json() };
 }
@@ -146,6 +146,22 @@ describe('project code search setup over HTTP', () => {
     await expect(calls()).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('returns a structured error when the configuration path is a directory', async () => {
+    await fs.unlink(config);
+    await fs.mkdir(config);
+    expect(await request('POST', endpoint + '/setup', { indexer: 'graft' }, {}, AbortSignal.timeout(2000))).toMatchObject({ status: 400, json: {
+      ok: false, error: expect.stringContaining('sdlc.config.json'),
+    } });
+  });
+
+  it('reports the terminating signal when a builder is killed', async () => {
+    await install('graft', "process.kill(process.pid, 'SIGKILL');");
+    expect(await buildGraft()).toMatchObject({ status: 400, json: {
+      ok: false, error: expect.stringMatching(/graft build.*SIGKILL/),
+    } });
+    expect(await saved()).toBe(initial);
+  });
+
   it.each([
     { name: 'unparseable JSON', data: '{' }, { name: 'invalid settings field', data: '{"agent":{"unknownField":true}}' },
   ])('refuses to start the child for $name', async ({ data }) => {
@@ -158,7 +174,7 @@ describe('project code search setup over HTTP', () => {
   it('returns both output streams and preserves settings on a nonzero exit, then permits retry', async () => {
     await install('graft', "console.log('scan started'); console.error('invalid input'); process.exitCode = 7;");
     const result = await buildGraft();
-    expect(result).toMatchObject({ status: 400, json: { ok: false, error: expect.stringMatching(/7/), output: expect.stringContaining('scan started') } });
+    expect(result).toMatchObject({ status: 400, json: { ok: false, error: 'graft build exited with code 7', output: expect.stringContaining('scan started') } });
     expect(result.json).toMatchObject({ output: expect.stringContaining('invalid input') });
     expect(await saved()).toBe(initial);
     await install('graft', build);
@@ -206,6 +222,36 @@ describe('settings consistency during a build', () => {
     expect(await saved()).toBe(edited);
     expect((await setup({ indexer: 'graft' })).status).toBe(200);
     expect(await inspect()).toMatchObject({ json: { setting: 'graft' } });
+  });
+
+  it('keeps the project build guard until a timed-out child exits', async () => {
+    await install('graft', `
+      process.on('SIGTERM', () => {});
+      require('node:fs').writeFileSync('started', String(process.pid));
+      setTimeout(() => process.exit(9), 10000);
+    `);
+    const schedule = globalThis.setTimeout;
+    let expire: (() => void) | undefined;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+      if (ms === 120000) expire = () => fn(...args);
+      return schedule(fn, ms, ...args);
+    }) as typeof setTimeout);
+    const pending = buildGraft();
+    const pid = await waitForChild(pending);
+    try {
+      expect(expire).toBeTypeOf('function');
+      expire!();
+      // Either the response waits for exit, or a completed response must not release the guard early.
+      const first = await Promise.race([pending.then(() => 'finished'), delay(100).then(() => 'pending')]);
+      if (first === 'finished') {
+        expect(await buildGraft()).toMatchObject({ status: 400, json: { ok: false, error: expect.stringMatching(/already in progress/i) } });
+      }
+      await pending;
+      if (first === 'pending') expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already exited */ }
+      await pending;
+    }
   });
 
   it('enforces the 120 second deadline and terminates a child that ignores SIGTERM', async () => {

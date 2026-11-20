@@ -77,6 +77,17 @@ describe('tools/UI-automation/sdlc-ui.js', () => {
     expect(missing).toEqual([]);
   });
 
+  test('exposes code search setup dialog, indexer and build feedback hooks', () => {
+    const { api } = load();
+    const selectors = Object.entries(api.SELECTORS);
+    expect(selectors.some(([, value]) => value.includes('aria-label="Code Search Setup"'))).toBe(true);
+    expect(selectors.some(([name]) => /indexer.*card|card.*indexer/i.test(name))).toBe(true);
+    expect(selectors.some(([name]) => /indexer.*(status|badge)|(status|badge).*indexer/i.test(name))).toBe(true);
+    expect(selectors.some(([name]) => /indexer.*action|action.*indexer/i.test(name))).toBe(true);
+    expect(selectors.some(([name]) => /build.*(output|feedback|error)|(output|feedback|error).*build/i.test(name))).toBe(true);
+    expect(api.help()).toMatch(/code.?search|indexer/i);
+  });
+
   test('the drift check sees a selector that is not in the markup', () => {
     const src = markup();
     expect(new RegExp(`(^|[\\s"'\`{])${esc('no-such-class-xyz')}($|[\\s"'\`}])`).test(src)).toBe(false);

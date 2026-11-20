@@ -41,3 +41,18 @@ Use the built UI and `sdlcUI.snapshot()` with actions scoped to the owning row, 
 
 - Review README coverage of both entry points, configure versus rebuild, manual Graphify and a custom argv example. Review test-file scope, unique row names and behavioral assertions directly.
 - After implementation run the existing selector-integrity test, typecheck and web build. Capture the changed Doctor, Settings and dialog screens for the PR. Full suite runs in CI.
+
+## Round 1 regression coverage
+
+| Test file | Case | Expected observation |
+| --- | --- | --- |
+| `web/test/code-search-ui.test.ts` | Presentation of missing, indexed, buildable and manual indexers | Badges, installation or manual copy text, enabled actions and request bodies follow each state; manual configuration waits for a refreshed index. |
+| Same | Pending request and failure | Actions and copying are disabled while busy; failure preserves diagnostic output. |
+| Same | Doctor check and successful setup result | Only a failing code indexer offers setup; returned checks replace displayed checks. |
+| Same | Settings warning and header | Code search and code indexer warnings match, unrelated warnings do not, and the header action remains available. |
+| `test/ui-automation.test.ts` | Load automation script | Setup dialog, indexer card/status/action and build feedback hooks and discoverable helpers are exposed; existing integrity check verifies hooks against UI markup. |
+| `web/test/code-search-route.test.ts` | Builder exits 7 or dies from SIGKILL | The failure names `graft build` and the actual exit code or signal, and leaves settings intact. |
+| Same | Config path is a directory | Setup responds with HTTP 400 and a diagnostic naming the config file. |
+| Same | Timeout of a SIGTERM-resistant builder, immediately followed by another build | The first response waits for child exit or the second build is rejected while the first child remains alive. |
+
+Browser acceptance remains necessary to verify that the actual entry points consume these decisions, open the same selected-project dialog, close on Escape and backdrop, trap and restore focus, render the output in `pre.code.mono`, and refresh Doctor and Settings. Review the implementation and test changes for unique names, real-code coverage, and compliance with the test-file restrictions; these are review items rather than tests about tests.
