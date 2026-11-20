@@ -224,54 +224,58 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
 
   const inFlightBuilds = new Set<string>();
 
+  interface BuildResult {
+    code: number | null;
+    signal: NodeJS.Signals | null;
+    stdout: string;
+    stderr: string;
+    timedOut: boolean;
+    error?: Error;
+  }
+
   /** Runs an indexer build process in <cwd> with the resolved program and argv. */
-  const runBuild = (
-    program: string,
-    args: string[],
-    cwd: string,
-  ): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean; error?: Error }> =>
-    new Promise(res => {
-      let stdout = '';
-      let stderr = '';
-      let timedOut = false;
-      let settled = false;
-      let killTimer: NodeJS.Timeout | null = null;
-      let openPipesTimer: NodeJS.Timeout | null = null;
+  const runBuild = (program: string, args: string[], cwd: string): Promise<BuildResult> => new Promise(res => {
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    let settled = false;
+    let killTimer: NodeJS.Timeout | undefined;
+    let forceTimer: NodeJS.Timeout | undefined;
 
-      const p = spawn(program, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+    const p = spawn(program, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
 
-      const finish = (result: { code: number | null; error?: Error; timedOut: boolean }) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (openPipesTimer) clearTimeout(openPipesTimer);
-        res({ ...result, stdout, stderr });
-      };
+    const finish = (result: { code: number | null; signal?: NodeJS.Signals | null; error?: Error; timedOut: boolean }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      if (forceTimer) clearTimeout(forceTimer);
+      res({ ...result, signal: result.signal ?? null, stdout, stderr });
+    };
 
-      const timer = setTimeout(() => {
-        timedOut = true;
-        try { p.kill('SIGTERM'); } catch { /* ignore */ }
-        killTimer = setTimeout(() => {
-          try { p.kill('SIGKILL'); } catch { /* ignore */ }
-        }, 500);
-        killTimer.unref();
-        finish({ code: null, timedOut: true });
-      }, COMMAND_TIMEOUT_MS);
+    // A timeout kills the child, but the build guard is held until it actually exits: a second setup must not spawn on
+    // top of a child that ignored SIGTERM. The force timer is a last resort for a child that never closes its pipes.
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { p.kill('SIGTERM'); } catch { /* already gone */ }
+      killTimer = setTimeout(() => { try { p.kill('SIGKILL'); } catch { /* already gone */ } }, 500);
+      forceTimer = setTimeout(() => finish({ code: null, signal: null, timedOut: true }), 2000);
+    }, COMMAND_TIMEOUT_MS);
 
-      p.stdout?.on('data', d => { if (stdout.length < 1e6) stdout += d; });
-      p.stderr?.on('data', d => { if (stderr.length < 1e6) stderr += d; });
+    p.stdout?.on('data', d => { if (stdout.length < 1e6) stdout += d; });
+    p.stderr?.on('data', d => { if (stderr.length < 1e6) stderr += d; });
 
-      p.on('error', e => finish({ code: null, error: e, timedOut }));
-      p.on('close', code => {
-        // The child is gone: no need for the SIGKILL escalation if the timeout was reached.
-        if (killTimer) clearTimeout(killTimer);
-        finish({ code, timedOut });
-      });
-      p.on('exit', code => {
-        openPipesTimer = setTimeout(() => finish({ code, timedOut }), 100);
-        openPipesTimer.unref();
-      });
+    p.on('error', e => finish({ code: null, signal: null, error: e, timedOut }));
+    p.on('close', (code, signal) => {
+      if (killTimer) clearTimeout(killTimer);
+      finish({ code, signal, timedOut });
     });
+    p.on('exit', (code, signal) => {
+      // The child is gone; a descendant may still hold its output pipes, so settle without waiting for them forever.
+      if (forceTimer) clearTimeout(forceTimer);
+      forceTimer = setTimeout(() => finish({ code, signal, timedOut }), 100);
+    });
+  });
 
   /** A file of the item's folder (in the run's worktree when it has one), named relative to that folder. */
   function itemFile(ctx: RunContext, slug: string, rel: string): string {
@@ -353,7 +357,14 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         }
 
         const configFile = path.join(p.path, CONFIG_FILE);
-        const raw = fs.existsSync(configFile) ? fs.readFileSync(configFile, 'utf8') : '';
+        let raw = '';
+        if (fs.existsSync(configFile)) {
+          try {
+            raw = fs.readFileSync(configFile, 'utf8');
+          } catch (e) {
+            return send(400, { ok: false, error: `could not read ${CONFIG_FILE}: ${(e as Error).message}` });
+          }
+        }
         const initialHash = hashOf(raw);
         let currentConfig: any = {};
         if (raw) {
@@ -386,6 +397,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
               error: `cannot build indexer '${indexer}': no executable build command or binary not on PATH`,
             });
           }
+          const label = all[indexer].build || `${indexer} build`;
 
           inFlightBuilds.add(p.path);
           try {
@@ -405,10 +417,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
                 ...(buildOutput ? { output: buildOutput } : {}),
               });
             }
-            if (resBuild.code !== 0) {
+            if (resBuild.code !== 0 || resBuild.signal) {
+              const status = resBuild.signal ? `signal ${resBuild.signal}` : `code ${resBuild.code}`;
               return send(400, {
                 ok: false,
-                error: `indexer exited with code ${resBuild.code}`,
+                error: `${label} exited with ${status}`,
                 ...(buildOutput ? { output: buildOutput } : {}),
               });
             }

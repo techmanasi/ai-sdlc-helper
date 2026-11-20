@@ -78,6 +78,12 @@
     priority: '#prio',
     title: '#title',
     brief: '#brief',
+    // code search setup
+    codeSearchDialog: '[role="dialog"][aria-label="Code Search Setup"]',
+    indexerCard: '.indexer-card',
+    indexerStatus: '.indexer-status',
+    indexerAction: '.indexer-action',
+    buildOutput: 'pre.build-output',
   };
 
   const $ = (sel, from) => (from || document).querySelector(sel);
@@ -377,6 +383,25 @@
     tab.click();
   }
 
+  /** The open Code Search Setup dialog: title and busy state. */
+  function codeSearchDialog() {
+    const d = $(SELECTORS.codeSearchDialog);
+    return d ? { title: text($('h2', d)), busy: !!$('.cs-busy', d), errors: $$(SELECTORS.error, d).map(text) } : null;
+  }
+
+  /** One row per indexer card: name, badges, action labels and any captured build output. */
+  function codeSearchIndexers() {
+    return $$(SELECTORS.indexerCard).map(card => ({
+      name: text($('h3', card)),
+      badges: $$('.tag', $(SELECTORS.indexerStatus, card) || card).map(text),
+      actions: $$(SELECTORS.indexerAction, card).map(b => ({ label: text(b), disabled: !!b.disabled })),
+      output: text($(SELECTORS.buildOutput, card)),
+    }));
+  }
+
+  /** The preformatted process output of a failed build, if one is showing. */
+  function codeSearchOutput() { return text($(SELECTORS.buildOutput)); }
+
   /** A short summary of the current screen: start here. */
   function snapshot() {
     const r = route();
@@ -387,7 +412,11 @@
       const b = board();
       return { ...base, board: { ...b, rows: b.rows.map(x => `${x.kind === 'run' ? '▶' : '·'} ${x.slug} | ${x.status} | ${x.where} | ${x.stages} | ${x.pr}`) } };
     }
-    return { ...base, heading: text($('h1', main())), panels: panelTitles(), buttons: buttons().map(b => b.label) };
+    const dialog = codeSearchDialog();
+    return {
+      ...base, heading: text($('h1', main())), panels: panelTitles(), buttons: buttons().map(b => b.label),
+      ...(dialog ? { codeSearch: { dialog, indexers: codeSearchIndexers(), output: codeSearchOutput() } } : {}),
+    };
   }
 
   const api = {
@@ -403,6 +432,8 @@
     run, stages, stage, output, questions, answer, recovery, env, setEnv, runOptions, autoAccept, costTable, openDoc, closeDialog,
     // new item
     newItem,
+    // code search setup
+    codeSearchDialog, codeSearchIndexers, codeSearchOutput,
   };
   api.help = () => Object.keys(api).filter(k => typeof api[k] === 'function').join(', ');
   root.sdlcUI = api;

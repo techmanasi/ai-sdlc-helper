@@ -52,9 +52,9 @@ export function Cli({ args, commands }: { args?: string[]; commands?: string[][]
   );
 }
 
-export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+export function CopyButton({ text, label = 'Copy', disabled = false }: { text: string; label?: string; disabled?: boolean }) {
   const [done, setDone] = useState(false);
-  return <button class="btn btn-s" type="button" onClick={async () => { setDone(await copy(text)); setTimeout(() => setDone(false), 1500); }}>{done ? 'Copied' : label}</button>;
+  return <button class="btn btn-s" type="button" disabled={disabled} onClick={async () => { setDone(await copy(text)); setTimeout(() => setDone(false), 1500); }}>{done ? 'Copied' : label}</button>;
 }
 
 export function Panel({ title, extra, children }: { title: ComponentChildren; extra?: ComponentChildren; children: ComponentChildren }) {
