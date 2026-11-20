@@ -173,7 +173,7 @@ describe('settings', () => {
     const c = ok(dir);
     expect(c.suites).toEqual([expect.objectContaining({ dir: '.', runner: 'jest', testCmd: 'npm test', sourceGlobs: ['**'], setup: null, report: null })]);
     expect(c).toMatchObject({
-      backlogDir: 'Docs/backlog', integration: null, lint: null,
+      backlogDir: 'Docs/backlog', integration: null, lint: null, typecheck: null,
       worktree: { base: '../{repo}-sdlc', link: ['node_modules'] },
       git: { branchPrefix: 'sdlc/', base: null, conflictSuffixStart: 10001 },
       agent: { allowCommands: [], codeSearch: 'none' },
@@ -598,5 +598,21 @@ describe('the lint command of a project', () => {
     expect(lintOf({}, { scripts: { lint: 'eslint .' } })).toBe('npm run lint');
     expect(lintOf({}, { scripts: { test: 'vitest' } })).toBeNull();
     expect(lintOf({})).toBeNull();
+  });
+});
+
+describe('the typecheck command of a project', () => {
+  test('is the typecheck setting, else npm run typecheck when package.json has a typecheck script, else none', () => {
+    const files = { suites: [{ name: 'unit', dir: '.', runner: 'node-test', testCmd: 'npm test', testGlobs: ['test/**/*.test.js'] }], agent: { codeSearch: 'none' } };
+    const typecheckOf = (extra: Record<string, unknown>, pkg?: unknown) => {
+      const dir = fs.realpathSync(tmp('sdlc-typecheck-detect-'));
+      fs.writeFileSync(path.join(dir, 'sdlc.config.json'), JSON.stringify({ ...files, ...extra }));
+      if (pkg) fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(pkg));
+      return resolve(dir, { env: { PATH: process.env.PATH } }).config?.typecheck;
+    };
+    expect(typecheckOf({ typecheck: 'make check' }, { scripts: { typecheck: 'tsc --noEmit' } })).toBe('make check');
+    expect(typecheckOf({}, { scripts: { typecheck: 'tsc --noEmit' } })).toBe('npm run typecheck');
+    expect(typecheckOf({}, { scripts: { lint: 'eslint .' } })).toBeNull();
+    expect(typecheckOf({})).toBeNull();
   });
 });

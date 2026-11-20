@@ -135,6 +135,29 @@ describe('a refused push gets the push check', () => {
   });
 });
 
+describe('a new test file the project cannot compile', () => {
+  it('retries the Red tests agent once with the compiler error, then stops at Red tests', async () => {
+    const ctx = context();
+    (ctx.config as any).typecheck = 'cat ts.txt; exit 2';
+    await fs.writeFile(path.join(root, 'ts.txt'), "test/red.test.ts(59,39): error TS2835: Relative import paths need explicit file extensions. Did you mean '../ui/src/api.js'?\n");
+    const notes: string[] = [];
+    vi.mocked(runAgent).mockImplementation(async (c: any) => { notes.push(String(c.promptExtra?.HANDOFF ?? '')); });
+
+    await expect(redTestsStage(cast(ctx))).rejects.toMatchObject({ code: 1 });
+    expect(runAgent).toHaveBeenCalledTimes(2);
+    // the first agent saw the review findings, the retry saw the compiler error and the rule about test files
+    expect(notes[0]).not.toContain('TS2835');
+    expect(notes[1]).toContain('TS2835');
+    expect(notes[1]).toContain('Fix the test files only');
+    expect(ctx.status.attempt).toBe('2/2');
+    const out = ctx.out.mock.calls.flat().join('\n');
+    expect(out).toContain('RED GATE FAILED: 1 static check failure(s) in the new test files');
+    expect(out).toContain('TS2835');
+    expect(out).toContain('See docs/logs/red-checks.log');
+    expect(ctx.git.run.mock.calls.some(args => args.includes('commit'))).toBe(false);
+  });
+});
+
 describe('CI stage orchestration (spec 4, 7, 9)', () => {
   it('S01 checks availability only after red tests are committed and locked, even with createPr off', async () => {
     const ctx = context();

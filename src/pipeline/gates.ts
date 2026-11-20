@@ -287,7 +287,7 @@ function passesWithAllowed(ctx: Ctx, merged: RunResult): boolean {
 }
 
 /** Runs <cmd> with bash from the root (a POSIX shell or cmd.exe on Windows), its output in <logFile>; resolves its exit code. */
-function shToFile(ctx: Ctx, cmd: string, logFile: string): Promise<number> {
+export function runToLog(ctx: Ctx, cmd: string, logFile: string): Promise<number> {
   return new Promise(resolve => {
     const fd = fs.openSync(logFile, 'w');
     let done = false;
@@ -312,13 +312,13 @@ export async function integrationPass(ctx: Ctx): Promise<boolean> {
     fs.writeFileSync(logFile, `${warning}\n`);
     return true;
   }
-  return (await shToFile(ctx, integration.cmd, logFile)) === 0;
+  return (await runToLog(ctx, integration.cmd, logFile)) === 0;
 }
 
 /** The project's lint command (the `lint` setting, else its package.json lint script): none means nothing to check. Output in <log>/lint.log. */
 export async function lintPass(ctx: Ctx): Promise<boolean> {
   if (!ctx.config.lint) return true;
-  return (await shToFile(ctx, ctx.config.lint, at(ctx, `${ctx.log}/lint.log`))) === 0;
+  return (await runToLog(ctx, ctx.config.lint, at(ctx, `${ctx.log}/lint.log`))) === 0;
 }
 
 /** The unit tests, then the linter, then the integration suite; ctx.failLog names the log of the check that failed. */

@@ -13,6 +13,17 @@ describe('stageRecoveryHint diagnostics engine', () => {
     expect(recovery.diagnosis).toContain('2 new test(s)');
   });
 
+  it('sends a new test file that fails the project lint or typecheck back to Red tests, with its log', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: 'Red tests', state: 'failed', exitCode: 1,
+      runOut: ['SDLC: x on branch b', 'RED GATE FAILED: 1 static check failure(s) in the new test files (npm run typecheck):', "TYPECHECK: web/test/code-search-ui.test.ts(59,39) TS2835: Relative import paths need explicit file extensions."],
+    });
+    expect(recovery.stage).toBe('Red tests');
+    expect(recovery.autoAction?.command).toBe('ai-sdlc-helper pipeline x --from red-tests');
+    expect(recovery.manualAction?.file).toBe('logs/red-checks.log');
+    expect(recovery.diagnosis).toContain('static check');
+  });
+
   it('sends repeated test names to Red tests only, with no escape hatch', () => {
     const recovery = stageRecoveryHint({
       slug: 'x', stage: 'Red tests', state: 'failed', exitCode: 1,

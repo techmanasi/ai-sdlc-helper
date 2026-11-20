@@ -73,6 +73,8 @@ export interface Config {
   tests: TestRuns;
   ci: { waitMinutes: number };
   lint: string | null;
+  /** The project's own typecheck command (none: no typecheck is run): the red gate runs it on the new test files. */
+  typecheck: string | null;
   worktree: { base: string; link: string[] };
   git: { branchPrefix: string; base: string | null; conflictSuffixStart: number };
   agent: { harness: HarnessName; model: string | null; effort: string | null; stages: Record<string, StageSetting>; allowCommands: string[]; codeSearch: string; codeIndexer: CodeIndexer | null; notesDir: string };
@@ -136,11 +138,21 @@ const SUITE_SCHEMA = {
   name: 'string', dir: 'string', runner: [...RUNNERS, 'auto'], testCmd: 'string',
   testGlobs: 'string[]', sourceGlobs: 'string[]', setup: 'string', report: 'string', tools: 'string[]',
 };
-/** `npm run lint` for a project whose package.json has a lint script and whose settings name none: the green gate runs it. */
-export function detectedLint(root: string): string | null {
+/** `npm run <script>` for a project whose package.json has that script and whose settings name none. */
+function detectedScript(root: string, script: 'lint' | 'typecheck'): string | null {
   let pkg: Json | null = null;
   try { pkg = readJson(path.join(root, 'package.json')) as Json | null; } catch { return null; }
-  return pkg && pkg.scripts && typeof pkg.scripts === 'object' && typeof pkg.scripts.lint === 'string' && pkg.scripts.lint.trim() ? 'npm run lint' : null;
+  return pkg && pkg.scripts && typeof pkg.scripts === 'object' && typeof pkg.scripts[script] === 'string' && pkg.scripts[script].trim() ? `npm run ${script}` : null;
+}
+
+/** `npm run lint` for a project whose package.json has a lint script and whose settings name none: the green gate runs it. */
+export function detectedLint(root: string): string | null {
+  return detectedScript(root, 'lint');
+}
+
+/** `npm run typecheck` for a project whose package.json has a typecheck script and whose settings name none: the red gate runs it. */
+export function detectedTypecheck(root: string): string | null {
+  return detectedScript(root, 'typecheck');
 }
 
 export const SCHEMA: Json = {
@@ -152,6 +164,7 @@ export const SCHEMA: Json = {
   tests: { retry: 'boolean', maxWorkers: 'workers', preliminary: ['scoped', 'full'], fullSuite: ['local', 'ci'], allowFailures: 'string[]' },
   ci: { waitMinutes: 'minutes' },
   lint: 'string',
+  typecheck: 'string',
   worktree: { base: 'string', link: 'string[]' },
   git: { branchPrefix: 'string', base: 'string', conflictSuffixStart: 'integer' },
   agent: {
@@ -365,6 +378,7 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
     },
     ci: { waitMinutes },
     lint: file.lint ? run(file.lint) : detectedLint(root) ? run(detectedLint(root)!) : null,
+    typecheck: file.typecheck ? run(file.typecheck) : detectedTypecheck(root) ? run(detectedTypecheck(root)!) : null,
     worktree: {
       base: (file.worktree && file.worktree.base) || '../{repo}-sdlc',
       link: (file.worktree && file.worktree.link) || defaultLinks,
@@ -444,10 +458,11 @@ export function testSpec(suite: Pick<Suite, 'dir' | 'testGlobs'>): TestSpec {
 export const testFiles = (config: Pick<Config, 'suites'>): string =>
   config.suites.map(testSpec).map(t => (t.folder ? `${t.folder}/` : `files matching ${t.globs.join(' or ')}`)).join('; ');
 
-/** The project commands the stage agents may run: each suite's test command, lint, and agent.allowCommands. */
+/** The project commands the stage agents may run: each suite's test command, lint, typecheck, and agent.allowCommands. */
 export const agentRules = (config: Config): string[] => [...new Set([
   ...config.suites.map(s => `Bash(${s.runCmd}:*)`),
   ...(config.lint ? [`Bash(${config.lint}:*)`] : []),
+  ...(config.typecheck ? [`Bash(${config.typecheck}:*)`] : []),
   ...config.agent.allowCommands.map(c => `Bash(${c}:*)`),
 ])];
 

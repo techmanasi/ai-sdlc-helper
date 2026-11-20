@@ -130,6 +130,17 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     };
   }
 
+  // A new test file the project's own static checks reject: only the Red tests agent may fix a test file, so run Red tests again.
+  const staticChecks = /RED GATE FAILED: (\d+) static check failure\(s\) in the new test files/.exec(latest);
+  if (staticChecks) {
+    return {
+      stage: 'Red tests',
+      diagnosis: `${staticChecks[1]} new test file error(s) fail the project's static checks (lint or typecheck): a test file CI cannot compile or lint cannot be fixed by Implement, which may not edit it.`,
+      autoAction: { label: 'Resume at Red tests', command: resumeCommand(ctx.slug, 'red-tests') },
+      manualAction: { file: 'logs/red-checks.log', instruction: 'Fix the import or lint error in the test files (never in the source), then run again from Red tests.' },
+    };
+  }
+
   // Test names that repeat: the Red tests agent already had its one retry, so run Red tests again (the handoff lists the names).
   const repeats = /RED GATE FAILED: (\d+) test name\(s\) repeat in the new tests/.exec(latest);
   if (repeats) {
