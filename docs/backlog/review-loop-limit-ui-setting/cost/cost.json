@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "slug": "review-loop-limit-ui-setting",
+  "generatedAt": "2026-11-19T03:55:28",
+  "priced": true,
+  "runs": [
+    {
+      "n": 1,
+      "started": "2026-11-19T03:42:57",
+      "from": "spec",
+      "ended": null,
+      "state": null,
+      "wallSec": 751,
+      "stages": [
+        {
+          "stage": "Spec",
+          "passes": 1,
+          "wallSec": 41,
+          "models": [
+            "gpt-6.1-terra"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 40.5,
+            "turns": 1,
+            "tokens": 163676,
+            "input": 162313,
+            "output": 1363,
+            "cacheRead": 143232,
+            "cacheWrite": 0,
+            "costUsd": 0.0330576,
+            "estimatedUsd": 0.0330576,
+            "unpriced": 0
+          }
+        },
+        {
+          "stage": "Plan",
+          "passes": 1,
+          "wallSec": 178,
+          "models": [
+            "gpt-6.2-sol"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 170.1,
+            "turns": 1,
+            "tokens": 885225,
+            "input": 879383,
+            "output": 5842,
+            "cacheRead": 786304,
+            "cacheWrite": 0,
+            "costUsd": 0.3232084,
+            "estimatedUsd": 0.3232084,
+            "unpriced": 0
+          }
+        },
+        {
+          "stage": "Red tests",
+          "passes": 1,
+          "wallSec": 531,
+          "models": [
+            "gpt-6.2-astra"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 353.6,
+            "turns": 1,
+            "tokens": 2150090,
+            "input": 2142006,
+            "output": 8084,
+            "cacheRead": 2082560,
+            "cacheWrite": 0,
+            "costUsd": 1.631952,
+            "estimatedUsd": 1.631952,
+            "unpriced": 0
+          }
+        }
+      ],
+      "usage": {
+        "rounds": 3,
+        "durationSec": 564.2,
+        "turns": 3,
+        "tokens": 3198991,
+        "input": 3183702,
+        "output": 15289,
+        "cacheRead": 3012096,
+        "cacheWrite": 0,
+        "costUsd": 1.988218,
+        "estimatedUsd": 1.988218,
+        "unpriced": 0
+      }
+    }
+  ],
+  "stages": [
+    {
+      "stage": "Spec",
+      "passes": 1,
+      "wallSec": 41,
+      "models": [
+        "gpt-6.1-terra"
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 40.5,
+        "turns": 1,
+        "tokens": 163676,
+        "input": 162313,
+        "output": 1363,
+        "cacheRead": 143232,
+        "cacheWrite": 0,
+        "costUsd": 0.0330576,
+        "estimatedUsd": 0.0330576,
+        "unpriced": 0
+      }
+    },
+    {
+      "stage": "Plan",
+      "passes": 1,
+      "wallSec": 178,
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 170.1,
+        "turns": 1,
+        "tokens": 885225,
+        "input": 879383,
+        "output": 5842,
+        "cacheRead": 786304,
+        "cacheWrite": 0,
+        "costUsd": 0.3232084,
+        "estimatedUsd": 0.3232084,
+        "unpriced": 0
+      }
+    },
+    {
+      "stage": "Red tests",
+      "passes": 1,
+      "wallSec": 531,
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 353.6,
+        "turns": 1,
+        "tokens": 2150090,
+        "input": 2142006,
+        "output": 8084,
+        "cacheRead": 2082560,
+        "cacheWrite": 0,
+        "costUsd": 1.631952,
+        "estimatedUsd": 1.631952,
+        "unpriced": 0
+      }
+    }
+  ],
+  "usage": {
+    "rounds": 3,
+    "durationSec": 564.2,
+    "turns": 3,
+    "tokens": 3198991,
+    "input": 3183702,
+    "output": 15289,
+    "cacheRead": 3012096,
+    "cacheWrite": 0,
+    "costUsd": 1.988218,
+    "estimatedUsd": 1.988218,
+    "unpriced": 0
+  },
+  "wallSec": 751
+}
