@@ -42,7 +42,7 @@ export interface RunCard {
   usage?: UsageTotals | null;
 }
 export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
-export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; checkedAt: string | null; failed: boolean; ci: CiState | null; failing: string[]; conflicts: 'none' | 'conflicting' | 'unknown' | null }
+export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; isDraft: boolean; checkedAt: string | null; failed: boolean; ci: CiState | null; failing: string[]; conflicts: 'none' | 'conflicting' | 'unknown' | null }
 /** What "Sync PR" brings: the PR's state and CI, the number of review comments saved, and the error lines of a failing CI. */
 export interface PrSync { ok: boolean; pr: PrCard; count: number; summary: string[]; notes?: string[]; err?: string[] }
 export interface Board { items: BacklogItem[] | null; runs: RunCard[]; maxParallel: number; running: number; notices?: NoticeItem[] }
@@ -65,7 +65,7 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
   stageFiles: Record<string, string[]>;
   changes: { changed: number; uncommitted: number; files: string[] } | null;
   tail: string[]; docs: string[]; discarded: string; discardedStage?: { stage: string; at: string } | null; discardable?: string; movedFrom?: { branch: string; reason: string; reasonText?: string; pr?: string; at: string }; resumeFrom: string; handoff: { to: string; finding?: { from: string; reason: string }; user?: { note: string; at: string } } | null; redCommit: string; gitAgeMs: number | null;
-  createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; hasPrComments?: boolean; undo?: { from: string; at: string } | null; mergeFix?: boolean;
+  createPr?: boolean; pr?: string | null; prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null; prDraft?: boolean | null; hasPrComments?: boolean; undo?: { from: string; at: string } | null; mergeFix?: boolean;
   prCi?: CiState | null; prFailing?: string[]; prConflicts?: 'none' | 'conflicting' | 'unknown' | null; ciSummary?: string[];
   ci?: { enabled: boolean; state: string; pr: string | null; prDraft: boolean; reason?: string; failingChecks: string[]; warnings: string[]; sha?: string } | null;
   testIssues?: string | null;
@@ -273,6 +273,7 @@ export const api = {
   },
   file: (project: string, slug: string, path: string) => call<{ text: string }>('GET', `${r(project, slug)}/file?path=${encodeURIComponent(path)}`),
   syncPr: (project: string, slug: string) => call<PrSync>('POST', `${r(project, slug)}/pr-sync`, {}),
+  markPrReady: (project: string, slug: string) => call<PrSync>('POST', `${r(project, slug)}/pr-ready`, {}),
   syncPrProgress: (project: string, slug: string) => call<{ label: string }>('GET', `${r(project, slug)}/pr-sync-progress`),
   ciFix: (project: string, slug: string, env?: Record<string, string>) => call<{ ok: boolean; summary: string[]; err?: string[]; resumed: Outcome }>('POST', `${r(project, slug)}/ci-fix`, { env }),
   start: (project: string, slug: string, from?: string, env?: Record<string, string>, note?: string) => call<Outcome>('POST', `${r(project, slug)}/start`, { from, env, note }),

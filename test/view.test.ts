@@ -222,19 +222,35 @@ test('boardView gives a finished run its pull request, read in the background an
   const { root } = repoWithRun('add-tokens', { state: 'exited', exit_code: '0' }, { 'logs/status.json': { state: 'done', stage: 'Finalise' } });
   const bin = path.join(root, '..', 'bin');
   fs.mkdirSync(bin, { recursive: true });
-  fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\necho + >> "${bin}/calls"\necho '{"url":"https://github.com/o/r/pull/85","state":"OPEN","number":85}'\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\necho + >> "${bin}/calls"\necho '{"url":"https://github.com/o/r/pull/85","state":"OPEN","number":85,"isDraft":true}'\n`, { mode: 0o755 });
   const ctx = runContext(root, { ...GIT_ENV, PATH: `${bin}:${process.env.PATH}` });
   clearPrCache();
   const card = () => boardView(ctx, { changes: false }).runs[0];
-  expect(card().pullRequest).toMatchObject({ state: null, checkedAt: null });
+  expect(card().pullRequest).toMatchObject({ state: null, checkedAt: null, isDraft: false });
   for (let i = 0; i < 100 && !card().pullRequest?.state; i++) await new Promise(r => setTimeout(r, 30));
-  expect(card().pullRequest).toMatchObject({ state: 'OPEN', number: 85, url: 'https://github.com/o/r/pull/85', failed: false });
+  expect(card().pullRequest).toMatchObject({ state: 'OPEN', number: 85, url: 'https://github.com/o/r/pull/85', failed: false, isDraft: true });
   expect(card().pullRequest!.checkedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
   for (let i = 0; i < 5; i++) card();
   expect(fs.readFileSync(path.join(bin, 'calls'), 'utf8').split('\n').filter(Boolean)).toHaveLength(1);
   const synced = await syncRunPr(ctx, 'add-tokens');
-  expect(synced).toMatchObject({ state: 'OPEN', number: 85 });
+  expect(synced).toMatchObject({ state: 'OPEN', number: 85, isDraft: true });
   expect(fs.readFileSync(path.join(bin, 'calls'), 'utf8').split('\n').filter(Boolean)).toHaveLength(2);
+});
+
+test('runView carries the PR draft status so the run page can offer to mark it ready', async () => {
+  const { ctx: base } = repoWithRun('add-tokens', { state: 'exited', exit_code: '0' }, {
+    'logs/status.json': { state: 'done', stage: 'Finalise' },
+    'brief.md': '# add-tokens\n\nPull request: https://github.com/o/r/pull/85\n',
+  });
+  const bin = path.join(base.root, '..', 'bin-draft');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\necho '{"url":"https://github.com/o/r/pull/85","state":"OPEN","number":85,"isDraft":true}'\n`, { mode: 0o755 });
+  const ctx = runContext(base.root, { ...GIT_ENV, PATH: `${bin}:${process.env.PATH}` });
+  clearPrCache();
+  const view = () => runView(ctx, 'add-tokens', { changes: false, tailLines: 0 });
+  expect(view().prDraft).toBeNull();
+  for (let i = 0; i < 100 && view().prDraft === null; i++) await new Promise(r => setTimeout(r, 30));
+  expect(view()).toMatchObject({ prState: 'OPEN', prDraft: true });
 });
 
 test('boardView leaves the pull request of a run that is not done empty', () => {
