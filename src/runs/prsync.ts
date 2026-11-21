@@ -1,7 +1,7 @@
 // "Sync PR": one action that brings a task's pull request up to date here: its state, its CI, and its review comments.
 // A failing CI is written to <docs>/ci-failure.md so the Implement stage can be started again with the details. Both files
 // are saved on the run's branch (see run-docs.ts), never in the main checkout.
-import { ciFailureReport, getPrFromBrief, type CiState } from '../pipeline/finalise.js';
+import { ciFailureReport, getPrFromBrief, markPrReady, type CiState } from '../pipeline/finalise.js';
 import { liveBranch, liveBriefPr, type RunContext } from './index.js';
 import { syncPrComments } from './completed.js';
 import { saveRunDoc, type SavedRunDoc } from './run-docs.js';
@@ -36,6 +36,22 @@ export function writeCiFailure(ctx: RunContext, slug: string, prState?: string |
   if (!report.ok) return { ok: false, ci: report.ci, failing: [], summary: [], err: report.err };
   const saved = saveCiFailure(ctx, slug, report.ci === 'failed' ? report.markdown : null, prState);
   return { ok: true, ci: report.ci, failing: report.failing, summary: report.summary, ...(saved.note ? { note: saved.note } : {}), ...(saved.err.length ? { err: saved.err } : {}) };
+}
+
+/** Marks the run's pull request ready for review, then brings its status and comments up to date like Sync PR. */
+export async function markPrReadyForRun(ctx: RunContext, slug: string, onStep?: (label: string) => void): Promise<PrSync> {
+  onStep?.('Marking the PR ready for review');
+  const target = targetOf(ctx, slug);
+  const err: string[] = [];
+  if (!target) err.push(`${slug} has no pull request to mark ready`);
+  else if (!markPrReady(ctx.root, target, ctx.env, text => err.push(text))) {
+    if (!err.length) err.push(`could not mark ${target} ready for review`);
+  }
+  if (err.length) {
+    const pr = await syncRunPr(ctx, slug);
+    return { ok: false, pr, count: 0, summary: [], err };
+  }
+  return syncPr(ctx, slug, onStep);
 }
 
 /** Sync PR: the PR's state and CI from GitHub now, its review comments, and the CI failure details when the CI failed. */

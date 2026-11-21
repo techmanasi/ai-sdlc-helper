@@ -225,7 +225,7 @@ export function App() {
   } else if (route === '/new') screen = <NewItem taken={(board?.items || []).map(i => i.slug)} />;
   else if (route === '/projects') screen = <Projects projects={projects} reload={loadProjects} />;
   else if (route === '/settings') screen = <Settings />;
-  else screen = <Board board={board} error={boardError} />;
+  else screen = <Board board={board} error={boardError} onRefresh={() => { api.board(project).then(applyBoard).catch(() => {}); }} />;
 
   return (
     <Ctx.Provider value={{ project, go, toast }}>

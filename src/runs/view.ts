@@ -92,6 +92,8 @@ export interface RunView {
   createPr?: boolean;
   pr?: string | null;
   prState?: 'OPEN' | 'MERGED' | 'CLOSED' | null;
+  /** Whether the PR is still a draft; null until its status is known. */
+  prDraft?: boolean | null;
   /** The CI of the PR, and the names of its failing checks; ciSummary: error lines of the failure (ci-failure.md), when there is one. */
   prCi?: CiState | null;
   prFailing?: string[];
@@ -481,6 +483,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
         return {
           pr: p || null,
           prState: null,
+          prDraft: null,
           prCi: null,
           prFailing: [],
           prConflicts: null,
@@ -492,6 +495,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
       return {
         pr: p || (st ? st.url : null),
         prState: st ? st.state : null,
+        prDraft: st?.isDraft ?? null,
         prCi: st?.ci ?? null,
         prFailing: st?.failing ?? [],
         prConflicts: st?.conflicts ?? null,
@@ -539,6 +543,8 @@ export interface PrCard {
   /** Null until the first check answers (or when the check failed and nothing was known). */
   state: 'OPEN' | 'MERGED' | 'CLOSED' | null;
   number?: number;
+  /** The PR is still a draft (sync can offer to mark it ready for review). */
+  isDraft: boolean;
   /** When GitHub was last asked, ISO time; null before the first answer. */
   checkedAt: string | null;
   /** The last check failed. */
@@ -555,6 +561,7 @@ const prCard = (url: string | null, r: PrRead): PrCard => ({
   url: r.status?.url || url,
   state: r.status ? r.status.state : null,
   ...(r.status?.number ? { number: r.status.number } : {}),
+  isDraft: Boolean(r.status?.isDraft),
   checkedAt: r.ageMs === null ? null : new Date(Date.now() - r.ageMs).toISOString(),
   failed: Boolean(r.failed),
   ci: r.status?.ci ?? null,

@@ -798,8 +798,7 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
   // A pull request that is merged already: a link an older version wrote into the main checkout's brief is taken out again.
   if (res.merged && res.pr) await cleanRunMainBrief(ctx, res.pr);
   // The full suite ran in CI: the PR opened as a draft after Red tests (never a second PR, no squashing) gets the pushed
-  // head, CI runs again when the commits since its last green changed more than the docs, and with Create PR on the draft
-  // is then ready for review.
+  // head, and CI runs again when the commits since its last green changed more than the docs.
   const draft = opened || null;
   if (draft || ciOn(ctx)) {
     try { ctx.git.run('push', '-u', 'origin', ctx.branch); } catch (e) {
@@ -808,15 +807,18 @@ export async function finaliseStage(ctx: Ctx): Promise<void> {
     }
   }
   if (ciOn(ctx)) await ciAfterChanges(ctx);
-  if (draft && createPr) {
-    if (markPrReady(ctx.root, draft, ctx.env, text => keepError(ctx, 'gh pr ready', text))) {
-      ctx.out(`Pull request ready for review: ${draft}`);
+  // A finished run always leaves its PR ready for review: the draft CI opened (even with Create PR off) and a PR
+  // finalise found already open are both marked ready. An already merged PR needs no marking.
+  const pr = res.pr || draft;
+  if (pr && !res.merged) {
+    if (markPrReady(ctx.root, pr, ctx.env, text => keepError(ctx, 'gh pr ready', text))) {
+      ctx.out(`Pull request ready for review: ${pr}`);
       if (ctx.status.ci) { ctx.status.ci = { ...ctx.status.ci, prDraft: false }; ctx.status.write(); }
     }
-    else ctx.err(`WARNING: could not mark ${draft} ready for review (gh pr ready; see ${ctx.log}/errors.log)`);
-  } else if (draft) ctx.out(`Draft pull request left as a draft (Create PR is off): ${draft}`);
-  if (res.pr || draft) {
-    ctx.out(`Review pull request: ${res.pr || draft}`);
+    else ctx.err(`WARNING: could not mark ${pr} ready for review (gh pr ready; see ${ctx.log}/errors.log)`);
+  }
+  if (pr) {
+    ctx.out(`Review pull request: ${pr}`);
   } else {
     ctx.out(`Review with: git log --oneline ${ctx.redSha}~1..HEAD ; then open a PR.`);
   }

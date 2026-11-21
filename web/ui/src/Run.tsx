@@ -1037,6 +1037,9 @@ export function Run({ slug }: { slug: string }) {
                       {v.prState.toLowerCase()}
                     </span>
                   )}
+                  {v.prDraft === true && v.prState !== 'MERGED' && (
+                    <span class="tag small mono s-running" title="This pull request is still a draft; it can be marked ready for review">Draft PR</span>
+                  )}
                 </span>
               }
               extra={
@@ -1049,12 +1052,27 @@ export function Run({ slug }: { slug: string }) {
                       title="Ask GitHub now for the PR's state, its CI status and its review comments"
                       onClick={() => act('Sync PR', async () => {
                         const r = await api.syncPr(project, slug);
-                        toast(r.ok ? `PR ${r.pr.state ? r.pr.state.toLowerCase() : 'status unknown'}${r.pr.ci && r.pr.ci !== 'none' ? `, CI ${r.pr.ci}` : ''}${r.pr.conflicts === 'conflicting' ? ', conflicts with the base' : ''}; ${r.count} comment(s)${r.notes?.length ? `; ${r.notes.join('; ')}` : ''}${r.err?.length ? `; ${r.err.join(' ')}` : ''}` : `Sync failed: ${(r.err || []).join(' ')}`);
+                        toast(r.ok ? `PR ${r.pr.isDraft ? 'is a draft' : r.pr.state ? `is ${r.pr.state.toLowerCase()}` : 'status unknown'}${r.pr.ci && r.pr.ci !== 'none' ? `, CI ${r.pr.ci}` : ''}${r.pr.conflicts === 'conflicting' ? ', conflicts with the base' : ''}; ${r.count} comment(s)${r.notes?.length ? `; ${r.notes.join('; ')}` : ''}${r.err?.length ? `; ${r.err.join(' ')}` : ''}` : `Sync failed: ${(r.err || []).join(' ')}`);
                         return {};
                       })}
                     >
                       {busy === 'Sync PR' ? <><Spinner /> {syncLabel || 'Syncing'}…</> : 'Sync PR'}
                     </button>
+                    {v.prDraft === true && v.prState !== 'MERGED' && (
+                      <button
+                        class="btn btn-s btn-p"
+                        type="button"
+                        disabled={running || !!busy}
+                        title="Turn this draft pull request into one that is ready for review"
+                        onClick={() => act('Mark PR ready for review', async () => {
+                          const r = await api.markPrReady(project, slug);
+                          if (r.ok) toast(`Pull request${r.pr.number ? ` #${r.pr.number}` : ''} is ready for review${r.count ? `; ${r.count} comment(s)` : ''}${r.err?.length ? `; ${r.err.join(' ')}` : ''}`);
+                          return { ok: r.ok, err: r.err };
+                        })}
+                      >
+                        {busy === 'Mark PR ready for review' ? <><Spinner /> Marking…</> : 'Mark as Ready for review'}
+                      </button>
+                    )}
                     <a href={v.pr} target="_blank" rel="noreferrer" class="btn btn-s" style={{ textDecoration: 'none' }}>
                       Open on GitHub ↗
                     </a>
@@ -1087,7 +1105,12 @@ export function Run({ slug }: { slug: string }) {
                         })}
                       />
                     )}
-                    {v.prState === 'OPEN' && (
+                    {v.prState === 'OPEN' && v.prDraft === true && (
+                      <div class="banner">
+                        This pull request is a <strong>Draft PR</strong>: it is not ready for review yet. Use <strong>Mark as Ready for review</strong> above when it is.
+                      </div>
+                    )}
+                    {v.prState === 'OPEN' && v.prDraft !== true && (
                       <div class="banner">
                         Pull Request is open. Task will automatically move to <strong>Completed</strong> once this PR is merged on GitHub.
                       </div>

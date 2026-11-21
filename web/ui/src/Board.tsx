@@ -23,10 +23,11 @@ const clock = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleS
 export const needsYou = (r: RunCard) => r.state === 'paused' || r.state === 'ready' || r.questions > 0 || r.permissions > 0;
 
 /** One run on the board: its name, the stages as a strip, where it is, its state, its pull request. */
-function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): void }) {
+function RunCardView({ r, on, select, onRefresh }: { r: RunCard; on: boolean; select(): void; onRefresh(): void }) {
   const { go, project, toast } = useApp();
   const [syncing, setSyncing] = useState(false);
   const syncLabel = useSyncLabel(syncing, project, r.slug);
+  const [marking, setMarking] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [resolving, setResolving] = useState(false);
   const resolve = async () => {
@@ -50,8 +51,17 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
       const sync = await api.syncPr(project, r.slug);
       setSummary(sync.summary);
       const { pr } = sync;
-      toast(pr.state ? `${r.slug}: PR ${pr.number ? `#${pr.number} ` : ''}is ${pr.state.toLowerCase()}${pr.ci && pr.ci !== 'none' ? `, CI ${pr.ci}` : ''}${pr.conflicts === 'conflicting' ? ', conflicts with the base' : ''}; ${sync.count} comment(s)${sync.notes?.length ? `; ${sync.notes.join('; ')}` : ''}${sync.err?.length ? `; ${sync.err.join(' ')}` : ''}` : `${r.slug}: no PR status (GitHub did not answer)${sync.err?.length ? `; ${sync.err.join(' ')}` : ''}`);
+      toast(pr.state ? `${r.slug}: PR ${pr.number ? `#${pr.number} ` : ''}is ${pr.isDraft ? 'a draft' : pr.state.toLowerCase()}${pr.ci && pr.ci !== 'none' ? `, CI ${pr.ci}` : ''}${pr.conflicts === 'conflicting' ? ', conflicts with the base' : ''}; ${sync.count} comment(s)${sync.notes?.length ? `; ${sync.notes.join('; ')}` : ''}${sync.err?.length ? `; ${sync.err.join(' ')}` : ''}` : `${r.slug}: no PR status (GitHub did not answer)${sync.err?.length ? `; ${sync.err.join(' ')}` : ''}`);
+      onRefresh();
     } catch (e) { toast(`${r.slug}: ${e instanceof Error ? e.message : String(e)}`); } finally { setSyncing(false); }
+  };
+  const markReady = async () => {
+    setMarking(true);
+    try {
+      const m = await api.markPrReady(project, r.slug);
+      toast(m.ok ? `${r.slug}: PR ready for review${m.err?.length ? `; ${m.err.join(' ')}` : ''}` : `${r.slug}: could not mark the PR ready: ${(m.err || []).join(' ')}`);
+      onRefresh();
+    } catch (e) { toast(`${r.slug}: ${e instanceof Error ? e.message : String(e)}`); } finally { setMarking(false); }
   };
   const waiting = awaitsMerge(r);
   const what = r.questions ? `${r.questions} question${r.questions > 1 ? 's' : ''} to answer`
@@ -81,8 +91,11 @@ function RunCardView({ r, on, select }: { r: RunCard; on: boolean; select(): voi
       <span><span class={`chip chip-${chip}`}>{label}</span></span>
       <div class="b-pr col small" style={{ gap: '4px', minWidth: 0 }}>
         {r.pullRequest?.url
-          ? <span class="mono"><a href={r.pullRequest.url} target="_blank" rel="noreferrer">{r.pullRequest.number ? `#${r.pullRequest.number}` : 'PR'}</a>{r.pullRequest.state ? ` ${r.pullRequest.state.toLowerCase()}` : ''}{r.pullRequest.failed ? ' · last check failed' : ''}</span>
+          ? <span class="mono"><a href={r.pullRequest.url} target="_blank" rel="noreferrer">{r.pullRequest.number ? `#${r.pullRequest.number}` : 'PR'}</a>{r.pullRequest.state ? ` ${r.pullRequest.isDraft ? 'draft PR' : r.pullRequest.state.toLowerCase()}` : ''}{r.pullRequest.failed ? ' · last check failed' : ''}</span>
           : <span class="muted">{r.state === 'done' ? 'no PR' : r.changes ? `${r.changes.changed} files` : '—'}</span>}
+        {r.state === 'done' && r.pullRequest?.isDraft === true && r.pullRequest.state !== 'MERGED' && (
+          <button type="button" class="btn btn-xs btn-p" disabled={marking} onClick={markReady} title="Mark this draft pull request as ready for review">{marking ? 'Marking…' : 'Mark ready'}</button>
+        )}
         {r.state === 'done' && r.pullRequest?.state === 'OPEN' && <PrCi ci={r.pullRequest.ci} failing={r.pullRequest.failing} summary={summary} busy={fixing} onFix={fix} conflicts={r.pullRequest.conflicts} resolveBusy={resolving} onResolve={resolve} />}
       </div>
       <RunCost r={r} />
@@ -134,7 +147,7 @@ function Drawer({ slug }: { slug: string }) {
   );
 }
 
-export function Board({ board, error }: { board: BoardData | null; error: string }) {
+export function Board({ board, error, onRefresh }: { board: BoardData | null; error: string; onRefresh(): void }) {
   const { project, go, toast } = useApp();
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [filter, setFilter] = useState('');
@@ -216,7 +229,7 @@ export function Board({ board, error }: { board: BoardData | null; error: string
       {chosen.length > 0 && <Cli commands={chosen.map(s => ['start', s])} />}
       <section class="pn blist" aria-label="Items">
         <div class="bhead lbl"><span /><span>Item</span><span>Stages</span><span>Status</span><span>Pull request</span><span>Cost</span><span /></div>
-        {runs.map(r => <RunCardView key={r.slug} r={r} on={selected === r.slug} select={() => setSelected(s => (s === r.slug ? '' : r.slug))} />)}
+        {runs.map(r => <RunCardView key={r.slug} r={r} on={selected === r.slug} select={() => setSelected(s => (s === r.slug ? '' : r.slug))} onRefresh={onRefresh} />)}
         {items.map(i => (
           <div class={`brow ${picked[i.slug] ? 'brow-on' : ''}`} key={i.slug}>
             <input type="checkbox" aria-label={`Select ${i.slug}`} checked={!!picked[i.slug]} disabled={i.status === 'completed' || !i.hasBrief} title={i.hasBrief ? undefined : 'This item has no brief.md yet'} onChange={e => setPicked(m => ({ ...m, [i.slug]: (e.target as HTMLInputElement).checked }))} />
