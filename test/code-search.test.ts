@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, expect, test } from 'vitest';
-import { codeIndexers, codeSearchErrors, codeSearchFor, codeSearchGuide } from '../src/config/codeSearch.js';
+import { describe, it, expect, test } from 'vitest';
+import { codeIndexers, codeSearchErrors, codeSearchFor, codeSearchGuide, inspectCodeSearch } from '../src/config/codeSearch.js';
 import { resolve } from '../src/config/settings.js';
 import { renderSkill, renderTemplate } from '../src/config/skills.js';
 import { pathWith, run, tmp } from './helpers.js';
@@ -187,5 +187,56 @@ describe('command line', () => {
     const bad = await cli(['skill', 'nope']);
     expect(bad.status).toBe(2);
     expect(bad.stderr).toMatch(/^ERROR: no skill "nope" \(skills: .*plan.*triage/);
+  });
+});
+
+describe('inspecting code search for setup', () => {
+  it('reports resolved paths, independent installation and indexing, and manual Graphify instructions', () => {
+    const dir = project('.cache/graft/');
+    const file = { agent: { codeIndexers: { graft: { index: '.cache/graft' } } } };
+    const status = inspectCodeSearch(dir, file, pathWith('graphify'));
+    expect(status).toMatchObject({ setting: 'auto', current: 'none' });
+    expect(status.indexers).toEqual(expect.arrayContaining([
+      { name: 'graft', command: 'graft', index: '.cache/graft', installed: false, indexed: true,
+        canBuild: false, build: 'graft build', setup: expect.stringContaining('npm install -g @nanonets/graft') },
+      { name: 'graphify', command: 'graphify', index: 'graphify-out/graph.json', installed: true, indexed: false,
+        canBuild: false, build: expect.stringContaining('/graphify .'), setup: expect.stringContaining('graphifyy') },
+    ]));
+    const ready = inspectCodeSearch(dir, file, pathWith('graft'));
+    expect(ready.current).toBe('graft');
+    expect(ready.indexers.find(i => i.name === 'graft')).toMatchObject({ installed: true, indexed: true, canBuild: true });
+  });
+
+  it('selects an installed indexer without an index path and serializes absent fields as null', () => {
+    const status = inspectCodeSearch(project(), { agent: { ...CUSTOM, codeSearch: 'sourcegraph' } }, pathWith('src'));
+    expect(status).toMatchObject({ setting: 'sourcegraph', current: 'sourcegraph' });
+    expect(status.indexers).toContainEqual({ name: 'sourcegraph', command: 'src', index: null, installed: true,
+      indexed: false, setup: null, build: null, canBuild: false });
+  });
+
+  it.each([
+    { name: 'replacement instructions only', argv: undefined, programs: ['graft'], canBuild: false },
+    { name: 'replacement executable available', argv: ['builder', 'a b'], programs: ['graft', 'builder'], canBuild: true },
+    { name: 'replacement executable missing', argv: ['builder'], programs: ['graft'], canBuild: false },
+    { name: 'indexer command missing', argv: ['builder'], programs: ['builder'], canBuild: false },
+  ])('resolves Graft build overrides with $name', ({ argv, programs, canBuild }) => {
+    const graft = { build: 'graft alternate', ...(argv ? { buildArgv: argv } : {}) };
+    const status = inspectCodeSearch(project(), { agent: { codeIndexers: { graft } } }, pathWith(...programs));
+    expect(status.indexers.find(i => i.name === 'graft')).toMatchObject({ build: graft.build, canBuild });
+  });
+
+  it.each([
+    { name: 'empty vector', invalid: [] }, { name: 'invalid program', invalid: ['two words'] },
+    { name: 'non-string argument', invalid: ['builder', 1] }, { name: 'NUL in argument', invalid: ['builder', 'a\0b'] },
+    { name: 'scalar', invalid: 'builder' },
+  ])('validates buildArgv through resolve for $name', ({ invalid }) => {
+    const root = project();
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'jest' } }));
+    const errors = (buildArgv: unknown) => {
+      fs.writeFileSync(path.join(root, 'sdlc.config.json'), JSON.stringify({ agent: { codeIndexers: { graft: { buildArgv } } } }));
+      return resolve(root, { env: pathWith() }).errors;
+    };
+    expect(errors(['future-builder', 'a b', '$HOME'])).toEqual([]);
+    expect(errors(invalid).join('\n')).toMatch(/buildArgv/i);
   });
 });

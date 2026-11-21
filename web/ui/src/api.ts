@@ -153,13 +153,52 @@ export interface TriageQuestion { id: string; text: string; suggested: string }
 export interface TriageRun { runId: string; state: TriageState; worktree: string; slugs: string[]; drafts: { slug: string; status: DraftStatus }[] }
 export interface TriageEvent { event: string; data: any }
 
-export class ApiError extends Error {}
+export interface CodeIndexerStatus {
+  name: string;
+  command: string | null;
+  index: string | null;
+  installed: boolean;
+  indexed: boolean;
+  setup: string | null;
+  build: string | null;
+  canBuild: boolean;
+}
+
+export interface CodeSearchStatusResponse {
+  setting: string;
+  current: string;
+  indexers: CodeIndexerStatus[];
+}
+
+export interface CodeSearchSetupRequest {
+  indexer: string;
+  build?: boolean;
+}
+
+export interface CodeSearchSetupResponse {
+  ok: boolean;
+  codeSearch: string;
+  output?: string;
+  checks: Check[];
+}
+
+export class ApiError extends Error {
+  output?: string;
+  constructor(message: string, output?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.output = output;
+  }
+}
 
 async function failure(r: Response): Promise<ApiError> {
   const text = await r.text();
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
-  return new ApiError((data && data.error) || text || `${r.status} ${r.statusText}`);
+  return new ApiError(
+    (data && data.error) || text || `${r.status} ${r.statusText}`,
+    data && typeof data.output === 'string' ? data.output : undefined,
+  );
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -211,6 +250,9 @@ export const api = {
   projects: () => call<{ projects: Project[] }>('GET', '/api/projects'),
   addProject: (path: string, name?: string) => call<Outcome & { projects: Project[] }>('POST', '/api/projects', { path, name }),
   doctor: (project: string) => call<{ checks: Check[] }>('GET', `${p(project)}/doctor`),
+  codeSearch: (project: string) => call<CodeSearchStatusResponse>('GET', `${p(project)}/code-search`),
+  setupCodeSearch: (project: string, body: CodeSearchSetupRequest) =>
+    call<CodeSearchSetupResponse>('POST', `${p(project)}/code-search/setup`, body),
   runEventsUrl: (project: string, slug: string) => `${r(project, slug)}/events`,
   eventsUrl: (project: string) => `/api/events?project=${encodeURIComponent(project)}`,
   board: (project: string) => call<Board>('GET', `${p(project)}/board`),

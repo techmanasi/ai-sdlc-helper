@@ -1,15 +1,23 @@
 // The registered projects (and the folder ui started in), their doctor checks, and adding one.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, type Check, type Project, type SettingsView, type Source } from './api';
-import { dialogKey, firstFocusable, focusable, type FocusCandidate } from './dialog';
+import { dialogKey, firstFocusable, focusable } from './dialog';
+import { wrappers } from './dialogDom';
+import { CodeSearchModal } from './CodeSearchModal';
+import { doctorSetupAction, configuredChecks } from './codeSearchSetup';
 import { ModelSelect } from './ModelSelect';
 import { Cli, ErrorBox, useApp } from './ui';
 
-function Doctor({ name }: { name: string }) {
+function Doctor({ name, onSetup, register }: {
+  name: string;
+  onSetup(project: string): void;
+  register(refresh: (checks?: Check[]) => void): void;
+}) {
   const [checks, setChecks] = useState<Check[] | null>(null);
   const [error, setError] = useState('');
-  const run = () => { setChecks(null); setError(''); api.doctor(name).then(r => setChecks(r.checks)).catch(e => setError((e as Error).message)); };
-  useEffect(run, [name]);
+  const load = () => { setError(''); api.doctor(name).then(r => setChecks(r.checks)).catch(e => setError((e as Error).message)); };
+  const refresh = (next?: Check[]) => { if (next) setChecks(next); load(); };
+  useEffect(() => { register(refresh); load(); }, [name]);
   if (error) return <ErrorBox error={error} />;
   if (!checks) return <p class="small muted">Checking…</p>;
   const failed = checks.filter(c => !c.ok && c.required).length;
@@ -19,10 +27,13 @@ function Doctor({ name }: { name: string }) {
       {checks.map(c => (
         <div style={{ display: 'grid', gridTemplateColumns: '22px minmax(0,1fr)', gap: '2px 8px', padding: '7px 0', borderTop: '1px solid var(--ln)', fontSize: '13px' }}>
           <span class={c.ok ? 's-done' : c.required ? 's-failed' : 's-paused'}>{c.ok ? '✔' : c.required ? '✘' : '!'}</span>
-          <span><strong>{c.name}</strong> · {c.detail}{!c.ok && c.fix && <><br /><span class="muted">Fix: {c.fix}</span></>}</span>
+          <span>
+            <strong>{c.name}</strong> · {c.detail}{!c.ok && c.fix && <><br /><span class="muted">Fix: {c.fix}</span></>}
+            {doctorSetupAction(c) && <><br /><button class="btn btn-s indexer-action" type="button" onClick={() => onSetup(name)}>Setup Code Indexer</button></>}
+          </span>
         </div>
       ))}
-      <div class="row" style={{ paddingTop: '10px' }}><button class="btn btn-s" type="button" onClick={run}>Run doctor again</button></div>
+      <div class="row" style={{ paddingTop: '10px' }}><button class="btn btn-s doctor-rerun" type="button" onClick={() => { setChecks(null); load(); }}>Run doctor again</button></div>
     </div>
   );
 }
@@ -301,16 +312,6 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
   );
 }
 
-const FOCUSABLE = 'button, input, select, textarea, a[href], [tabindex]';
-type Wrapped = FocusCandidate & { el: HTMLElement };
-const wrappers = (root: HTMLElement | null): Wrapped[] =>
-  root ? Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).map(el => ({
-    el,
-    disabled: el.matches(':disabled'),
-    visible: el.getClientRects().length > 0,
-    tabIndex: el.tabIndex,
-  })) : [];
-
 export function Projects({ projects, reload }: { projects: Project[]; reload(): void }) {
   const { project, go, toast } = useApp();
   const dialog = useRef<HTMLDivElement>(null);
@@ -321,7 +322,10 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [setupFor, setSetupFor] = useState<string | null>(null);
   const [rev, setRev] = useState(0);
+  const doctorRefresh = useRef(new Map<string, (checks?: Check[]) => void>());
+  const register = (project: string, fn: (checks?: Check[]) => void) => { doctorRefresh.current.set(project, fn); };
   const close = () => setEditing(null);
 
   useEffect(() => {
@@ -358,7 +362,7 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
             </div>
             <div class="pb col" style={{ gap: '8px' }}>
               <span class="mono small muted" style={{ overflowWrap: 'anywhere' }}>{p.path}</span>
-              <Doctor key={`${p.name}-${rev}`} name={p.name} />
+              <Doctor key={`${p.name}-${rev}`} name={p.name} onSetup={setSetupFor} register={fn => register(p.name, fn)} />
             </div>
           </section>
         ))}
@@ -395,6 +399,16 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
           </section>
         </div>
       )}
+      <CodeSearchModal
+        project={setupFor || project}
+        open={setupFor !== null}
+        onClose={() => setSetupFor(null)}
+        onConfigured={result => {
+          const target = setupFor;
+          if (target) doctorRefresh.current.get(target)?.(configuredChecks(result));
+        }}
+        focusFallback={() => document.querySelector<HTMLElement>('.doctor-rerun')}
+      />
     </div>
   );
 }

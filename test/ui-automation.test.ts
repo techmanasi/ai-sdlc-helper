@@ -6,7 +6,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, test } from 'vitest';
 
-const root = path.resolve(__dirname, '..');
+const root = process.cwd();
 const tool = path.join(root, 'tools/UI-automation/sdlc-ui.js');
 const srcDir = path.join(root, 'web/ui/src');
 
@@ -75,6 +75,17 @@ describe('tools/UI-automation/sdlc-ui.js', () => {
       for (const l of h.labels) if (!src.includes(`aria-label="${l}"`)) missing.push(`${name}: aria-label ${l}`);
     }
     expect(missing).toEqual([]);
+  });
+
+  test('exposes code search setup dialog, indexer and build feedback hooks', () => {
+    const { api } = load();
+    const selectors = Object.entries(api.SELECTORS);
+    expect(selectors.some(([, value]) => value.includes('aria-label="Code Search Setup"'))).toBe(true);
+    expect(selectors.some(([name]) => /indexer.*card|card.*indexer/i.test(name))).toBe(true);
+    expect(selectors.some(([name]) => /indexer.*(status|badge)|(status|badge).*indexer/i.test(name))).toBe(true);
+    expect(selectors.some(([name]) => /indexer.*action|action.*indexer/i.test(name))).toBe(true);
+    expect(selectors.some(([name]) => /build.*(output|feedback|error)|(output|feedback|error).*build/i.test(name))).toBe(true);
+    expect(api.help()).toMatch(/code.?search|indexer/i);
   });
 
   test('the drift check sees a selector that is not in the markup', () => {

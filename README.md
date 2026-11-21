@@ -214,6 +214,43 @@ Usage: ai-sdlc-helper <command> [dir] [options]
 ```
 <!-- help:end -->
 
+## Code indexer setup in the web UI
+
+The web dashboard configures code indexers without leaving the browser. On the **Projects** page, a failing
+`code indexer` Doctor check offers **Setup Code Indexer** in its row; on **Settings**, the header's **Code Search**
+button is always available and a matching warning banner also offers **Setup Code Indexer**. Both open the same dialog
+for the selected project.
+
+The dialog shows each indexer's configured and effective setting, whether its binary is on PATH, and whether its index
+exists in the project (with the configured path). **Use** switches to an already indexed tool without rebuilding;
+**Rebuild Index** runs its build and then selects it; **Build Index** does both for an unindexed tool. A tool whose binary
+is missing shows copyable install instructions with its actions disabled. Built-in Graphify is a manual build: copy
+`/graphify .` into Claude Code, then **Refresh status** — once its index appears, **Configure** becomes available.
+A successful setup updates `agent.codeSearch` in `sdlc.config.json` and re-runs the Doctor checks; failures show the
+process output without changing the config.
+
+Custom indexers can declare literal process arguments with `buildArgv` while `build` stays display text:
+
+```json
+{
+  "agent": {
+    "codeSearch": "my-indexer",
+    "codeIndexers": {
+      "my-indexer": {
+        "command": "my-indexer",
+        "guide": "use my-indexer search",
+        "build": "rebuild the index (run locally)",
+        "buildArgv": ["my-indexer", "build", "--all"]
+      }
+    }
+  }
+}
+```
+
+`buildArgv`'s first element is the program (it and the indexer's `command` must be on PATH); the rest are passed as
+literal arguments with the shell disabled. Replacing a built-in's `build` text without providing `buildArgv` makes it
+display-only, so an unrelated path override keeps the built-in executable build.
+
 ## Development
 ```bash
 npm ci
