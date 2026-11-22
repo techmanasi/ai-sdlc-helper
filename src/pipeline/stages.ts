@@ -12,7 +12,7 @@ import { agentFor, harnessFor } from '../config/settings.js';
 import { at, setAside, stamp, stop, stopIfAborted, tick, type Ctx, type From } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agent.js';
 import {
-  newPassingTests, newTestFiles, repeatedTestNames, redCommitTestFiles, repairTestFiles, resultsAt, resultsNow, successCheck, targetTestFiles, testsPass, testsPassAt,
+  newPassingTests, newTestFiles, repeatedTestNames, redCommitTestFiles, repairTestFiles, resultsAt, resultsNow, runToLog, successCheck, targetTestFiles, testsPass, testsPassAt,
 } from './gates.js';
 import { finalisePattern, implementPattern, redPattern, repairPattern } from './git.js';
 import { renderPrompt } from './prompts.js';
@@ -81,19 +81,86 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 
 /** One line per error of a linter's output (ESLint's stylish format: a file line, then `line:col  error  message  rule` lines). */
 export function lintFailures(log: string): string[] {
-  const out: string[] = [];
-  let file = '';
-  for (const raw of log.split('\n')) {
-    const line = raw.replace(ANSI, '');
-    const hit = /^\s+(\d+):(\d+)\s+error\s+(.+?)(?:\s{2,}(\S+))?\s*$/.exec(line);
-    if (hit) out.push(`LINT: ${file || '(file)'}:${hit[1]}:${hit[2]} ${hit[3]}${hit[4] ? ` (${hit[4]})` : ''}`);
-    else if (/^\S/.test(line) && !/^(✖|>|npm |\d+ problems?)/.test(line) && /[\\/]/.test(line) && !/\s/.test(line.trim())) file = line.trim();
-  }
+  const out = lintEntries(log).map(e => e.text);
   if (!out.length) {
     const sample = log.split('\n').filter(l => /\berror\b/i.test(l)).slice(0, 5).map(l => `LINT: ${l.trim()}`);
     out.push(...sample);
   }
   return out;
+}
+
+/** The same lines, each with the file it belongs to (so a check can keep only the files it cares about). */
+function lintEntries(log: string): { file: string; text: string }[] {
+  const out: { file: string; text: string }[] = [];
+  let file = '';
+  for (const raw of log.split('\n')) {
+    const line = raw.replace(ANSI, '');
+    const hit = /^\s+(\d+):(\d+)\s+error\s+(.+?)(?:\s{2,}(\S+))?\s*$/.exec(line);
+    if (hit) out.push({ file, text: `LINT: ${file || '(file)'}:${hit[1]}:${hit[2]} ${hit[3]}${hit[4] ? ` (${hit[4]})` : ''}` });
+    else if (/^\S/.test(line) && !/^(✖|>|npm |\d+ problems?)/.test(line) && /[\\/]/.test(line) && !/\s/.test(line.trim())) file = line.trim();
+  }
+  return out;
+}
+
+/**
+ * The typecheck codes that are the test file's own text rather than the code it tests: an import without the extension
+ * the project's module resolution needs, a module-syntax mismatch, or a parse error. At the red gate the implementation
+ * is not written yet, so "cannot find module", a missing export and a type mismatch are expected there; these codes are
+ * not, and they still fail the project's typecheck after Implement, which may not edit a test file.
+ */
+const TEST_FILE_COMPILE_ERRORS = /^(?:TS1\d{3}|TS2834|TS2835|TS2792|TS1479|TS5097)$/;
+
+/** One line per typecheck error of <files> in a `tsc` log (`path(line,col): error TSxxxx: message`). */
+export function typecheckFailures(log: string, files: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of log.split('\n')) {
+    const hit = /^(.*?)\((\d+),(\d+)\): error (TS\d+): (.*)$/.exec(raw.replace(ANSI, ''));
+    if (!hit || !TEST_FILE_COMPILE_ERRORS.test(hit[4])) continue;
+    const file = hit[1].trim();
+    if (!files.some(f => file === f || file.endsWith(`/${f}`))) continue;
+    out.push(`TYPECHECK: ${file}(${hit[2]},${hit[3]}) ${hit[4]}: ${hit[5].trim()}`);
+  }
+  return out;
+}
+
+/**
+ * The project's own static checks (lint, typecheck) on the test files this task added or changed, run at the red gate.
+ * A test file the project cannot lint or compile is a defect in the tests, and only the Red tests agent may fix it:
+ * Implement may not edit a test file, so the run would otherwise spend its attempts there or a full CI round trip.
+ * Errors in any other file are ignored (at the red gate the code the tests describe does not exist yet), and a command
+ * that is not configured is not run.
+ */
+export async function staticCheckFailures(ctx: Ctx, files: string[]): Promise<string[]> {
+  const wanted = files.filter(f => f.trim() !== '');
+  const fails: string[] = [];
+  const logs: string[] = [];
+  if (!wanted.length) return fails;
+  const attributed = (file: string) => wanted.some(f => file === f || file.endsWith(`/${f}`));
+  if (ctx.config.lint) {
+    const logFile = at(ctx, `${ctx.log}/red-lint.log`);
+    await runToLog(ctx, ctx.config.lint, logFile);
+    const log = fs.readFileSync(logFile, 'utf8');
+    logs.push(`$ ${ctx.config.lint}\n${log.trim()}`);
+    fails.push(...lintEntries(log).filter(e => attributed(e.file)).map(e => e.text));
+  }
+  if (ctx.config.typecheck) {
+    const logFile = at(ctx, `${ctx.log}/red-typecheck.log`);
+    await runToLog(ctx, ctx.config.typecheck, logFile);
+    const log = fs.readFileSync(logFile, 'utf8');
+    logs.push(`$ ${ctx.config.typecheck}\n${log.trim()}`);
+    fails.push(...typecheckFailures(log, wanted));
+  }
+  if (fails.length) fs.writeFileSync(at(ctx, `${ctx.log}/red-checks.log`), `${logs.join('\n\n')}\n`);
+  return fails;
+}
+
+/** The retry note of the red gate: the agent that wrote the test files fixes them, never the source. */
+function staticRetryNote(fails: string[]): string {
+  return [
+    "The Red tests gate stopped the first attempt: the project's own static checks reject the test files you wrote, and no source change can fix that.",
+    "Fix the test files only. A relative import needs the extension the project's module resolution requires (for example './x.js' under node16/nodenext), and every lint error must be gone:",
+    fails.join('\n'),
+  ].join('\n');
 }
 
 export function formatCheckFailures(ctx: Ctx): string[] {
@@ -299,9 +366,12 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   const baseSha = (firstRedSha && !fixing ? ctx.git.tryRun('rev-parse', '--verify', `${firstRedSha}^`)?.trim() : '') || ctx.git.head();
   // The agent runs at most twice: a retry (not in the Review fix loop) when the new tests repeat a name or already pass.
   const maxAttempts = fixing ? 1 : 2;
+  // The budget the run page shows. A test file the project's static checks reject earns the one retry even in the Review
+  // fix loop: the defect is in the tests, and only the Red tests agent may edit them.
+  let limit = maxAttempts;
   let gateFiles: string[] = [];
   for (let attempt = 1; ; attempt++) {
-    ctx.status.attempt = `${attempt}/${fixing ? 1 : maxAttempts}`;
+    ctx.status.attempt = `${attempt}/${limit}`;
     ctx.status.write();
     ctx.status?.beginStep?.('agent');
     if (attempt === 1) await runAgent(ctx, 'tests', 'red-tests');
@@ -321,6 +391,22 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
     const allTaskTests = [...new Set([...existingTests, ...added])];
     if (allTaskTests.length === 0) stop(ctx, `RED GATE FAILED: the Red tests agent added or changed no test file. See ${ctx.log}/tests.log`);
     gateFiles = added.length > 0 ? added : existingTests;
+    // A test file the project's lint or typecheck rejects fails CI after Implement, which may not edit it: catch it here,
+    // where the agent that wrote the test can fix it, before the suite is even run.
+    const staticFails = await staticCheckFailures(ctx, allTaskTests);
+    if (staticFails.length) {
+      const commands = [ctx.config.lint, ctx.config.typecheck].filter(Boolean).join(', ');
+      const head = `RED GATE FAILED: ${staticFails.length} static check failure(s) in the new test files (${commands}):`;
+      if (attempt < 2) {
+        ctx.out(`   .. Red tests retry (a new test file fails the project's static checks): running the Red tests agent once more`);
+        limit = Math.max(limit, 2);
+        retryNote = staticRetryNote(staticFails);
+        continue;
+      }
+      keepError(ctx, 'red gate', `${head}\n${staticFails.join('\n')}`);
+      const shown = staticFails.slice(0, 20).concat(staticFails.length > 20 ? [`... and ${staticFails.length - 20} more`] : []);
+      stop(ctx, [head, ...shown, `See ${ctx.log}/red-checks.log`].join('\n'), 1, 'red-tests');
+    }
     const redPassed = hasImplSince(ctx, firstRedSha) && !fixing
       ? testsPassAt(ctx, firstRedSha, allTaskTests, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true })
       : testsPass(ctx, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true });

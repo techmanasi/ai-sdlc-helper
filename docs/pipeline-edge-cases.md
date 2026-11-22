@@ -126,3 +126,12 @@ Entry format: **Symptom** (what the user sees), **How to tell** (where to look),
   - The resolved new branch is not checked locally before it is pushed (Red tests and the later gates check it); Resolve conflicts checks its own result.
   - A pull request opened from the run page for a finished run (`createPrForCompleted`) links it on the run's branch only; the main checkout's brief is not edited there. With no checkout of the branch left, the link is kept in the run record instead.
 - **Status:** handled (open points above).
+
+## 11. Implement exhausts its attempts on a test file that does not compile
+
+- **Symptom:** Implement's last attempt changes the source, all its targeted tests pass, then CI's `check` jobs fail on an `error TS2835` (or `TS1005`) in a file under `test/` or `web/test/`; the stage ends with `GREEN GATE FAILED after 4 attempts and no test defect was claimed` (seen on `ui-code-indexer-setup`, 2026-11-20).
+- **How to tell:** `logs/tests.log` names a test file and a TypeScript error, not a failing test. The local gate had passed because the runner resolves relative imports without the extension `tsc` requires under `NodeNext`. The red-tests agent wrote the file; Implement is forbidden to edit it, so it cannot fix an import inside it.
+- **Cause:** the red gate ran only the test runner, never the project's own lint/typecheck; a test file that CI cannot compile left Red tests and failed the first Implement push.
+- **What to do:** the run now reports `RED GATE FAILED: … static check failure(s) in the new test files` and resumes at **Red tests**; the retry carries the compiler error. To repair an older run by hand, correct the import (for example `'../ui/src/api.js'`) in the test file, then run again from Red tests. Do not ask Implement to edit a test.
+- **Gap:** a chained typecheck script (`tsc -p test && tsc -p web`) stops at its first failure, so a later project's errors can be missed by the red gate; the green gate and CI still run the whole command.
+- **Status:** fixed (the red gate runs the project's `lint` and `typecheck` commands on the task's test files; only errors in those files stop it, and errors about code the tests expect to be written are ignored).
