@@ -1,11 +1,12 @@
 // The registered projects (and the folder ui started in), their doctor checks, and adding one.
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { api, type Check, type Project, type SettingsView, type Source } from './api';
+import { api, type Check, type ModelInfo, type Project, type SettingsView, type Source } from './api';
 import { dialogKey, firstFocusable, focusable } from './dialog';
 import { wrappers } from './dialogDom';
 import { CodeSearchModal } from './CodeSearchModal';
 import { doctorSetupAction, configuredChecks } from './codeSearchSetup';
 import { ModelSelect } from './ModelSelect';
+import { configValue } from './modelFilter';
 import { Cli, ErrorBox, useApp } from './ui';
 
 function Doctor({ name, onSetup, register }: {
@@ -62,13 +63,22 @@ function Origin({ own, def, same, files }: { own: RowSources; def?: RowSources; 
   return <span class="small muted" style={{ lineHeight: 1.3 }} title={title}>{text}</span>;
 }
 
+function selectedInfo(models: ModelInfo[], value: string) {
+  return models.find(m => m.id === value || configValue(m, models) === value);
+}
+
+function compatibleEffort(info: ModelInfo | undefined, effort: string): string {
+  if (info?.supportsEffort === false || (info?.supportedEfforts && !info.supportedEfforts.includes(effort))) return '';
+  return effort;
+}
+
 /** The three pickers of one row. The model list follows the agent; the effort shows only for models that take one. */
 function Pickers({ id, pick, set, data, harness, inherit }: {
   id: string; pick: Pick; set(p: Pick): void; data: SettingsView; harness: string; inherit: { agent: string; model: string; effort: string };
 }) {
   const models = data.models[harness] || [];
   const shownModel = pick.model || inherit.model;
-  const info = models.find(m => m.id === shownModel);
+  const info = selectedInfo(models, shownModel);
   const takesEffort = !info || info.supportsEffort;
   const change = (patch: Partial<Pick>) => set({ ...pick, ...patch });
   return (
@@ -84,12 +94,15 @@ function Pickers({ id, pick, set, data, harness, inherit }: {
       </select>
       <ModelSelect name={id} models={models} value={pick.model} harness={harness}
         defaultLabel={inherit.model ? `default (${inherit.model})` : 'default'}
-        onChange={model => change({ model })} />
+        onChange={model => {
+          const next = selectedInfo(models, model || inherit.model);
+          change({ model, effort: compatibleEffort(next, pick.effort) });
+        }} />
       {takesEffort
         ? (
           <select id={`${id}-e`} class="inp mono" aria-label="effort" value={pick.effort} onChange={e => change({ effort: (e.target as HTMLSelectElement).value })}>
             <option value="">{inherit.effort ? `default (${inherit.effort})` : 'default'}</option>
-            {unique(data.efforts).map(x => <option value={x}>{x}</option>)}
+            {unique(info?.supportedEfforts ?? data.efforts).map(x => <option value={x}>{x}</option>)}
           </select>
         )
         : <span class="small muted">no effort</span>}
@@ -196,6 +209,9 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
 
   const grid = { display: 'grid', gridTemplateColumns: 'auto repeat(3, minmax(0, 1fr)) minmax(120px, 170px)', gap: '4px 8px', alignItems: 'center' } as const;
   const defFile = data.fileAgent;
+  const defModels = data.models[def.harness] || [];
+  const inheritedModel = scope === 'personal' && def.harness === (defFile.harness || 'claude') ? defFile.model || '' : '';
+  const defInfo = selectedInfo(defModels, def.model || inheritedModel);
   // The file's view of itself: every setting it holds comes from the file. (The personal ones are named in the notice above.)
   const own = (a: { harness?: string; model?: string; effort?: string }): RowSources => Object.fromEntries(FIELD_NAMES.filter(f => a[f]).map(f => [f, 'project'])) as RowSources;
   const shown = scope === 'project'
@@ -233,15 +249,15 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
         }}>
           {unique(data.harnesses).map(h => <option value={h}>{h}</option>)}
         </select>
-        <ModelSelect name="project default" models={data.models[def.harness] || []} value={def.model} harness={def.harness}
+        <ModelSelect name="project default" models={defModels} value={def.model} harness={def.harness}
           defaultLabel={scope === 'personal' && defFile.model && def.harness === (defFile.harness || 'claude') ? `project file (${defFile.model})` : 'per-stage default'}
-          onChange={model => setDef({ ...def, model })} />
-        {(data.models[def.harness] || []).find(m => m.id === def.model)?.supportsEffort === false
+          onChange={model => setDef({ ...def, model, effort: compatibleEffort(selectedInfo(defModels, model || inheritedModel), def.effort) })} />
+        {defInfo?.supportsEffort === false
           ? <span class="small muted">no effort</span>
           : (
             <select id="def-e" class="inp mono" aria-label="effort" value={def.effort} onChange={e => setDef({ ...def, effort: (e.target as HTMLSelectElement).value })}>
               <option value="">{scope === 'personal' && defFile.effort && def.harness === (defFile.harness || 'claude') ? `project file (${defFile.effort})` : 'per-stage default'}</option>
-              {unique(data.efforts).map(x => <option value={x}>{x}</option>)}
+              {unique(defInfo?.supportedEfforts ?? data.efforts).map(x => <option value={x}>{x}</option>)}
             </select>
           )}
         <Origin own={shown.top} files={data.files} />

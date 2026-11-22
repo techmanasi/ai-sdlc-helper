@@ -78,6 +78,28 @@ describe('Pluggable Agent Harness Subsystem', () => {
         .toEqual({ model: 'gemini-3.8-flash-medium', effort: undefined });
     });
 
+    it('discovers effort independently of model availability and uses it when launching', async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-effort-'));
+      const binary = path.join(dir, 'agy');
+      fs.writeFileSync(binary, `#!/bin/sh
+case "$1:$2" in
+  models:) printf 'claude-opus-4-6-thinking\\tOpus\\ncustom-id\\tCustom\\nunknown-id\\tUnknown\\n' ;;
+  --model:claude-opus-4-6-thinking) echo '{"command":{"name":"effort","data":{"adjustable":false}}}' ;;
+  --model:custom-id) echo '{"command":{"name":"effort","data":{"adjustable":true,"available":["low","high"]}}}' ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o755 });
+      const agy = new AgyHarness();
+      try {
+        const models = await agy.listModels({ AGY: binary });
+        expect(models.map(m => [m.id, m.supportedEfforts])).toEqual([
+          ['claude-opus-4-6-thinking', []], ['custom-id', ['low', 'high']], ['unknown-id', []],
+        ]);
+        expect(agy.selectStageModel({ configuredModel: models[0].id, configuredEffort: 'medium' }).effort).toBeUndefined();
+        expect(agy.selectStageModel({ configuredModel: 'custom-id', configuredEffort: 'high' }).effort).toBe('high');
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    });
+
     it('compiles stage arguments with --mode accept-edits and --settings', () => {
       const inv = harness.compileStageArgs({
         prompt: 'build feature',
@@ -495,7 +517,12 @@ describe('Pluggable Agent Harness Subsystem', () => {
       ]);
     });
 
-    it('a harness claims its own ids, including the OpenCode providers it discovers', () => {
+    it('a harness claims its own ids, including the OpenCode providers it discovers', async () => {
+      const catalog = new OpencodeModelCatalogAdapter(async () => JSON.parse(fs.readFileSync('test/fixtures/opencode/model-list.json', 'utf8')));
+      const registry = new DefaultHarnessRegistry();
+      const opencode = new OpencodeHarness(catalog);
+      registry.register(opencode);
+      await opencode.listModels();
       expect(['opencode/gemini-4-carbon', 'opencode/claude-fable-5-2', 'opencode-go/kimi-k3.1-pro'].map(m => registry.ownerOf(m))).toEqual(['opencode', 'opencode', 'opencode']);
       expect(['agy/gemini-3.8-flash-medium', 'codex/gpt-6.1-sol'].map(m => registry.ownerOf(m))).toEqual(['agy', 'codex']);
       expect(['sonnet', 'opus', 'gemini-3.8-flash-medium', 'reg/org/m2', 'openrouter/openai/gpt-5'].map(m => registry.ownerOf(m))).toEqual([undefined, undefined, undefined, undefined, undefined]);

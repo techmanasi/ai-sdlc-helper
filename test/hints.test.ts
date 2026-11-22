@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { formatRecoveryCli, stageRecoveryHint } from '../src/pipeline/hints.js';
 
 describe('stageRecoveryHint diagnostics engine', () => {
+  it('identifies an unsupported effort flag without suggesting an account or model switch', () => {
+    const hint = stageRecoveryHint({ slug: 'item', stage: 'Implement', runOut: [
+      `agent 'impl-1' failed: invalid model selection: --effort is not supported for model "claude-opus-4-6-thinking"`,
+    ] });
+    expect(hint.manualAction?.instruction).toContain('Clear the separate effort');
+    expect(hint.autoAction?.command).toBe('ai-sdlc-helper pipeline item --from implement');
+  });
+
   it('sends new tests that already pass back to Plan and Spec, not to Red tests', () => {
     const recovery = stageRecoveryHint({
       slug: 'x', stage: 'Red tests', state: 'failed', exitCode: 1,

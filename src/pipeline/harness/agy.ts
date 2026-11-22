@@ -1,9 +1,27 @@
 import fs from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { promisify } from 'node:util';
+import { execFile, spawnSync } from 'node:child_process';
 import { which } from '../../shell.js';
 import type { AgentHarness, HarnessDetection, HarnessInvocation, HarnessModel, HarnessResult, StageCompileOptions } from './types.js';
 
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+const run = promisify(execFile);
+const fixedVariant = (model: string) => /-(low|medium|high|xhigh|max)$/i.test(model);
+
+/** agy models lists ids and display names. The read-only /effort command reports capabilities. */
+async function effortLevels(binary: string, model: string, env: NodeJS.ProcessEnv): Promise<string[]> {
+  if (fixedVariant(model)) return [];
+  try {
+    const { stdout } = await run(binary, ['--model', model, '-p', '/effort', '--output-format', 'json'], { env, timeout: 5000 });
+    const report = JSON.parse(stdout);
+    const data = report.command?.data;
+    if (report.command?.name === 'effort' && data?.adjustable === true && Array.isArray(data.available)) {
+      return data.available.filter((level: unknown) => typeof level === 'string');
+    }
+  } catch { /* Older CLIs may list the model without reporting its effort levels. */ }
+  return [];
+}
 
 export class AgyHarness implements AgentHarness {
   readonly id = 'agy' as const;
@@ -13,9 +31,14 @@ export class AgyHarness implements AgentHarness {
   readonly ownsModelIds = true;
   private modelCache: { models: HarnessModel[]; expiresAt: number } | null = null;
 
+  supportsSeparateEffort(model: string): boolean {
+    const info = this.modelCache?.models.find(entry => entry.id === model);
+    return !fixedVariant(model) && info?.supportsEffort !== false;
+  }
+
   selectStageModel(opts: { configuredModel?: string; configuredEffort?: string }): { model: string; effort?: string } {
     const model = opts.configuredModel || '';
-    return { model, effort: /-(low|medium|high|xhigh|max)$/i.test(model) ? undefined : opts.configuredEffort };
+    return { model, effort: this.supportsSeparateEffort(model) ? opts.configuredEffort : undefined };
   }
 
   async detect(env: NodeJS.ProcessEnv = process.env): Promise<HarnessDetection> {
@@ -43,9 +66,12 @@ export class AgyHarness implements AgentHarness {
     for (const line of result.stdout.split(/\r?\n/)) {
       const [id, ...label] = line.trim().split(/\t+/);
       if (!id || !label.length) continue;
-      const fixed = /-((low|medium|high|xhigh|max))$/i.exec(id)?.[1];
-      models.push({ id, name: label.join(' '), harness: this.id, supportsEffort: !fixed, supportedEfforts: fixed ? [] : undefined });
+      models.push({ id, name: label.join(' '), harness: this.id, supportsEffort: false });
     }
+    await Promise.all(models.map(async model => {
+      model.supportedEfforts = await effortLevels(binary, model.id, env);
+      model.supportsEffort = model.supportedEfforts.length > 0;
+    }));
     const out = models.length ? models : fallback;
     this.modelCache = { models: out, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };
     return out;

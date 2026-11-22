@@ -14,11 +14,9 @@ import { redPattern, repairPattern } from './git.js';
 import { resumeHint } from './hints.js';
 import { keepError } from './errors.js';
 import { agentFacts, appendRound, changedBetween, debugLeftovers, roundWarnings, snapshot } from './observe.js';
-import { DefaultHarnessRegistry } from './harness/registry.js';
+import { defaultRegistry } from './harness/registry.js';
 export { spawnAgentProcess, spawnClaude } from './agent-process.js';
 export type { AgentRequest, AgentSpawn } from './agent-process.js';
-
-const defaultRegistry = new DefaultHarnessRegistry();
 
 /**
  * The reset or quota text ("resets 1:10am (Asia/Dubai)", "rate limit reached", "quota exceeded") when an agent's

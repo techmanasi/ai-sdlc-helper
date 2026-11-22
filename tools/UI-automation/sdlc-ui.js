@@ -64,6 +64,8 @@
     usageTable: 'table.usage',
     resumePick: '#resume-pick',
     openPick: '#open-pick',
+    modelList: '.pick-list',
+    modelId: '.pick-id',
     providerFilter: '.pick-provider',
     handoffFinding: '#handoff-finding',
     resumeNote: '#resume-note',
@@ -284,6 +286,9 @@
     await sleep(50);
     return env();
   }
+  function modelOptions() {
+    return $$(SELECTORS.modelId, $(SELECTORS.modelList) || main()).map(text);
+  }
   function runOptions() {
     const d = $$('details', main()).find(x => text($('summary', x)).startsWith('Run options'));
     if (!d) return null;
@@ -429,7 +434,7 @@
     board, boardShow, boardFilter, pick, rowAction,
     completedTabs, selectCompleted, handoff, resumeWithNote,
     // run page
-    run, stages, stage, output, questions, answer, recovery, env, setEnv, runOptions, autoAccept, costTable, openDoc, closeDialog,
+    run, stages, stage, output, questions, answer, recovery, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
     // new item
     newItem,
     // code search setup

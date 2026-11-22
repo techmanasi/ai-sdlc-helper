@@ -6,6 +6,7 @@ import path from 'node:path';
 import { has } from '../util.js';
 import { loadRegistry, resolvePath } from '../models/index.js';
 import { EFFORT_LEVELS, agentFor } from '../config/settings.js';
+import { AgyHarness } from './harness/agy.js';
 import { defaultRegistry, ownsModelIds } from './harness/registry.js';
 import { AGENT_STAGES, SetupError, type AgentStage, type Ctx, type From } from './context.js';
 
@@ -150,7 +151,7 @@ export function stageModel(stage: AgentStage, menv: ModelEnv): StageModel {
   const owner = defaultRegistry.ownerOf(model);
   if (owner && owner !== harness.id) throw harnessMismatch(model, stage, harness.id, owner);
   const cached = harness.catalog?.getCachedModel?.(model);
-  const fixedAgy = harness.id === 'agy' && /-(low|medium|high|xhigh|max)$/i.test(model);
+  const fixedAgy = harness instanceof AgyHarness && !harness.supportsSeparateEffort(model);
   if (ownsModelIds(harness)) return { model, effort: fixedAgy || cached?.supportsEffort === false ? '' : effort, provider: { active: false, model, endpoint: '', key: '', effortFlag: true } };
   return { model, effort, provider: resolveProvider(model, stage, menv) };
 }
