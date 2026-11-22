@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { ciFailureReport, ciOf, ciSummaryOf, clearPrCache, conflictsOf, getPrStatusAsync } from '../src/pipeline/finalise.js';
 import { ciFailureInput } from '../src/pipeline/prompts.js';
 import { runContext } from '../src/runs/index.js';
-import { syncPr, writeCiFailure } from '../src/runs/prsync.js';
+import { markPrReadyForRun, syncPr, writeCiFailure } from '../src/runs/prsync.js';
 import { tmp, write } from './helpers.js';
 
 const GIT_ENV = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
@@ -36,8 +36,8 @@ let root: string;
 let env: NodeJS.ProcessEnv;
 
 /** A gh: `pr view` prints out.json; `run view 777 --log-failed` prints a CI log in gh's tab-separated format. */
-function ghShim(rollup: unknown[]): void {
-  fs.writeFileSync(path.join(base, 'out.json'), JSON.stringify({ url: 'https://github.com/o/r/pull/91', state: 'OPEN', number: 91, statusCheckRollup: rollup, comments: [], reviews: [] }));
+function ghShim(rollup: unknown[], isDraft = false): void {
+  fs.writeFileSync(path.join(base, 'out.json'), JSON.stringify({ url: 'https://github.com/o/r/pull/91', state: 'OPEN', number: 91, isDraft, statusCheckRollup: rollup, comments: [], reviews: [] }));
   const log = [
     'check (18)\tRun npm run lint\t2026-11-09T21:34:53.4641853Z ##[error]  70:81  error  Unnecessary escape character: \\/  no-useless-escape',
     "check (24)\tRun npm run lint\t2026-11-09T21:34:54.1Z ##[error]  70:81  error  Unnecessary escape character: \\/  no-useless-escape",
@@ -49,6 +49,7 @@ function ghShim(rollup: unknown[]): void {
   fs.writeFileSync(path.join(base, 'bin', 'gh'), `#!/bin/sh
 if [ "$1" = "run" ]; then cat "${base}/ci.log"; exit 0; fi
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then cat "${base}/out.json"; exit 0; fi
+if [ "$1" = "pr" ] && [ "$2" = "ready" ]; then sed 's/"isDraft":true/"isDraft":false/' "${base}/out.json" > "${base}/out.ready.json"; mv "${base}/out.ready.json" "${base}/out.json"; exit 0; fi
 exit 1
 `, { mode: 0o755 });
   env = { ...GIT_ENV, PATH: `${path.join(base, 'bin')}:${process.env.PATH}` };
@@ -127,6 +128,18 @@ describe('the CI of a pull request', () => {
     expect(fs.readFileSync(path.join(base, 'wts/add-tokens/Docs/backlog/add-tokens/pr-comments.md'), 'utf8')).toContain('please rename');
     expect(fs.existsSync(path.join(root, 'Docs/backlog/add-tokens/pr-comments.md'))).toBe(false);
     expect(fs.existsSync(path.join(base, 'wts/add-tokens/Docs/backlog/add-tokens/ci-failure.md'))).toBe(true);
+  });
+
+  test('marking a draft PR ready re-reads it, so the sync answer is no longer a draft', async () => {
+    ghShim([run('check (18)', 'SUCCESS')], true);
+    const ctx = runContext(root, env);
+    expect((await syncPr(ctx, 'add-tokens')).pr.isDraft).toBe(true);
+    clearPrCache();
+    const steps: string[] = [];
+    const r = await markPrReadyForRun(ctx, 'add-tokens', l => steps.push(l));
+    expect(r.ok).toBe(true);
+    expect(r.pr).toMatchObject({ state: 'OPEN', number: 91, isDraft: false });
+    expect(steps).toEqual(['Marking the PR ready for review', 'Asking GitHub for the PR state and CI', 'Saving the review comments']);
   });
 });
 

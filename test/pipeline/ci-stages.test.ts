@@ -263,7 +263,7 @@ describe('CI stage orchestration (spec 4, 7, 9)', () => {
   });
 });
 
-describe('Finalise waits for CI on the changes since Implement, and Create PR off leaves the draft', () => {
+describe('Finalise waits for CI on the changes since Implement, and leaves the PR ready for review', () => {
   const PR = 'https://github.com/acme/repo/pull/12';
   const HEAD = 'a'.repeat(40);
   const GREEN = 'b'.repeat(40);
@@ -334,21 +334,30 @@ describe('Finalise waits for CI on the changes since Implement, and Create PR of
     expect(ci.wait.mock.calls[0][1]).toBe(HEAD);
   });
 
-  it('Create PR off: the branch is pushed, the draft stays a draft and nothing says it was created or is ready', async () => {
+  it('Create PR off: the branch is pushed and the draft is still marked ready for review', async () => {
     const ctx = finaliseCtx(['docs/review-1.md'], false);
     await finaliseStage(cast(ctx));
     expect(ctx.git.run).toHaveBeenCalledWith('push', '-u', 'origin', 'sdlc/feature');
-    expect(ci.ready).not.toHaveBeenCalled();
+    expect(ci.ready).toHaveBeenCalledWith(root, PR, ctx.env, expect.any(Function));
     const out = output(ctx);
-    expect(out).toContain(`Draft pull request left as a draft (Create PR is off): ${PR}`);
-    expect(out).not.toMatch(/PR created|ready for review/);
-    expect(statusCi(ctx).prDraft).toBe(true);
+    expect(out).toContain(`Pull request ready for review: ${PR}`);
+    expect(out).not.toContain('left as a draft');
+    expect(statusCi(ctx).prDraft).toBe(false);
   });
 
-  it('Create PR off still waits for CI when Review changed the source', async () => {
+  it('a PR found outside CI is marked ready too (Create PR off, no CI draft)', async () => {
+    const ctx = context('local');
+    ctx.env = { SDLC_CREATE_PR: '0' } as typeof ctx.env;
+    // finalise()'s mock returns the PR; fullSuite is not ci, so no draft was opened at Red tests.
+    await finaliseStage(cast(ctx));
+    expect(ci.ready).toHaveBeenCalledWith(root, PR, ctx.env, expect.any(Function));
+    expect(output(ctx)).toContain(`Pull request ready for review: ${PR}`);
+  });
+
+  it('Create PR off still waits for CI when Review changed the source, then marks the PR ready', async () => {
     const ctx = finaliseCtx(['src/feature.ts'], false);
     await finaliseStage(cast(ctx));
     expect(ci.wait).toHaveBeenCalledTimes(1);
-    expect(ci.ready).not.toHaveBeenCalled();
+    expect(ci.ready).toHaveBeenCalledTimes(1);
   });
 });
