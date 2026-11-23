@@ -261,6 +261,18 @@ function checkIncoming(ctx: Ctx, before: string, resume: From): void {
   }
 }
 
+/** The git identity this run commits as: its email, or '' when git has none. */
+const ownEmail = (ctx: Ctx): string => (ctx.git.tryRun('config', '--get', 'user.email') || '').trim().toLowerCase();
+
+/** Commits on GitHub's branch (not in <local>) whose author is not this run's git user. With no git user, every one is. */
+function foreignCommits(ctx: Ctx, local: string, remote: string): Array<{ sha: string; who: string; subject: string }> {
+  const me = ownEmail(ctx);
+  return ctx.git.lines('log', '--reverse', '--format=%H%x09%ae%x09%an%x09%s', `${local}..${remote}`).map(l => {
+    const [sha, email, who, ...rest] = l.split('\t');
+    return { sha, email: (email || '').trim().toLowerCase(), who, subject: rest.join('\t') };
+  }).filter(c => !me || c.email !== me).map(({ sha, who, subject }) => ({ sha, who, subject }));
+}
+
 /** Incoming commits (sha, author, subject, files), the pipeline's apart from people's, and the local ones not on GitHub. */
 function branchNotes(ctx: Ctx, local: string, remote: string, mb: string): ModeNotes {
   const git = ctx.git;
@@ -416,6 +428,21 @@ export async function syncBranch(ctx: Ctx, opts: { caller: string; resume: From 
   }
   if (remote === before) { setRecordBranch(ctx, branch); return; }                       // F
   if (isAncestor(git, remote, before)) { setRecordBranch(ctx, branch); return; }         // J: ahead of GitHub
+
+  // GitHub has commits this run does not. Someone else's are never brought in mid-run: the run moves to a new branch from its
+  // own tip (uncommitted changes go along), and the old branch keeps them. Only the user's own commits are taken in below.
+  const foreign = foreignCommits(ctx, before, remote);
+  if (foreign.length) {
+    const list = foreign.map(c => `${c.sha.slice(0, 7)} ${c.who}: ${c.subject}`);
+    keep(ctx, 'commits by someone else', `origin/${branch} has commits by someone else: ${list.join('; ')}`);
+    if (moveSkipped(ctx.env)) {
+      stop(ctx, syncLines.foreignStopped(branch, list), 1, resume);
+    }
+    const to = moveTo(ctx, resume, before, { kind: 'foreign-commits', detail: list.join('; ') });
+    ctx.out(syncLines.foreignMoved(branch, to, list));
+    setRecordBranch(ctx, to);
+    return;
+  }
 
   const dirty = dirtyPaths(ctx).length > 0;
   if (isAncestor(git, before, remote)) {

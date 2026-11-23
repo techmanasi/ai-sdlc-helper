@@ -77,6 +77,10 @@ export const syncLines = {
     `BRANCH SYNC: STOPPED: commits that came from GitHub changed the locked test files (${files.join(', ')}). The tests are no longer the ones Red tests locked: restart at Implement to work from them`,
   docsChanged: (kind: 'Spec' | 'Plan', files: string[]): string =>
     `BRANCH SYNC: WARNING: commits that came from GitHub changed the ${kind.toLowerCase()} (${files.join(', ')}) after ${kind} was done; resume at ${kind} to work from it`,
+  foreignMoved: (from: string, to: string, commits: string[]): string =>
+    `BRANCH SYNC: GitHub's ${from} has commits by someone else (${commits.join('; ')}); they are not brought into this run. The run goes on on ${to}, from its own work. To use those changes, stop the pipeline and make them yourself; to give the agents more context, use the note boxes on the run page`,
+  foreignStopped: (from: string, commits: string[]): string =>
+    `BRANCH SYNC: STOPPED: GitHub's ${from} has commits by someone else (${commits.join('; ')}), and SDLC_MOVE_BRANCH keeps the run on this branch. They are not brought in: bring them in yourself or let the run move to a new branch, then resume`,
   offline: (why: string): string =>
     `BRANCH SYNC: WARNING: origin could not be reached (${why}): going on offline, with no rebase and no lease push until a fetch succeeds`,
 };
@@ -86,6 +90,15 @@ function syncRecovery(ctx: RecoveryContext, latest: string, stopping: boolean): 
   const stage = ctx.stage || 'Pipeline';
   const stash = /BRANCH SYNC: your uncommitted changes from ([^\n]+?) are saved in the stash (\w+) \(([^)]+)\)/.exec(latest);
   const tests = /BRANCH SYNC: STOPPED: commits that came from GitHub changed the locked test files \(([^)]*)\)/.exec(latest);
+  const foreign = /BRANCH SYNC: STOPPED: GitHub's (\S+) has commits by someone else/.exec(latest);
+  if (foreign) {
+    return {
+      stage,
+      diagnosis: `GitHub's ${foreign[1]} has commits by someone else, and SDLC_MOVE_BRANCH keeps the run on that branch, so the run stopped instead of taking them in.`,
+      autoAction: { label: `Resume at ${stage}`, command: resumeCommand(ctx.slug, toFromStage(ctx.stage)) },
+      manualAction: { instruction: 'Bring the commits in yourself (git pull --rebase), or clear SDLC_MOVE_BRANCH so the run moves to a new branch, then resume.' },
+    };
+  }
   if (tests) {
     return {
       stage,

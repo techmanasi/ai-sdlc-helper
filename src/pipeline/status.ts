@@ -53,6 +53,7 @@ export function moveReasonText(kind: string): string {
     case 'push-refused': return 'origin refused the push for a reason the push check does not know';
     case 'branch-deleted': return "its branch on origin was deleted after it had been pushed";
     case 'foreign-branch': return "origin's branch has no commits from this task";
+    case 'foreign-commits': return "origin's branch has commits by someone else, which are not brought into a running task";
     case 'checked-out-elsewhere': return 'its branch is checked out in another working tree';
     case 'remote-ahead': return "origin's branch has commits this run does not have";
     default: return kind || 'moved';

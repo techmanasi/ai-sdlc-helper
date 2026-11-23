@@ -37,7 +37,9 @@ let ctx: Ctx;
 
 const write = (dir: string, f: string, text: string) => { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), text); };
 const read = (dir: string, f: string) => fs.readFileSync(path.join(dir, f), 'utf8');
-/** A commit made by "somebody else" on GitHub's copy of a branch, through a second clone. */
+/** The second clone commits as someone else from now on (by default it is the user's own other machine: same git email). */
+const asStranger = () => { sh(other, 'config', 'user.email', 'p@example.com'); sh(other, 'config', 'user.name', 'Person'); };
+/** A commit on GitHub's copy of a branch, through a second clone (the user's own, unless asStranger() was called). */
 function onGithub(branch: string, file: string, text: string, subject = `chore: edit ${file}`) {
   sh(other, 'fetch', '-q', 'origin');
   sh(other, 'checkout', '-q', '-B', branch, `origin/${branch}`);
@@ -89,8 +91,8 @@ function setup(state: 'pushed' | 'local' | 'none') {
   sh(repo, 'commit', '-q', '-m', 'init');
   sh(repo, 'push', '-q', '-u', 'origin', 'main');
   spawnSync('git', ['clone', '-q', origin, other]);
-  sh(other, 'config', 'user.email', 'p@example.com');
-  sh(other, 'config', 'user.name', 'Person');
+  sh(other, 'config', 'user.email', 't@example.com');
+  sh(other, 'config', 'user.name', 'T elsewhere');
   const branch = `sdlc/${slug}`;
   if (state !== 'none') {
     sh(repo, 'checkout', '-q', '-b', branch);
@@ -407,6 +409,55 @@ describe('N and the rest', () => {
     sh(repo, 'checkout', '-q', '--detach', 'HEAD~1');
     expect(await stop(sync())).toBe(1);
     expect(lines.join('\n')).toContain(sh(repo, 'rev-parse', '--short', 'HEAD'));
+  });
+  it("someone else's commit on GitHub is not brought in: the run moves to sdlc/foo_2 from its own tip", async () => {
+    setup('pushed');
+    asStranger();
+    onGithub('sdlc/foo', 'theirs.txt', 'theirs\n');
+    const theirs = remoteTip('sdlc/foo');
+    const mine = sh(repo, 'rev-parse', 'HEAD');
+    await sync();
+    expect(onBranch()).toBe('sdlc/foo_2');
+    expect(sh(repo, 'rev-parse', 'HEAD')).toBe(mine);
+    expect(fs.existsSync(path.join(repo, 'theirs.txt'))).toBe(false);
+    expect(remoteTip('sdlc/foo')).toBe(theirs);
+    expect(ctx.status.movedFrom).toMatchObject({ branch: 'sdlc/foo', reason: 'foreign-commits' });
+    expect(lines.join('\n')).toMatch(/commits by someone else \(\w{7} Person: chore: edit theirs\.txt\); they are not brought into this run\. The run goes on on sdlc\/foo_2/);
+    expect(read(repo, `docs/backlog/${slug}/logs/errors.log`)).toContain('commits by someone else');
+  });
+  it("diverged with someone else's commit and a dirty tree: moves with the uncommitted change, no rebase and no push", async () => {
+    setup('pushed');
+    asStranger();
+    onGithub('sdlc/foo', 'app.txt', 'one\nTWO\nthree\n');
+    const theirs = remoteTip('sdlc/foo');
+    localCommit('mine.txt', 'x\n');
+    write(repo, 'app.txt', 'one\ntwo\nthree\nmine\n');
+    const mine = sh(repo, 'rev-parse', 'HEAD');
+    await sync();
+    expect(onBranch()).toBe('sdlc/foo_2');
+    expect(sh(repo, 'rev-parse', 'HEAD')).toBe(mine);
+    expect(read(repo, 'app.txt')).toBe('one\ntwo\nthree\nmine\n');
+    expect(remoteTip('sdlc/foo')).toBe(theirs);
+    expect(agent.calls.length).toBe(0);
+  });
+  it("one commit by someone else among the user's own is enough to move", async () => {
+    setup('pushed');
+    onGithub('sdlc/foo', 'own.txt', 'own\n');
+    asStranger();
+    onGithub('sdlc/foo', 'theirs.txt', 'theirs\n');
+    await sync();
+    expect(onBranch()).toBe('sdlc/foo_2');
+    expect(fs.existsSync(path.join(repo, 'own.txt'))).toBe(false);
+  });
+  it("SDLC_MOVE_BRANCH=0 with someone else's commit on GitHub: stops and changes nothing", async () => {
+    setup('pushed');
+    asStranger();
+    onGithub('sdlc/foo', 'theirs.txt', 'theirs\n');
+    const mine = sh(repo, 'rev-parse', 'HEAD');
+    ctx.env = { ...ctx.env, SDLC_MOVE_BRANCH: '0' };
+    expect(await stop(sync())).toBe(1);
+    expect([onBranch(), sh(repo, 'rev-parse', 'HEAD')]).toEqual(['sdlc/foo', mine]);
+    expect(lines.join('\n')).toContain("BRANCH SYNC: STOPPED: GitHub's sdlc/foo has commits by someone else");
   });
   it('a branch checked out in another worktree makes a new branch from its tip', async () => {
     setup('pushed');

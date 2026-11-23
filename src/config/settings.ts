@@ -81,7 +81,11 @@ export interface Config {
   agent: { harness: HarnessName; model: string | null; effort: string | null; stages: Record<string, StageSetting>; allowCommands: string[]; codeSearch: string; codeIndexer: CodeIndexer | null; notesDir: string };
   finalise: { envExample: boolean; maxFileBytes: number };
   /** Review: how many times its findings may send the run back through Red tests and Implement, and whether one agent or several models review. */
-  review: { maxLoops: number; mode: 'single' | 'multi'; reviewers: number };
+  review: {
+    maxLoops: number; mode: 'single' | 'multi'; reviewers: number;
+    /** Sync the branch with GitHub before each Red tests, Implement and Review round of Review's own fix loop (default true); false syncs once before Review. */
+    syncEachRound: boolean;
+  };
   ui: { timezone: string };
   /** The trace of repeating actions (src/trace.ts): on by default, rotating by size and age. */
   trace: TraceSettings;
@@ -173,7 +177,7 @@ export const SCHEMA: Json = {
     stages: { '*': { harness: [...HARNESS_IDS], model: 'string', effort: [...EFFORT_LEVELS] } },
     allowCommands: 'string[]', notesDir: 'string', codeSearch: 'string', codeSearchOrder: 'string[]', codeIndexers: { '*': INDEXER_SCHEMA } },
   finalise: { envExample: 'boolean', maxFileBytes: 'integer' },
-  review: { maxLoops: 'reviewLimit', mode: ['single', 'multi'], reviewers: 'integer' },
+  review: { maxLoops: 'reviewLimit', mode: ['single', 'multi'], reviewers: 'integer', syncEachRound: 'boolean' },
   ui: { timezone: 'string' },
   trace: { enabled: 'boolean', maxSizeKb: 'number', keepFiles: 'integer', maxAgeHours: 'number' },
   node: { version: 'string', manager: ['auto', ...NODE_MANAGERS, 'none'] },
@@ -418,6 +422,8 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
       // SDLC_REVIEW_MODE and SDLC_REVIEW_REVIEWERS are the run's own choice (Run options): they win over the file.
       mode: ['single', 'multi'].includes(String(env.SDLC_REVIEW_MODE)) ? env.SDLC_REVIEW_MODE as 'single' | 'multi' : (file.review && file.review.mode) || 'single',
       reviewers: Math.min(5, Math.max(2, /^\d+$/.test(env.SDLC_REVIEW_REVIEWERS || '') ? Number(env.SDLC_REVIEW_REVIEWERS) : (file.review && file.review.reviewers) || 2)),
+      // SDLC_REVIEW_SYNC_ROUNDS (0 or 1) is the run's own choice; else the file; else true.
+      syncEachRound: env.SDLC_REVIEW_SYNC_ROUNDS === '0' ? false : env.SDLC_REVIEW_SYNC_ROUNDS === '1' ? true : !(file.review && file.review.syncEachRound === false),
     },
     ui,
     trace,

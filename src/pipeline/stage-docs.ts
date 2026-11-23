@@ -7,9 +7,12 @@ import { draftPrText } from './ci.js';
 import { findOrCreatePr, firstLine } from './finalise.js';
 import { commitPrLink } from './pr-link.js';
 import { netGit } from './push-check.js';
+import { writeCostLog } from './cost-log.js';
 
 export async function commitStageDocs(ctx: Ctx, tag: 'spec' | 'plan', what: string): Promise<void> {
   const git = ctx.git;
+  // Every stage commit carries the task's cost log as it stood then (it lives under the docs folder).
+  try { await writeCostLog(ctx); } catch (e) { keepError(ctx, `${tag}: cost log`, (e as Error).message); }
   try {
     git.run('add', '-A', '--', ctx.docs);
     if (!git.lines('diff', '--cached', '--name-only', '--', ctx.docs).length) return;

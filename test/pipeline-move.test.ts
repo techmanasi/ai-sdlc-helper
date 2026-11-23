@@ -42,8 +42,9 @@ function withOrigin(f: Fixture): { origin: string; other: string } {
   git(f.dir, 'push', '-q', 'origin', 'main');
   const other = path.join(path.dirname(f.dir), 'other');
   spawnSync('git', ['clone', '-q', origin, other]);
-  git(other, 'config', 'user.email', 'o@example.com');
-  git(other, 'config', 'user.name', 'O');
+  // The second clone is the user's own other machine (same git identity) unless a test makes it someone else's.
+  git(other, 'config', 'user.email', git(f.dir, 'config', 'user.email'));
+  git(other, 'config', 'user.name', git(f.dir, 'config', 'user.name'));
   return { origin, other };
 }
 
@@ -179,7 +180,7 @@ describe('the push check after Plan', () => {
     expect(statusOf(f.dir).resume_from).toBe('red-tests');
   });
 
-  test('a resume from Plan that finds the red-tests commit reuses it: no new branch, no push and no pull request', async () => {
+  test('a resume from Plan that finds the red-tests commit reuses it: no new branch; the push from Plan opens the draft PR for the same branch', async () => {
     const f = fixture();
     fakeGh(f);
     let r = await pipeline(f, FAILS_AT_IMPLEMENT);
@@ -196,11 +197,18 @@ describe('the push check after Plan', () => {
     expect(r.calls).toEqual(['plan', 'red-tests', 'implement']);
     // Plan and Red tests run again: the existing red tests are kept (the stage says so and makes no new commit).
     expect(r.stdout).toMatch(/existing red tests in [0-9a-f]{7} are sufficient; no new test commit needed/);
-    // The run stays on its branch (fast-forwarded by the push check): no _2 branch, no push, no pull request.
+    // The run stays on its branch (fast-forwarded): no _2 branch. Plan pushes its docs, so origin's
+    // branch only moves forward, to this run's own commit; main is untouched.
     expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(BRANCH);
     expect(git(f.dir, 'branch', '--list', `${BRANCH}_*`)).toBe('');
-    expect(git(origin, 'for-each-ref')).toBe(refs);
-    expect(read(f.fake, 'gh-create.log')).toBe('');
+    const was = refs.split('\n').find(l => l.endsWith(`refs/heads/${BRANCH}`))!.split(' ')[0];
+    const now = git(origin, 'rev-parse', `refs/heads/${BRANCH}`);
+    expect(git(f.dir, 'merge-base', '--is-ancestor', was, now)).toBe('');
+    expect(git(f.dir, 'merge-base', '--is-ancestor', now, 'HEAD')).toBe('');
+    expect(git(origin, 'rev-parse', 'refs/heads/main')).toBe(refs.split('\n').find(l => l.endsWith('refs/heads/main'))!.split(' ')[0]);
+    // #158: the draft pull request opens at the first push with changes, for the run's own branch.
+    expect(read(f.fake, 'gh-create.log')).toContain(`--head ${BRANCH} `);
+    expect(read(f.fake, 'gh-create.log')).not.toContain(MOVED);
   });
 
   test('a start at Review does not run the check (local mode)', async () => {
@@ -411,3 +419,77 @@ function fixtureStage(f: Fixture, stage: string, script: string | null): void {
     fs.copyFileSync(path.join(fresh.fake, `${stage}.sh`), file);
   } else fs.writeFileSync(file, `set -e\n${script}\n`);
 }
+
+describe('Review fix rounds and the branch sync (review.syncEachRound)', () => {
+  const CHANGES = '{"verdict":"changes","blockers":[{"file":"src/sum.mjs","criterion":"sum of nothing is 0","reason":"no argument gives NaN"}],"missingTests":[]}';
+  /** Red tests notes its branch and whether GitHub's commit is in the tree; from its second start it adds one more failing test. */
+  const stages = {
+    'red-tests': `echo "cases" > "$FAKE_DOCS/test-cases-1.md"
+n=$(grep -c '^red-tests$' "$FAKE_DIR/calls.txt")
+if [ -f from-github.txt ]; then s=seen; else s="not seen"; fi
+echo "red-tests $n on $(git symbolic-ref --short HEAD): $s" >> "$FAKE_DIR/seen.txt"
+printf "import { test } from 'node:test';\\nimport assert from 'node:assert/strict';\\nimport { sum } from './sum.mjs';\\ntest('sum adds', () => assert.equal(sum(2, 3), 5));\\n" > src/sum.test.mjs
+if [ "$n" -gt 1 ]; then printf "import { test } from 'node:test';\\nimport assert from 'node:assert/strict';\\nimport { extra$n } from './extra$n.mjs';\\ntest('extra $n', () => assert.equal(extra$n(), $n));\\n" > src/extra$n.test.mjs; fi`,
+    implement: `printf 'export const sum = (a, b) => a + b;\\n' > src/sum.mjs
+n=$(grep -c '^implement$' "$FAKE_DIR/calls.txt")
+i=2; while [ "$i" -le "$n" ]; do printf "export const extra$i = () => $i;\\n" > src/extra$i.mjs; i=$((i+1)); done`,
+    // The first Review asks for changes and, meanwhile, a commit is pushed to the run's branch on GitHub from the second clone.
+    review: `echo "reviewed" > "$FAKE_DOCS/review-1.md"
+n=$(grep -c '^review$' "$FAKE_DIR/calls.txt")
+if [ "$n" -le 1 ]; then
+  printf '%s\\n' '${CHANGES}' > "$FAKE_DOCS/review.json"
+  git -C "$OTHER" fetch -q origin && git -C "$OTHER" checkout -q -B ${BRANCH} origin/${BRANCH}
+  echo pushed > "$OTHER/from-github.txt" && git -C "$OTHER" add from-github.txt && git -C "$OTHER" commit -q -m "docs(${SLUG}): a note pushed on GitHub" && git -C "$OTHER" push -q origin ${BRANCH}
+else printf '{"verdict":"pass","blockers":[],"missingTests":[]}\\n' > "$FAKE_DOCS/review.json"; fi`,
+  };
+  const configure = (f: Fixture, review: Record<string, unknown>): void => {
+    const file = path.join(f.dir, 'sdlc.config.json');
+    fs.writeFileSync(file, `${JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), review }, null, 2)}\n`);
+    git(f.dir, 'commit', '-q', '-am', 'review settings');
+  };
+  /** The second clone commits as someone else. */
+  const asStranger = (other: string): void => { git(other, 'config', 'user.email', 'o@example.com'); git(other, 'config', 'user.name', 'O'); };
+  const seen = (f: Fixture): string[] => read(f.fake, 'seen.txt').trim().split('\n');
+
+  test("by default a fix round syncs first: someone else's push during Review moves the fix round to a new branch, without their commit", async () => {
+    const f = fixture(stages);
+    fakeGh(f);
+    const { other } = withOrigin(f);
+    asStranger(other);
+    const r = await pipeline(f, { OTHER: other });
+    expect(r.calls.slice(0, 6)).toEqual(['spec', 'plan', 'red-tests', 'implement', 'review', 'red-tests']);
+    expect(seen(f).slice(0, 2)).toEqual([`red-tests 1 on ${BRANCH}: not seen`, `red-tests 2 on ${MOVED}: not seen`]);
+    expect(statusOf(f.dir).moved_from).toMatchObject({ branch: BRANCH, reason: 'foreign-commits' });
+    expect(r.stdout).toContain(`commits by someone else`);
+  });
+
+  test("by default the user's own push during Review is brought into the fix round on the same branch", async () => {
+    const f = fixture(stages);
+    fakeGh(f);
+    const { other } = withOrigin(f);
+    const r = await pipeline(f, { OTHER: other });
+    expect(r.status).toBe(0);
+    expect(r.calls).toEqual(['spec', 'plan', 'red-tests', 'implement', 'review', 'red-tests', 'implement', 'review']);
+    expect(seen(f)).toEqual([`red-tests 1 on ${BRANCH}: not seen`, `red-tests 2 on ${BRANCH}: seen`]);
+  });
+
+  test('review.syncEachRound false syncs once before Review: the fix round runs on the same branch without the push', async () => {
+    const f = fixture(stages);
+    fakeGh(f);
+    configure(f, { syncEachRound: false });
+    const { other } = withOrigin(f);
+    const r = await pipeline(f, { OTHER: other });
+    expect(r.calls.slice(0, 6)).toEqual(['spec', 'plan', 'red-tests', 'implement', 'review', 'red-tests']);
+    expect(seen(f).slice(0, 2)).toEqual([`red-tests 1 on ${BRANCH}: not seen`, `red-tests 2 on ${BRANCH}: not seen`]);
+  });
+
+  test("SDLC_REVIEW_SYNC_ROUNDS=1 (the run's own choice) wins over a project file that turns it off", async () => {
+    const f = fixture(stages);
+    fakeGh(f);
+    configure(f, { syncEachRound: false });
+    const { other } = withOrigin(f);
+    const r = await pipeline(f, { OTHER: other, SDLC_REVIEW_SYNC_ROUNDS: '1' });
+    expect(r.status).toBe(0);
+    expect(seen(f)).toEqual([`red-tests 1 on ${BRANCH}: not seen`, `red-tests 2 on ${BRANCH}: seen`]);
+  });
+});

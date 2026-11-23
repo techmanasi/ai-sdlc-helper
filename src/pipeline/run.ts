@@ -332,7 +332,7 @@ async function stages(ctx: Ctx): Promise<void> {
       await testRepairStage(ctx);
     }
   }
-  if (fromN <= 6) { await sync('review'); await reviewLoop(ctx); }
+  if (fromN <= 6) { await sync('review'); await reviewLoop(ctx, sync); }
   if (fromN <= 7) { await sync('finalise'); await finaliseStage(ctx); }
   await resolveConflictsStage(ctx);
 }
