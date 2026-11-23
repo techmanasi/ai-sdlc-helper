@@ -264,7 +264,8 @@ fi`,
     expect(r.stdout).toContain('RED GATE FAILED: 1 test name(s) repeat in the new tests:\nsrc/sum.test.mjs :: dup');
     expect(statusOf(f.dir)).toMatchObject({ state: 'failed', stage: 'Red tests', resume_from: 'red-tests' });
     expect(JSON.parse(read(f.dir, `${LOG}/handoff.json`))).toMatchObject({ to: 'red-tests', finding: { from: 'Red tests' } });
-    expect(subjects(f.dir)).toEqual([]);
+    // Spec and Plan commit their docs; the red gate's stop makes no tests commit.
+    expect(subjects(f.dir)).toEqual([`[plan] docs(${SLUG}): add the plan`, `[spec] docs(${SLUG}): add the spec`]);
   });
 
   test('the red gate accepts new tests that all fail, and does not count a skipped new test as passing', async () => {
