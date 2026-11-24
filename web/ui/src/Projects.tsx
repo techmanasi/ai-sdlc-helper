@@ -1,3 +1,4 @@
+import { DEFAULT_REVIEW_LIMIT, parseReviewLimit, REVIEW_LIMIT_REQUIREMENT } from 'ai-sdlc-helper/review-limit';
 // The registered projects (and the folder ui started in), their doctor checks, and adding one.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, type Check, type Project, type SettingsView, type Source } from './api';
@@ -110,6 +111,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
   const [base, setBase] = useState('');
   const [parallel, setParallel] = useState('');
   const [silence, setSilence] = useState('');
+  const [reviewLimit, setReviewLimit] = useState('');
   const [preliminary, setPreliminary] = useState<'scoped' | 'full'>('scoped');
   const [errors, setErrors] = useState<string[]>([]);
   const [warn, setWarn] = useState('');
@@ -121,6 +123,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
     setDef({ harness: agent.harness || 'claude', model: agent.model || '', effort: agent.effort || '' });
     setStages(Object.fromEntries(d.stages.map(st => [st, { ...NONE, ...(agent.stages?.[st] || {}) }])));
     setPreliminary(d.config?.tests?.preliminary === 'full' ? 'full' : 'scoped');
+    setReviewLimit(String(d.config?.review?.maxLoops ?? DEFAULT_REVIEW_LIMIT));
   };
   const load = (sc: Scope) => api.settings(name).then(d => {
     setData(d);
@@ -158,6 +161,9 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
         }
         const agent = { harness: def.harness, model: def.model || null, effort: def.effort || null, stages: stagePatch };
         const patch: Record<string, any> = { agent };
+        const limit = parseReviewLimit(reviewLimit);
+        if (limit === undefined) throw new Error(`Review loop limit ${REVIEW_LIMIT_REQUIREMENT}`);
+        if (limit !== (data.config?.review?.maxLoops ?? DEFAULT_REVIEW_LIMIT)) patch.review = { maxLoops: limit };
         if (preliminary !== (data.config?.tests?.preliminary || 'scoped')) {
           patch.tests = { preliminary };
         }
@@ -263,6 +269,10 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
       </div>
       {scope === 'project' && (
         <div class="col" style={{ gap: '6px', marginTop: '12px', padding: '10px 12px', background: 'var(--bg-subtle, #f6f8fa)', borderRadius: '6px' }}>
+          <label class="lbl" for="review-loop-limit">Review loop limit</label>
+          <input id="review-loop-limit" class="inp" inputMode="numeric" value={reviewLimit} aria-describedby="review-limit-help"
+            onInput={e => setReviewLimit(e.currentTarget.value)} />
+          <p id="review-limit-help" class="small muted">Each fix loop sends Review findings back to Red tests and Implement. The default is {DEFAULT_REVIEW_LIMIT}. With 0, open findings stop the run immediately.</p>
           <label class="lbl" for={`prelim-${name}`} style={{ fontWeight: 600 }}>Preliminary / Diagnostic Tests</label>
           <select id={`prelim-${name}`} class="inp" value={preliminary} onChange={e => setPreliminary((e.target as HTMLSelectElement).value as 'scoped' | 'full')}>
             <option value="scoped">Scoped: run task's red tests only (Fast, recommended)</option>

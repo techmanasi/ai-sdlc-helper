@@ -1,6 +1,7 @@
 // One run: its stages, the questions and refused actions it waits on, its environment, files and live output, and every
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { parseReviewLimit, REVIEW_LIMIT_ENV, REVIEW_LIMIT_REQUIREMENT } from 'ai-sdlc-helper/review-limit';
 import { api, type ModelInfo, type RunView, type SettingsView } from './api';
 import { configValue } from './modelFilter';
 import { ModelSelect } from './ModelSelect';
@@ -319,9 +320,15 @@ export function Run({ slug }: { slug: string }) {
     poll: () => load(),
     banner: on => setError(on ? 'Lost the connection to the server; retrying…' : ''),
   });
-  useEffect(() => saveEnv(project, slug, env), [env]);
+  const invalidLimit = env.find(([key, value]) => key.trim() === REVIEW_LIMIT_ENV && parseReviewLimit(value) === undefined);
+  const limitError = invalidLimit ? `Review loop limit override ${REVIEW_LIMIT_REQUIREMENT}` : '';
+  useEffect(() => {
+    if (!limitError) saveEnv(project, slug, env);
+  }, [project, slug, env, limitError]);
 
   const envObj = envVars(env);
+  const limitDraft = invalidLimit?.[1] ?? envObj[REVIEW_LIMIT_ENV] ?? '';
+  if (invalidLimit) delete envObj[REVIEW_LIMIT_ENV];
   const envArgs = Object.entries(envObj).map(([k, val]) => `${k}=${val}`);
   const setEnvVar = (k: string, val: string) => setEnv(rows => setEnvValue(rows, k, val));
 
@@ -352,6 +359,11 @@ export function Run({ slug }: { slug: string }) {
       await load(true);
     } catch (e) { toast(`${label}: ${(e as Error).message}`); }
     setBusy('');
+  }
+
+  function launch(label: string, work: () => Promise<unknown>) {
+    if (limitError) { toast(limitError); return; }
+    return act(label, work);
   }
 
   if (!v) return <div class="col"><div class="hero"><h1>{slug}</h1></div>{error ? <ErrorBox error={error} /> : <><div class="skel" style={{ height: '64px' }} /><div class="skel" style={{ height: '150px' }} /><div class="skel" style={{ height: '320px' }} /><span class="sr" role="status">Loading the run</span></>}</div>;
@@ -461,7 +473,14 @@ export function Run({ slug }: { slug: string }) {
           </div>
         ))}
         {multi && clash.length > 0 && <span class="small s-failed">{clash.map(i => (names[i] === 'review-summary' ? 'The summariser' : `Reviewer ${i + 1}`)).join(', ')} share an agent and model, and the run would be refused. Give each its own: pick another model or agent.</span>}
-        <span class="small muted">Review only reports. Its findings go back through Red tests and Implement, up to the project's review loop limit.</span>
+        <label class="row small" for="review-loop-override">
+          Review loop limit override
+          <input class="inp" id="review-loop-override" inputMode="numeric" value={limitDraft} disabled={running}
+            aria-invalid={Boolean(limitError)} aria-describedby="review-override-help"
+            onInput={e => setEnvVar(REVIEW_LIMIT_ENV, e.currentTarget.value)} />
+        </label>
+        <span class="small muted" id="review-override-help">Leave blank to use the project limit{catalog?.config?.review ? ` (${catalog.config.review.maxLoops})` : ''}. Each loop sends findings back to Red tests and Implement.</span>
+        {limitError && <span class="small s-failed" role="alert">{limitError}</span>}
       </div>
     );
   };
@@ -470,6 +489,7 @@ export function Run({ slug }: { slug: string }) {
   const showResolve = !!v.pr && v.prState !== 'MERGED' && (v.prConflicts === 'conflicting' || rcState === 'active' || rcState === 'failed' || rcState === 'paused');
   const runOptionSummary = [
     envObj.SDLC_AUTO_ACCEPT === '1' && 'auto-accept',
+    envObj[REVIEW_LIMIT_ENV] && `review loop limit ${envObj[REVIEW_LIMIT_ENV]}`,
     envObj.SDLC_FORCE_AGENT && `agent ${envObj.SDLC_FORCE_AGENT}`,
     envObj.SDLC_FORCE_MODEL && `model ${envObj.SDLC_FORCE_MODEL}`,
     envObj.SDLC_FORCE_EFFORT && `effort ${envObj.SDLC_FORCE_EFFORT}`,
@@ -582,25 +602,25 @@ export function Run({ slug }: { slug: string }) {
             if (!auto) return;
             const customEnv = auto.env ? { ...envObj, ...auto.env } : envObj;
             if (auto.command.includes(' permit ')) {
-              act(auto.label, () => api.permit(project, slug, 'all', 'allow', envObj));
+              launch(auto.label, () => api.permit(project, slug, 'all', 'allow', envObj));
             } else if (auto.command.includes('--from spec')) {
-              act(auto.label, () => api.start(project, slug, 'spec', customEnv));
+              launch(auto.label, () => api.start(project, slug, 'spec', customEnv));
             } else if (auto.command.includes('--from plan')) {
-              act(auto.label, () => api.start(project, slug, 'plan', customEnv));
+              launch(auto.label, () => api.start(project, slug, 'plan', customEnv));
             } else if (auto.command.includes('--from red-tests')) {
-              act(auto.label, () => api.start(project, slug, 'red-tests', customEnv));
+              launch(auto.label, () => api.start(project, slug, 'red-tests', customEnv));
             } else if (auto.command.includes('--from implement')) {
-              act(auto.label, () => api.start(project, slug, 'implement', customEnv));
+              launch(auto.label, () => api.start(project, slug, 'implement', customEnv));
             } else if (auto.command.includes('--from test-repair')) {
-              act(auto.label, () => api.start(project, slug, 'test-repair', customEnv));
+              launch(auto.label, () => api.start(project, slug, 'test-repair', customEnv));
             } else if (auto.command.includes('--from review')) {
-              act(auto.label, () => api.start(project, slug, 'review', customEnv));
+              launch(auto.label, () => api.start(project, slug, 'review', customEnv));
             } else if (auto.command.includes('--from resolve-conflicts')) {
-              act(auto.label, () => api.start(project, slug, 'resolve-conflicts', customEnv));
+              launch(auto.label, () => api.start(project, slug, 'resolve-conflicts', customEnv));
             } else if (auto.command.includes('--from finalise')) {
-              act(auto.label, () => api.start(project, slug, 'finalise', customEnv));
+              launch(auto.label, () => api.start(project, slug, 'finalise', customEnv));
             } else {
-              act(auto.label, () => api.start(project, slug, v.resumeFrom || undefined, customEnv));
+              launch(auto.label, () => api.start(project, slug, v.resumeFrom || undefined, customEnv));
             }
           }}
           onOpenFile={openFile}
@@ -613,7 +633,7 @@ export function Run({ slug }: { slug: string }) {
               navigator.clipboard.writeText(esc.command).then(() => toast(`Copied: ${esc.command}`), () => toast(`Run in a terminal: ${esc.command}`));
               return;
             }
-            act(esc.label, () => api.start(project, slug, fromMatch[1], envObj));
+            launch(esc.label, () => api.start(project, slug, fromMatch[1], envObj));
           }}
         />
       )}
@@ -621,7 +641,7 @@ export function Run({ slug }: { slug: string }) {
       <div class="col" style={{ gap: '10px' }}>
         <div class="row" style={{ alignItems: 'center' }}>
           {!primaryDuplicated && (
-            <button class="btn btn-p" type="button" disabled={running || !!busy} onClick={() => act(startLabel, () => api.start(project, slug, v.state === 'not started' ? undefined : v.state === 'refused' ? v.resumeFrom || undefined : resumeKey, envObj))}>{busy === startLabel ? <><Spinner /> Starting…</> : startLabel}</button>
+            <button class="btn btn-p" type="button" disabled={running || !!busy} onClick={() => launch(startLabel, () => api.start(project, slug, v.state === 'not started' ? undefined : v.state === 'refused' ? v.resumeFrom || undefined : resumeKey, envObj))}>{busy === startLabel ? <><Spinner /> Starting…</> : startLabel}</button>
           )}
           <button class="btn" type="button" id="open-pick" aria-expanded={picking} aria-controls="resume-pick" disabled={v.state === 'not started' || !!busy} onClick={() => { setPick(defaultPick(options)); setPicking(!picking); }}>Resume at… {picking ? '▴' : '▾'}</button>
           {confirm === 'stop'
@@ -654,7 +674,7 @@ export function Run({ slug }: { slug: string }) {
                 const key = pick;
                 const name = STAGES.find(s => s.key === key)?.name || key;
                 if (needsResumeConfirm(key)) { setResumeAsk({ key, name }); return; }
-                act(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj, noteToSend(note)); setPicking(false); setNote(''); return o; });
+                launch(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj, noteToSend(note)); setPicking(false); setNote(''); return o; });
               }}>{busy.startsWith('Resume at') ? <><Spinner /> Resuming…</> : 'Go'}</button>
               <button class="btn" type="button" onClick={() => { setPicking(false); document.getElementById('open-pick')?.focus(); }}>Cancel</button>
               {pick && <span class="mono small muted">{resumeCommand(slug, pick)}</span>}
@@ -722,7 +742,7 @@ export function Run({ slug }: { slug: string }) {
         <div class="row" style={{ alignItems: 'center' }}>
           <span class="small s-failed">Whole run</span>
           {confirm === 'restart'
-            ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Restart', () => api.restart(project, slug, undefined, envObj))}>{busy === 'Restart' ? <><Spinner /> Restarting…</> : 'Confirm: discard and start again'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
+            ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => launch('Restart', () => api.restart(project, slug, undefined, envObj))}>{busy === 'Restart' ? <><Spinner /> Restarting…</> : 'Confirm: discard and start again'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
             : <button class="btn btn-d" type="button" disabled={v.state === 'not started' || !!busy} onClick={() => setConfirm('restart')}>Restart whole run from Spec…</button>}
           {confirm === 'discard'
             ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Discard', () => api.discard(project, slug))}>{busy === 'Discard' ? <><Spinner /> Discarding…</> : 'Confirm discard'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
@@ -863,7 +883,7 @@ export function Run({ slug }: { slug: string }) {
                   </div>
                 ))}
                 <div class="row">
-                  <button class="btn btn-p" type="button" disabled={!!busy} onClick={() => act('Answers', async () => {
+                  <button class="btn btn-p" type="button" disabled={!!busy} onClick={() => launch('Answers', async () => {
                     const payload: Record<number, string> = {};
                     for (const q of v.questions) {
                       const val = answers[q.n] !== undefined ? answers[q.n] : q.answer;
@@ -874,7 +894,7 @@ export function Run({ slug }: { slug: string }) {
                     toast(r.resumed ? (r.resumed.ok ? 'Answers saved; the run resumed' : `Answers saved; resume refused: ${r.resumed.err.join(' ')}`) : `Saved ${r.answered} of ${r.total} answers`);
                     return {};
                   })}>{busy === 'Answers' ? <><Spinner /> Saving…</> : (unanswered ? 'Save answers' : 'Submit answers and resume')}</button>
-                  <button class="btn" type="button" disabled={!!busy} onClick={() => act('Auto-accept', async () => {
+                  <button class="btn" type="button" disabled={!!busy} onClick={() => launch('Auto-accept', async () => {
                     const payload: Record<number, string> = {};
                     for (const q of v.questions) payload[q.n] = 'accept';
                     setEnvVar('SDLC_AUTO_ACCEPT', '1');
@@ -898,15 +918,15 @@ export function Run({ slug }: { slug: string }) {
                     <div class="code mono" style={{ borderRadius: '6px', padding: '8px 10px' }}>{a.tool}  {a.detail}  <span class="muted">({a.stage})</span></div>
                     {a.protected && <span class="small s-paused">Protected path: allowing it runs the whole {a.stage} stage with permission checks off.</span>}
                     <div class="row">
-                      <button class="btn btn-s btn-p" type="button" disabled={!!busy} onClick={() => act('Allow', () => api.permit(project, slug, String(i), 'allow', envObj))}>{busy === 'Allow' ? <><Spinner /> Allowing…</> : (a.protected ? 'Allow (stage runs unchecked)' : `Allow this run (${a.rule})`)}</button>
-                      {!a.protected && <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => act('Allow always', () => api.permit(project, slug, String(i), 'always', envObj))}>{busy === 'Allow always' ? <><Spinner /> Allowing…</> : 'Allow always'}</button>}
-                      <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => act('Deny', () => api.permit(project, slug, String(i), 'deny', envObj))}>{busy === 'Deny' ? <><Spinner /> Denying…</> : 'Deny'}</button>
+                      <button class="btn btn-s btn-p" type="button" disabled={!!busy} onClick={() => launch('Allow', () => api.permit(project, slug, String(i), 'allow', envObj))}>{busy === 'Allow' ? <><Spinner /> Allowing…</> : (a.protected ? 'Allow (stage runs unchecked)' : `Allow this run (${a.rule})`)}</button>
+                      {!a.protected && <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => launch('Allow always', () => api.permit(project, slug, String(i), 'always', envObj))}>{busy === 'Allow always' ? <><Spinner /> Allowing…</> : 'Allow always'}</button>}
+                      <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => launch('Deny', () => api.permit(project, slug, String(i), 'deny', envObj))}>{busy === 'Deny' ? <><Spinner /> Denying…</> : 'Deny'}</button>
                     </div>
                   </div>
                 ))}
                 <div class="row" style={{ borderTop: '1px solid var(--ln)', paddingTop: '12px' }}>
-                  <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => act('Allow all', () => api.permit(project, slug, 'all', 'allow', envObj))}>{busy === 'Allow all' ? <><Spinner /> Allowing all…</> : 'Allow all'}</button>
-                  <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => act('Deny all', () => api.permit(project, slug, 'all', 'deny', envObj))}>{busy === 'Deny all' ? <><Spinner /> Denying all…</> : 'Deny all'}</button>
+                  <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => launch('Allow all', () => api.permit(project, slug, 'all', 'allow', envObj))}>{busy === 'Allow all' ? <><Spinner /> Allowing all…</> : 'Allow all'}</button>
+                  <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => launch('Deny all', () => api.permit(project, slug, 'all', 'deny', envObj))}>{busy === 'Deny all' ? <><Spinner /> Denying all…</> : 'Deny all'}</button>
                   <span class="mono small muted" style={{ marginLeft: 'auto' }}>$ ai-sdlc-helper permit {slug} allow all</span>
                 </div>
               </div>
@@ -921,15 +941,15 @@ export function Run({ slug }: { slug: string }) {
                     <div class="code mono" style={{ borderRadius: '6px', padding: '8px 10px' }}>{a.tool}  {a.detail}  {a.stage && <span class="muted">({a.stage})</span>}</div>
                     {a.protected && <span class="small s-paused">Protected path: allowing it runs the whole {a.stage || 'stage'} stage with permission checks off.</span>}
                     <div class="row">
-                      <button class="btn btn-s btn-p" type="button" disabled={!!busy} onClick={() => act('Allow', () => api.permit(project, slug, `denied:${i}`, 'allow', envObj))}>{busy === 'Allow' ? <><Spinner /> Allowing…</> : (a.protected ? 'Allow (stage runs unchecked)' : `Allow this run (${a.rule})`)}</button>
-                      {!a.protected && <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => act('Allow always', () => api.permit(project, slug, `denied:${i}`, 'always', envObj))}>{busy === 'Allow always' ? <><Spinner /> Allowing…</> : 'Allow always'}</button>}
-                      <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => act('Deny', () => api.permit(project, slug, `denied:${i}`, 'deny', envObj))}>{busy === 'Deny' ? <><Spinner /> Denying…</> : 'Keep denied'}</button>
+                      <button class="btn btn-s btn-p" type="button" disabled={!!busy} onClick={() => launch('Allow', () => api.permit(project, slug, `denied:${i}`, 'allow', envObj))}>{busy === 'Allow' ? <><Spinner /> Allowing…</> : (a.protected ? 'Allow (stage runs unchecked)' : `Allow this run (${a.rule})`)}</button>
+                      {!a.protected && <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => launch('Allow always', () => api.permit(project, slug, `denied:${i}`, 'always', envObj))}>{busy === 'Allow always' ? <><Spinner /> Allowing…</> : 'Allow always'}</button>}
+                      <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => launch('Deny', () => api.permit(project, slug, `denied:${i}`, 'deny', envObj))}>{busy === 'Deny' ? <><Spinner /> Denying…</> : 'Keep denied'}</button>
                     </div>
                   </div>
                 ))}
                 <div class="row" style={{ borderTop: '1px solid var(--ln)', paddingTop: '12px' }}>
-                  <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => act('Allow all', () => api.permit(project, slug, 'denied:all', 'allow', envObj))}>{busy === 'Allow all' ? <><Spinner /> Allowing all…</> : 'Allow all'}</button>
-                  <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => act('Deny all', () => api.permit(project, slug, 'denied:all', 'deny', envObj))}>{busy === 'Deny all' ? <><Spinner /> Denying all…</> : 'Keep all denied'}</button>
+                  <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => launch('Allow all', () => api.permit(project, slug, 'denied:all', 'allow', envObj))}>{busy === 'Allow all' ? <><Spinner /> Allowing all…</> : 'Allow all'}</button>
+                  <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => launch('Deny all', () => api.permit(project, slug, 'denied:all', 'deny', envObj))}>{busy === 'Deny all' ? <><Spinner /> Denying all…</> : 'Keep all denied'}</button>
                   <span class="mono small muted" style={{ marginLeft: 'auto' }}>$ ai-sdlc-helper permit {slug} denied:all allow</span>
                 </div>
               </div>
@@ -971,9 +991,9 @@ export function Run({ slug }: { slug: string }) {
                     class="btn btn-p"
                     type="button"
                     disabled={!!busy}
-                    onClick={() => act('Save & Resume Test repair', async () => {
+                    onClick={() => launch('Save & Resume Test repair', async () => {
                       const text = issuesDraft !== null ? issuesDraft : (v.testIssues || '');
-                      const r = await api.saveTestIssues(project, slug, text, true);
+                      const r = await api.saveTestIssues(project, slug, text, true, envObj);
                       setIssuesDraft(null);
                       toast(r.resumed?.ok ? 'Claims saved; Test repair resumed' : 'Claims saved');
                       return {};
@@ -998,7 +1018,7 @@ export function Run({ slug }: { slug: string }) {
                     class="btn"
                     type="button"
                     disabled={running || !!busy}
-                    onClick={() => act('Resume at Test repair', () => api.start(project, slug, 'test-repair', envObj))}
+                    onClick={() => launch('Resume at Test repair', () => api.start(project, slug, 'test-repair', envObj))}
                   >
                     {busy === 'Resume at Test repair' ? <><Spinner /> Resuming…</> : 'Resume at Test repair'}
                   </button>
@@ -1098,7 +1118,7 @@ export function Run({ slug }: { slug: string }) {
                         conflicts={v.prConflicts}
                         busy={busy === 'Restart Implement with the CI failure'}
                         disabled={running}
-                        onFix={() => act('Restart Implement with the CI failure', async () => {
+                        onFix={() => launch('Restart Implement with the CI failure', async () => {
                           const f = await api.ciFix(project, slug, envObj);
                           toast(`${f.resumed.ok ? 'Implement restarted with the CI failure' : (f.resumed.err.join(' ') || 'Could not start Implement')}${f.err?.length ? `; ${f.err.join(' ')}` : ''}`);
                           return {};
@@ -1131,7 +1151,7 @@ export function Run({ slug }: { slug: string }) {
                               class="btn btn-s btn-p"
                               type="button"
                               disabled={running || !!busy}
-                              onClick={() => act('Resume to fix PR comments', () => api.start(project, slug, 'implement', envObj))}
+                              onClick={() => launch('Resume to fix PR comments', () => api.start(project, slug, 'implement', envObj))}
                             >
                               {busy === 'Resume to fix PR comments' ? <><Spinner /> Resuming…</> : 'Resume at Implement to fix PR comments'}
                             </button>
@@ -1157,7 +1177,7 @@ export function Run({ slug }: { slug: string }) {
                           type="button"
                           disabled={running || !!busy}
                           title="Fetch the base, rebase this run's branch onto it, resolve the conflicts and push with --force-with-lease"
-                          onClick={() => act('Resolve conflicts', () => api.start(project, slug, 'resolve-conflicts', envObj))}
+                          onClick={() => launch('Resolve conflicts', () => api.start(project, slug, 'resolve-conflicts', envObj))}
                         >
                           {busy === 'Resolve conflicts' ? <><Spinner /> Starting…</> : rcState === 'failed' || rcState === 'paused' ? 'Resolve conflicts again' : 'Resolve conflicts'}
                         </button>
@@ -1168,7 +1188,7 @@ export function Run({ slug }: { slug: string }) {
                             type="button"
                             disabled={!!busy}
                             title="The merge was fixed but its tests fail. The agent repairs the merged result with the failing tests as context; Test repair and Review still apply, and the result is checked and pushed with the lease at the end."
-                            onClick={() => act('Fix merged result', () => api.start(project, slug, 'implement', { ...envObj, SDLC_ON_ATTEMPT: '1' }))}
+                            onClick={() => launch('Fix merged result', () => api.start(project, slug, 'implement', { ...envObj, SDLC_ON_ATTEMPT: '1' }))}
                           >
                             {busy === 'Fix merged result' ? <><Spinner /> Starting…</> : 'Fix with Implement'}
                           </button>
@@ -1235,6 +1255,7 @@ export function Run({ slug }: { slug: string }) {
                 />
                 <span class="small">Auto-accept suggested answers (Spec, Plan, Triage)</span>
               </label>
+              {limitError && <span class="small s-failed" role="alert">{REVIEW_LIMIT_ENV} {REVIEW_LIMIT_REQUIREMENT}</span>}
               {env.map(([k, val], i) => (
                 <div class="row" style={{ flexWrap: 'nowrap' }}>
                   <input class="inp mono" aria-label="Name" value={k} placeholder="NAME" onInput={e => setEnv(rows => rows.map((r, j) => (j === i ? [(e.target as HTMLInputElement).value, r[1]] : r)))} />
@@ -1409,7 +1430,7 @@ export function Run({ slug }: { slug: string }) {
               <button class="btn btn-p" type="button" id="confirm-resume-go" disabled={!!busy || running} onClick={() => {
                 const { key, name } = resumeAsk;
                 setResumeAsk(null);
-                act(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj, noteToSend(note)); setPicking(false); setNote(''); return o; });
+                launch(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj, noteToSend(note)); setPicking(false); setNote(''); return o; });
               }}>Confirm resume at {resumeAsk.name}</button>
             </div>
           </div>

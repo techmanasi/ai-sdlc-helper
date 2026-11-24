@@ -217,7 +217,7 @@ export function App() {
     );
   } else if (fatal) screen = <ErrorBox error={fatal} />;
   else if (!project) screen = <Projects projects={projects} reload={loadProjects} />;
-  else if (route.startsWith('/run/')) screen = <Run slug={decodeURIComponent(route.slice(5))} key={route} />;
+  else if (route.startsWith('/run/')) screen = <Run slug={decodeURIComponent(route.slice(5))} key={project + route} />;
   else if (route === '/completed') screen = <Completed />;
   else if (route.startsWith('/edit/')) {
     const [, , from, s] = route.split('/');

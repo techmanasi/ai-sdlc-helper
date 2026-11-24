@@ -3,7 +3,7 @@ export type EnvRow = [string, string];
 
 /** Sets a variable to a value, replacing any row of that name; an empty value removes it. */
 export const setEnvValue = (rows: EnvRow[], k: string, val: string): EnvRow[] =>
-  val ? [...rows.filter(r => r[0] !== k), [k, val]] : rows.filter(r => r[0] !== k);
+  val ? [...rows.filter(r => r[0].trim() !== k), [k, val]] : rows.filter(r => r[0].trim() !== k);
 
 /**
  * A quick button: adds a row for the variable with its default value (empty when it has none, for the user to fill
