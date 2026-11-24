@@ -1,0 +1,22 @@
+{
+  "verdict": "changes",
+  "blockers": [
+    {
+      "file": "web/ui/src/Run.tsx",
+      "criterion": "Inputs: the run override can be left unset so the project setting applies.",
+      "reason": "invalidLimit (Run.tsx:334) treats any row named SDLC_REVIEW_MAX_LOOPS as an override, including a row whose value is still empty. envVars (env.ts:21) drops empty-valued rows, so such a row means 'unset'. But parseReviewLimit('') is undefined, so limitError is set: every launch() is refused with 'must be a whole number of 0 or more', saveEnv stops persisting, and the override input shows blank with an error that clearing cannot fix (the input is already empty, so onInput never runs). Move the check into a plain web/ui/src module (e.g. env.ts reviewLimitError(rows)) that ignores empty values. Then test that rows [['SDLC_REVIEW_MAX_LOOPS','']] give no error and no key in envVars, while [['SDLC_REVIEW_MAX_LOOPS','-1']] and [[' SDLC_REVIEW_MAX_LOOPS','0.5']] give the requirement message."
+    }
+  ],
+  "missingTests": [
+    {
+      "file": "web/ui/src/Projects.tsx",
+      "criterion": "AC1 and AC4 (project settings half): settings show the effective value with 2 as the default; negative and non-whole values are rejected with an explanatory message and are not saved.",
+      "reason": "The form logic is inline in EditSetup (fill at line 115, save at lines 153-155). No test runs it; the server test covers only the API. Move it into a plain web/ui/src module and test it there. Test 1: config without review gives the draft '2', and config with maxLoops 0 gives '0'. Test 2: drafts '-1', '0.5', '' and 'abc' give an error containing 'whole number of 0 or more' and no patch. Test 3: a draft of '0' against an effective value of 2 gives patch.review = { maxLoops: 0 }, and an unchanged value gives no review key."
+    },
+    {
+      "file": "web/ui/src/Run.tsx",
+      "criterion": "AC3 and AC4 (run options half): Run options accept a valid override, including 0, and reject negative or non-whole values with an explanatory message; an invalid override is not applied or saved.",
+      "reason": "limitError, limitDraft, the guard that skips saveEnv, launch() and the runOptionSummary entry are all inline in the component, and no test covers them. Extract them into a web/ui/src module (env.ts) and test: '0' gives envVars { SDLC_REVIEW_MAX_LOOPS: '0' } and the summary 'review loop limit 0'; '-1' and '1.5' give the requirement message, are left out of the env that would be sent or persisted, and block a launch; clearing via setEnvValue(rows, key, '') removes the key."
+    }
+  ]
+}

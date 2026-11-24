@@ -30,3 +30,18 @@ Use the UI automation helper on Global settings and Run options → Review once 
 
 - Check the README Settings section and web UI guide for the default, zero, effective time, clearing, and the API environment key.
 - Review test diffs for runtime assertions and the permitted file scope. Test-file contents and documentation are checked in Review.
+
+## UI form logic regression tests
+
+`test/review-loop-limit-ui.test.ts` specifies a plain-module contract for extracting the form logic currently inline in the components. The proposed exports from `web/ui/src/env.ts` are `reviewSettingsDraft(config)`, `reviewSettingsPatch(config, draft)` returning `{ error, patch }`, `reviewLimitError(rows)`, and `reviewLimitOptions(rows)` returning `{ error, env, summary, canLaunch }`. The components must use the same logic for these tests to cover their behavior.
+
+| Case | Action | Expected result |
+| --- | --- | --- |
+| Project draft | Initialize with no Review setting or a configured zero. | Draft is `2` or `0`, respectively. |
+| Invalid project draft | Save `-1`, `0.5`, blank, or `abc`. | Error explains the whole-number lower bound and no Review patch is produced. |
+| Changed project draft | Save `0` against default 2; save unchanged default 2 and configured 0. | Changed value produces `{ review: { maxLoops: 0 } }`; unchanged values produce no Review patch. |
+| Unset run row | Supply a Review limit environment row with an empty value. | No error, no environment key, and launch is allowed. |
+| Invalid run rows | Supply `-1`, `0.5` with leading whitespace in the key, or `1.5`. | Error explains the requirement, the invalid key is excluded from the environment for sending or persistence, and launch is blocked. Other options remain intact. |
+| Zero and clearing | Supply `0`, then clear with `setEnvValue`. | Zero is retained in the environment and summary; clearing removes the key and permits inheritance. |
+
+The existing server and pipeline tests remain in place. Browser checks above remain necessary to verify that the controls use the extracted logic, persistence and launch actions are wired correctly, and feedback is visible.

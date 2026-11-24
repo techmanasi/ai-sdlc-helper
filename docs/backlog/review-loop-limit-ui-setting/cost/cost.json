@@ -1,7 +1,7 @@
 {
   "version": 1,
   "slug": "review-loop-limit-ui-setting",
-  "generatedAt": "2026-11-24T18:00:54",
+  "generatedAt": "2026-11-24T18:53:58",
   "priced": true,
   "runs": [
     {
@@ -203,12 +203,12 @@
       "from": "implement",
       "ended": null,
       "state": null,
-      "wallSec": 754,
+      "wallSec": 3938,
       "stages": [
         {
           "stage": "Implement",
           "passes": 1,
-          "wallSec": 753,
+          "wallSec": 3520,
           "models": [
             "gemini-3.8-flash-medium"
           ],
@@ -225,20 +225,60 @@
             "estimatedUsd": 0,
             "unpriced": 1
           }
+        },
+        {
+          "stage": "Review",
+          "passes": 1,
+          "wallSec": 299,
+          "models": [
+            "opus"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 294.4,
+            "turns": 20,
+            "tokens": 8981,
+            "input": 28,
+            "output": 8953,
+            "cacheRead": 830756,
+            "cacheWrite": 71548,
+            "costUsd": 0.9177071999999998,
+            "estimatedUsd": 0,
+            "unpriced": 0
+          }
+        },
+        {
+          "stage": "Red tests",
+          "passes": 1,
+          "wallSec": 118,
+          "models": [],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 100.6,
+            "turns": 1,
+            "tokens": 417414,
+            "input": 413937,
+            "output": 3477,
+            "cacheRead": 384384,
+            "cacheWrite": 0,
+            "costUsd": null,
+            "estimatedUsd": 0,
+            "unpriced": 1
+          }
         }
       ],
       "usage": {
-        "rounds": 1,
-        "durationSec": 454.476707,
-        "turns": 1,
-        "tokens": 171650,
-        "input": 156496,
-        "output": 15154,
-        "cacheRead": 0,
-        "cacheWrite": 0,
-        "costUsd": null,
+        "rounds": 3,
+        "durationSec": 849.4767069999999,
+        "turns": 22,
+        "tokens": 598045,
+        "input": 570461,
+        "output": 27584,
+        "cacheRead": 1215140,
+        "cacheWrite": 71548,
+        "costUsd": 0.9177071999999998,
         "estimatedUsd": 0,
-        "unpriced": 1
+        "unpriced": 2
       }
     }
   ],
@@ -287,29 +327,29 @@
     },
     {
       "stage": "Red tests",
-      "passes": 1,
-      "wallSec": 637,
+      "passes": 2,
+      "wallSec": 755,
       "models": [
         "gpt-6.2-astra"
       ],
       "usage": {
-        "rounds": 1,
-        "durationSec": 353.6,
-        "turns": 1,
-        "tokens": 2150090,
-        "input": 2142006,
-        "output": 8084,
-        "cacheRead": 2082560,
+        "rounds": 2,
+        "durationSec": 454.20000000000005,
+        "turns": 2,
+        "tokens": 2567504,
+        "input": 2555943,
+        "output": 11561,
+        "cacheRead": 2466944,
         "cacheWrite": 0,
         "costUsd": 1.631952,
         "estimatedUsd": 1.631952,
-        "unpriced": 0
+        "unpriced": 1
       }
     },
     {
       "stage": "Implement",
       "passes": 4,
-      "wallSec": 2120,
+      "wallSec": 4887,
       "models": [
         "gemini-3.8-flash-high",
         "gemini-3.8-flash-medium"
@@ -327,20 +367,41 @@
         "estimatedUsd": 0,
         "unpriced": 3
       }
+    },
+    {
+      "stage": "Review",
+      "passes": 1,
+      "wallSec": 299,
+      "models": [
+        "opus"
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 294.4,
+        "turns": 20,
+        "tokens": 8981,
+        "input": 28,
+        "output": 8953,
+        "cacheRead": 830756,
+        "cacheWrite": 71548,
+        "costUsd": 0.9177071999999998,
+        "estimatedUsd": 0,
+        "unpriced": 0
+      }
     }
   ],
   "usage": {
-    "rounds": 6,
-    "durationSec": 1224.660182,
-    "turns": 5,
-    "tokens": 3419678,
-    "input": 3385969,
-    "output": 33709,
-    "cacheRead": 3012096,
-    "cacheWrite": 0,
-    "costUsd": 1.988218,
+    "rounds": 8,
+    "durationSec": 1619.660182,
+    "turns": 26,
+    "tokens": 3846073,
+    "input": 3799934,
+    "output": 46139,
+    "cacheRead": 4227236,
+    "cacheWrite": 71548,
+    "costUsd": 2.9059252,
     "estimatedUsd": 1.988218,
-    "unpriced": 3
+    "unpriced": 4
   },
-  "wallSec": 2982
+  "wallSec": 6166
 }
