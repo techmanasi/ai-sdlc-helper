@@ -1,7 +1,7 @@
 // One run: its stages, the questions and refused actions it waits on, its environment, files and live output, and every
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { parseReviewLimit, REVIEW_LIMIT_ENV, REVIEW_LIMIT_REQUIREMENT } from 'ai-sdlc-helper/review-limit';
+import { REVIEW_LIMIT_ENV, REVIEW_LIMIT_REQUIREMENT } from 'ai-sdlc-helper/review-limit';
 import { api, type ModelInfo, type RunView, type SettingsView } from './api';
 import { configValue } from './modelFilter';
 import { ModelSelect } from './ModelSelect';
@@ -14,7 +14,7 @@ import { Cli, CopyButton, ErrorBox, GLYPH, Markdown, Panel, Spinner, stateClass,
 import { defaultPick, needsResumeConfirm, resumeCommand, resumeOptions } from './resume';
 import { handoffBlocks, noteError, noteToSend } from './handoff';
 import { isMarkdownPath } from './markdown';
-import { addEnvKey, envVars, quickKeys, setEnvValue } from './env';
+import { addEnvKey, quickKeys, reviewLimitOptions, setEnvValue } from './env';
 import { usePoll } from './usePoll';
 import { useSyncLabel } from './useSyncLabel';
 import { useStream } from './useStream';
@@ -320,15 +320,13 @@ export function Run({ slug }: { slug: string }) {
     poll: () => load(),
     banner: on => setError(on ? 'Lost the connection to the server; retrying…' : ''),
   });
-  const invalidLimit = env.find(([key, value]) => key.trim() === REVIEW_LIMIT_ENV && parseReviewLimit(value) === undefined);
-  const limitError = invalidLimit ? `Review loop limit override ${REVIEW_LIMIT_REQUIREMENT}` : '';
+  const { error: limitError, env: envObj, summary: reviewLimitSummary, canLaunch } = reviewLimitOptions(env);
   useEffect(() => {
     if (!limitError) saveEnv(project, slug, env);
   }, [project, slug, env, limitError]);
 
-  const envObj = envVars(env);
-  const limitDraft = invalidLimit?.[1] ?? envObj[REVIEW_LIMIT_ENV] ?? '';
-  if (invalidLimit) delete envObj[REVIEW_LIMIT_ENV];
+  const limitRow = env.find(([k]) => k.trim() === REVIEW_LIMIT_ENV);
+  const limitDraft = limitRow ? limitRow[1] : '';
   const envArgs = Object.entries(envObj).map(([k, val]) => `${k}=${val}`);
   const setEnvVar = (k: string, val: string) => setEnv(rows => setEnvValue(rows, k, val));
 
@@ -362,7 +360,7 @@ export function Run({ slug }: { slug: string }) {
   }
 
   function launch(label: string, work: () => Promise<unknown>) {
-    if (limitError) { toast(limitError); return; }
+    if (!canLaunch) { toast(limitError); return; }
     return act(label, work);
   }
 
@@ -489,7 +487,7 @@ export function Run({ slug }: { slug: string }) {
   const showResolve = !!v.pr && v.prState !== 'MERGED' && (v.prConflicts === 'conflicting' || rcState === 'active' || rcState === 'failed' || rcState === 'paused');
   const runOptionSummary = [
     envObj.SDLC_AUTO_ACCEPT === '1' && 'auto-accept',
-    envObj[REVIEW_LIMIT_ENV] && `review loop limit ${envObj[REVIEW_LIMIT_ENV]}`,
+    reviewLimitSummary,
     envObj.SDLC_FORCE_AGENT && `agent ${envObj.SDLC_FORCE_AGENT}`,
     envObj.SDLC_FORCE_MODEL && `model ${envObj.SDLC_FORCE_MODEL}`,
     envObj.SDLC_FORCE_EFFORT && `effort ${envObj.SDLC_FORCE_EFFORT}`,

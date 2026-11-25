@@ -1,7 +1,7 @@
 {
   "version": 1,
   "slug": "review-loop-limit-ui-setting",
-  "generatedAt": "2026-11-24T18:53:58",
+  "generatedAt": "2026-11-25T12:00:55",
   "priced": true,
   "runs": [
     {
@@ -201,29 +201,29 @@
       "n": 4,
       "started": "2026-11-24T17:48:20",
       "from": "implement",
-      "ended": null,
-      "state": null,
-      "wallSec": 3938,
+      "ended": "2026-11-24T19:54:11",
+      "state": "paused",
+      "wallSec": 7551,
       "stages": [
         {
           "stage": "Implement",
-          "passes": 1,
-          "wallSec": 3520,
+          "passes": 2,
+          "wallSec": 7021,
           "models": [
             "gemini-3.8-flash-medium"
           ],
           "usage": {
-            "rounds": 1,
-            "durationSec": 454.476707,
-            "turns": 1,
-            "tokens": 171650,
-            "input": 156496,
-            "output": 15154,
+            "rounds": 3,
+            "durationSec": 2408.31157,
+            "turns": 3,
+            "tokens": 587479,
+            "input": 529191,
+            "output": 58288,
             "cacheRead": 0,
             "cacheWrite": 0,
             "costUsd": null,
             "estimatedUsd": 0,
-            "unpriced": 1
+            "unpriced": 3
           }
         },
         {
@@ -250,7 +250,7 @@
         {
           "stage": "Red tests",
           "passes": 1,
-          "wallSec": 118,
+          "wallSec": 230,
           "models": [],
           "usage": {
             "rounds": 1,
@@ -268,17 +268,61 @@
         }
       ],
       "usage": {
-        "rounds": 3,
-        "durationSec": 849.4767069999999,
-        "turns": 22,
-        "tokens": 598045,
-        "input": 570461,
-        "output": 27584,
+        "rounds": 5,
+        "durationSec": 2803.31157,
+        "turns": 24,
+        "tokens": 1013874,
+        "input": 943156,
+        "output": 70718,
         "cacheRead": 1215140,
         "cacheWrite": 71548,
         "costUsd": 0.9177071999999998,
         "estimatedUsd": 0,
-        "unpriced": 2
+        "unpriced": 4
+      }
+    },
+    {
+      "n": 5,
+      "started": "2026-11-25T11:49:19",
+      "from": "implement",
+      "ended": null,
+      "state": null,
+      "wallSec": 696,
+      "stages": [
+        {
+          "stage": "Implement",
+          "passes": 1,
+          "wallSec": 695,
+          "models": [
+            "gemini-3.8-flash-medium"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 407.762286,
+            "turns": 1,
+            "tokens": 56009,
+            "input": 51928,
+            "output": 4081,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "costUsd": null,
+            "estimatedUsd": 0,
+            "unpriced": 1
+          }
+        }
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 407.762286,
+        "turns": 1,
+        "tokens": 56009,
+        "input": 51928,
+        "output": 4081,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costUsd": null,
+        "estimatedUsd": 0,
+        "unpriced": 1
       }
     }
   ],
@@ -328,7 +372,7 @@
     {
       "stage": "Red tests",
       "passes": 2,
-      "wallSec": 755,
+      "wallSec": 867,
       "models": [
         "gpt-6.2-astra"
       ],
@@ -348,24 +392,24 @@
     },
     {
       "stage": "Implement",
-      "passes": 4,
-      "wallSec": 4887,
+      "passes": 6,
+      "wallSec": 9083,
       "models": [
         "gemini-3.8-flash-high",
         "gemini-3.8-flash-medium"
       ],
       "usage": {
-        "rounds": 3,
-        "durationSec": 660.460182,
-        "turns": 2,
-        "tokens": 220687,
-        "input": 202267,
-        "output": 18420,
+        "rounds": 6,
+        "durationSec": 3022.057331,
+        "turns": 5,
+        "tokens": 692525,
+        "input": 626890,
+        "output": 65635,
         "cacheRead": 0,
         "cacheWrite": 0,
         "costUsd": null,
         "estimatedUsd": 0,
-        "unpriced": 3
+        "unpriced": 6
       }
     },
     {
@@ -391,17 +435,17 @@
     }
   ],
   "usage": {
-    "rounds": 8,
-    "durationSec": 1619.660182,
-    "turns": 26,
-    "tokens": 3846073,
-    "input": 3799934,
-    "output": 46139,
+    "rounds": 11,
+    "durationSec": 3981.2573310000002,
+    "turns": 29,
+    "tokens": 4317911,
+    "input": 4224557,
+    "output": 93354,
     "cacheRead": 4227236,
     "cacheWrite": 71548,
     "costUsd": 2.9059252,
     "estimatedUsd": 1.988218,
-    "unpriced": 4
+    "unpriced": 7
   },
-  "wallSec": 6166
+  "wallSec": 10475
 }

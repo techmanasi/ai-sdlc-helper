@@ -1,4 +1,5 @@
-import { DEFAULT_REVIEW_LIMIT, parseReviewLimit, REVIEW_LIMIT_REQUIREMENT } from 'ai-sdlc-helper/review-limit';
+import { DEFAULT_REVIEW_LIMIT } from 'ai-sdlc-helper/review-limit';
+import { reviewSettingsDraft, reviewSettingsPatch } from './env';
 // The registered projects (and the folder ui started in), their doctor checks, and adding one.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, type Check, type Project, type SettingsView, type Source } from './api';
@@ -123,7 +124,7 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
     setDef({ harness: agent.harness || 'claude', model: agent.model || '', effort: agent.effort || '' });
     setStages(Object.fromEntries(d.stages.map(st => [st, { ...NONE, ...(agent.stages?.[st] || {}) }])));
     setPreliminary(d.config?.tests?.preliminary === 'full' ? 'full' : 'scoped');
-    setReviewLimit(String(d.config?.review?.maxLoops ?? DEFAULT_REVIEW_LIMIT));
+    setReviewLimit(reviewSettingsDraft(d.config));
   };
   const load = (sc: Scope) => api.settings(name).then(d => {
     setData(d);
@@ -161,9 +162,9 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
         }
         const agent = { harness: def.harness, model: def.model || null, effort: def.effort || null, stages: stagePatch };
         const patch: Record<string, any> = { agent };
-        const limit = parseReviewLimit(reviewLimit);
-        if (limit === undefined) throw new Error(`Review loop limit ${REVIEW_LIMIT_REQUIREMENT}`);
-        if (limit !== (data.config?.review?.maxLoops ?? DEFAULT_REVIEW_LIMIT)) patch.review = { maxLoops: limit };
+        const { error: limitErr, patch: limitPatch } = reviewSettingsPatch(data.config, reviewLimit);
+        if (limitErr) throw new Error(limitErr);
+        Object.assign(patch, limitPatch);
         if (preliminary !== (data.config?.tests?.preliminary || 'scoped')) {
           patch.tests = { preliminary };
         }

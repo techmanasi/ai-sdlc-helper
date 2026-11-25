@@ -1,3 +1,5 @@
+import { DEFAULT_REVIEW_LIMIT, parseReviewLimit, REVIEW_LIMIT_ENV, REVIEW_LIMIT_REQUIREMENT } from 'ai-sdlc-helper/review-limit';
+
 // The run page's environment rows: [name, value] pairs edited in the "Environment" panel.
 export type EnvRow = [string, string];
 
@@ -20,3 +22,45 @@ export const quickKeys = (rows: EnvRow[], keys: string[]): string[] =>
  * quick button's empty row never sends NAME= (an empty SDLC_BASE, ...). */
 export const envVars = (rows: EnvRow[]): Record<string, string> =>
   Object.fromEntries(rows.filter(([k, v]) => k.trim() && v !== '').map(([k, v]) => [k.trim(), v]));
+
+export type ReviewConfig = { review?: { maxLoops?: number } };
+export type SettingsResult = { error: string; patch: { review?: { maxLoops: number } } };
+export type RunOptions = { error: string; env: Record<string, string>; summary: string; canLaunch: boolean };
+
+/** Initializes the review loop limit draft in project settings. */
+export function reviewSettingsDraft(config?: ReviewConfig | null): string {
+  return String(config?.review?.maxLoops ?? DEFAULT_REVIEW_LIMIT);
+}
+
+/** Validates and builds the review loop limit patch for project settings. */
+export function reviewSettingsPatch(config: ReviewConfig | undefined | null, draft: string): SettingsResult {
+  const limit = parseReviewLimit(draft);
+  if (limit === undefined) {
+    return { error: `Review loop limit ${REVIEW_LIMIT_REQUIREMENT}`, patch: {} };
+  }
+  const current = config?.review?.maxLoops ?? DEFAULT_REVIEW_LIMIT;
+  const patch: { review?: { maxLoops: number } } = {};
+  if (limit !== current) {
+    patch.review = { maxLoops: limit };
+  }
+  return { error: '', patch };
+}
+
+/** Error message when a review loop limit override row is invalid; empty string if valid or unset. */
+export function reviewLimitError(rows: EnvRow[]): string {
+  const invalid = rows.find(([k, v]) => k.trim() === REVIEW_LIMIT_ENV && v !== '' && parseReviewLimit(v) === undefined);
+  return invalid ? `Review loop limit override ${REVIEW_LIMIT_REQUIREMENT}` : '';
+}
+
+/** Validates the review loop limit override in run environment rows. */
+export function reviewLimitOptions(rows: EnvRow[]): RunOptions {
+  const error = reviewLimitError(rows);
+  const env = envVars(rows);
+  if (error) {
+    delete env[REVIEW_LIMIT_ENV];
+    return { error, env, summary: '', canLaunch: false };
+  }
+  const val = env[REVIEW_LIMIT_ENV];
+  const summary = val !== undefined ? `review loop limit ${val}` : '';
+  return { error: '', env, summary, canLaunch: true };
+}
