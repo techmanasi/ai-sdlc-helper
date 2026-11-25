@@ -1,7 +1,7 @@
 {
   "version": 1,
   "slug": "review-loop-limit-ui-setting",
-  "generatedAt": "2026-11-25T12:00:55",
+  "generatedAt": "2026-11-25T13:08:27",
   "priced": true,
   "runs": [
     {
@@ -287,12 +287,12 @@
       "from": "implement",
       "ended": null,
       "state": null,
-      "wallSec": 696,
+      "wallSec": 4748,
       "stages": [
         {
           "stage": "Implement",
           "passes": 1,
-          "wallSec": 695,
+          "wallSec": 4479,
           "models": [
             "gemini-3.8-flash-medium"
           ],
@@ -309,18 +309,58 @@
             "estimatedUsd": 0,
             "unpriced": 1
           }
+        },
+        {
+          "stage": "Review",
+          "passes": 1,
+          "wallSec": 268,
+          "models": [
+            "opus"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 263.7,
+            "turns": 28,
+            "tokens": 10128,
+            "input": 42,
+            "output": 10086,
+            "cacheRead": 1403909,
+            "cacheWrite": 76161,
+            "costUsd": 1.0919577999999999,
+            "estimatedUsd": 0,
+            "unpriced": 0
+          }
+        },
+        {
+          "stage": "Finalise",
+          "passes": 1,
+          "wallSec": 0,
+          "models": [],
+          "usage": {
+            "rounds": 0,
+            "durationSec": 0,
+            "turns": 0,
+            "tokens": 0,
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "costUsd": null,
+            "estimatedUsd": 0,
+            "unpriced": 0
+          }
         }
       ],
       "usage": {
-        "rounds": 1,
-        "durationSec": 407.762286,
-        "turns": 1,
-        "tokens": 56009,
-        "input": 51928,
-        "output": 4081,
-        "cacheRead": 0,
-        "cacheWrite": 0,
-        "costUsd": null,
+        "rounds": 2,
+        "durationSec": 671.462286,
+        "turns": 29,
+        "tokens": 66137,
+        "input": 51970,
+        "output": 14167,
+        "cacheRead": 1403909,
+        "cacheWrite": 76161,
+        "costUsd": 1.0919577999999999,
         "estimatedUsd": 0,
         "unpriced": 1
       }
@@ -393,7 +433,7 @@
     {
       "stage": "Implement",
       "passes": 6,
-      "wallSec": 9083,
+      "wallSec": 12867,
       "models": [
         "gemini-3.8-flash-high",
         "gemini-3.8-flash-medium"
@@ -414,38 +454,57 @@
     },
     {
       "stage": "Review",
-      "passes": 1,
-      "wallSec": 299,
+      "passes": 2,
+      "wallSec": 567,
       "models": [
         "opus"
       ],
       "usage": {
-        "rounds": 1,
-        "durationSec": 294.4,
-        "turns": 20,
-        "tokens": 8981,
-        "input": 28,
-        "output": 8953,
-        "cacheRead": 830756,
-        "cacheWrite": 71548,
-        "costUsd": 0.9177071999999998,
+        "rounds": 2,
+        "durationSec": 558.0999999999999,
+        "turns": 48,
+        "tokens": 19109,
+        "input": 70,
+        "output": 19039,
+        "cacheRead": 2234665,
+        "cacheWrite": 147709,
+        "costUsd": 2.0096649999999996,
+        "estimatedUsd": 0,
+        "unpriced": 0
+      }
+    },
+    {
+      "stage": "Finalise",
+      "passes": 1,
+      "wallSec": 0,
+      "models": [],
+      "usage": {
+        "rounds": 0,
+        "durationSec": 0,
+        "turns": 0,
+        "tokens": 0,
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costUsd": null,
         "estimatedUsd": 0,
         "unpriced": 0
       }
     }
   ],
   "usage": {
-    "rounds": 11,
-    "durationSec": 3981.2573310000002,
-    "turns": 29,
-    "tokens": 4317911,
-    "input": 4224557,
-    "output": 93354,
-    "cacheRead": 4227236,
-    "cacheWrite": 71548,
-    "costUsd": 2.9059252,
+    "rounds": 12,
+    "durationSec": 4244.957331,
+    "turns": 57,
+    "tokens": 4328039,
+    "input": 4224599,
+    "output": 103440,
+    "cacheRead": 5631145,
+    "cacheWrite": 147709,
+    "costUsd": 3.997883,
     "estimatedUsd": 1.988218,
     "unpriced": 7
   },
-  "wallSec": 10475
+  "wallSec": 14527
 }
