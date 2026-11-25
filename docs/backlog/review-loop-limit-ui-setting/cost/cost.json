@@ -1,7 +1,7 @@
 {
   "version": 1,
   "slug": "review-loop-limit-ui-setting",
-  "generatedAt": "2026-11-25T13:08:27",
+  "generatedAt": "2026-11-25T13:14:38",
   "priced": true,
   "runs": [
     {
@@ -287,7 +287,7 @@
       "from": "implement",
       "ended": null,
       "state": null,
-      "wallSec": 4748,
+      "wallSec": 5119,
       "stages": [
         {
           "stage": "Implement",
@@ -334,7 +334,7 @@
         {
           "stage": "Finalise",
           "passes": 1,
-          "wallSec": 0,
+          "wallSec": 9,
           "models": [],
           "usage": {
             "rounds": 0,
@@ -349,18 +349,39 @@
             "estimatedUsd": 0,
             "unpriced": 0
           }
+        },
+        {
+          "stage": "Resolve conflicts",
+          "passes": 1,
+          "wallSec": 362,
+          "models": [
+            "sonnet"
+          ],
+          "usage": {
+            "rounds": 2,
+            "durationSec": 41.9,
+            "turns": 17,
+            "tokens": 4606,
+            "input": 20,
+            "output": 4586,
+            "cacheRead": 384506,
+            "cacheWrite": 81131,
+            "costUsd": 0.4088746,
+            "estimatedUsd": 0,
+            "unpriced": 0
+          }
         }
       ],
       "usage": {
-        "rounds": 2,
-        "durationSec": 671.462286,
-        "turns": 29,
-        "tokens": 66137,
-        "input": 51970,
-        "output": 14167,
-        "cacheRead": 1403909,
-        "cacheWrite": 76161,
-        "costUsd": 1.0919577999999999,
+        "rounds": 4,
+        "durationSec": 713.3622859999999,
+        "turns": 46,
+        "tokens": 70743,
+        "input": 51990,
+        "output": 18753,
+        "cacheRead": 1788415,
+        "cacheWrite": 157292,
+        "costUsd": 1.5008323999999997,
         "estimatedUsd": 0,
         "unpriced": 1
       }
@@ -476,7 +497,7 @@
     {
       "stage": "Finalise",
       "passes": 1,
-      "wallSec": 0,
+      "wallSec": 9,
       "models": [],
       "usage": {
         "rounds": 0,
@@ -491,20 +512,41 @@
         "estimatedUsd": 0,
         "unpriced": 0
       }
+    },
+    {
+      "stage": "Resolve conflicts",
+      "passes": 1,
+      "wallSec": 362,
+      "models": [
+        "sonnet"
+      ],
+      "usage": {
+        "rounds": 2,
+        "durationSec": 41.9,
+        "turns": 17,
+        "tokens": 4606,
+        "input": 20,
+        "output": 4586,
+        "cacheRead": 384506,
+        "cacheWrite": 81131,
+        "costUsd": 0.4088746,
+        "estimatedUsd": 0,
+        "unpriced": 0
+      }
     }
   ],
   "usage": {
-    "rounds": 12,
-    "durationSec": 4244.957331,
-    "turns": 57,
-    "tokens": 4328039,
-    "input": 4224599,
-    "output": 103440,
-    "cacheRead": 5631145,
-    "cacheWrite": 147709,
-    "costUsd": 3.997883,
+    "rounds": 14,
+    "durationSec": 4286.857330999999,
+    "turns": 74,
+    "tokens": 4332645,
+    "input": 4224619,
+    "output": 108026,
+    "cacheRead": 6015651,
+    "cacheWrite": 228840,
+    "costUsd": 4.4067576,
     "estimatedUsd": 1.988218,
     "unpriced": 7
   },
-  "wallSec": 14527
+  "wallSec": 14898
 }

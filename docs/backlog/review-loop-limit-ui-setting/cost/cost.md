@@ -1,12 +1,12 @@
 # Cost of review-loop-limit-ui-setting
 
-Written by the pipeline at 2026-11-25 13:08 from `logs/attempts.jsonl`; updated with each stage's commit.
+Written by the pipeline at 2026-11-25 13:14 from `logs/attempts.jsonl`; updated with each stage's commit.
 `≈` marks dollars estimated from the model's list price (the agent reported tokens only); `free` is a model that cost
 nothing; `no price` is a round with tokens whose model has no known price.
 
-**Total: ≈$4.00 · 4.33M tokens · 4h 02m run time · 1h 10m agent time · 5 runs**
+**Total: ≈$4.41 · 4.33M tokens · 4h 08m run time · 1h 11m agent time · 5 runs**
 
-Estimated part: $1.99 of $4.00.
+Estimated part: $1.99 of $4.41.
 
 7 rounds with tokens and no price are not in the dollar figures.
 
@@ -19,8 +19,9 @@ Estimated part: $1.99 of $4.00.
 | Red tests | 2 | 14m 27s | 7m 34s | 2 | gpt-6.2-astra | 2.56M | 11.6k | 2.47M | 0 | 2.57M | ≈$1.63 |
 | Implement | 6 | 3h 34m | 50m 22s | 6 | gemini-3.8-flash-high, gemini-3.8-flash-medium | 626.9k | 65.6k | 0 | 0 | 692.5k | no price |
 | Review | 2 | 9m 27s | 9m 18s | 2 | opus | 70 | 19.0k | 2.23M | 147.7k | 19.1k | $2.01 |
-| Finalise | 1 | 0s | 0s | 0 | — | 0 | 0 | 0 | 0 | 0 | — |
-| **Total** |  | **4h 02m** | **1h 10m** | **12** |  | 4.22M | 103.4k | 5.63M | 147.7k | **4.33M** | **≈$4.00** |
+| Finalise | 1 | 9s | 0s | 0 | — | 0 | 0 | 0 | 0 | 0 | — |
+| Resolve conflicts | 1 | 6m 02s | 42s | 2 | sonnet | 20 | 4.6k | 384.5k | 81.1k | 4.6k | $0.41 |
+| **Total** |  | **4h 08m** | **1h 11m** | **14** |  | 4.22M | 108.0k | 6.02M | 228.8k | **4.33M** | **≈$4.41** |
 
 ## By run
 
@@ -30,7 +31,7 @@ Estimated part: $1.99 of $4.00.
 | 2 | 2026-11-22 08:45 | implement | failed | 11m 52s | 0 | 0 | — |
 | 3 | 2026-11-23 12:36 | implement | paused | 10m 54s | 1 | 49.0k | no price |
 | 4 | 2026-11-24 17:48 | implement | paused | 2h 05m | 5 | 1.01M | $0.92 |
-| 5 | 2026-11-25 11:49 | implement | running | 1h 19m | 2 | 66.1k | $1.09 |
+| 5 | 2026-11-25 11:49 | implement | running | 1h 25m | 4 | 70.7k | $1.50 |
 
 ### Run 1: 2026-11-19 03:42, from spec, failed
 
@@ -67,4 +68,5 @@ Estimated part: $1.99 of $4.00.
 | --- | --: | --: | --: | --- | --: | --: |
 | Implement | 1h 14m | 6m 48s | 1 | gemini-3.8-flash-medium | 56.0k | no price |
 | Review | 4m 28s | 4m 24s | 1 | opus | 10.1k | $1.09 |
-| Finalise | 0s | 0s | 0 | — | 0 | — |
+| Finalise | 9s | 0s | 0 | — | 0 | — |
+| Resolve conflicts | 6m 02s | 42s | 2 | sonnet | 4.6k | $0.41 |
