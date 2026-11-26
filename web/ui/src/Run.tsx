@@ -483,7 +483,7 @@ export function Run({ slug }: { slug: string }) {
         <span class="small muted" id="review-override-help">Leave blank to use the project limit{catalog?.config?.review ? ` (${catalog.config.review.maxLoops})` : ''}. Each loop sends findings back to Red tests and Implement.</span>
         {limitError && <span class="small s-failed" role="alert">{limitError}</span>}
         <label class="row small" style={{ gap: '6px', alignItems: 'center' }}>
-          <input type="checkbox" aria-label="sync each review round" disabled={running} checked={syncRounds}
+          <input type="checkbox" id="review-sync-rounds" aria-label="sync each review round" disabled={running} checked={syncRounds}
             onChange={e => { const on = (e.target as HTMLInputElement).checked; setEnvVar('SDLC_REVIEW_SYNC_ROUNDS', on === syncDefault ? '' : on ? '1' : '0'); }} />
           <span>Sync the branch with GitHub before each fix round{syncDefault ? ' (default)' : ''}</span>
         </label>
