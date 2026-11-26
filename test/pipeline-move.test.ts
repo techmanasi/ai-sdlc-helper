@@ -42,8 +42,9 @@ function withOrigin(f: Fixture): { origin: string; other: string } {
   git(f.dir, 'push', '-q', 'origin', 'main');
   const other = path.join(path.dirname(f.dir), 'other');
   spawnSync('git', ['clone', '-q', origin, other]);
-  git(other, 'config', 'user.email', 'o@example.com');
-  git(other, 'config', 'user.name', 'O');
+  // The second clone is the user's own other machine (same git identity) unless a test makes it someone else's.
+  git(other, 'config', 'user.email', git(f.dir, 'config', 'user.email'));
+  git(other, 'config', 'user.name', git(f.dir, 'config', 'user.name'));
   return { origin, other };
 }
 
@@ -64,7 +65,7 @@ function earlierRun(other: string): string {
   return sha;
 }
 
-const rows = (dir: string, kind: string) => read(dir, `${LOG}/attempts.jsonl`).split('\n').filter(Boolean).map(l => JSON.parse(l)).filter(x => x.kind === kind);
+const rows = (dir: string, kind: string) => read(dir, `${LOG}/attempts.jsonl`).split('\n').filter(Boolean).map(l => JSON.parse(l)).filter(x => x.kind === kind && x.finding !== 'branch-sync');
 const remoteHas = (origin: string, ref: string) => spawnSync('git', ['-C', origin, 'rev-parse', '--verify', '-q', ref]).status === 0;
 
 describe('the push check after Plan', () => {
@@ -83,46 +84,39 @@ describe('the push check after Plan', () => {
   });
 
   for (const mode of ['local', 'ci'] as const) {
-    test(`origin's branch holds an earlier run's work (${mode}): a new branch from the base; Red tests pushes it and links its pull request`, async () => {
+    test(`origin's branch holds an earlier run's work (${mode}): the run continues on it; Spec and Plan are pushed on top, Red tests links the pull request`, async () => {
       const f = fixture();
       fakeGh(f);
       const { origin, other } = withOrigin(f);
       const earlier = earlierRun(other);
       const r = await pipeline(f, { ...FAILS_AT_IMPLEMENT, SDLC_FULL_SUITE: mode });
       expect(r.calls.slice(0, 3)).toEqual(['spec', 'plan', 'red-tests']);
-      expect(r.stdout).toContain('MOVED:');
-      expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(MOVED);
-      // Made from the base: the earlier run's commit is not in it.
-      expect(spawnSync('git', ['-C', f.dir, 'merge-base', '--is-ancestor', earlier, 'HEAD']).status).not.toBe(0);
-      expect(git(origin, 'rev-parse', BRANCH)).toBe(earlier);
-      expect(statusOf(f.dir)).toMatchObject({ branch: MOVED, moved_from: { branch: BRANCH, reason: 'earlier-run' } });
-      expect(rows(f.dir, 'push-check')).toMatchObject([{ finding: 'earlier-run', action: 'new-branch-from-base' }]);
-      // Red tests pushed the new branch, opened its pull request, and committed and pushed the link.
-      const log = git(f.dir, 'log', '--format=%s', 'main..HEAD').split('\n');
-      expect(log).toContain(`chore(${SLUG}): link pull request`);
-      expect(git(origin, 'rev-parse', MOVED)).toBe(git(f.dir, 'rev-parse', `${MOVED}`));
-      expect(getPrFromBrief(git(origin, 'show', `${MOVED}:${DOCS}/brief.md`))).toBe(NEW_PR);
-      const created = read(f.fake, 'gh-create.log');
-      expect(created).toContain(`--head ${MOVED}`);
-      expect(created).toContain(`Replaces branch ${BRANCH}`);
+      expect(r.stdout).not.toContain('MOVED:');
+      expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(BRANCH);
+      // The branch is origin's: the earlier run's commit is in it and the pushed branch has this run's docs on top.
+      expect(spawnSync('git', ['-C', f.dir, 'merge-base', '--is-ancestor', earlier, 'HEAD']).status).toBe(0);
+      expect(spawnSync('git', ['-C', origin, 'merge-base', '--is-ancestor', earlier, BRANCH]).status).toBe(0);
+      expect(git(origin, 'log', '--format=%s', `${earlier}..${BRANCH}`)).toContain(`[spec] docs(${SLUG}): add the spec`);
+      expect(git(f.dir, 'branch', '--list', `${BRANCH}_*`)).toBe('');
+      expect(statusOf(f.dir).moved_from).toBeUndefined();
+      expect(read(f.fake, 'gh-create.log')).toContain(`--head ${BRANCH}`);
     });
   }
 
-  test('paused after the move, resumed at Plan: no second move', async () => {
+  test('paused, resumed at Plan: the run stays on its branch', async () => {
     const f = fixture({ 'red-tests': 'true' });
     fakeGh(f);
     const { other } = withOrigin(f);
     earlierRun(other);
     let r = await pipeline(f, FAILS_AT_IMPLEMENT);
     expect(r.stdout).toContain('RED GATE FAILED');
-    expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(MOVED);
+    expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(BRANCH);
     fixtureStage(f, 'red-tests', null);
     r = await pipeline(f, FAILS_AT_IMPLEMENT, { from: 'plan' });
     expect(r.stdout).not.toContain('MOVED:');
-    expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(MOVED);
-    expect(git(f.dir, 'branch', '--list', `${BRANCH}_3`)).toBe('');
-    expect(rows(f.dir, 'move')).toHaveLength(1);
-    expect(statusOf(f.dir)).toMatchObject({ branch: MOVED, moved_from: { branch: BRANCH } });
+    expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(BRANCH);
+    expect(git(f.dir, 'branch', '--list', `${BRANCH}_*`)).toBe('');
+    expect(rows(f.dir, 'move')).toHaveLength(0);
   });
 
   test('SDLC_MOVE_BRANCH=0 keeps the branch', async () => {
@@ -175,7 +169,9 @@ describe('the push check after Plan', () => {
     expect(r.stdout).toContain(`ai-sdlc-helper pipeline ${SLUG} --from red-tests`);
     expect(r.stdout).not.toContain('--from resolve-conflicts');
     expect(r.calls).not.toContain('red-tests');
-    expect(git(origin, 'rev-parse', BRANCH)).toBe(before);
+    // Nothing of the base's conflict was pushed: origin's branch only gained Spec and Plan on top of what it held.
+    expect(spawnSync('git', ['-C', origin, 'merge-base', '--is-ancestor', before, BRANCH]).status).toBe(0);
+    expect(git(origin, 'show', `${BRANCH}:src/existing.mjs`)).toContain('mine');
     // The follow-up question is never asked inline: questions.md belongs to Plan.
     expect(read(f.dir, `${DOCS}/questions.md`)).toBe('');
     expect(read(f.dir, `${LOG}/resolve-conflicts.md`)).not.toBe('');
@@ -184,7 +180,7 @@ describe('the push check after Plan', () => {
     expect(statusOf(f.dir).resume_from).toBe('red-tests');
   });
 
-  test('a resume from Plan that finds the red-tests commit reuses it: no new branch, no push and no pull request', async () => {
+  test('a resume from Plan that finds the red-tests commit reuses it: no new branch; the push from Plan opens the draft PR for the same branch', async () => {
     const f = fixture();
     fakeGh(f);
     let r = await pipeline(f, FAILS_AT_IMPLEMENT);
@@ -201,11 +197,18 @@ describe('the push check after Plan', () => {
     expect(r.calls).toEqual(['plan', 'red-tests', 'implement']);
     // Plan and Red tests run again: the existing red tests are kept (the stage says so and makes no new commit).
     expect(r.stdout).toMatch(/existing red tests in [0-9a-f]{7} are sufficient; no new test commit needed/);
-    // The run stays on its branch (fast-forwarded by the push check): no _2 branch, no push, no pull request.
+    // The run stays on its branch (fast-forwarded): no _2 branch. Plan pushes its docs, so origin's
+    // branch only moves forward, to this run's own commit; main is untouched.
     expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(BRANCH);
     expect(git(f.dir, 'branch', '--list', `${BRANCH}_*`)).toBe('');
-    expect(git(origin, 'for-each-ref')).toBe(refs);
-    expect(read(f.fake, 'gh-create.log')).toBe('');
+    const was = refs.split('\n').find(l => l.endsWith(`refs/heads/${BRANCH}`))!.split(' ')[0];
+    const now = git(origin, 'rev-parse', `refs/heads/${BRANCH}`);
+    expect(git(f.dir, 'merge-base', '--is-ancestor', was, now)).toBe('');
+    expect(git(f.dir, 'merge-base', '--is-ancestor', now, 'HEAD')).toBe('');
+    expect(git(origin, 'rev-parse', 'refs/heads/main')).toBe(refs.split('\n').find(l => l.endsWith('refs/heads/main'))!.split(' ')[0]);
+    // #158: the draft pull request opens at the first push with changes, for the run's own branch.
+    expect(read(f.fake, 'gh-create.log')).toContain(`--head ${BRANCH} `);
+    expect(read(f.fake, 'gh-create.log')).not.toContain(MOVED);
   });
 
   test('a start at Review does not run the check (local mode)', async () => {
@@ -299,9 +302,13 @@ describe('a new pull request is committed on the run\'s branch; the main checkou
     const wt = inWorktree(f);
     // The earlier run started from the main that holds the brief.
     git(other, 'pull', '-q');
-    earlierRun(other);
+    // Somebody else's branch of that name: it holds no commit of this task, so the run goes on a new one.
+    git(other, 'checkout', '-q', '-b', BRANCH);
+    commitIn(other, 'stranger.txt', 'unrelated\n', 'unrelated work');
+    git(other, 'push', '-q', 'origin', BRANCH);
+    git(other, 'checkout', '-q', 'main');
     const r = await pipeline(wt, FAILS_AT_IMPLEMENT);
-    expect(r.stdout).toContain('MOVED:');
+    expect(r.stdout).toContain('Branch sync:');
     expect(git(wt.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(MOVED);
     const sha = linkCommit(origin, MOVED);
     expect(sha).not.toBe('');
@@ -323,8 +330,10 @@ describe('a new pull request is committed on the run\'s branch; the main checkou
     const wt = inWorktree(f, false);
     const r = await pipeline(wt, { SDLC_CREATE_PR: '1' });
     expect(r.stdout).toContain(`Review pull request: ${NEW_PR}`);
-    expect(git(origin, 'log', '-1', '--format=%s', BRANCH)).toBe(LINK);
-    expect(git(origin, 'show', '--name-only', '--format=', BRANCH)).toBe(`${DOCS}/brief.md`);
+    // The draft pull request opened at the first push; its link was committed then, and Finalise adds nothing to it.
+    const link = linkCommit(origin, BRANCH);
+    expect(link).not.toBe('');
+    expect(git(origin, 'show', '--name-only', '--format=', link)).toBe(`${DOCS}/brief.md`);
     expect(getPrFromBrief(git(origin, 'show', `${BRANCH}:${DOCS}/brief.md`))).toBe(NEW_PR);
     expect(git(wt.dir, 'status', '--porcelain', '--', `${DOCS}/brief.md`)).toBe('');
     expect(getPrFromBrief(read(f.dir, `${DOCS}/brief.md`))).toBeNull();
@@ -363,18 +372,15 @@ printf 'FILE: src/existing.mjs :: kept both comments\\nVERDICT: SAFE\\n' > "$FAK
     fakeGh(f);
     const { origin, theirs } = conflictingMove(f);
     const r = await pipeline(f, FAILS_AT_IMPLEMENT);
-    expect(r.calls.slice(0, 4)).toEqual(['spec', 'plan', 'other', 'red-tests']);
-    expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(MOVED);
-    expect(rows(f.dir, 'push-check')).toMatchObject([{ finding: 'diverged', action: 'new-branch-from-base' }]);
-    expect(r.stdout).toContain('conflicts resolved in src/existing.mjs');
-    // From origin's main, in a straight line, with the resolved change; pushed with its pull request.
-    expect(spawnSync('git', ['-C', origin, 'merge-base', '--is-ancestor', 'main', MOVED]).status).toBe(0);
-    expect(git(origin, 'rev-list', '--merges', `main..${MOVED}`)).toBe('');
-    expect(git(origin, 'show', `${MOVED}:src/existing.mjs`)).toBe(RESOLVED.trim());
-    expect(git(origin, 'log', '--format=%s', `main..${MOVED}`).split('\n')).toContain('the task');
-    expect(read(f.fake, 'gh-create.log')).toContain(`--head ${MOVED}`);
-    // The old branch, on origin, as it was.
-    expect(git(origin, 'rev-parse', BRANCH)).toBe(theirs);
+    expect(r.calls.slice(0, 4)).toEqual(['other', 'spec', 'plan', 'other']);
+    // Branch sync rebased the diverged branch onto GitHub's commit, then Resolve conflicts rebased it onto main in place.
+    expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(BRANCH);
+    expect(r.stdout).toContain('Branch sync:');
+    expect(spawnSync('git', ['-C', origin, 'merge-base', '--is-ancestor', 'main', BRANCH]).status).toBe(0);
+    expect(git(origin, 'rev-list', '--merges', `main..${BRANCH}`)).toBe('');
+    expect(git(origin, 'show', `${BRANCH}:src/existing.mjs`)).toBe(RESOLVED.trim());
+    expect(git(origin, 'log', '--format=%s', `main..${BRANCH}`).split('\n')).toContain('the task');
+    expect(theirs).not.toBe('');
   });
 
   test('the resolver doubts and the panel finds it unsafe: the run stops, nothing is pushed, the old branch is checked out again and no new branch is left', async () => {
@@ -387,7 +393,7 @@ printf 'FILE: src/existing.mjs :: kept both comments\\nVERDICT: DOUBT\\nDOUBT: o
     const refs = git(origin, 'for-each-ref');
     const r = await pipeline(f, FAILS_AT_IMPLEMENT);
     expect(r.status).toBe(1);
-    expect(r.calls).toEqual(['spec', 'plan', 'other', 'resolve-review', 'resolve-review', 'resolve-review', 'resolve-judge']);
+    expect(r.calls).toEqual(['other', 'resolve-review', 'resolve-review', 'resolve-review', 'resolve-judge']);
     expect(git(origin, 'for-each-ref')).toBe(refs);
     expect(git(origin, 'rev-parse', BRANCH)).toBe(theirs);
     expect(git(f.dir, 'symbolic-ref', '--short', 'HEAD')).toBe(BRANCH);
@@ -396,12 +402,10 @@ printf 'FILE: src/existing.mjs :: kept both comments\\nVERDICT: DOUBT\\nDOUBT: o
     expect(git(f.dir, 'branch', '--list', `${BRANCH}_*`)).toBe('');
     expect(git(f.dir, 'rev-parse', `refs/sdlc-backup/${BRANCH}/local`)).toBe(mine);
     expect(fs.existsSync(path.join(f.dir, '.git', 'rebase-merge'))).toBe(false);
-    // Plan's work is still there.
-    expect(read(f.dir, `${DOCS}/plan-1.md`)).toBe('plan\n');
-    expect(r.stdout).toContain(`Nothing was pushed; ${BRANCH} is checked out again, unchanged (refs/sdlc-backup/${BRANCH}/local is ${mine.slice(0, 7)})`);
-    expect(r.stdout).toContain(`ai-sdlc-helper pipeline ${SLUG} --from red-tests`);
-    expect(read(f.dir, `${LOG}/errors.log`)).toContain('one() is commented two ways');
-    expect(rows(f.dir, 'push-check').map(x => x.action)).toEqual(['new-branch-stopped']);
+    expect(r.stdout).toContain(`Nothing was lost: ${BRANCH} is back at ${mine.slice(0, 7)}`);
+    expect(r.stdout).toContain(`ai-sdlc-helper pipeline ${SLUG} --from spec`);
+    expect(read(f.dir, `${LOG}/errors.log`)).toContain('the conflict in src/existing.mjs could break this task');
+    expect(rows(f.dir, 'push-check')).toEqual([]);
     expect(rows(f.dir, 'move')).toEqual([]);
     expect(statusOf(f.dir).moved_from).toBeUndefined();
   });
@@ -415,3 +419,77 @@ function fixtureStage(f: Fixture, stage: string, script: string | null): void {
     fs.copyFileSync(path.join(fresh.fake, `${stage}.sh`), file);
   } else fs.writeFileSync(file, `set -e\n${script}\n`);
 }
+
+describe('Review fix rounds and the branch sync (review.syncEachRound)', () => {
+  const CHANGES = '{"verdict":"changes","blockers":[{"file":"src/sum.mjs","criterion":"sum of nothing is 0","reason":"no argument gives NaN"}],"missingTests":[]}';
+  /** Red tests notes its branch and whether GitHub's commit is in the tree; from its second start it adds one more failing test. */
+  const stages = {
+    'red-tests': `echo "cases" > "$FAKE_DOCS/test-cases-1.md"
+n=$(grep -c '^red-tests$' "$FAKE_DIR/calls.txt")
+if [ -f from-github.txt ]; then s=seen; else s="not seen"; fi
+echo "red-tests $n on $(git symbolic-ref --short HEAD): $s" >> "$FAKE_DIR/seen.txt"
+printf "import { test } from 'node:test';\\nimport assert from 'node:assert/strict';\\nimport { sum } from './sum.mjs';\\ntest('sum adds', () => assert.equal(sum(2, 3), 5));\\n" > src/sum.test.mjs
+if [ "$n" -gt 1 ]; then printf "import { test } from 'node:test';\\nimport assert from 'node:assert/strict';\\nimport { extra$n } from './extra$n.mjs';\\ntest('extra $n', () => assert.equal(extra$n(), $n));\\n" > src/extra$n.test.mjs; fi`,
+    implement: `printf 'export const sum = (a, b) => a + b;\\n' > src/sum.mjs
+n=$(grep -c '^implement$' "$FAKE_DIR/calls.txt")
+i=2; while [ "$i" -le "$n" ]; do printf "export const extra$i = () => $i;\\n" > src/extra$i.mjs; i=$((i+1)); done`,
+    // The first Review asks for changes and, meanwhile, a commit is pushed to the run's branch on GitHub from the second clone.
+    review: `echo "reviewed" > "$FAKE_DOCS/review-1.md"
+n=$(grep -c '^review$' "$FAKE_DIR/calls.txt")
+if [ "$n" -le 1 ]; then
+  printf '%s\\n' '${CHANGES}' > "$FAKE_DOCS/review.json"
+  git -C "$OTHER" fetch -q origin && git -C "$OTHER" checkout -q -B ${BRANCH} origin/${BRANCH}
+  echo pushed > "$OTHER/from-github.txt" && git -C "$OTHER" add from-github.txt && git -C "$OTHER" commit -q -m "docs(${SLUG}): a note pushed on GitHub" && git -C "$OTHER" push -q origin ${BRANCH}
+else printf '{"verdict":"pass","blockers":[],"missingTests":[]}\\n' > "$FAKE_DOCS/review.json"; fi`,
+  };
+  const configure = (f: Fixture, review: Record<string, unknown>): void => {
+    const file = path.join(f.dir, 'sdlc.config.json');
+    fs.writeFileSync(file, `${JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), review }, null, 2)}\n`);
+    git(f.dir, 'commit', '-q', '-am', 'review settings');
+  };
+  /** The second clone commits as someone else. */
+  const asStranger = (other: string): void => { git(other, 'config', 'user.email', 'o@example.com'); git(other, 'config', 'user.name', 'O'); };
+  const seen = (f: Fixture): string[] => read(f.fake, 'seen.txt').trim().split('\n');
+
+  test("by default a fix round syncs first: someone else's push during Review moves the fix round to a new branch, without their commit", async () => {
+    const f = fixture(stages);
+    fakeGh(f);
+    const { other } = withOrigin(f);
+    asStranger(other);
+    const r = await pipeline(f, { OTHER: other });
+    expect(r.calls.slice(0, 6)).toEqual(['spec', 'plan', 'red-tests', 'implement', 'review', 'red-tests']);
+    expect(seen(f).slice(0, 2)).toEqual([`red-tests 1 on ${BRANCH}: not seen`, `red-tests 2 on ${MOVED}: not seen`]);
+    expect(statusOf(f.dir).moved_from).toMatchObject({ branch: BRANCH, reason: 'foreign-commits' });
+    expect(r.stdout).toContain(`commits by someone else`);
+  });
+
+  test("by default the user's own push during Review is brought into the fix round on the same branch", async () => {
+    const f = fixture(stages);
+    fakeGh(f);
+    const { other } = withOrigin(f);
+    const r = await pipeline(f, { OTHER: other });
+    expect(r.status).toBe(0);
+    expect(r.calls).toEqual(['spec', 'plan', 'red-tests', 'implement', 'review', 'red-tests', 'implement', 'review']);
+    expect(seen(f)).toEqual([`red-tests 1 on ${BRANCH}: not seen`, `red-tests 2 on ${BRANCH}: seen`]);
+  });
+
+  test('review.syncEachRound false syncs once before Review: the fix round runs on the same branch without the push', async () => {
+    const f = fixture(stages);
+    fakeGh(f);
+    configure(f, { syncEachRound: false });
+    const { other } = withOrigin(f);
+    const r = await pipeline(f, { OTHER: other });
+    expect(r.calls.slice(0, 6)).toEqual(['spec', 'plan', 'red-tests', 'implement', 'review', 'red-tests']);
+    expect(seen(f).slice(0, 2)).toEqual([`red-tests 1 on ${BRANCH}: not seen`, `red-tests 2 on ${BRANCH}: not seen`]);
+  });
+
+  test("SDLC_REVIEW_SYNC_ROUNDS=1 (the run's own choice) wins over a project file that turns it off", async () => {
+    const f = fixture(stages);
+    fakeGh(f);
+    configure(f, { syncEachRound: false });
+    const { other } = withOrigin(f);
+    const r = await pipeline(f, { OTHER: other, SDLC_REVIEW_SYNC_ROUNDS: '1' });
+    expect(r.status).toBe(0);
+    expect(seen(f)).toEqual([`red-tests 1 on ${BRANCH}: not seen`, `red-tests 2 on ${BRANCH}: seen`]);
+  });
+});

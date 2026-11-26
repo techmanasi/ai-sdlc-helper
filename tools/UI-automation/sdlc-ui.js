@@ -38,6 +38,7 @@
     drawerOutput: 'pre.code',
     projectReviewLimit: '#review-loop-limit',
     runReviewLimit: '#review-loop-override',
+    runSyncRounds: '#review-sync-rounds',
     // run page
     hero: '.hero',
     heroTitle: '.hero h1',
@@ -294,13 +295,24 @@
     for (let d = input.closest('details'); d; d = d.parentElement.closest('details')) d.open = true;
     return setValue(input, value);
   }
+  /** Ticks or clears "Sync the branch with GitHub before each fix round" for this run; returns the env table. */
+  async function setSyncRounds(on) {
+    const input = $(SELECTORS.runSyncRounds);
+    if (!input || input.disabled) throw new Error('Sync before each fix round is unavailable');
+    for (let d = input.closest('details'); d; d = d.parentElement.closest('details')) d.open = true;
+    if (input.checked !== Boolean(on)) input.click();
+    await sleep(50);
+    return env();
+  }
   function runOptions() {
     const d = $$('details', main()).find(x => text($('summary', x)).startsWith('Run options'));
     if (!d) return null;
     const auto = $$('label', d).find(l => text(l).startsWith('Auto-accept'));
     const limit = $(SELECTORS.runReviewLimit, d);
+    const sync = $(SELECTORS.runSyncRounds, d);
     return { summary: text($('summary', d)), autoAccept: auto ? $('input', auto).checked : null,
-      reviewLoopLimit: limit?.value ?? null, reviewLoopLimitDisabled: limit?.disabled ?? null };
+      reviewLoopLimit: limit?.value ?? null, reviewLoopLimitDisabled: limit?.disabled ?? null,
+      syncEachRound: sync ? sync.checked : null };
   }
   function autoAccept(on) {
     const d = $$('details', main()).find(x => text($('summary', x)).startsWith('Run options'));
@@ -439,7 +451,7 @@
     click, buttons, findButton, panel, panelTitles, setValue, setChecked, text,
     // board
     board, boardShow, boardFilter, pick, rowAction,
-    completedTabs, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit,
+    completedTabs, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds,
     // run page
     run, stages, stage, output, questions, answer, recovery, env, setEnv, runOptions, autoAccept, costTable, openDoc, closeDialog,
     // new item

@@ -25,6 +25,7 @@ import { keepError } from './errors.js';
 import { isCostFile, writeCostLog } from './cost-log.js';
 import { withAnswerLines } from './questions.js';
 import { openMovedPr } from './branch-move.js';
+import { commitStageDocs } from './stage-docs.js';
 import { ensurePushable, pushCheckSkipped } from './push-check.js';
 import { checkCiAvailability, isRejectedPush, waitForCiAndClassify, type CiStepResult } from './ci.js';
 import { ciFailureText, ciState, ciStatusLine, ciWarnings, duration, localCounts, setCiStatus } from './ci-rounds.js';
@@ -282,6 +283,7 @@ export async function specStage(ctx: Ctx): Promise<void> {
   }
   ctx.status?.beginStep?.('check');
   if (!exists(at(ctx, `${ctx.docs}/specs-1.md`))) notProduced(ctx, name, 'Spec');
+  await commitStageDocs(ctx, 'spec', 'add the spec');
 }
 
 /** Plan: the agent writes plan-1.md, or questions.md for open technical questions (the run pauses for answers). */
@@ -314,6 +316,7 @@ export async function planStage(ctx: Ctx): Promise<void> {
   }
   ctx.status?.beginStep?.('check');
   if (!exists(at(ctx, `${ctx.docs}/plan-1.md`))) notProduced(ctx, 'plan', 'Plan');
+  await commitStageDocs(ctx, 'plan', 'add the plan');
 }
 
 function hasImplSince(ctx: Ctx, firstRedSha: string): boolean {
@@ -443,7 +446,7 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   if (hasStaged) {
     const cost = await writeCostLog(ctx);
     if (cost.length) ctx.git.run('add', '--', ...cost);
-    ctx.git.run('commit', '-q', '-m', `[red-tests] test(${ctx.slug}): add failing tests and spec/plan docs`);
+    ctx.git.run('commit', '-q', '-m', `[red-tests] test(${ctx.slug}): add failing tests`);
     ctx.redSha = ctx.git.head();
   } else {
     ctx.redSha = existingRedShas[existingRedShas.length - 1] || ctx.git.head();

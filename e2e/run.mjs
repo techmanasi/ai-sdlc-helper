@@ -176,13 +176,16 @@ function checkShipped(c, dir, env, stubLog, output) {
   const branch = git(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
   check(branch === `sdlc/${p.slug}`, `on branch ${branch}, expected sdlc/${p.slug}`);
   const subjects = git(dir, 'log', '--reverse', '--format=%s', 'main..HEAD').split('\n').filter(Boolean);
-  const expected = [`[red-tests] test(${p.slug}): add failing tests and spec/plan docs`, `[finalise] feat(${p.slug}): implement per ${docs}/specs-1.md`, `chore(backlog): mark ${p.slug} done`];
+  const expected = [`[spec] docs(${p.slug}): add the spec`, `[plan] docs(${p.slug}): add the plan`, `[red-tests] test(${p.slug}): add failing tests`, `[finalise] feat(${p.slug}): implement per ${docs}/specs-1.md`, `chore(backlog): mark ${p.slug} done`];
   check(JSON.stringify(subjects) === JSON.stringify(expected), `commits on the branch (oldest first):\n  ${subjects.join('\n  ')}\nexpected:\n  ${expected.join('\n  ')}`);
 
   const filesOf = ref => git(dir, 'show', '--name-only', '--format=', ref).split('\n').filter(Boolean);
-  const [red, feat, tick] = git(dir, 'log', '--reverse', '--format=%H', 'main..HEAD').split('\n');
+  const [specSha, planSha, red, feat, tick] = git(dir, 'log', '--reverse', '--format=%H', 'main..HEAD').split('\n');
   const redFiles = filesOf(red);
-  for (const f of [p.test, `${docs}/specs-1.md`, `${docs}/plan-1.md`, `${docs}/test-cases-1.md`]) check(redFiles.includes(f), `the Red tests commit lacks ${f} (has ${redFiles.join(', ')})`);
+  for (const f of [p.test, `${docs}/test-cases-1.md`]) check(redFiles.includes(f), `the Red tests commit lacks ${f} (has ${redFiles.join(', ')})`);
+  check(!redFiles.includes(`${docs}/specs-1.md`) && !redFiles.includes(`${docs}/plan-1.md`), `the Red tests commit holds the spec or plan: ${redFiles.join(', ')}`);
+  check(filesOf(specSha).includes(`${docs}/specs-1.md`), `the spec commit lacks ${docs}/specs-1.md (has ${filesOf(specSha).join(', ')})`);
+  check(filesOf(planSha).includes(`${docs}/plan-1.md`), `the plan commit lacks ${docs}/plan-1.md (has ${filesOf(planSha).join(', ')})`);
   check(!redFiles.includes(p.source), `the Red tests commit already has the implementation ${p.source}`);
   check(!redFiles.some(f => f.includes('/logs/')), `the Red tests commit has run logs: ${redFiles.filter(f => f.includes('/logs/')).join(', ')}`);
   const featFiles = filesOf(feat);
@@ -279,7 +282,10 @@ async function runCase(c, tmp, env) {
     check(!fs.existsSync(questions), 'questions.md is still there after the answers were recorded');
     const decisions = read(path.join(docs, 'decisions.md'));
     check(/^## Round 1 /m.test(decisions) && decisions.includes('**Answer:** accept') && decisions.includes('naming the percent'), `decisions.md does not hold the answers:\n${decisions}`);
-    check(git(repo, 'show', '--name-only', '--format=', 'HEAD~2').split('\n').includes(`Docs/backlog/${p.slug}/decisions.md`), 'decisions.md is not in the Red tests commit');
+    const specCommit = git(repo, 'log', '--reverse', '--format=%H', `--grep=^\\[spec\\] docs(${p.slug})`, 'main..HEAD').split('\n')[0];
+    const holders = git(repo, 'log', '--format=%s', '--', `Docs/backlog/${p.slug}/decisions.md`).split('\n').filter(Boolean);
+    check(git(repo, 'show', '--name-only', '--format=', specCommit).split('\n').includes(`Docs/backlog/${p.slug}/decisions.md`), `decisions.md is not in the spec commit (commits touching it: ${holders.join(' | ')})`);
+    check(!git(repo, 'show', '--name-only', '--format=', 'HEAD~2').split('\n').includes(`Docs/backlog/${p.slug}/decisions.md`), 'decisions.md is in the Red tests commit');
     checkShipped(c, repo, caseEnv, stubLog, second.stdout);
   } else { // controls: start in a worktree, follow it, read the status
     const s = save('start', cli(['start', p.slug], { cwd: repo, env: caseEnv }));

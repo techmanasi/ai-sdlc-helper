@@ -444,6 +444,9 @@ export function Run({ slug }: { slug: string }) {
       const model = envObj[envKey('MODEL', stage)] || st?.model || (agent === (catalog?.config?.agent?.harness || 'claude') ? catalog?.stageDefaults?.[stage]?.model : '') || '(default)';
       return `${agent}:${model}`;
     };
+    // review.syncEachRound: the project's default; SDLC_REVIEW_SYNC_ROUNDS (0 or 1) is this run's own choice.
+    const syncDefault = (catalog?.config as { review?: { syncEachRound?: boolean } } | undefined)?.review?.syncEachRound !== false;
+    const syncRounds = envObj.SDLC_REVIEW_SYNC_ROUNDS === '1' ? true : envObj.SDLC_REVIEW_SYNC_ROUNDS === '0' ? false : syncDefault;
     const names = [...Array.from({ length: count }, (_, i) => stageKey(i)), 'review-summary'];
     const keys = names.map(keyOf);
     const clash = keys.map((k, i) => (keys.indexOf(k) !== i || keys.lastIndexOf(k) !== i ? i : -1)).filter(i => i >= 0);
@@ -479,6 +482,11 @@ export function Run({ slug }: { slug: string }) {
         </label>
         <span class="small muted" id="review-override-help">Leave blank to use the project limit{catalog?.config?.review ? ` (${catalog.config.review.maxLoops})` : ''}. Each loop sends findings back to Red tests and Implement.</span>
         {limitError && <span class="small s-failed" role="alert">{limitError}</span>}
+        <label class="row small" style={{ gap: '6px', alignItems: 'center' }}>
+          <input type="checkbox" id="review-sync-rounds" aria-label="sync each review round" disabled={running} checked={syncRounds}
+            onChange={e => { const on = (e.target as HTMLInputElement).checked; setEnvVar('SDLC_REVIEW_SYNC_ROUNDS', on === syncDefault ? '' : on ? '1' : '0'); }} />
+          <span>Sync the branch with GitHub before each fix round{syncDefault ? ' (default)' : ''}</span>
+        </label>
       </div>
     );
   };

@@ -50,15 +50,15 @@ export function pushFailureKind(message: string): 'unreachable' | 'branch-refuse
   return 'unknown';
 }
 
-const short = (sha: string | null): string => (sha || '').slice(0, 7);
-const shaOf = (git: Git, ref: string): string | null => (git.tryRun('rev-parse', '--verify', '-q', `${ref}^{commit}`) || '').trim() || null;
-const isAncestor = (git: Git, a: string, b: string): boolean => git.tryRun('merge-base', '--is-ancestor', a, b) !== null;
+export const short = (sha: string | null): string => (sha || '').slice(0, 7);
+export const shaOf = (git: Git, ref: string): string | null => (git.tryRun('rev-parse', '--verify', '-q', `${ref}^{commit}`) || '').trim() || null;
+export const isAncestor = (git: Git, a: string, b: string): boolean => git.tryRun('merge-base', '--is-ancestor', a, b) !== null;
 
 /** Git for talking to origin: never asks for a password (a prompt would hang the run). */
-const netGit = (ctx: Ctx): Git => new Git(ctx.git.root, { ...ctx.git.env, GIT_TERMINAL_PROMPT: '0' });
+export const netGit = (ctx: Ctx): Git => new Git(ctx.git.root, { ...ctx.git.env, GIT_TERMINAL_PROMPT: '0' });
 
 /** Fetches one branch of origin into refs/remotes/origin/<name>, also in a single-branch clone: ok, absent, or git's message. */
-function fetchBranch(ctx: Ctx, name: string): 'ok' | 'absent' | { error: string } {
+export function fetchBranch(ctx: Ctx, name: string): 'ok' | 'absent' | { error: string } {
   try {
     netGit(ctx).runTimeout(30_000, 'fetch', '-q', 'origin', `+refs/heads/${name}:refs/remotes/origin/${name}`);
     return 'ok';
@@ -69,11 +69,11 @@ function fetchBranch(ctx: Ctx, name: string): 'ok' | 'absent' | { error: string 
 }
 
 /** The pull request of the branch (the brief's link first) when it is closed or merged; null when open, none, or gh is missing. */
-function endedPr(ctx: Ctx): { state: 'CLOSED' | 'MERGED'; url: string } | null {
+export function endedPr(ctx: Ctx, quiet = false): { state: 'CLOSED' | 'MERGED'; url: string } | null {
   let gh: ReturnType<typeof spawnSync> | null = null;
   try { gh = spawnSync('gh', ['--version'], { cwd: ctx.root, encoding: 'utf8', env: ctx.env, timeout: 30_000 }); } catch { gh = null; }
   if (!gh || gh.status !== 0) {
-    ctx.out("Push check: gh is not available, so the pull request's state was not checked");
+    if (!quiet) ctx.out("Push check: gh is not available, so the pull request's state was not checked");
     return null;
   }
   let briefPr: string | null = null;
@@ -84,7 +84,7 @@ function endedPr(ctx: Ctx): { state: 'CLOSED' | 'MERGED'; url: string } | null {
 }
 
 /** The run's own commits: those of L since it left the base (none without a base). */
-function ownCommits(git: Git, local: string, base: string | null): string[] {
+export function ownCommits(git: Git, local: string, base: string | null): string[] {
   if (!base) return [];
   const mb = (git.tryRun('merge-base', local, base) || '').trim();
   return mb ? git.lines('rev-list', '--reverse', `${mb}..${local}`) : [];
@@ -160,22 +160,22 @@ export function diagnosePush(ctx: Ctx, opts: { fresh: boolean; retried?: boolean
   return diverged();
 }
 
-const inRebase = (git: Git): boolean => ['rebase-merge', 'rebase-apply'].some(n => {
+export const inRebase = (git: Git): boolean => ['rebase-merge', 'rebase-apply'].some(n => {
   const p = (git.tryRun('rev-parse', '--git-path', n) || '').trim();
   return !!p && fs.existsSync(path.isAbsolute(p) ? p : path.join(git.root, p));
 });
 
 /** Tracked files with uncommitted changes (a rebase refuses to start with them). */
-const trackedChanges = (git: Git): string[] => (git.tryRun('status', '--porcelain', '--untracked-files=no') || '').split('\n').filter(Boolean);
+export const trackedChanges = (git: Git): string[] => (git.tryRun('status', '--porcelain', '--untracked-files=no') || '').split('\n').filter(Boolean);
 
 /** The branch before a rewrite, as Resolve conflicts keeps it: refs/sdlc-backup/<branch>/local (and remote). */
-function backup(git: Git, branch: string, local: string, remote: string | null): void {
+export function backup(git: Git, branch: string, local: string, remote: string | null): void {
   git.run('update-ref', `refs/sdlc-backup/${branch}/local`, local);
   if (remote) git.run('update-ref', `refs/sdlc-backup/${branch}/remote`, remote);
 }
 
 /** After a fix rewrote the run's commits, the locked tests are found again by their messages and the lock moves to HEAD. */
-function relock(ctx: Ctx): void {
+export function relock(ctx: Ctx): void {
   if (!ctx.lockSha && !ctx.redSha) return;
   ctx.origRedSha = (ctx.git.findCommits ? ctx.git.findCommits([redPattern(ctx.slug)])[0] : '') || ctx.git.findCommit([redPattern(ctx.slug)]);
   ctx.redSha = ctx.git.findCommit([redPattern(ctx.slug), repairPattern(ctx.slug)]) || ctx.origRedSha;
@@ -189,7 +189,7 @@ function relock(ctx: Ctx): void {
  * and put back; untracked files stay. When that cannot be done safely the run stops: nothing is pushed, <to> is removed (it was
  * made here and never pushed), the old branch is checked out again as it was, and refs/sdlc-backup/<branch>/local names it.
  */
-async function branchFromOriginBase(ctx: Ctx, to: string, upstream: string, resume: From): Promise<{ resolved: FileResolution[] }> {
+export async function branchFromOriginBase(ctx: Ctx, to: string, upstream: string, resume: From): Promise<{ resolved: FileResolution[] }> {
   const git = ctx.git;
   const from = ctx.branch;
   const local = git.head();
@@ -266,7 +266,38 @@ async function branchFromOriginBase(ctx: Ctx, to: string, upstream: string, resu
 }
 
 /** The stash entries, newest first, by commit. */
-const stashes = (git: Git): string[] => (git.tryRun('stash', 'list', '--format=%H') || '').split('\n').map(l => l.trim()).filter(Boolean);
+export const stashes = (git: Git): string[] => (git.tryRun('stash', 'list', '--format=%H') || '').split('\n').map(l => l.trim()).filter(Boolean);
+
+/** What a mechanical fix of the ladder came to: a line for the output, or why the branch cannot be kept. */
+export type FixResult = { ok: true; line: string } | { ok: false; unknown: { kind: string; why: string } };
+
+/** Fast-forwards HEAD to origin's branch (the finding's remote); never a merge commit. Shared by the push check and the branch sync. */
+export function fastForward(ctx: Ctx, f: PushFinding): FixResult {
+  try {
+    ctx.git.run('merge', '-q', '--ff-only', f.remote as string);
+    relock(ctx);
+    return { ok: true, line: `${f.text}: fast-forwarded to ${short(f.remote)}` };
+  } catch (e) {
+    keepError(ctx, 'push check: fast-forward', (e as Error).message);
+    return { ok: false, unknown: { kind: 'push-refused', why: `${f.text}, and the fast-forward failed (${gitReason((e as Error).message)})` } };
+  }
+}
+
+/** Origin holds the same commits from before a rebase: a backup, then a push with a lease on the sha seen (never a bare force). Shared with the branch sync. */
+export function leaseSame(ctx: Ctx, f: PushFinding): FixResult {
+  const branch = ctx.branch;
+  backup(ctx.git, branch, f.local, f.remote);
+  const p = leasePush(netGit(ctx), 'origin', branch, f.remote as string);
+  if (!p.ok) {
+    keepError(ctx, 'push check: lease push', p.message);
+    return { ok: false, unknown: { kind: 'push-refused', why: p.stale ? `${f.text}, but origin's branch moved meanwhile (the lease was stale)` : `${f.text}, but the push with a lease failed (${gitReason(p.message)})` } };
+  }
+  try { ctx.git.run('branch', '-q', `--set-upstream-to=origin/${branch}`); } catch (e) {
+    keepError(ctx, 'push check: set upstream', (e as Error).message);
+    ctx.out(`Push check: could not set origin/${branch} as the upstream of ${branch} (see ${ctx.log}/errors.log)`);
+  }
+  return { ok: true, line: `${f.text}: pushed with a lease (origin had ${short(f.remote)}, now ${short(f.local)})` };
+}
 
 /** One line of output and one row in the attempts log for every outcome. */
 function report(ctx: Ctx, f: PushFinding, action: string, line: string): void {
@@ -300,29 +331,14 @@ export async function ensurePushable(ctx: Ctx, opts: { resume: From; fresh: bool
     case 'unreachable':
       report(ctx, f, 'none', `${f.text}: going on unchanged`);
       return;
-    case 'fast-forward':
-      try {
-        git.run('merge', '-q', '--ff-only', f.remote as string);
-        relock(ctx);
-        report(ctx, f, 'fast-forward', `${f.text}: fast-forwarded to ${short(f.remote)}`);
-      } catch (e) {
-        keepError(ctx, 'push check: fast-forward', (e as Error).message);
-        unknown = { kind: 'push-refused', why: `${f.text}, and the fast-forward failed (${gitReason((e as Error).message)})` };
-      }
+    case 'fast-forward': {
+      const r = fastForward(ctx, f);
+      if (r.ok === false) unknown = r.unknown; else report(ctx, f, 'fast-forward', r.line);
       break;
+    }
     case 'same-commits': {
-      backup(git, branch, f.local, f.remote);
-      const p = leasePush(netGit(ctx), 'origin', branch, f.remote as string);
-      if (p.ok) {
-        try { git.run('branch', '-q', `--set-upstream-to=origin/${branch}`); } catch (e) {
-          keepError(ctx, 'push check: set upstream', (e as Error).message);
-          ctx.out(`Push check: could not set origin/${branch} as the upstream of ${branch} (see ${ctx.log}/errors.log)`);
-        }
-        report(ctx, f, 'lease-push', `${f.text}: pushed with a lease (origin had ${short(f.remote)}, now ${short(f.local)})`);
-      } else {
-        keepError(ctx, 'push check: lease push', p.message);
-        unknown = { kind: 'push-refused', why: p.stale ? `${f.text}, but origin's branch moved meanwhile (the lease was stale)` : `${f.text}, but the push with a lease failed (${gitReason(p.message)})` };
-      }
+      const r = leaseSame(ctx, f);
+      if (r.ok === false) unknown = r.unknown; else report(ctx, f, 'lease-push', r.line);
       break;
     }
     case 'diverged': {

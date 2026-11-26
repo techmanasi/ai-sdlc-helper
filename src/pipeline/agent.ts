@@ -281,11 +281,11 @@ function harnessSelection(
  * Runs the agent of <stage>, logged as <name> (<log>/<name>.json, .err and .log). Exits 2 when it was refused an action
  * (recorded in permissions.json), 1 when it failed.
  */
-export async function runAgent(ctx: Ctx, name: string, stage: AgentStage): Promise<void> {
+export async function runAgent(ctx: Ctx, name: string, stage: AgentStage, promptName: string = stage): Promise<void> {
   stopIfAborted(ctx);
   const harnessId = harnessFor(ctx.config, stage);
   const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
-  let prompt = renderPrompt(stage, promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, stage), harness.id);
+  let prompt = renderPrompt(promptName, promptValues(ctx), ctx.guide, ctx.promptsDir, stageNotes(ctx, stage), harness.id);
   if (stage !== 'test-repair' && stage !== 'test-audit') {
     prompt += manualInput(at(ctx, ctx.docs), stage, testDir(ctx.config.suites[0]));
     prompt += prCommentsInput(at(ctx, ctx.docs));

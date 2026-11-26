@@ -11,6 +11,7 @@ import { draftPrText } from './ci.js';
 import { appendRound } from './observe.js';
 import { moveReasonText } from './status.js';
 import { Git } from './git.js';
+import { patchRecord, registryDir } from '../runs/records.js';
 
 export { isRunBranch, moveReasonText };
 
@@ -82,6 +83,11 @@ export function moveToNewBranch(ctx: Ctx, reason: MoveReason, create: (to: strin
   return recordMove(ctx, to, reason);
 }
 
+/** The run record always names the branch the run is on: the first source when a later start picks the branch. A missing registry is not an error. */
+export function setRecordBranch(ctx: Ctx, branch: string): void {
+  try { patchRecord(registryDir(ctx.root), ctx.slug, { branch }); } catch (e) { keepError(ctx, 'run record: branch', (e as Error).message); }
+}
+
 /** The bookkeeping of a move once <to> is made and checked out (status, brief, attempts log): the run now goes on on <to>. */
 export function recordMove(ctx: Ctx, to: string, reason: MoveReason): string {
   const from = ctx.branch;
@@ -103,6 +109,7 @@ export function recordMove(ctx: Ctx, to: string, reason: MoveReason): string {
   // The old pull request's CI state is not this run's now.
   if (ctx.status.ci && (!ctx.status.ci.pr || ctx.status.ci.pr === oldPr)) ctx.status.ci = undefined;
   ctx.status.write();
+  setRecordBranch(ctx, to);
   ctx.movedFrom = { branch: from, pr: oldPr, reason: reason.kind };
 
   ctx.out(`MOVED: this run continues on branch ${to}`);
