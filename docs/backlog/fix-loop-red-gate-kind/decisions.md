@@ -17,3 +17,15 @@ When the developer runs the suggested recovery command `ai-sdlc-helper start <sl
 Should `redTestsStage` (or pipeline setup) detect that the latest round in `logs/review-rounds.json` has open findings and automatically restore `promptExtra.REVIEW_FINDINGS` and set `fixing = true`?
 **Suggested:** Yes: when starting with `--from red-tests` (or during pipeline setup), if `logs/review-rounds.json` contains an active review round with open findings, restore `promptExtra.REVIEW_FINDINGS` from those findings so `fixing` is true and the Red tests agent receives the review findings in its prompt.
 **Answer:** Yes, with limits. On a start at Red tests (--from red-tests or the 'Resume at Red tests' recovery), if the last round in logs/review-rounds.json has open findings and its outcome is not final (not passed, not stopped for the loop limit), rebuild promptExtra.REVIEW_FINDINGS with the same findingsText(round, findings) fixCycle uses, so fixing is true and the prompt matches the fix loop exactly. Do this in one helper called where the run starts at Red tests, not inside redTestsStage's gate logic. A fresh run, or one whose last round passed, starts Red tests as usual. The loop count is read from the same file (problem 3), so a resume does not reset it. Add a test: a fix-loop red-gate stop, then start --from red-tests, runs the fix-loop gate (no strip of Implement commits, no Plan hint) and the agent prompt holds the findings.
+
+## Round 2 (2026-11-27)
+
+### Q3: Cases in a modified test file
+When a fix-loop edit adds or changes one test in an existing file, which cases should count toward the gate? The runner reports every case in the file, and the existing title check can recognize an old name but cannot tell whether its assertion changed. Counting every case can reject an untouched passing test as vacuous or let an untouched failure satisfy a blocker.
+**Suggested:** Count only newly added or modified cases. Allow additions with unique names in existing files, and require changed assertions to use a new unique runner-visible name so the gate can distinguish them from unchanged cases across supported runners.
+**Answer:** accept
+
+### Q4: Original red commit cannot load a test file
+Should a passing case count as a missing-test regression when its file cannot load at `origRedSha` because it imports a module introduced by Implement? The existing acceptance fixture uses a top-level import of `src/sum.mjs`, which does not exist at that commit. The runner can report a suite error in that situation without a failed result for the named case. Treating the suite error as proof for every case in the file could also accept cases that exercise unrelated behavior.
+**Suggested:** Require a failed result for the same named case at `origRedSha`. Put imports of implementation-only modules inside the affected cases so the runner can report their failures individually, and update the acceptance fixtures to exercise that path.
+**Answer:** accept
