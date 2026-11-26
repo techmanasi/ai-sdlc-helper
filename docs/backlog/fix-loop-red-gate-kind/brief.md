@@ -1,5 +1,5 @@
 ---
-pr: https://github.com/techmanasi/ai-sdlc-helper/pull/184
+pr: https://github.com/techmanasi/ai-sdlc-helper/pull/198
 ---
 
 # fix-loop-red-gate-kind
