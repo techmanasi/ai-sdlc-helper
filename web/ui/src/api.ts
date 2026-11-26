@@ -9,6 +9,7 @@ export interface StageSetting { harness?: string; model?: string; effort?: strin
 export interface ModelInfo { id: string; name: string; displayName?: string; supportsEffort: boolean; supportedEfforts?: string[]; defaultEffort?: string; providerId?: string; providerName?: string }
 export interface SettingsView {
   config: {
+    review?: { maxLoops: number };
     agent?: { harness: string; model: string | null; effort: string | null; stages: Record<string, StageSetting> };
     tests?: { retry: boolean | null; maxWorkers: number | 'auto' | null; preliminary?: 'scoped' | 'full' };
   } | null;
@@ -293,8 +294,8 @@ export const api = {
   getRunPr: (project: string, slug: string) =>
     call<{ pr: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; markdown: string | null }>('GET', `${r(project, slug)}/pr`),
   testIssues: (project: string, slug: string) => call<{ slug: string; text: string | null }>('GET', `${r(project, slug)}/test-issues`),
-  saveTestIssues: (project: string, slug: string, text: string, resume = true) =>
-    call<{ ok: boolean; text: string; resumed: Outcome | null }>('POST', `${r(project, slug)}/test-issues`, { text, resume }),
+  saveTestIssues: (project: string, slug: string, text: string, resume = true, env?: Record<string, string>) =>
+    call<{ ok: boolean; text: string; resumed: Outcome | null }>('POST', `${r(project, slug)}/test-issues`, { text, resume, env }),
   completed: (project: string) => call<{ completed: CompletedTask[]; prErrors?: PrCheckErrors; notices?: NoticeItem[] }>('GET', `${p(project)}/completed`),
   /** The rows at once, from git and the cache: PRs not known yet are prPending (then ask completed for the settled list). */
   completedRows: (project: string) => call<{ completed: CompletedTask[]; prErrors?: PrCheckErrors; notices?: NoticeItem[] }>('GET', `${p(project)}/completed?rows=first`),

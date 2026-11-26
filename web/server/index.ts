@@ -11,7 +11,7 @@ import {
   AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readRunDoc, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, prPollOptions, PR_POLL_MS, createPrForCompleted, markPrReadyForRun,
   decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, completedListAsync, primeRepoPaths, warmCompletedPrs, keepError, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
-  closeGoneRuns, loadOpencodePrices,
+  closeGoneRuns, loadOpencodePrices, parseReviewLimit, REVIEW_LIMIT_ENV, REVIEW_LIMIT_REQUIREMENT,
   inspectCodeSearch, executableBuild, codeIndexers, fileErrors, applyPatch,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
@@ -116,6 +116,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   // `liveEnv` is the caller's own object, never written to: SDLC_BOARD_SILENCE_MS is read from it on each use.
   const liveEnv: NodeJS.ProcessEnv = opts.env || process.env;
   const env: NodeJS.ProcessEnv = { ...liveEnv, SDLC_RUN_TRIGGER: 'ui' };
+  delete env[REVIEW_LIMIT_ENV]; // Each request inherits the project budget unless it supplies its own.
   const token = opts.token || crypto.randomBytes(24).toString('base64url');
   const uiDir = opts.uiDir || path.join(here, '..', 'ui');
   const cli = opts.cli || [process.execPath, path.join(here, '..', '..', 'bin.js')];
@@ -187,6 +188,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     const out: Record<string, string> = {};
     for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
       if (!ENV_NAME.test(k)) throw new HttpError(400, `not a variable name: '${k}'`);
+      if (k === REVIEW_LIMIT_ENV && parseReviewLimit(val) === undefined) throw new HttpError(400, `${k} ${REVIEW_LIMIT_REQUIREMENT}`);
       out[k] = String(val ?? '');
     }
     return out;

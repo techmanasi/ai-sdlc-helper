@@ -94,6 +94,8 @@ requests naming another host or sent from another site are refused. Stopping it 
 - `tests.retry`: run failed test files once more before a failure counts; tests that pass the second time are reported as flaky. Not set: the pipeline retries and `ai-sdlc-helper run` does not. `run --retry` and `--no-retry` override it.
 - `tests.maxWorkers`: the Jest and Vitest worker limit: a number, `"auto"` (half the CPUs, at least 1) or `null` (the runner's own default; the default). It applies to every test run of the pipeline; `run --max-workers` overrides it. Mocha and node:test have no worker limit.
 
+`review.maxLoops` sets how many times Review may send findings back to Red tests and Implement. The default is 2. With 0, a passing review completes and open findings stop the run with “needs you”. Set the project value in Global settings. To override it for one run, set **Review loop limit override** in Run options or supply `env.SDLC_REVIEW_MAX_LOOPS` in the run request. Clear the field or omit the key to inherit. Each start or resume reads the limit once.
+
 ### The full suite in CI
 - `tests.fullSuite`: where the full test suite runs, `"local"` (the default: nothing changes) or `"ci"` (GitHub Actions through `gh`). Override it with the personal `fullSuite` (next to `worktreeBase` and `maxParallel`) or `SDLC_FULL_SUITE=local|ci`. Precedence: environment, then personal, then project; an empty `SDLC_FULL_SUITE` counts as unset.
 - `ci.waitMinutes`: how long Implement waits for CI on a pushed commit, a whole number of 1 or more (default 60). Overrides: personal `ciWaitMinutes`, then `SDLC_CI_WAIT_MINUTES`, with the same precedence.

@@ -26,6 +26,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./review-limit": {
+      "types": "./dist/config/review-limit.d.ts",
+      "import": "./dist/config/review-limit.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

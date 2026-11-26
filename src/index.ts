@@ -1,5 +1,6 @@
 // ai-sdlc-helper as a library: project settings, detection, test framework setup and code search.
 export { CONFIG_FILE } from './util.js';
+export { parseReviewLimit, REVIEW_LIMIT_ENV, REVIEW_LIMIT_REQUIREMENT } from './config/review-limit.js';
 export { RUNNERS, detect, detectPackage, literalList, packageGlobs, type Detection, type Runner } from './config/detect.js';
 export { globToRegex, expandGlob } from './config/globs.js';
 export { projectNode, satisfiesMajor, nodeRun, wrapCommand, type NodeRun, type ProjectNode } from './config/node.js';
