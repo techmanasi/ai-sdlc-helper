@@ -1,31 +1,53 @@
 {
   "version": 1,
   "slug": "fix-loop-red-gate-kind",
-  "generatedAt": "2026-11-18T23:08:38",
+  "generatedAt": "2026-11-27T00:17:34",
   "priced": true,
   "runs": [
     {
+      "n": 0,
+      "started": "2026-11-26T20:15:12.415Z",
+      "from": "",
+      "ended": null,
+      "state": "stopped",
+      "wallSec": 0.078,
+      "stages": [],
+      "usage": {
+        "rounds": 0,
+        "durationSec": 0,
+        "turns": 0,
+        "tokens": 0,
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costUsd": null,
+        "estimatedUsd": 0,
+        "unpriced": 0
+      }
+    },
+    {
       "n": 1,
-      "started": "2026-11-18T11:59:04",
+      "started": "2026-11-27T00:15:12",
       "from": "spec",
-      "ended": "2026-11-18T12:07:28",
-      "state": "paused",
-      "wallSec": 504,
+      "ended": null,
+      "state": null,
+      "wallSec": 142,
       "stages": [
         {
           "stage": "Spec",
           "passes": 1,
-          "wallSec": 503,
+          "wallSec": 137,
           "models": [
             "gemini-3.8-flash-medium"
           ],
           "usage": {
             "rounds": 1,
-            "durationSec": 495.458716,
+            "durationSec": 132.602917,
             "turns": 1,
-            "tokens": 152509,
-            "input": 124378,
-            "output": 28131,
+            "tokens": 64313,
+            "input": 54211,
+            "output": 10102,
             "cacheRead": 0,
             "cacheWrite": 0,
             "costUsd": null,
@@ -36,291 +58,54 @@
       ],
       "usage": {
         "rounds": 1,
-        "durationSec": 495.458716,
+        "durationSec": 132.602917,
         "turns": 1,
-        "tokens": 152509,
-        "input": 124378,
-        "output": 28131,
+        "tokens": 64313,
+        "input": 54211,
+        "output": 10102,
         "cacheRead": 0,
         "cacheWrite": 0,
         "costUsd": null,
         "estimatedUsd": 0,
         "unpriced": 1
-      }
-    },
-    {
-      "n": 2,
-      "started": "2026-11-18T12:08:58",
-      "from": "spec",
-      "ended": "2026-11-18T12:27:02",
-      "state": "failed",
-      "wallSec": 1084,
-      "stages": [
-        {
-          "stage": "Spec",
-          "passes": 1,
-          "wallSec": 247,
-          "models": [
-            "gemini-3.8-flash-medium"
-          ],
-          "usage": {
-            "rounds": 1,
-            "durationSec": 238.434901,
-            "turns": 1,
-            "tokens": 121949,
-            "input": 102547,
-            "output": 19402,
-            "cacheRead": 0,
-            "cacheWrite": 0,
-            "costUsd": null,
-            "estimatedUsd": 0,
-            "unpriced": 1
-          }
-        },
-        {
-          "stage": "Plan",
-          "passes": 1,
-          "wallSec": 147,
-          "models": [
-            "sonnet"
-          ],
-          "usage": {
-            "rounds": 1,
-            "durationSec": 132.3,
-            "turns": 27,
-            "tokens": 9002,
-            "input": 26,
-            "output": 8976,
-            "cacheRead": 690027,
-            "cacheWrite": 106005,
-            "costUsd": 0.6888276999999999,
-            "estimatedUsd": 0,
-            "unpriced": 0
-          }
-        },
-        {
-          "stage": "Red tests",
-          "passes": 1,
-          "wallSec": 689,
-          "models": [
-            "gpt-6.1-terra"
-          ],
-          "usage": {
-            "rounds": 1,
-            "durationSec": 238.1,
-            "turns": 1,
-            "tokens": 1697262,
-            "input": 1690251,
-            "output": 7011,
-            "cacheRead": 1639680,
-            "cacheWrite": 0,
-            "costUsd": 0.16761,
-            "estimatedUsd": 0.16761,
-            "unpriced": 0
-          }
-        }
-      ],
-      "usage": {
-        "rounds": 3,
-        "durationSec": 608.8349010000001,
-        "turns": 29,
-        "tokens": 1828213,
-        "input": 1792824,
-        "output": 35389,
-        "cacheRead": 2329707,
-        "cacheWrite": 106005,
-        "costUsd": 0.8564377,
-        "estimatedUsd": 0.16761,
-        "unpriced": 1
-      }
-    },
-    {
-      "n": 3,
-      "started": "2026-11-18T12:28:11",
-      "from": "plan",
-      "ended": "2026-11-18T12:40:16",
-      "state": "failed",
-      "wallSec": 725,
-      "stages": [
-        {
-          "stage": "Plan",
-          "passes": 1,
-          "wallSec": 48,
-          "models": [
-            "sonnet"
-          ],
-          "usage": {
-            "rounds": 1,
-            "durationSec": 39.6,
-            "turns": 10,
-            "tokens": 3046,
-            "input": 12,
-            "output": 3034,
-            "cacheRead": 236634,
-            "cacheWrite": 48446,
-            "costUsd": 0.2478114,
-            "estimatedUsd": 0,
-            "unpriced": 0
-          }
-        },
-        {
-          "stage": "Red tests",
-          "passes": 1,
-          "wallSec": 677,
-          "models": [
-            "gpt-6.1-terra"
-          ],
-          "usage": {
-            "rounds": 1,
-            "durationSec": 201.4,
-            "turns": 1,
-            "tokens": 1675489,
-            "input": 1671273,
-            "output": 4216,
-            "cacheRead": 1627904,
-            "cacheWrite": 0,
-            "costUsd": 0.1458442,
-            "estimatedUsd": 0.1458442,
-            "unpriced": 0
-          }
-        }
-      ],
-      "usage": {
-        "rounds": 2,
-        "durationSec": 241,
-        "turns": 11,
-        "tokens": 1678535,
-        "input": 1671285,
-        "output": 7250,
-        "cacheRead": 1864538,
-        "cacheWrite": 48446,
-        "costUsd": 0.3936556,
-        "estimatedUsd": 0.1458442,
-        "unpriced": 0
-      }
-    },
-    {
-      "n": 4,
-      "started": "2026-11-18T23:00:36",
-      "from": "red-tests",
-      "ended": null,
-      "state": null,
-      "wallSec": 482,
-      "stages": [
-        {
-          "stage": "Red tests",
-          "passes": 1,
-          "wallSec": 478,
-          "models": [
-            "gpt-6.1-terra"
-          ],
-          "usage": {
-            "rounds": 1,
-            "durationSec": 277,
-            "turns": 1,
-            "tokens": 2653912,
-            "input": 2645349,
-            "output": 8563,
-            "cacheRead": 2584064,
-            "cacheWrite": 0,
-            "costUsd": 0.23330320000000002,
-            "estimatedUsd": 0.23330320000000002,
-            "unpriced": 0
-          }
-        }
-      ],
-      "usage": {
-        "rounds": 1,
-        "durationSec": 277,
-        "turns": 1,
-        "tokens": 2653912,
-        "input": 2645349,
-        "output": 8563,
-        "cacheRead": 2584064,
-        "cacheWrite": 0,
-        "costUsd": 0.23330320000000002,
-        "estimatedUsd": 0.23330320000000002,
-        "unpriced": 0
       }
     }
   ],
   "stages": [
     {
       "stage": "Spec",
-      "passes": 2,
-      "wallSec": 750,
+      "passes": 1,
+      "wallSec": 137,
       "models": [
         "gemini-3.8-flash-medium"
       ],
       "usage": {
-        "rounds": 2,
-        "durationSec": 733.893617,
-        "turns": 2,
-        "tokens": 274458,
-        "input": 226925,
-        "output": 47533,
+        "rounds": 1,
+        "durationSec": 132.602917,
+        "turns": 1,
+        "tokens": 64313,
+        "input": 54211,
+        "output": 10102,
         "cacheRead": 0,
         "cacheWrite": 0,
         "costUsd": null,
         "estimatedUsd": 0,
-        "unpriced": 2
-      }
-    },
-    {
-      "stage": "Plan",
-      "passes": 2,
-      "wallSec": 195,
-      "models": [
-        "sonnet"
-      ],
-      "usage": {
-        "rounds": 2,
-        "durationSec": 171.9,
-        "turns": 37,
-        "tokens": 12048,
-        "input": 38,
-        "output": 12010,
-        "cacheRead": 926661,
-        "cacheWrite": 154451,
-        "costUsd": 0.9366391,
-        "estimatedUsd": 0,
-        "unpriced": 0
-      }
-    },
-    {
-      "stage": "Red tests",
-      "passes": 3,
-      "wallSec": 1844,
-      "models": [
-        "gpt-6.1-terra"
-      ],
-      "usage": {
-        "rounds": 3,
-        "durationSec": 716.5,
-        "turns": 3,
-        "tokens": 6026663,
-        "input": 6006873,
-        "output": 19790,
-        "cacheRead": 5851648,
-        "cacheWrite": 0,
-        "costUsd": 0.5467574000000001,
-        "estimatedUsd": 0.5467574000000001,
-        "unpriced": 0
+        "unpriced": 1
       }
     }
   ],
   "usage": {
-    "rounds": 7,
-    "durationSec": 1622.2936169999998,
-    "turns": 42,
-    "tokens": 6313169,
-    "input": 6233836,
-    "output": 79333,
-    "cacheRead": 6778309,
-    "cacheWrite": 154451,
-    "costUsd": 1.4833965,
-    "estimatedUsd": 0.5467574000000001,
-    "unpriced": 2
+    "rounds": 1,
+    "durationSec": 132.602917,
+    "turns": 1,
+    "tokens": 64313,
+    "input": 54211,
+    "output": 10102,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "costUsd": null,
+    "estimatedUsd": 0,
+    "unpriced": 1
   },
-  "wallSec": 2795
+  "wallSec": 142.078
 }

@@ -2,36 +2,35 @@
 
 ## 1. Overview & Objectives
 
-In the Review fix loop (`src/pipeline/review-gate.ts`, `reviewLoop` and `fixCycle`), findings are returned to `redTestsStage` to write regression or missing tests before code fixes are applied in `implementStage`. Currently:
-1. The red gate applies a blanket check demanding that all new tests fail on the current working tree. While appropriate for `blocker` findings, this causes all `missing-test` findings (which assert built behaviour that passes on current code) to fail the red gate.
-2. The diagnostic hint falls back to a generic syntax/runner error, and recovery incorrectly suggests Plan or resuming at Implement.
-3. Resuming at Red tests via `ai-sdlc-helper start <slug> --from red-tests` loses the fix-loop context because `promptExtra.REVIEW_FINDINGS` is not restored.
-4. The review loop limit (`review.maxLoops`) resets to `0` on every new pipeline process start instead of tracking loops across starts for the whole run.
+In the Review fix loop (`src/pipeline/review-gate.ts`, `reviewLoop` and `fixCycle`), unresolved review findings are returned to the Red tests stage to author regression tests or missing tests before code modifications are made in the Implement stage. Currently:
+1. The red gate applies a blanket requirement demanding that every new test fail on the current working tree. While appropriate for `blocker` findings, this causes all `missing-test` findings (which assert already built behaviour that passes on current code) to fail the red gate.
+2. The diagnostic hint falls back to a generic syntax or test-runner error, and recovery incorrectly suggests returning to Plan or resuming at Implement.
+3. Resuming at Red tests via `ai-sdlc-helper start <slug> --from red-tests` loses the fix-loop context because review findings are not restored in the execution context.
+4. The review loop limit (`review.maxLoops`) resets to 0 on every pipeline process invocation instead of tracking cumulative loops across starts for the run.
 
 This specification defines the behavior for:
-- Evaluating new tests individually based on test execution results (at the current tree and at `origRedSha`), supporting both `blocker` and `missing-test` findings.
-- Skipping `implementStage` and advancing directly to Review when every accepted test covers `missing-test` findings and none fails on the current tree.
-- Restoring fix-loop context and Review findings when resuming at Red tests.
+- Evaluating new tests individually based on test execution results (at the current tree and at the original test commit before implementation), accommodating both `blocker` and `missing-test` findings.
+- Skipping the Implement stage and advancing directly to Review when every accepted test covers `missing-test` findings and no test fails on the current tree.
+- Restoring fix-loop context and review findings when resuming at Red tests.
 - Tracking fix loop iterations persistently across resumes via `logs/review-rounds.json`, and resetting loop counts on a restart from Spec/Plan or discard.
 - Providing targeted diagnoses and recovery options for fix-loop red-gate stops.
-- Preserving existing behavior for initial (non-fix-loop) Red tests stages and other pipeline stages.
+- Preserving existing behavior for initial (non-fix-loop) Red tests stages and all other pipeline stages.
 
 ---
 
-## 2. Scope & Files Affected
+## 2. Scope & Affected Components
 
 - **`src/pipeline/stages.ts`**:
-  - `redTestsStage`: Branch logic for `fixing` (when `ctx.promptExtra?.REVIEW_FINDINGS` is set). Per-test evaluation against the current tree and `origRedSha`, validation that blockers have at least one failing test, rejection of vacuous tests, skipping Implement if no test fails, and locking/committing tests.
+  - `redTestsStage`: Branch logic for `fixing` (when review findings are present in context). Per-test evaluation against the current tree and original test baseline (`origRedSha`), validation that blocker findings have at least one failing test, rejection of vacuous tests, skipping Implement if no test fails, and locking and committing tests.
 - **`src/pipeline/review-gate.ts`**:
-  - `findingsText`: Updated instructions per finding kind (`blocker` vs `missing-test`).
-  - `fixCycle`: Handling of skipped Implement (bypassing `implementStage` and `testRepairStage`), recording outcome and accepted test files in `logs/review-rounds.json`, and removing/adjusting the misdiagnosed catch block.
-  - `reviewLoop`: Tracking loop count across starts using historical rounds in `logs/review-rounds.json`.
+  - `findingsText`: Updated prompt guidance tailored per finding kind (`blocker` vs `missing-test`).
+  - `fixCycle`: Handling of skipped Implement (bypassing the Implement and Test repair stages), recording outcome and accepted test files in `logs/review-rounds.json`.
+  - `reviewLoop`: Tracking loop count across process starts using historical rounds in `logs/review-rounds.json`.
 - **`src/pipeline/run.ts`**:
-  - Resume helper on `--from red-tests` to detect open review findings in the latest round of `logs/review-rounds.json` and restore `ctx.promptExtra.REVIEW_FINDINGS`.
-  - Handling of `review-rounds.json` archiving (`setAside`) when restarting from Spec or Plan (`fromN <= 2`).
-  - Skipping `implementStage` when resuming at Red tests in a fix loop where Implement was flagged as skippable.
+  - Pipeline startup helper on `--from red-tests` to detect open review findings in the latest round of `logs/review-rounds.json` and restore review findings to the context.
+  - Setting aside and archiving `review-rounds.json` when restarting from Spec or Plan.
 - **`src/pipeline/hints.ts`**:
-  - `stageRecoveryHint`: Dedicated diagnosis and recovery for fix-loop red-gate failures. Recommends "Resume at Red tests"; omits Plan, Spec, and "Resume at Implement".
+  - `stageRecoveryHint`: Dedicated diagnosis and recovery hint for fix-loop red-gate failures. Recommends "Resume at Red tests"; strictly omits Plan, Spec, and "Resume at Implement".
 - **`docs/PLAN.md` & `CHANGELOG.md`**:
   - Documentation updates describing the Review fix loop, gate behavior per finding kind, and persistent loop counting.
 
@@ -39,132 +38,118 @@ This specification defines the behavior for:
 
 ## 3. Detailed Behaviour
 
-### 3.1. Findings Prompt for Red Tests (`findingsText`)
-When constructing the prompt for the Red tests agent in a fix loop (`promptExtra.REVIEW_FINDINGS`), findings must be partitioned or annotated by kind:
+### 3.1. Findings Prompt for Red Tests
+When constructing the prompt for the Red tests agent in a fix loop, findings must be categorized and instructed by kind:
 - **For `blocker` findings**: The agent is instructed to write tests verifying the required behavior that currently **fail** against the codebase for the stated reason. If a blocker finding is already satisfied by the codebase, it requires no test but should be reported as a wrong finding.
-- **For `missing-test` findings**: The agent is instructed to write tests verifying the already built behavior that currently **pass** against the codebase (and test behavior added during implementation).
+- **For `missing-test` findings**: The agent is instructed to write tests verifying the already built behavior that currently **pass** against the codebase (asserting behavior added during implementation).
 
-### 3.2. Fix-Loop Red Gate Evaluation (`redTestsStage` on `fixing = true`)
-
-In a fix loop, the gate evaluates each new or modified test individually based on test execution results:
+### 3.2. Fix-Loop Red Gate Evaluation
+In a fix loop (`fixing` is true), the red gate evaluates each new or modified test individually based on test execution results:
 1. **Execution on Current Tree**:
-   - Run the new/modified test files against the current tree (which includes all prior implementation commits).
-   - Record per-test results (`tests.json`), identifying which new tests pass and which fail.
-2. **Execution at `origRedSha`**:
-   - For each new test that **passes** on the current tree, verify whether it fails when executed against `origRedSha` (the test commit prior to any implementation commits on the task branch) with the new test files laid over it (using `testsPassAt` / `withWorktreeAt`).
+   - Run the new or modified test files against the current working tree (which contains the current implementation commits).
+   - Record per-test status (pass or fail) from the test runner output.
+2. **Execution at Baseline (`origRedSha`)**:
+   - For each new test that **passes** on the current tree, verify whether it fails when executed against `origRedSha` (the test commit prior to any implementation commits on the task branch) with the new test files overlaid on top of it.
 3. **Acceptance Criteria per Test**:
    - **Accepted as a blocker test**: The test **fails** on the current tree.
    - **Accepted as a missing-test test**: The test **passes** on the current tree AND **fails** at `origRedSha` (demonstrating that it exercises behavior introduced by implementation commits).
-   - **Rejected (vacuous test)**: The test **passes** on the current tree AND **passes** at `origRedSha`. It tests pre-existing baseline behavior and proves nothing about the task or findings.
+   - **Rejected (vacuous test)**: The test **passes** on the current tree AND **passes** at `origRedSha`. It asserts pre-existing baseline behavior and proves nothing about the task or findings.
 4. **Round-Level Gate Conditions**:
-   - **Vacuous Tests Stop**: If any new test passes both on the current tree and at `origRedSha`, stop the run. The stop message lists the rejected test(s) (file and test name) and the round's open findings.
-   - **Blocker Test Requirement**: If the round contains at least one `blocker` finding, at least one new test must fail on the current tree. If no new test fails on the current tree while a blocker finding remains open, stop the run stating that the blocker has no failing test, naming the open blocker findings.
-   - **No Tests Added**: If no new or modified test files were produced, stop the run as in standard red tests.
-5. **Implement Skipping**:
-   - If every open finding was `missing-test` and all new tests are accepted (i.e. every new test passes on the current tree and fails at `origRedSha`, and no test fails on the current tree):
-     - The tests are staged, committed, and locked as usual.
-     - The pipeline notes the skip in the run output:
-       `Implement skipped: no new test fails on the current tree; every accepted test covers a missing-test finding`
-     - The round entry in `logs/review-rounds.json` is updated with outcome `implement-skipped` along with the list of accepted test files.
-     - `implementStage` and `testRepairStage` are bypassed; the pipeline proceeds directly to `reviewRound` (or subsequent Review stage).
-     - Per Decision 1, `decisions.md` is **not** modified.
-   - If at least one test fails on the current tree:
-     - The tests are committed and locked.
-     - `implementStage` executes normally so the agent can make the failing tests pass.
+   - **Vacuous Tests Stop**: If any new test passes both on the current tree and at `origRedSha`, the run stops. The stop message lists the rejected test(s) (file and test name) and the round's open findings.
+   - **Blocker Test Requirement**: If the round contains at least one `blocker` finding, at least one new test must fail on the current tree. If no new test fails on the current tree while a blocker finding remains open, the run stops stating that the blocker has no failing test, naming the open blocker findings.
+   - **No Tests Added**: If no new or modified test files were produced, the run stops as in standard red tests.
 
-### 3.3. Pipeline Resumption & Context Restoration (`--from red-tests`)
+### 3.3. Implement Skipping Logic
+- If every open finding was `missing-test` and all new tests are accepted (every new test passes on the current tree, fails at `origRedSha`, and no test fails on the current tree):
+  - The tests are staged, committed, and locked.
+  - The pipeline outputs a single line to standard output / run output:
+    `Implement skipped: no new test fails on the current tree; every accepted test covers a missing-test finding`
+  - The round entry in `logs/review-rounds.json` is updated with outcome `implement-skipped` along with the list of accepted test files.
+  - The Implement and Test repair stages are bypassed; execution proceeds directly to the Review stage.
+  - Per Decision 1, `decisions.md` is **not** modified.
+- If at least one test fails on the current tree:
+  - The tests are staged, committed, and locked.
+  - The Implement stage executes normally so the implement agent can make the failing tests pass.
 
-When the pipeline starts at Red tests (`ai-sdlc-helper start <slug> --from red-tests` or via recovery action):
-- Before running `redTestsStage`, check `logs/review-rounds.json`.
-- If `logs/review-rounds.json` exists and the latest round has open findings whose outcome is not final (neither passed nor stopped due to reaching `maxLoops`):
-  - Reconstruct `promptExtra.REVIEW_FINDINGS` using the round's findings and `findingsText(round, findings)`.
-  - Consequently, `fixing` is set to `true`, preventing `redTestsStage` from stripping implementation commits or pointing to Plan upon failure.
-- If there are no open review rounds or the last round passed, Red tests runs as a fresh stage.
+### 3.4. Pipeline Resumption & Context Restoration (`--from red-tests`)
+When the pipeline starts at Red tests (via `ai-sdlc-helper start <slug> --from red-tests` or the "Resume at Red tests" recovery action):
+- Before executing the Red tests stage, the pipeline checks `logs/review-rounds.json`.
+- If `logs/review-rounds.json` exists and the latest round contains open findings whose outcome is not final (neither passed nor stopped due to reaching `maxLoops`):
+  - Reconstruct the review findings prompt text using the round's findings.
+  - Set `fixing` to true in the execution context, matching the fix-loop environment.
+  - This ensures the Red tests agent receives the review findings in its prompt, prevents stripping implementation commits, and routes gate checks through the fix-loop gate rather than the initial red gate.
+- If there are no open review rounds, or the last round was already resolved/passed, Red tests runs as a fresh initial stage.
 
-### 3.4. Review Loop Counting Across Starts (`reviewLoop`)
-
-- Fix loops are counted over the entire run by inspecting `logs/review-rounds.json` rather than initializing `let loops = 0` on process startup.
-- The number of previously executed fix loops is determined from the historical rounds recorded in `logs/review-rounds.json` (counting rounds where a fix loop was initiated/recorded).
-- When a new review round with findings starts:
-  - If the cumulative loop count has reached `review.maxLoops`, the run stops with:
+### 3.5. Review Loop Counting Across Starts
+- Fix loops are counted over the entire run by inspecting historical entries in `logs/review-rounds.json` rather than initializing a local counter to 0 on each process start.
+- When a review round with findings begins:
+  - If the cumulative count of prior fix loops has reached `review.maxLoops`, the run halts immediately with:
     `REVIEW NOT RESOLVED after <maxLoops> fix loop(s): <n> finding(s) still open. This needs you:`
-    and lists the open findings and manual recovery commands.
-  - Otherwise, the loop counter increments, the round outcome records `fix loop <loops> of <maxLoops>`, and the fix cycle begins.
-- Resuming a run that stopped inside a fix loop continues that existing fix loop without incrementing the loop count.
+    listing the open findings and manual recovery commands.
+  - Otherwise, the loop count increments, the round outcome records `fix loop <loops> of <maxLoops>`, and the fix cycle begins.
+- Resuming a run that stopped within a fix loop continues that existing fix loop without incrementing the loop count again.
 
-### 3.5. Reset and Archiving on Restart and Discard
+### 3.6. Reset and Archiving on Restart and Discard
+- **Restart from Spec or Plan**:
+  - When restarting the pipeline from Spec or Plan (`--from spec` or `--from plan`), `logs/review-rounds.json` is archived to `logs/previous/<timestamp>/` using the file set-aside mechanism.
+  - When the pipeline reaches Review later in the run, `review-rounds.json` begins fresh, resetting the loop count to 0.
+- **Discard**:
+  - Discarding removes the run state and worktree. A subsequent run starts with clean logs, resetting the loop count to 0.
 
-- **Restart from Spec or Plan** (`--from spec` or `--from plan`):
-  - In `runPipeline` / `stages`, when starting with `fromN <= 2`, `review-rounds.json` is archived to `logs/previous/<timestamp>/` via `setAside(ctx, [`${ctx.log}/review-rounds.json`])`.
-  - When the pipeline reaches Review later in the run, `review-rounds.json` begins with an empty history, resetting the loop count to 0.
-- **Discard** (`ai-sdlc-helper discard`):
-  - Discarding removes the worktree and run state. A subsequent run begins with no existing logs, starting the count from 0.
-
-### 3.6. Diagnosis and Recovery Hints (`src/pipeline/hints.ts`)
-
-- In `stageRecoveryHint`, detect fix-loop red-gate failures from the run output (e.g. matching `RED GATE FAILED: ...` in the context of a fix loop, or specific fix-loop red-gate stop messages).
+### 3.7. Diagnosis and Recovery Hints
+- In `src/pipeline/hints.ts`, detect fix-loop red-gate failures from the run output (matching fix-loop red-gate failure markers).
 - **Diagnosis**:
   - Explicitly states that a fix-loop test was rejected or a blocker lacked a failing test, identifying the rejected tests and open findings.
-- **Actions**:
-  - `autoAction`: `{ label: 'Resume at Red tests', command: resumeCommand(ctx.slug, 'red-tests') }`
-  - `manualAction`: Points to `logs/tests.log` and instructs fixing the test assertions for the specific findings.
-  - `escapeHatch`: **Omitted**. The recovery hint must never offer Plan, Spec, or "Resume at Implement" for a fix-loop stop.
+- **Recovery Actions**:
+  - Automatic Action: "Resume at Red tests" (`ai-sdlc-helper start <slug> --from red-tests`).
+  - Manual Action: Directs the developer to `logs/tests.log` and instructs fixing the test assertions for the specific findings.
+  - Escape Hatch: None. The recovery hint must never offer Plan, Spec, or "Resume at Implement" for a fix-loop stop.
 
-### 3.7. Preservation of Initial Red Tests Stage & Other Stages
-
-- The initial Red tests stage (when `fixing` is false) must remain unchanged:
-  - Checks `hasImplSince(ctx, firstRedSha) && !fixing`.
-  - Strips implementation commits via `testsPassAt` if resumes occurred.
-  - Detects vacuous tests against `baseSha` (`firstRedSha^` or HEAD) and outputs `red-passing.md` pointing to Plan.
-  - Suggests Plan/Spec upon failure.
-- Implement, Test repair, CI checks, Finalise, and Conflict resolution stages operate unchanged, except for skipping Implement when all findings are missing tests and all tests pass on the current tree.
+### 3.8. Preservation of Initial Red Tests Stage & Other Stages
+- **Initial Red tests stage** (when `fixing` is false) remains strictly unchanged:
+  - Strips implementation commits if resuming an initial run.
+  - Demands that all new tests fail on baseline.
+  - Flags vacuous tests against base commit and stops with `red-passing.md` pointing to Plan.
+- **Implement, Test repair, Review rounds, Finalise, and CI checks**:
+  - Operate unchanged, except for skipping Implement and Test repair when all accepted tests cover missing-test findings.
 
 ---
 
 ## 4. Inputs & Outputs
 
 ### 4.1. File Inputs
-- `logs/review-rounds.json`: Read on pipeline startup and within `reviewLoop` to inspect prior rounds, open findings, and past fix loop counts.
-- `logs/tests.json`: Read to extract per-test outcomes (`TestCase.name`, `TestCase.file`, `TestCase.status`) on the current tree and at `origRedSha`.
-- `logs/tests.log`: Detailed test runner output.
+- `logs/review-rounds.json`: Read on pipeline startup and within the review loop to inspect previous rounds, open findings, and past loop counts.
+- `logs/tests.json`: Read to extract per-test outcomes (test name, test file path, and pass/fail status) on the current tree and at `origRedSha`.
+- `logs/tests.log`: Test execution log from running the test runner.
 
 ### 4.2. File Outputs
 - `logs/review-rounds.json`:
-  - Appended/updated on each Review round.
-  - When Implement is skipped, the round record is saved with outcome `implement-skipped` and the list of accepted test files:
-    ```json
-    {
-      "round": 1,
-      "verdict": "changes",
-      "findings": [ ... ],
-      "outcome": "implement-skipped",
-      "acceptedFiles": [ "test/example.test.ts" ]
-    }
-    ```
-- `logs/red.json`: Snapshot of test results at `origRedSha` when running Implement or when needed.
-- `docs/PLAN.md`: Updated to describe the Review fix loop and gate behavior.
-- `CHANGELOG.md`: Updated with entry under `[Unreleased]`.
-- `decisions.md`: **Not written or modified by this feature**.
+  - Appended and updated on each Review round.
+  - When Implement is skipped, records outcome `implement-skipped` and the list of accepted test files.
+- `logs/red.json`: Snapshot of test results recording failing tests when entering Implement.
+- `docs/PLAN.md`: Updated with a dedicated section on the Review fix loop and gate behavior.
+- `CHANGELOG.md`: Updated under `[Unreleased]` with details of the fix-loop red gate and loop limit persistence.
+- `decisions.md`: Not modified by this feature.
 
-### 4.3. Command Line & Console Outputs
-- On Implement skipped:
+### 4.3. Console & Log Messages
+- When Implement is skipped:
   ```text
   Implement skipped: no new test fails on the current tree; every accepted test covers a missing-test finding
   ```
-- On Vacuous Test Stop in Fix Loop:
+- When a vacuous test is rejected in a fix loop:
   ```text
   RED GATE FAILED: test(s) already pass at base commit and on current code:
     <file> :: <test name>
   Open findings:
     [missing-test] <file>: <criterion>: <reason>
   ```
-- On Blocker Lacking Failing Test:
+- When a blocker finding lacks a failing test:
   ```text
   RED GATE FAILED: blocker finding has no failing test on current code.
   Open blocker findings:
     [blocker] <file>: <criterion>: <reason>
   ```
-- On Review Loop Limit Reached:
+- When review loop limit is reached:
   ```text
   REVIEW NOT RESOLVED after <maxLoops> fix loop(s): <n> finding(s) still open. This needs you:
     [<kind>] <file>: <criterion>: <reason>
@@ -175,51 +160,62 @@ When the pipeline starts at Red tests (`ai-sdlc-helper start <slug> --from red-t
 
 ## 5. Error Cases & Edge Cases
 
-1. **Test passes on current tree and passes at `origRedSha`**:
-   - Result: Test rejected as vacuous. Run stops with fix-loop red-gate error naming the test and finding.
+1. **Test passes on current tree and passes at baseline (`origRedSha`)**:
+   - The test is rejected as vacuous.
+   - Run stops with fix-loop red-gate error naming the test and finding.
+   - Hint offers "Resume at Red tests" and does not offer Plan.
 2. **Round has blocker findings, but all tests pass on current tree**:
-   - Result: Stop with message that blocker has no failing test.
+   - Run stops with message stating the blocker has no failing test.
+   - Hint offers "Resume at Red tests".
 3. **Round has mixed blocker and missing-test findings**:
    - Blocker tests fail on current tree; missing-test tests pass on current tree and fail at `origRedSha`.
-   - Result: Both accepted. At least one test is failing on current tree, so `implementStage` runs.
+   - Both tests are accepted. Because at least one test is failing on current tree, the Implement stage executes.
 4. **Resumed run at Red tests (`--from red-tests`) with active review findings**:
-   - Result: Restores `promptExtra.REVIEW_FINDINGS`. Does not strip implementation commits. Evaluates using fix-loop red gate.
+   - Detects open review findings in `logs/review-rounds.json`.
+   - Restores findings in context and sets `fixing` to true.
+   - Evaluates tests using fix-loop red gate without stripping implementation commits.
 5. **Resumed run at Red tests without prior review findings**:
-   - Result: Treats run as standard initial Red tests stage.
-6. **Max loops reached across multiple process starts**:
-   - Given `maxLoops = 2`, run performs 1 loop in process 1, stops. Resumed in process 2, performs loop 2, Review reports changes again.
-   - Result: Process 2 detects 2 prior fix loops from `review-rounds.json` and halts with `REVIEW NOT RESOLVED`.
-7. **Restart from Spec/Plan**:
-   - User restarts with `ai-sdlc-helper restart <slug> --from spec` or `--from plan`.
-   - Result: `review-rounds.json` is set aside to `logs/previous/`. The loop count resets to 0.
+   - Evaluates tests as a standard initial Red tests stage.
+6. **Cumulative max loops reached across multiple process starts**:
+   - Loops are counted across starts from `logs/review-rounds.json`.
+   - If cumulative count reaches `review.maxLoops`, the run halts with `REVIEW NOT RESOLVED`.
+7. **Restart from Spec or Plan**:
+   - `logs/review-rounds.json` is archived to `logs/previous/<timestamp>/`.
+   - The review loop counter resets to 0.
 
 ---
 
 ## 6. Acceptance Criteria
 
 1. **Missing-Test Round**:
-   - A Review round with only `missing-test` findings has tests written that pass on the current tree and fail at `origRedSha`.
-   - Red tests accepts the tests, commits and locks them.
-   - `implementStage` is skipped with the message logged to run output.
-   - `logs/review-rounds.json` records outcome `implement-skipped` with accepted test files.
+   - In a Review round with only `missing-test` findings, tests that pass on current tree and fail at `origRedSha` are accepted.
+   - Tests are committed and locked.
+   - Implement stage is skipped; the skip message is printed to run output.
+   - `logs/review-rounds.json` records outcome `implement-skipped` and lists accepted files.
    - The pipeline proceeds directly to Review.
 2. **Vacuous Missing-Test Rejected**:
-   - A `missing-test` test that passes on current tree AND passes at `origRedSha` is rejected.
+   - A `missing-test` test that passes on current tree and also passes at `origRedSha` is rejected.
    - Run stops, naming the test and finding.
-   - Recovery hint provides `Resume at Red tests` and does not suggest Plan.
+   - Recovery hint provides "Resume at Red tests" and never suggests Plan or Spec.
 3. **Blocker Round Accepted**:
-   - A Review round with a `blocker` finding has a test that fails on the current tree.
-   - Test is accepted, and `implementStage` runs to resolve it.
+   - In a Review round with a `blocker` finding, a test that fails on the current tree is accepted.
+   - Implement stage runs to make the test pass.
 4. **Blocker Lacking Failing Test**:
-   - A Review round with a `blocker` finding where all new tests pass on the current tree stops with an error indicating the blocker has no failing test.
+   - In a Review round with a `blocker` finding, if all new tests pass on the current tree, the run stops stating the blocker has no failing test.
 5. **Mixed Round**:
-   - A round with one `blocker` test (fails on current tree) and one `missing-test` test (passes on current tree, fails at `origRedSha`) accepts both tests and proceeds to `implementStage`.
+   - A round with one `blocker` test (fails on current tree) and one `missing-test` test (passes on current tree, fails at `origRedSha`) accepts both tests and proceeds to Implement.
 6. **Persistent Loop Limit**:
-   - With `maxLoops = 1`, running 1 fix loop, stopping, and resuming leads to `REVIEW NOT RESOLVED` on the next Review failure rather than allowing a second fix loop.
+   - With `maxLoops` set to 1, running 1 fix loop, stopping, and resuming leads to `REVIEW NOT RESOLVED` upon subsequent Review failure rather than starting an extra fix loop.
 7. **Restart Reset**:
-   - Restarting from Spec resets the fix loop counter to 0.
+   - Restarting from Spec or Plan archives `logs/review-rounds.json` and resets the fix loop counter to 0.
 8. **Initial Red Tests Preserved**:
    - In a non-fix-loop Red tests stage, passing tests before implementation still trigger the `red-passing.md` stop and suggest Plan.
 9. **Documentation**:
    - `docs/PLAN.md` includes the Review fix loop section.
    - `CHANGELOG.md` reflects the fix-loop red gate and loop count improvements.
+
+---
+
+## 7. Dependencies
+
+No new external packages or dependencies are required for this feature.
