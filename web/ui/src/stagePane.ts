@@ -2,7 +2,7 @@
 // not started waits for, which round of a stage is on view, the pull request badge on Finalise, and when the rail may
 // scroll a stage into view by itself. Pure, so the decisions are tested without a browser; RunInsights.tsx draws them.
 import type { CiState, StageRound, StageSpan } from './api.js';
-import type { TileState } from './insights.js';
+import { durationText, spanSeconds, type TileState } from './insights.js';
 
 export interface PaneStage { key: string; name: string; state: TileState }
 
@@ -92,6 +92,27 @@ export function roundsOf(span: StageSpan | undefined): StageRound[] {
   if (!span) return [];
   if (span.rounds && span.rounds.length) return span.rounds;
   return [{ started: span.started, ended: span.ended, steps: span.steps }];
+}
+
+/** A normal end row closes the last step even on failure. An abrupt stop may only have a status timestamp. */
+export function stepPills(round: StageRound | undefined, state: TileState, plan: readonly string[], updated: string, now: number) {
+  const steps = round?.steps ?? [];
+  const recorded = steps.map((step, i) => {
+    const stopped = state === 'failed' || state === 'paused';
+    const cut = stopped && i === steps.length - 1 && (!step.ended || step.ended === round?.ended);
+    const live = !step.ended && state === 'active';
+    const end = step.ended || round?.ended || null;
+    const seconds = spanSeconds(step.started, end, live ? now : Date.parse(updated));
+    const time = durationText(seconds);
+    return {
+      label: step.label,
+      state: cut ? 'cut' : live ? 'open' : 'done',
+      time: cut ? (seconds === null ? 'failed' : `failed at ${time}`) : time,
+    };
+  });
+  // A stage can skip optional steps or retry a step. Only preview steps beyond its furthest recorded one.
+  const lastPlanned = steps.reduce((last, step) => Math.max(last, plan.indexOf(step.label)), -1);
+  return recorded.concat(plan.slice(lastPlanned + 1).map(label => ({ label, state: 'plan', time: '' })));
 }
 
 /** The round on view: the one picked (1-based) when it exists, else the latest. */

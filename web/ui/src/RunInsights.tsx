@@ -4,8 +4,8 @@ import { memo } from 'preact/compat';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { LockOpen, LockView, RunView, StageRound, Timeline, UsageTotals } from './api';
-import { cacheShare, costCell, costNotes, durationText, guarantees, hasUsage, lockSentence, openSentence, spanSeconds, tileLine, tokensText, usageText, type TileState, totalCells } from './insights';
-import { hiddenCounts, mayAutoScroll, paneTone, prBadge, roundLabel, scrollTarget } from './stagePane';
+import { cacheShare, costCell, costNotes, durationText, guarantees, hasUsage, lockSentence, openSentence, tileLine, tokensText, usageText, type TileState, totalCells } from './insights';
+import { hiddenCounts, mayAutoScroll, paneTone, prBadge, roundLabel, scrollTarget, stepPills } from './stagePane';
 import { Panel, Spinner } from './ui';
 
 /** The time now, refreshed every second while `on` (a running stage shows its elapsed time). */
@@ -148,30 +148,22 @@ export function StageRail({ stages, timeline, step, locked, lockOpen, shown, fol
  * The steps of one round of a stage, oldest first, each with how long it took; the open one spins, one cut off by a
  * stop is red. Steps the stage has yet to run (<plan>) follow as dashed pills with no time.
  */
-export function StepList({ steps, running, plan }: { steps: StageStepLike[]; running: boolean; plan?: string[] }) {
-  const now = useNow(running);
-  const planned = (plan || []).slice(steps.length);
-  if (!steps.length && !planned.length) return <p class="small muted" style={{ margin: 0 }}>No steps were recorded for this stage.</p>;
+export function StepList({ round, state, plan = [], updated }: { round?: StageRound; state: TileState; plan?: string[]; updated: string }) {
+  const now = useNow(state === 'active');
+  const pills = stepPills(round, state, plan, updated, now);
+  if (!pills.length) return <p class="small muted" style={{ margin: 0 }}>No steps were recorded for this stage.</p>;
   return (
     <ol class="steps">
-      {steps.map(st => {
-        const open = !st.ended;
-        const sec = spanSeconds(st.started, st.ended, now);
-        return (
-          <li class={`step ${open && running ? 'step-open' : open ? 'step-cut' : 'step-done'}`}>
-            <span class="step-dot" aria-hidden="true">{open && running ? <Spinner /> : open ? <span class="step-stop" /> : '✓'}</span>
-            <span class="step-label">{st.label}</span>
-            <span class="step-time mono">{open && !running ? `failed at ${durationText(sec)}` : durationText(sec)}</span>
-          </li>
-        );
-      })}
-      {planned.map(label => (
-        <li class="step step-plan"><span class="step-dot" aria-hidden="true" /><span class="step-label">{label}</span></li>
+      {pills.map(pill => (
+        <li class={`step step-${pill.state}`}>
+          <span class="step-dot" aria-hidden="true">{pill.state === 'open' ? <Spinner /> : pill.state === 'cut' ? <span class="step-stop" /> : pill.state === 'done' ? '✓' : null}</span>
+          <span class="step-label">{pill.label}</span>
+          {pill.time && <span class="step-time mono">{pill.time}</span>}
+        </li>
       ))}
     </ol>
   );
 }
-type StageStepLike = StageRound['steps'][number];
 
 /** The pane's back bar: shown when the user picked a stage other than the followed one. */
 export function BackBar({ text, back, onBack }: { text: string; back: string; onBack(): void }) {

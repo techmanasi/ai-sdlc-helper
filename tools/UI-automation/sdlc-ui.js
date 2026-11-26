@@ -60,6 +60,8 @@
     tilePr: '.tile-pr',
     paneBack: '.pane-back',
     stageDetail: '#stage-detail',
+    paneHeading: '.rail-controls .eyebrow',
+    lockBadge: '.lock-badge',
     step: '.steps .step',
     stepLabel: '.step-label',
     stepTime: '.step-time',
@@ -234,7 +236,8 @@
     const d = await waitFor(SELECTORS.stageDetail);
     return {
       name,
-      heading: text($('h3', d)),
+      heading: text($(SELECTORS.paneHeading, d)),
+      lock: text($(SELECTORS.lockBadge, d)),
       following: !$(SELECTORS.paneBack, d),
       steps: $$(SELECTORS.step, d).map(s => ({ label: text($(SELECTORS.stepLabel, s)), time: text($(SELECTORS.stepTime, s)), state: stateOf(s, 'step-') })),
       text: text(d).slice(0, 600),

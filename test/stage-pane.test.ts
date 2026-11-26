@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { backBar, followedStage, followNote, hiddenCounts, mayAutoScroll, paneTone, phoneOpens, pickRound, prBadge, roundLabel, roundsOf, scrollTarget, shownStage, waitsFor } from '../web/ui/src/stagePane.js';
+import { backBar, followedStage, followNote, hiddenCounts, mayAutoScroll, paneTone, phoneOpens, pickRound, prBadge, roundLabel, roundsOf, scrollTarget, shownStage, stepPills, waitsFor } from '../web/ui/src/stagePane.js';
 
 const stage = (name: string, state: string) => ({ name, key: name.toLowerCase().replace(' ', '-'), state: state as never });
 const rail = (states: Record<string, string>) => Object.entries(states).map(([n, s]) => stage(n, s));
@@ -105,4 +105,22 @@ describe('the phone', () => {
   test('the details open by themselves only for a stage that paused or failed', () => {
     expect([undefined, 'active', 'done', 'pending', 'paused', 'failed'].map(s => phoneOpens(s as never))).toEqual([false, false, false, false, true, true]);
   });
+});
+
+test('only the running pill counts up and a stop keeps its time after reload', () => {
+  const started = '2026-11-19T12:00:00Z';
+  const ended = '2026-11-19T12:00:42Z';
+  const step = { key: 'write', label: 'Write tests', started, ended: null };
+  const round = { started, ended: null, steps: [step] };
+  const plan = ['Write tests', 'Check tests'];
+  const later = Date.parse(ended) + 10000;
+  expect(stepPills(round, 'active', plan, ended, later)).toEqual([
+    { label: 'Write tests', state: 'open', time: '52s' },
+    { label: 'Check tests', state: 'plan', time: '' },
+  ]);
+  expect(stepPills(round, 'failed', plan, ended, later)[0].time).toBe('failed at 42s');
+  expect(stepPills(round, 'active', ['Read answers', ...plan], ended, later).map(pill => pill.label)).toEqual(plan);
+  const closed = { ...round, ended, steps: [{ ...step, ended }] };
+  expect(stepPills(closed, 'failed', plan, '', later)[0]).toEqual({ label: 'Write tests', state: 'cut', time: 'failed at 42s' });
+  expect(stepPills(closed, 'done', [], '', later)[0]).toEqual({ label: 'Write tests', state: 'done', time: '42s' });
 });

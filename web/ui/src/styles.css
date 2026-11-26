@@ -263,7 +263,7 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .tile:hover { background: var(--pn2); }
 .tile-bar { display: block; height: 4px; border-radius: 2px; background: var(--ln2); overflow: hidden; margin: 6px 0 8px; }
 .tile-fill { display: block; height: 100%; background: var(--mu); transition: width .4s ease; }
-.tile-head { display: flex; align-items: center; gap: 6px; font-weight: 600; min-width: 0; }
+.tile-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 600; min-width: 0; }
 .tile-icon { width: 14px; text-align: center; flex: 0 0 auto; }
 .tile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile-round { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--pn2); border: 1px solid var(--ln2); color: var(--mu); white-space: nowrap; flex: 0 0 auto; }
@@ -299,7 +299,8 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .pane-grid { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 28px; padding: 16px 18px; }
 @media (max-width: 800px) { .pane-grid { grid-template-columns: minmax(0, 1fr); gap: 18px; } }
 .pane-follow { text-transform: none; letter-spacing: 0; font-weight: 500; }
-.pane-waits, .pane-foot, .pane-auto { margin: 0 0 8px; }
+.pane-foot { margin: 8px 0 0; }
+.pane-waits, .pane-auto { margin: 0 0 8px; }
 .rchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
 .rchip { font: inherit; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid #323c49; background: transparent; color: var(--tx); cursor: pointer; }
 .rchip-on { background: #dbe2ea; color: #18202c; border-color: #dbe2ea; }
@@ -308,7 +309,7 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .rail2-phone .rail2 { flex-direction: column; overflow: visible; }
 .rail2-phone .tile { flex: 0 0 auto; min-height: 0; }
 .stage-detail { display: block; }
-.eyebrow { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8f9baa; font-weight: 600; }
+.eyebrow { margin: 0 0 8px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8f9baa; font-weight: 600; }
 .test-lock-eyebrow { color: var(--wait); }
 .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .step { display: inline-flex; gap: 7px; align-items: center; padding: 5px 10px; position: relative; font-size: 13px; border: 1px solid #323c49; border-radius: 999px; background: #1a212b; }
