@@ -1,7 +1,7 @@
 {
   "version": 1,
   "slug": "fix-loop-red-gate-kind",
-  "generatedAt": "2026-11-27T00:47:45",
+  "generatedAt": "2026-11-27T01:51:03",
   "priced": true,
   "runs": [
     {
@@ -95,14 +95,14 @@
       "n": 2,
       "started": "2026-11-27T00:44:09",
       "from": "plan",
-      "ended": null,
-      "state": null,
-      "wallSec": 216,
+      "ended": "2026-11-27T01:01:52",
+      "state": "failed",
+      "wallSec": 1063,
       "stages": [
         {
           "stage": "Plan",
           "passes": 1,
-          "wallSec": 212,
+          "wallSec": 225,
           "models": [
             "gpt-6.2-sol"
           ],
@@ -119,6 +119,25 @@
             "estimatedUsd": 0.37054280000000006,
             "unpriced": 0
           }
+        },
+        {
+          "stage": "Red tests",
+          "passes": 1,
+          "wallSec": 834,
+          "models": [],
+          "usage": {
+            "rounds": 0,
+            "durationSec": 0,
+            "turns": 0,
+            "tokens": 0,
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "costUsd": null,
+            "estimatedUsd": 0,
+            "unpriced": 0
+          }
         }
       ],
       "usage": {
@@ -133,6 +152,50 @@
         "costUsd": 0.37054280000000006,
         "estimatedUsd": 0.37054280000000006,
         "unpriced": 0
+      }
+    },
+    {
+      "n": 3,
+      "started": "2026-11-27T01:20:44",
+      "from": "red-tests",
+      "ended": null,
+      "state": null,
+      "wallSec": 1819,
+      "stages": [
+        {
+          "stage": "Red tests",
+          "passes": 1,
+          "wallSec": 1811,
+          "models": [
+            "gemini-4-hydrogen-medium"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 746.435141,
+            "turns": 1,
+            "tokens": 60318,
+            "input": 54424,
+            "output": 5894,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "costUsd": null,
+            "estimatedUsd": 0,
+            "unpriced": 1
+          }
+        }
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 746.435141,
+        "turns": 1,
+        "tokens": 60318,
+        "input": 54424,
+        "output": 5894,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costUsd": null,
+        "estimatedUsd": 0,
+        "unpriced": 1
       }
     }
   ],
@@ -161,7 +224,7 @@
     {
       "stage": "Plan",
       "passes": 2,
-      "wallSec": 294,
+      "wallSec": 307,
       "models": [
         "gpt-6.2-sol"
       ],
@@ -178,20 +241,41 @@
         "estimatedUsd": 0.5411748000000001,
         "unpriced": 0
       }
+    },
+    {
+      "stage": "Red tests",
+      "passes": 2,
+      "wallSec": 2645,
+      "models": [
+        "gemini-4-hydrogen-medium"
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 746.435141,
+        "turns": 1,
+        "tokens": 60318,
+        "input": 54424,
+        "output": 5894,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costUsd": null,
+        "estimatedUsd": 0,
+        "unpriced": 1
+      }
     }
   ],
   "usage": {
-    "rounds": 3,
-    "durationSec": 425.102917,
-    "turns": 3,
-    "tokens": 1990762,
-    "input": 1970515,
-    "output": 20247,
+    "rounds": 4,
+    "durationSec": 1171.538058,
+    "turns": 4,
+    "tokens": 2051080,
+    "input": 2024939,
+    "output": 26141,
     "cacheRead": 1785728,
     "cacheWrite": 0,
     "costUsd": 0.5411748000000001,
     "estimatedUsd": 0.5411748000000001,
-    "unpriced": 1
+    "unpriced": 2
   },
-  "wallSec": 455.078
+  "wallSec": 3121.078
 }

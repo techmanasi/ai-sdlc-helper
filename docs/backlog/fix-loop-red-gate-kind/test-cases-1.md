@@ -1,17 +1,33 @@
-# Test matrix: fix-loop red gate
+# Review fix-loop red gate test matrix
 
-| Scenario | Expected result | Coverage |
+The integration cases in `test/fix-loop-red-gate-kind.test.ts` use temporary Git repositories, the pipeline entry point and the Node test runner. In the table, “baseline” means the original Red tests commit with the candidate test files overlaid. A failure counts only when the runner identifies the file and case.
+
+| Scenario | Observable result | Vitest coverage |
 | --- | --- | --- |
-| Missing-test passes now and fails at original Red commit | Commit and lock tests; record accepted files and skip Implement and Test repair; continue Review | `test/fix-loop-red-gate-kind.test.ts` |
-| Test passes at both commits | Stop with test name and open finding, without Plan recovery | `test/fix-loop-red-gate-kind.test.ts` |
-| Blocker has no failing current test | Stop naming the blocker | `test/fix-loop-red-gate-kind.test.ts` |
-| Mixed blocker and missing-test results | Accept both and run Implement | `test/fix-loop-red-gate-kind.test.ts` |
-| Fix-loop gate errors | Diagnose findings, offer Red tests, point to tests.log, no escape hatch | `test/fix-loop-red-gate-kind.test.ts` |
-| Existing initial red gate | Passing tests still point to Plan | `test/hints.test.ts` and existing pipeline tests |
-| Restoring findings | Restore active rounds and retain other prompt context; do not restore final or absent rounds | `test/fix-loop-red-gate-kind.test.ts` |
-| Loop limit across starts | A previously recorded loop prevents a second fix cycle at the configured limit | `test/fix-loop-red-gate-kind.test.ts` |
-| Restart from Spec or Plan | Archive history and reset the loop count | Additional coverage needed |
-| Resume at Red tests after a fix-loop stop | Restore findings, retain implementation commits and skip Implement when appropriate | `test/fix-loop-red-gate-kind.test.ts` |
-| No new tests, blocker-only failing test and discard reset | Preserve stop, normal Implement and clean history respectively | Additional coverage needed |
+| Missing-test case passes now and fails at baseline | Red tests commits the accepted file and locks that commit against the original SHA. The skip line appears exactly once. Review runs next, and its pass preserves the originating round’s ordinal, exact `implement-skipped` outcome and accepted paths. | Main file, “accepts missing-test coverage” |
+| A case passes on both trees | The gate lists the rejected file and title, the open missing-test finding, its criterion and reason. | Main file, “rejects a passing test” |
+| The only new blocker case passes now | The run stops at Red tests with the blocker-specific header and finding row. The CLI output and errors.log carry the reason. | Main file, “rejects a blocker”; `test/review-gate.test.ts`, “a blocker with only a baseline failure” |
+| A blocker case fails now | Implement receives the current named failure and fixes it. Review runs again in the reserved loop. | Main file, “shows the failing current case” |
+| A blocker fails now and a missing-test case fails only at baseline | The pipeline accepts both, runs Implement, then returns to Review. | Main file, “accepts mixed failing and passing tests” |
+| Two files contain the same title with different outcomes | A failure in one file cannot hide the other file’s vacuous case. Only the vacuous identity is listed. | Main file, “rejects a vacuous case even when another file” |
+| A staged existing file contains a pre-existing pass alongside fresh parameterized cases | The prior inventory sees the same local source addition, modification and deletion when generating the old title. Review records the file once for both accepted cases. | Main file, “accepts fresh cases in a staged existing file” |
+| A changed file contains an old failure and a fresh passing case | The old failure cannot satisfy the round’s blocker. The fresh case sees the uncommitted implementation. | Main file, “does not credit an unchanged failing case” |
+| No file changes, a changed assertion keeps its title, or a file has duplicate case identities | Each stops before committing or entering Implement. Historical Red tests cannot supply missing evidence. | Main file, “rejects insufficient evidence” rows |
+| A current or baseline suite cannot load, a case skips on either tree, or the baseline runner omits the candidate | The pipeline stops at Red tests without committing. A process failure or an absent named failure cannot prove coverage. | Main file, “rejects insufficient evidence” rows |
+| Runner launch fails with stale tests.json, returns an empty or missing report, cannot inventory old cases or access the baseline, or returns an ambiguous baseline match | The gate rejects the results before committing, resumes at Red tests, and leaves the registered worktrees unchanged. | `test/pipeline/fix-loop-runner-errors.test.ts` |
+| Fix-cycle prompt has both finding kinds | Guidance distinguishes failing blockers, already-satisfied blockers and passing missing-test coverage. It calls for fresh names and imports inside cases. | `test/pipeline/red-tests-restoration.test.ts`, open-finding rows |
+| Active or unreserved findings at Red tests startup | Findings are restored with unrelated prompt context intact. Final outcomes and absent history leave the initial path available. | `test/pipeline/red-tests-restoration.test.ts` |
+| Correct a rejected missing-test case and resume at Red tests | The agent sees the open finding, the implementation commit remains in history, and the same round skips Implement and Test repair. | Main file, “restores the finding on a Red tests resume” |
+| Correct a blocker before resuming, then have the agent make no edit | The pending untracked correction counts. Implement runs, and the originating round keeps its ordinal. | Main file, “resumes a blocker” |
+| Review starts again after a real fix-loop stop at the configured limit | The second Review reports open findings and stops before another Red tests agent starts. | Main file, “stops at the configured limit”; existing limit and manual recovery assertions in `test/review-gate.test.ts` |
+| Legacy ordinals, ambiguous fixed rows, plain changes, passed and limit-stop entries | Only recorded ordinals consume slots. The next reservation uses the cumulative count. Starting Review with history does not add an intra-loop Review sync. | `test/pipeline/review-loop-history.test.ts` |
+| Restart from Spec or Plan with exhausted history | The exact old rounds survive under logs/previous in a timestamped directory. The first new Review fix cycle uses slot one. | Main file, “archives the exhausted history” rows |
+| Current fix-loop rejection reaches the UI recovery object or multiline CLI formatter | Diagnosis identifies the case or blocker and finding. Automatic recovery uses `start <slug> --from red-tests`, manual recovery points at assertions and logs/tests.log, and no bailout appears. Only the latest start controls recovery. | Main file, “fix-loop recovery hints” and “uses the newest fix-loop stop” |
+| Initial gate, static checks, guard, and normal repair | Existing initial pass/retry and Plan handoff, lint/typecheck retry, source guard, and conditional Test repair retain their behavior. | Existing `test/pipeline.test.ts`, `test/pipeline-resume.test.ts`, `test/red-gate-static-checks.test.ts`, `test/hints.test.ts` and `test/review-gate.test.ts` |
+| Full discard | Discard removes the worktree containing the rounds log and the run record. The next run starts without that history. | Existing worktree/record removal in `test/runs.test.ts`; absent-history row in `test/pipeline/red-tests-restoration.test.ts` |
 
-Review items: inspect documentation changes in `docs/PLAN.md` and `CHANGELOG.md`; confirm `decisions.md` is not modified for a skip. Review test code for compliance with the test-file and documentation inspection restrictions; these are not automated test requirements.
+## Implementation Review items
+
+- Read the Review fix-loop section in `docs/PLAN.md` and the Unreleased changelog entry. Check both comparison trees, case identity, skip, recovery and cumulative-limit behavior. Check the skip leaves Spec answers in `decisions.md` alone.
+- Inspect the Run screen with the UI automation snapshot. Verify accepted paths appear under their own skipped round, older rounds without accepted paths still render, and the recovery action resumes at Red tests. Capture the changed screen for the implementation PR.
+- Review the tests for unique runner-visible names, real runtime assertions and the restrictions on reading documentation and test sources. The deliberately duplicated titles in a disposable runner fixture are input to the ambiguity case.

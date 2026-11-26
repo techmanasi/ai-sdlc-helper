@@ -14,7 +14,7 @@ const LOOP_STAGES = {
   'red-tests': `echo "cases" > "$FAKE_DOCS/test-cases-1.md"
 printf "import { test } from 'node:test';\\nimport assert from 'node:assert/strict';\\nimport { sum } from './sum.mjs';\\ntest('sum adds', () => assert.equal(sum(2, 3), 5));\\n" > src/sum.test.mjs
 n=$(grep -c '^red-tests$' "$FAKE_DIR/calls.txt")
-if [ "$n" -gt 1 ]; then printf "import { test } from 'node:test';\\nimport assert from 'node:assert/strict';\\nimport { extra$n } from './extra$n.mjs';\\ntest('extra $n', () => assert.equal(extra$n(), $n));\\n" > src/extra$n.test.mjs; fi`,
+if [ "$n" -gt 1 ]; then printf "import { test } from 'node:test';\\nimport assert from 'node:assert/strict';\\ntest('extra $n', async () => assert.equal((await import('./extra$n.mjs')).extra$n(), $n));\\n" > src/extra$n.test.mjs; fi`,
   implement: `printf 'export const sum = (a, b) => a + b;\\n' > src/sum.mjs
 n=$(grep -c '^implement$' "$FAKE_DIR/calls.txt")
 i=2; while [ "$i" -le "$n" ]; do printf "export const extra$i = () => $i;\\n" > src/extra$i.mjs; i=$((i+1)); done`,
@@ -84,18 +84,20 @@ printf '{"verdict":"pass","blockers":[],"missingTests":[]}\\n' > "$FAKE_DOCS/rev
     expect(rounds[0].findings.map(x => x.status)).toEqual(['still open', 'still open']);
   });
 
-  test('a finding whose test already passes is a wrong finding: the red gate stops and says so', async () => {
+  test('a blocker with only a baseline failure stops with a blocker diagnosis in output and errors.log', async () => {
     const f = fixture({
       ...LOOP_STAGES,
       'red-tests': `${LOOP_STAGES['red-tests']}
 n=$(grep -c '^red-tests$' "$FAKE_DIR/calls.txt")
-if [ "$n" -gt 1 ]; then printf "import { test } from 'node:test';\\nimport assert from 'node:assert/strict';\\nimport { sum } from './sum.mjs';\\ntest('already true', () => assert.equal(sum(1, 1), 2));\\n" > src/extra$n.test.mjs; fi`,
+if [ "$n" -gt 1 ]; then printf "import { test } from 'node:test';\\nimport assert from 'node:assert/strict';\\ntest('already true', async () => assert.equal((await import('./sum.mjs')).sum(1, 1), 2));\\n" > src/extra$n.test.mjs; fi`,
       review: reviewScript(CHANGES('src/sum.mjs', 'claims a bug that is not there')),
     });
     const r = await pipeline(f, { FAKE_REVIEW_CHANGES: '1' });
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain('RED GATE FAILED');
-    expect(errors(f)).toContain('a Review finding was wrong or already fixed');
+    for (const output of [r.stdout, errors(f)]) {
+      expect(output).toContain('RED GATE FAILED: blocker finding has no failing test on current code.');
+      expect(output).toContain('[blocker] src/sum.mjs: sum of nothing is 0: claims a bug that is not there');
+    }
   });
 
   test.each([
