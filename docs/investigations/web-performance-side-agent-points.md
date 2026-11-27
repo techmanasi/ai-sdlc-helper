@@ -11,7 +11,7 @@ Each point is as the side agent raised it, followed by what was done about it.
    - Done: #115 was merged first, the decisions were recorded in the plan (section 12), then P0 (#117) merged.
 
 3. **The two stream choices overlap.** With hidden tabs closing their connection, "one connection per browser" buys little except correct titles in hidden tabs.
-   - Open: your decision. My recommendation is to drop "one connection per browser".
+   - Decided 2026-11-14: kept as a future enhancement, not built (#133).
 
 4. **The performance PRs were stacked**, so they had to be merged in order or code would land in another PR's branch.
    - This happened once: #122 was merged into the P7 branch. #123 replaced it. Later PRs were branched from `main`.
@@ -27,5 +27,8 @@ Each point is as the side agent raised it, followed by what was done about it.
 
 7. **Independent review of #126 (Opus):** 13 of 18 criteria passed; four real defects found and fixed before merge. Full list: `web-performance-review-pr-126.md` in this folder.
 8. **Sonnet, pull request status file:** no problem with the plan. Noted that `onPrStatusChange` is now used only by a test.
+   - Done: the unused listeners were removed (#143).
 9. **Sonnet, measurements:** on a cold start a second board rebuild follows the first at once, probably from the status file being written (not confirmed). The run page's watcher sees the status writer's temp file as an extra event (12 in two minutes); possibly only in the simulation.
 10. **Sonnet, finished-run counts:** stopped at a check in the plan (`commonDirOf` is not cached) and asked; it is a few file reads, so it went ahead. The median rebuild did not fall (19 to 23 ms); the gain is 64 to 20 git calls and the longest rebuild 276 to 69 ms. Git's own `status` can refresh the index during the first build, which causes one extra re-read.
+
+Later points (11 onwards) are in `side-agent-points.md` in this folder.
