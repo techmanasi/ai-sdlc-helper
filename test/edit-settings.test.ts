@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { agentSources, mergeAgent } from '../src/config/personal.js';
+import { applyStageAgentEnv } from '../src/pipeline/run.js';
 import { pipelineEnv, runContext } from '../src/runs/index.js';
 import { applyPatch, editOverrides, editSettings, hashOf } from '../src/config/edit.js';
 import { EFFORT_LEVELS, HARNESS_IDS, agentFor, harnessFor, resolve } from '../src/config/settings.js';
@@ -356,5 +357,28 @@ describe('personal agent settings', () => {
     expect(JSON.parse(pipelineEnv(ctx, 'x').SDLC_PERSONAL_AGENT!)).toEqual({ model: 'haiku' });
     const none = setup();
     expect(pipelineEnv(runContext(none.dir, none.env), 'x').SDLC_PERSONAL_AGENT).toBeUndefined();
+  });
+});
+
+describe('AGENT_<STAGE> over a stage entry', () => {
+  const cfg = () => ({ agent: { stages: { implement: { harness: 'agy', model: 'gemini-3.8-flash-medium', effort: 'medium' } } as Record<string, any> } });
+
+  test('another harness drops the stage entry\'s model and effort, so the old model never reaches it', () => {
+    const c = cfg();
+    expect(applyStageAgentEnv(c, { AGENT_IMPLEMENT: 'claude' })).toBeNull();
+    expect(c.agent.stages.implement).toEqual({ harness: 'claude' });
+  });
+
+  test('MODEL_<STAGE> is not stored in the entry: it applies at selection, and the old model stays dropped', () => {
+    const c = cfg();
+    applyStageAgentEnv(c, { AGENT_IMPLEMENT: 'claude', MODEL_IMPLEMENT: 'sonnet' });
+    expect(c.agent.stages.implement).toEqual({ harness: 'claude' });
+  });
+
+  test('the same harness keeps the entry as it is, and an unknown harness is an error', () => {
+    const c = cfg();
+    applyStageAgentEnv(c, { AGENT_IMPLEMENT: 'agy' });
+    expect(c.agent.stages.implement).toEqual({ harness: 'agy', model: 'gemini-3.8-flash-medium', effort: 'medium' });
+    expect(applyStageAgentEnv(cfg(), { AGENT_IMPLEMENT: 'nope' })).toMatch(/must be one of/);
   });
 });
