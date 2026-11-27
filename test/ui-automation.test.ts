@@ -77,6 +77,18 @@ describe('tools/UI-automation/sdlc-ui.js', () => {
     expect(missing).toEqual([]);
   });
 
+  test('drives the New item stages, When, branch and command controls', () => {
+    const { api } = load();
+    for (const f of ['newItemWhen', 'newItemDefaults', 'newItemStages', 'newItemBranch', 'newItemCommandText']) {
+      expect(api.help()).toContain(f);
+    }
+    const keys = Object.keys(api.SELECTORS);
+    for (const name of ['newItemDefaults', 'newItemWhen', 'newItemBranch', 'newItemCommand']) {
+      expect(keys).toContain(name);
+    }
+    expect(api.SELECTORS.newItemWhen).toBe('input[name="when"]');
+  });
+
   test('exposes code search setup dialog, indexer and build feedback hooks', () => {
     const { api } = load();
     const selectors = Object.entries(api.SELECTORS);

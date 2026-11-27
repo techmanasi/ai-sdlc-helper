@@ -120,6 +120,23 @@ textarea.inp { resize: vertical; }
 .error { border: 1px solid var(--fail); border-radius: 8px; padding: 10px 14px; color: var(--fail); white-space: pre-wrap; }
 .cli { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 12px; border: 1px dashed var(--ln); border-radius: 6px; color: var(--mu); }
 
+/* New item: per-stage defaults, the item-only pickers, and the When cards. */
+.stage-defaults { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); column-gap: 24px; padding: 6px 14px 12px; }
+.stage-default-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; min-width: 0; padding: 7px 0; border-bottom: 1px solid var(--ln); }
+.stage-default-row > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage-picks { padding: 10px 14px 14px; }
+.stage-pick-head, .stage-pick-row { display: grid; grid-template-columns: 1.3fr 1fr 1.6fr 1fr; gap: 12px; align-items: center; }
+.stage-pick-head { padding-bottom: 8px; color: var(--mu); font-size: 11px; letter-spacing: .08em; }
+.stage-pick-row { padding: 6px 0; border-top: 1px solid var(--ln); min-width: 0; }
+.stage-pick-row .inp, .stage-pick-row .sel { min-height: 34px; padding-block: 4px; }
+.stage-note { padding: 8px 0; }
+.when-choice { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border: 1px solid var(--ln); border-radius: 8px; cursor: pointer; }
+.when-on { border-color: var(--pri); background: var(--sel); }
+@media (max-width: 740px) {
+  .stage-pick-head { display: none; }
+  .stage-pick-row { grid-template-columns: 1fr; }
+}
+
 /* the board */
 .board-scroll { overflow-x: auto; padding-bottom: 4px; }
 .board { display: grid; grid-template-columns: repeat(8, minmax(170px, 1fr)); gap: 10px; min-width: 1400px; }

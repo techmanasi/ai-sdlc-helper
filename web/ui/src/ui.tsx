@@ -44,9 +44,9 @@ async function copy(text: string): Promise<boolean> {
 }
 
 /** The command (or commands, run one after the other) that does the same as the screen, with Copy. */
-export function Cli({ args, commands }: { args?: string[]; commands?: string[][] }) {
+export function Cli({ args, commands, line: given }: { args?: string[]; commands?: string[][]; line?: string }) {
   const [done, setDone] = useState(false);
-  const line = `$ ${(commands || [args || []]).map(cliLine).join(' && ')}`;
+  const line = given ?? `$ ${(commands || [args || []]).map(cliLine).join(' && ')}`;
   return (
     <div class="cli mono">
       <span style={{ overflowWrap: 'anywhere' }}>{line}</span>

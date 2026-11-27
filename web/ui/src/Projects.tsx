@@ -44,7 +44,7 @@ function Doctor({ name, onSetup, register }: {
 }
 
 /** One agent / model / effort triple: '' in a field means "not set here" (the project's, or the stage default, applies). */
-interface Pick { harness: string; model: string; effort: string }
+export interface Pick { harness: string; model: string; effort: string }
 const NONE: Pick = { harness: '', model: '', effort: '' };
 const unique = <T,>(values: T[]): T[] => [...new Set(values)];
 type Scope = 'project' | 'personal';
@@ -77,7 +77,7 @@ function compatibleEffort(info: ModelInfo | undefined, effort: string): string {
 }
 
 /** The three pickers of one row. The model list follows the agent; the effort shows only for models that take one. */
-function Pickers({ id, pick, set, data, harness, inherit }: {
+export function Pickers({ id, pick, set, data, harness, inherit }: {
   id: string; pick: Pick; set(p: Pick): void; data: SettingsView; harness: string; inherit: { agent: string; model: string; effort: string };
 }) {
   const models = data.models[harness] || [];

@@ -150,6 +150,29 @@ describe('projects and the backlog', () => {
     expect(bad.status).toBe(400);
     expect(bad.json.error).toMatch(/slug/);
   });
+
+  test('start: false adds a backlog item without starting a run; per-stage picks travel as env', async () => {
+    const later = await post('/api/projects/shop/backlog', {
+      slug: 'later-one', type: 'feature', title: 'Later', brief: '# later-one\n', start: false,
+    });
+    expect(later.json).toEqual(expect.objectContaining({ ok: true, started: null }));
+    expect(fs.existsSync(path.join(repo, 'Docs/backlog/later-one/brief.md'))).toBe(true);
+    expect((await get('/api/projects/shop/board')).json.items.map((i: any) => i.slug)).toContain('later-one');
+    expect((await run('later-one')).state).toBe('not started');
+    expect(fs.existsSync(env.RAN_FILE!)).toBe(false); // the stand-in pipeline was never invoked
+
+    const picked = await post('/api/projects/shop/backlog', {
+      slug: 'picked-one', type: 'feature', title: 'Picked', brief: '# picked-one\n', start: false,
+      env: { AGENT_SPEC: 'agy', MODEL_SPEC: 'flash' },
+    });
+    expect(picked.status).toBe(200);
+    expect(picked.json.started).toBe(null);
+    const badEnv = await post('/api/projects/shop/backlog', {
+      slug: 'bad-env', type: 'feature', title: 'Bad', brief: '# bad-env\n', env: { 'not a name': 'x' },
+    });
+    expect(badEnv.status).toBe(400);
+    expect(badEnv.json.error).toMatch(/variable name/);
+  });
 });
 
 describe('running a pipeline from the browser', () => {

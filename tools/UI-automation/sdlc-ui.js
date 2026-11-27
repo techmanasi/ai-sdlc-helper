@@ -113,6 +113,12 @@
     priority: '#prio',
     title: '#title',
     brief: '#brief',
+    newItemDefaults: '#use-defaults',
+    newItemSummaryRow: '.stage-default-row',
+    newItemStageRow: '.stage-pick-row',
+    newItemWhen: 'input[name="when"]',
+    newItemBranch: '.new-item-branch',
+    newItemCommand: '.cli',
     // code search setup
     codeSearchDialog: '[role="dialog"][aria-label="Code Search Setup"]',
     indexerCard: '.indexer-card',
@@ -515,8 +521,37 @@
   function closeDialog() { const d = $(SELECTORS.dialog); return d ? click('Close', d) : ''; }
 
   // ---- new item ----
-  /** Fills the New item form (open it first with go('/new')). Leaves saving to click('Save') / click('Save and start'). */
-  async function newItem({ slug, type, priority, title, brief }) {
+  /** The "Use project defaults" checkbox: set it with true/false, or leave <on> out to just read it. */
+  function newItemDefaults(on) {
+    const box = $(SELECTORS.newItemDefaults);
+    if (!box) throw new Error('sdlcUI.newItemDefaults: no Use project defaults checkbox');
+    if (on !== undefined) setChecked(box, on);
+    return box.checked;
+  }
+
+  /** Picks a When choice ('now' or 'later') and returns the checked value. */
+  function newItemWhen(choice) {
+    const radio = $$(SELECTORS.newItemWhen).find(r => r.value === choice);
+    if (!radio) throw new Error(`sdlcUI.newItemWhen: no When choice ${choice}`);
+    if (!radio.checked) radio.click();
+    return $$(SELECTORS.newItemWhen).find(r => r.checked)?.value || '';
+  }
+
+  /** The stage rows currently on screen: summaries when using defaults, rows of pickers when not. */
+  function newItemStages() {
+    const summary = $$(SELECTORS.newItemSummaryRow).map(text);
+    const rows = $$(SELECTORS.newItemStageRow).map(row => ({
+      stage: row.getAttribute('data-stage'),
+      picks: $$('select', row).map(s => ({ label: s.getAttribute('aria-label'), value: s.value })),
+    }));
+    return summary.length ? { usingDefaults: true, summary } : { usingDefaults: false, rows };
+  }
+
+  function newItemBranch() { return text($(SELECTORS.newItemBranch)); }
+  function newItemCommandText() { return text($(SELECTORS.newItemCommand)); }
+
+  /** Fills the New item form (open it first with go('/new')). Leaves saving to click('Save and start') / click('Add to board'). */
+  async function newItem({ slug, type, priority, title, brief, when, useDefaults }) {
     if (route() !== '/new') { go('/new'); }
     await waitFor(SELECTORS.slug);
     if (slug !== undefined) setValue($(SELECTORS.slug), slug);
@@ -532,8 +567,15 @@
       if (!$(SELECTORS.brief)) click('Split');
       setValue(await waitFor(SELECTORS.brief), brief);
     }
+    if (useDefaults !== undefined) newItemDefaults(useDefaults);
+    if (when !== undefined) newItemWhen(when);
     await sleep(50);
-    return { slug: $(SELECTORS.slug).value, title: $(SELECTORS.title).value, briefChars: ($(SELECTORS.brief) || { value: '' }).value.length, buttons: buttons().filter(b => /^save/i.test(b.label)) };
+    return {
+      slug: $(SELECTORS.slug).value, title: $(SELECTORS.title).value,
+      briefChars: ($(SELECTORS.brief) || { value: '' }).value.length,
+      branch: newItemBranch(), when: newItemWhen(), command: newItemCommandText(),
+      buttons: buttons().filter(b => /^save|add to board/i.test(b.label)),
+    };
   }
 
   function completedTabs() {
@@ -656,7 +698,7 @@
     // run page
     run, stages, stage, roundMarks, rounds, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
     // new item
-    newItem,
+    newItem, newItemDefaults, newItemWhen, newItemStages, newItemBranch, newItemCommandText,
     // code search setup
     codeSearchDialog, codeSearchIndexers, codeSearchOutput,
     // default editor
