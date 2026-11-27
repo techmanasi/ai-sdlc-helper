@@ -150,11 +150,12 @@ On resume with `FROM=implement`:
 
 With the setting on and CI available:
 
-- Every local gate runs only the task's red test files: those in the red-tests commit, plus the Test repair commit if there is one. That covers the preliminary run (forced to scoped), Implement, Test repair and Review's post-check.
-- Implement's local gate also includes the CI side-effect test files from 7.3.
+- Implement's scoped baseline and the Implement and Test repair unit-test gates run active entries from `test-list.json`. This supersedes the file-level descriptions of those steps elsewhere in this spec. The list includes accepted Red tests failures, Test repair claims and CI side effects with a known file. An explicit full baseline runs the full suite.
+- Vitest, Jest and Mocha filter by name per file. A file that failed to load, or a CI failure with a file but no name, runs as a whole file. A missing or skipped name triggers a whole-file check. Runners without name filtering keep their file-level behaviour.
+- Red tests, the Test repair comparison reports and Review's post-check retain their existing scope.
 - `integration.cmd` still runs locally where it runs today.
 - Only Implement waits for CI. Review pushes its changes but doesn't wait. CI on the PR after that is for the human reviewer.
-- After a fallback (4.3), the local gates go back to today's behaviour.
+- After a fallback (4.3), Implement and Test repair run the full suite after their active entries pass. Finalise checks the full suite locally when CI is unavailable.
 
 ## 7. Implement with the setting on
 

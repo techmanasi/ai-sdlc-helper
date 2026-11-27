@@ -3,6 +3,7 @@
 // Documentation conflicts are resolved by keeping both sides; a code or test conflict goes to an agent, and any doubt
 // stops the stage without pushing and offers a follow-up backlog item (<slug>-resolve-conflict-N) the user may add.
 import fs from 'node:fs';
+import { recordConflictChanges } from './test-list.js';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -275,6 +276,10 @@ async function resolveConflictsOnCleanTree(o: ResolveOptions): Promise<ResolveOu
     const now = git.head();
     if (now === before) return undefined;
     git.run('update-ref', `refs/sdlc-attempt/${branch}`, now);
+    if (o.recordFile && resolved.length) {
+      const resolvedFiles = [...new Set(resolved.map(r => r.file))];
+      fs.writeFileSync(o.recordFile, `${JSON.stringify({ ...record, resolvedFiles }, null, 2)}\n`);
+    }
     git.run('reset', '-q', '--hard', before);
     return `refs/sdlc-attempt/${branch}`;
   };
@@ -695,7 +700,7 @@ async function fullCheck(ctx: Ctx): Promise<boolean> {
 // ---- Fixing the merged result: Implement on the kept attempt ----
 
 /** What the pipeline writes when it takes the kept attempt as the branch (<log>/merge-fix.json): the push later checks the remote is unchanged. */
-export interface MergeFix { attempt: string; before: string; remoteSha: string; upstream: string; at: string }
+export interface MergeFix { attempt: string; before: string; remoteSha: string; upstream: string; at: string; resolvedFiles?: string[] }
 
 export type AdoptResult = (MergeFix & { ok: true }) | { ok: false; reason: string };
 
@@ -707,13 +712,13 @@ export type AdoptResult = (MergeFix & { ok: true }) | { ok: false; reason: strin
 export function adoptAttempt(git: Git, branch: string, recordFile: string): AdoptResult {
   const attempt = sha(git, `refs/sdlc-attempt/${branch}`);
   if (!attempt) return { ok: false, reason: `there is no kept attempt for ${branch}: press Resolve conflicts first` };
-  let record: { before?: string; remoteSha?: string; upstream?: string } = {};
+  let record: { before?: string; remoteSha?: string; upstream?: string; resolvedFiles?: string[] } = {};
   try { record = JSON.parse(fs.readFileSync(recordFile, 'utf8')); } catch { /* no record */ }
   if (!record.before || !record.remoteSha || !record.upstream) return { ok: false, reason: `the record of the last attempt (${path.basename(recordFile)}) is missing: press Resolve conflicts again` };
   if (git.head() !== record.before) return { ok: false, reason: `${branch} has moved since the attempt was made: press Resolve conflicts again` };
   if (git.run('status', '--porcelain', '--untracked-files=no').trim()) return { ok: false, reason: `${branch} has uncommitted changes: commit or discard them first` };
   git.run('reset', '-q', '--hard', attempt);
-  return { ok: true, attempt, before: record.before, remoteSha: record.remoteSha, upstream: record.upstream, at: stamp() };
+  return { ok: true, attempt, before: record.before, remoteSha: record.remoteSha, upstream: record.upstream, at: stamp(), ...(record.resolvedFiles ? { resolvedFiles: record.resolvedFiles } : {}) };
 }
 
 /** The test files named by failing tests ("<file> :: <test>"), keeping the ones that exist. */
@@ -898,6 +903,7 @@ export function adoptKeptAttempt(ctx: Ctx): void {
   const adoption = adoptAttempt(ctx.git, ctx.branch, at(ctx, `${ctx.log}/resolve-conflicts.json`));
   if ('reason' in adoption) return stop(ctx, `ERROR: cannot fix the merged result: ${adoption.reason}`);
   const a = adoption;
+  recordConflictChanges(ctx, a.resolvedFiles || [], a.attempt);
   const check = checkFailure(ctx);
   let logTail = '';
   try { logTail = fs.readFileSync(at(ctx, check.log), 'utf8').split('\n').slice(-80).join('\n'); } catch { /* no log */ }
@@ -988,6 +994,7 @@ export async function resolveConflictsStage(ctx: Ctx, opts: { inline?: InlineRes
   fs.writeFileSync(at(ctx, `${ctx.log}/resolve-conflicts.md`), `# ${RESOLVE_STAGE} (${stamp()})\n\n${lines.join('\n')}\n`);
   for (const l of lines) ctx.out(l);
   if (result.kind === 'pushed') {
+    recordConflictChanges(ctx, result.resolved.map(r => r.file), result.head);
     setAside(ctx, [`${ctx.log}/merge-fix.json`]);
     // The rebase rewrote the red-tests commit (and the Test repair one): later resumes find them by their messages.
     ctx.origRedSha = (ctx.git.findCommits ? ctx.git.findCommits([redPattern(ctx.slug)])[0] : '') || ctx.git.findCommit([redPattern(ctx.slug)]);
