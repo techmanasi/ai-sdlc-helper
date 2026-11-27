@@ -59,6 +59,14 @@
     heroTag: '.hero .tag',
     stopKind: '#stop-kind',
     stopCause: '#stop-cause',
+    permissionPanel: '.permission-panel section.pn',
+    permissionAsk: '.permission-ask',
+    denyPermission: '[data-sdlc="deny-permission"]',
+    allowAllAndResume: '[data-sdlc="allow-all-resume"]',
+    resumeWithout: '[data-sdlc="resume-without"]',
+    waitPanel: '.wait-panel section.pn',
+    waitText: '#wait-text',
+    stopWaiting: '[data-sdlc="stop-waiting"]',
     guarantee: '.guar .guar-item',
     recovery: 'section.recov',
     recoveryWays: '.recov-ways',
@@ -389,6 +397,29 @@
     const pre = $(SELECTORS.output);
     return pre ? (pre.textContent || '').split('\n').filter(l => l.trim()).slice(-n) : [];
   }
+  /** The refused-action panel, its recorded asks and its actions; null when there is no permission record. */
+  function permissions() {
+    const p = $(SELECTORS.permissionPanel);
+    if (!p) return null;
+    return {
+      title: text($(SELECTORS.panelHead, p)),
+      asks: $$(SELECTORS.permissionAsk, p).map(text),
+      actions: buttons($(SELECTORS.pb, p)).map(b => b.label),
+    };
+  }
+  /** Denies one recorded ask (by its index in the panel), or the first when no index is given. */
+  function denyPermission(index = 0) {
+    const b = $$(SELECTORS.denyPermission)[index];
+    if (!b) throw new Error(`sdlcUI.denyPermission: no Deny button ${index}. Buttons here: ${buttons().map(x => x.label).join(' | ')}`);
+    if (b.disabled) throw new Error(`sdlcUI.denyPermission: "${text(b)}" is disabled`);
+    b.click();
+    return text(b);
+  }
+  function allowAllAndResume() { return click('Allow all and resume', $(SELECTORS.permissionPanel)); }
+  function resumeWithout() { return click('Resume without them', $(SELECTORS.permissionPanel)); }
+  /** The wait panel's own text (from status.json's wait record), or '' when there is no record. */
+  function waitPanelText() { return text($(SELECTORS.waitText, $(SELECTORS.waitPanel))); }
+  function stopWaiting() { return click('Stop waiting', $(SELECTORS.waitPanel)); }
   function questions() {
     return $$(SELECTORS.question, main()).filter(t => /^q\d+$/.test(t.id)).map(t => {
       // <div class="col"><strong>Qn · title</strong><span>body</span><span>Suggested: …</span><div class="row">…textarea</div></div>
@@ -741,6 +772,7 @@
     completedTabs, completedFilter, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds, runBehaviour,
     // run page
     run, stages, stage, roundMarks, rounds, attemptMarks, attempts, toggleError, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, costMode, openDoc, closeDialog,
+    permissions, denyPermission, allowAllAndResume, resumeWithout, waitPanelText, stopWaiting,
     // new item
     newItem, newItemDefaults, newItemWhen, newItemStages, newItemBranch, newItemCommandText,
     // code search setup

@@ -110,6 +110,21 @@ describe('tools/UI-automation/sdlc-ui.js', () => {
     expect(api.help()).toMatch(/editorDialog/);
   });
 
+  test('exposes the permission panel and wait panel hooks', () => {
+    const { api } = load();
+    const keys = Object.keys(api.SELECTORS);
+    for (const name of [
+      'permissionPanel', 'permissionAsk', 'denyPermission', 'allowAllAndResume', 'resumeWithout',
+      'waitPanel', 'waitText', 'stopWaiting',
+    ]) expect(keys).toContain(name);
+    expect(api.SELECTORS.waitText).toBe('#wait-text');
+    expect(api.SELECTORS.denyPermission).toContain('data-sdlc="deny-permission"');
+    expect(api.SELECTORS.stopWaiting).toContain('data-sdlc="stop-waiting"');
+    for (const f of ['permissions', 'denyPermission', 'allowAllAndResume', 'resumeWithout', 'waitPanelText', 'stopWaiting']) {
+      expect(api.help()).toContain(f);
+    }
+  });
+
   test('the drift check sees a selector that is not in the markup', () => {
     const src = markup();
     expect(new RegExp(`(^|[\\s"'\`{])${esc('no-such-class-xyz')}($|[\\s"'\`}])`).test(src)).toBe(false);

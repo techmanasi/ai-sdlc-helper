@@ -134,6 +134,18 @@ describe('decide', () => {
     expect(s.bypass).toEqual([]);
   });
 
+  test('deny records a refusal in permissions.json and the refused action is not offered again on resume', () => {
+    ask();
+    expect(decide(files.state, '0', 'deny', files.repo)).toBe(1);
+    expect(loadState(files.state).denied).toEqual([{ tool: 'Bash', detail: 'git push origin main' }]);
+    expect(loadState(files.state).pending).toHaveLength(1);
+
+    // The agent asks for the same action again: the denial is honoured, and only the undecided action is still pending.
+    expect(run(agentJson([denial('Bash', { command: 'git push origin main' }), denial('Edit', { file_path: `${CWD}/.claude/plugins/p/f.tsx` })]))).toBe(1);
+    expect(loadState(files.state).pending).toHaveLength(1);
+    expect(loadState(files.state).pending[0].detail).toContain('.claude/plugins/p/f.tsx');
+  });
+
   test('deciding a denied permission allows or always-allows it, removing from denied', () => {
     ask();
     decide(files.state, 'all', 'deny', files.repo);

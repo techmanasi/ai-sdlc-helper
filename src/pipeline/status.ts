@@ -1,11 +1,63 @@
 // The status file: ONE small JSON line, replaced (never appended), so the pane and `watch` read it cheaply.
 import fs from 'node:fs';
+import path from 'node:path';
 import { stamp } from './context.js';
 import { appendRound } from './observe.js';
 import { STEPS } from './steps.js';
 import { procStart } from '../runs/proc.js';
 
 export type RunState = 'running' | 'done' | 'paused' | 'failed';
+
+/** Why a run waits, from the record that made it wait. `until` is present only when a reset time was read. */
+export interface WaitLine { reason: 'usage-limit'; since: string; until?: string }
+
+/** Reads the clock in a usage-limit message ("resets 1:10am (Asia/Dubai)") as an ISO instant, when there is one. */
+export function resetUntil(limit: string, now: Date = new Date()): string | undefined {
+  const m = /\bresets?\s+(\d{1,2}):(\d{2})\s*(am|pm)?\b/i.exec(limit);
+  if (!m) return undefined;
+  let hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const suffix = m[3]?.toLowerCase();
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour > 23 || minute > 59) return undefined;
+  if (suffix === 'am' && hour === 12) hour = 0;
+  if (suffix === 'pm' && hour < 12) hour += 12;
+  const reset = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+  // A clock without a date names the next occurrence, not yesterday's.
+  if (reset.getTime() <= now.getTime()) reset.setDate(reset.getDate() + 1);
+  return reset.toISOString();
+}
+
+/** The wait record written while a usage-limit retry is pending; never guessed from free text by the run page. */
+export function waitRecord(limit: string, now: Date = new Date()): WaitLine {
+  const until = resetUntil(limit, now);
+  return { reason: 'usage-limit', since: now.toISOString(), ...(until ? { until } : {}) };
+}
+
+/** The signal file a user action writes to end a usage-limit wait; the wait loop reads it every tick. */
+export const stopWaitPath = (logDir: string): string => path.join(logDir, 'stop-wait');
+export const stopWaitPresent = (logDir: string): boolean => fs.existsSync(stopWaitPath(logDir));
+export function clearStopWait(logDir: string): void {
+  fs.rmSync(stopWaitPath(logDir), { force: true });
+}
+
+/**
+ * One usage-limit wait tick. Checks the stop signal, then sleeps at most 250 ms at a time so a "Stop waiting" click
+ * ends the wait promptly; `sleep` is injected so a test can drive the real loop without clock time.
+ */
+export async function waitTick(o: {
+  seconds: number;
+  sleep: (ms: number) => Promise<void>;
+  stopRequested: () => boolean;
+  now?: () => number;
+}): Promise<'stop' | 'elapsed'> {
+  const end = (o.now?.() ?? Date.now()) + Math.max(0, o.seconds * 1000);
+  for (;;) {
+    if (o.stopRequested()) return 'stop';
+    const left = end - (o.now?.() ?? Date.now());
+    if (left <= 0) return 'elapsed';
+    await o.sleep(Math.min(250, left));
+  }
+}
 
 export interface StatusLine {
   slug: string;
@@ -24,6 +76,8 @@ export interface StatusLine {
   pid_start?: string;
   /** Why a running run waits, for example "usage limit, resets 1:10am (Asia/Dubai)" (only when SDLC_LIMIT_RETRY is set); empty otherwise. */
   note: string;
+  /** Structured reason for the wait; present only while a usage-limit retry is pending. */
+  wait?: WaitLine;
   /** The full suite in CI (tests.fullSuite "ci"); absent when the setting is off. */
   ci?: CiStatus;
   /** What the stage is doing now: step i of n, a plain-language label, when it began. Present only while a step runs. */
@@ -95,6 +149,7 @@ export class Status {
   attempt = '';
   agentStarted = '';
   note = '';
+  wait?: WaitLine;
   ci?: CiStatus;
   step: StepLine | null = null;
   runNumber?: number;
@@ -114,6 +169,7 @@ export class Status {
       slug: this.slug, state: this.state, stage: this.stage, agent: this.agent, model: this.model, effort: this.effort,
       models: this.models, attempt: this.attempt, agent_started: this.agentStarted, run_started: this.runStarted,
       updated: stamp(), pid: this.pid, ...(this.pidStart() ? { pid_start: this.pidStart() } : {}), note: this.note,
+      ...(this.wait ? { wait: this.wait } : {}),
       ...(this.ci ? { ci: this.ci } : {}),
     };
     if (this.step) line.step = this.step;
