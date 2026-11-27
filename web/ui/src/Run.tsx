@@ -7,7 +7,7 @@ import { configValue } from './modelFilter';
 import { ModelSelect } from './ModelSelect';
 import { elapsedText, linkPaths, resolveShown, showTestIssues, stepBanner } from './stages';
 import { BackBar, Guarantees, LockDetail, OutputPanel, RoundChips, StageRail, StepList, UsagePanel, usePhone, type RailStage } from './RunInsights';
-import { backBar, followNote, followedStage, phoneOpens, pickRound, prBadge, roundsOf, shownStage, waitsFor } from './stagePane';
+import { answeredBetween, backBar, followNote, followedStage, phoneOpens, pickRound, prBadge, roundEndText, roundStartText, roundsOf, shownStage, waitsFor } from './stagePane';
 import { stopKind } from './stopKind';
 import { hasUsage, openLock, skipped, stageStates, usageText, verifiedLock, type StageState } from './insights';
 import { PrCi } from './PrCi';
@@ -921,7 +921,27 @@ export function Run({ slug }: { slug: string }) {
                   <h3 class="eyebrow">{st === 'pending' ? 'Steps · not started' : `Steps · round ${roundNo}`}{round?.started ? ` · started ${round.started.slice(11, 16)}` : ''}</h3>
                   {waits.length > 0 && <p class="small muted pane-waits">Starts after {waits.join(' and ')}</p>}
                   <RoundChips count={rounds.length} picked={roundNo} onPick={setPickedRound} />
-                  <StepList round={round} state={latest ? st : 'done'} plan={plan} updated={v.updated} />
+                  {rounds.length === 0 && <StepList state={latest ? st : 'done'} plan={plan} updated={v.updated} />}
+                  <div class="round-list">
+                   {rounds.map((r, idx) => {
+                     const start = roundStartText(r);
+                     const end = roundEndText(r);
+                     // Between rounds: only an answer time the earlier round actually recorded. The run does not
+                     // record a questions count per round, so no count is shown here.
+                     const answered = idx > 0 ? answeredBetween(rounds[idx - 1], r) : '';
+                     return (
+                       <div class="round-entry" key={`${idx}-${r.started}`}>
+                         {answered && <p class="round-answered small">{answered}</p>}
+                         <section class={`round-section ${idx + 1 === roundNo ? 'round-current' : ''}`} aria-label={`Round ${idx + 1}`}>
+                           <h4 class="round-heading">Round {idx + 1}</h4>
+                           {start && <p class="round-start small muted">{start}</p>}
+                           <StepList round={r} state={idx + 1 === roundNo && latest ? st : 'done'} plan={idx + 1 === roundNo ? plan : []} updated={v.updated} />
+                           {end && <p class="round-end small">{end}</p>}
+                         </section>
+                       </div>
+                     );
+                   })}
+                  </div>
                   {(plan?.length || round?.steps.length) ? <p class="small muted pane-foot">A pill appears when its step starts. The running one counts up; the others keep their final time.</p> : null}
                   {s.key === 'red-tests' && <><h3 class="eyebrow test-lock-eyebrow" style={{ marginTop: '14px' }}>TEST LOCK</h3><LockDetail lock={lock} open={lockOpen} /></>}
                  </div>

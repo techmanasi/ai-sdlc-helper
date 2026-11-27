@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { LockOpen, LockView, RunView, StageRound, Timeline, UsageTotals } from './api';
 import { cacheShare, costCell, costNotes, durationText, guarantees, hasUsage, lockSentence, openSentence, tileLine, tokensText, usageText, type TileState, totalCells } from './insights';
-import { doneFoldLabel, edgeScrollTarget, foldDone, hiddenCounts, mayAutoScroll, paneTone, prBadge, roundLabel, scrollTarget, stepPills } from './stagePane';
+import { doneFoldLabel, edgeScrollTarget, foldDone, hiddenCounts, mayAutoScroll, paneTone, prBadge, roundLabel, roundMarks, roundMarksLabel, scrollTarget, stepPills } from './stagePane';
 import { Panel, Spinner } from './ui';
 
 /** The time now, refreshed every second while `on` (a running stage shows its elapsed time). */
@@ -31,6 +31,16 @@ export function LockIcon({ open }: { open?: boolean }) {
 }
 
 const ICON: Record<TileState, string> = { done: '✓', active: '', paused: '⏸', failed: '✕', pending: '', skipped: '–' };
+const MARK_GLYPH: Record<'done' | 'stop' | 'run' | 'idle', string> = { done: '✓', stop: '■', run: '●', idle: '○' };
+
+/** A small row of recorded round marks on a tile; the accessible name carries the whole story. */
+function RoundMarks({ rounds, label }: { rounds: readonly StageRound[]; label: string }) {
+  return (
+    <span class="tile-marks" role="img" aria-label={label} title={label}>
+      {roundMarks(rounds).map(m => <span class={`tile-mark mark-${m.tone}`} aria-hidden="true">{MARK_GLYPH[m.tone]}</span>)}
+    </span>
+  );
+}
 
 export interface RailStage { name: string; key: string; state: TileState; model: string; files: number; afterPr?: boolean }
 
@@ -149,6 +159,9 @@ export function StageRail({ stages, timeline, step, locked, lockOpen, shown, fol
             const cost = usageText(sp?.usage);
             const on = shown === s.key;
             const round = roundLabel(sp?.passes);
+            // Only recorded rounds: a stage with one pass and no recorded cause has nothing to mark on the tile.
+            const recorded = sp?.rounds ?? [];
+            const marks = recorded.length >= 2 || recorded.some(r => r.cause) ? roundMarksLabel(recorded) : '';
             const tile = (
               <button
                 type="button" role="tab" aria-selected={on} aria-pressed={on} aria-controls="stage-detail" data-key={s.key}
@@ -165,6 +178,7 @@ export function StageRail({ stages, timeline, step, locked, lockOpen, shown, fol
                   {s.key === 'finalise' && pr && <span class={`tile-pr tile-pr-${pr.tone}`} title={pr.title}>{pr.text}</span>}
                 </span>
                 <span class="tile-model mono">{s.model || (s.key === 'finalise' ? 'no agent' : 'default')}</span>
+                {marks && <RoundMarks rounds={recorded} label={marks} />}
                 <span class="tile-line">{tileLine(s.state, sp, s.files, s.state === 'active' ? step?.label || '' : '', now)}</span>
                 {cost && <span class="tile-cost mono">{cost}</span>}
                 <span class="sr">{s.state}</span>
