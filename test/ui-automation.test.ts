@@ -88,6 +88,16 @@ describe('tools/UI-automation/sdlc-ui.js', () => {
     expect(api.help()).toMatch(/code.?search|indexer/i);
   });
 
+  test('exposes the Default editor dialog, row and custom command hooks', () => {
+    const { api } = load();
+    const selectors = Object.entries(api.SELECTORS);
+    expect(selectors.some(([, value]) => value.includes('aria-label="Default editor"'))).toBe(true);
+    expect(selectors.some(([name]) => /editor.*row|row.*editor/i.test(name))).toBe(true);
+    expect(selectors.some(([, value]) => /#editor-custom/.test(value))).toBe(true);
+    expect(api.help()).toMatch(/setEditor/);
+    expect(api.help()).toMatch(/editorDialog/);
+  });
+
   test('the drift check sees a selector that is not in the markup', () => {
     const src = markup();
     expect(new RegExp(`(^|[\\s"'\`{])${esc('no-such-class-xyz')}($|[\\s"'\`}])`).test(src)).toBe(false);

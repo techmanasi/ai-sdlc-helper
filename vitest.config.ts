@@ -12,6 +12,7 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: 'ai-sdlc-helper/review-limit', replacement: fileURLToPath(new URL('./src/config/review-limit.ts', import.meta.url)) },
+      { find: 'ai-sdlc-helper/editor', replacement: fileURLToPath(new URL('./src/config/editor.ts', import.meta.url)) },
       { find: 'ai-sdlc-helper', replacement: fileURLToPath(new URL('./src/index.ts', import.meta.url)) },
     ],
   },

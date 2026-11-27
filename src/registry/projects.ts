@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from '../trace.js';
 import { configDir } from '../configDir.js';
+import type { EditorSetting } from '../config/editor.js';
 
 /** Personal settings for one project, kept out of its committed sdlc.config.json. */
 export interface ProjectOverrides {
@@ -47,40 +48,93 @@ const entryProblem = (e: any, i: number): string | null => {
   return null;
 };
 
-/** The registered projects; [] when there is no registry yet. Throws RegistryError when the file is unreadable or corrupt. */
-export function readRegistry(env: NodeJS.ProcessEnv = process.env): ProjectEntry[] {
+/**
+ * The registry file's parsed root: null when there is no file yet; throws RegistryError when it is unreadable or not
+ * an object. Root keys besides "projects" (today the machine-wide "editor") are simply part of what is returned.
+ */
+function checkedRoot(env: NodeJS.ProcessEnv): Record<string, unknown> | null {
   const file = registryFile(env);
   let text: string;
   try { text = fs.readFileSync(file, 'utf8'); } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw new RegistryError(`cannot read ${file}: ${(e as Error).message}`);
   }
   let data: any;
   try { data = JSON.parse(text); } catch (e) {
     throw new RegistryError(`${file} is not valid JSON (${(e as Error).message}); fix it or delete it to start a new registry`);
   }
-  const list = data && Array.isArray(data.projects) ? data.projects : null;
-  if (!list) throw new RegistryError(`${file} has no "projects" list; fix it or delete it to start a new registry`);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new RegistryError(`${file} has no "projects" list; fix it or delete it to start a new registry`);
+  }
+  return data;
+}
+
+/** The registered projects; [] when there is no registry yet. Throws RegistryError when the file is unreadable or corrupt. */
+export function readRegistry(env: NodeJS.ProcessEnv = process.env): ProjectEntry[] {
+  const data = checkedRoot(env);
+  if (data === null) return [];
+  const list = Array.isArray(data.projects) ? data.projects : null;
+  if (!list) throw new RegistryError(`${registryFile(env)} has no "projects" list; fix it or delete it to start a new registry`);
   list.forEach((e: unknown, i: number) => {
     const p = entryProblem(e, i);
-    if (p) throw new RegistryError(`${file}: ${p}; fix it or delete it to start a new registry`);
+    if (p) throw new RegistryError(`${registryFile(env)}: ${p}; fix it or delete it to start a new registry`);
   });
   return list as ProjectEntry[];
 }
 
-/** Saves the registry atomically: a temporary file in the same folder, then a rename over the old one. */
-export function writeRegistry(entries: ProjectEntry[], env: NodeJS.ProcessEnv = process.env): void {
+/**
+ * The root keys a registry write keeps besides "version" and "projects" (today the machine-wide "editor" setting), so
+ * adding a project does not drop them. A file that cannot be read or parsed has nothing to keep — a write overwrites
+ * it as it always has, and the commands that read it report the problem.
+ */
+const keptRootKeys = (env: NodeJS.ProcessEnv): Record<string, unknown> => {
+  try {
+    const data = JSON.parse(fs.readFileSync(registryFile(env), 'utf8'));
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+    return Object.fromEntries(Object.entries(data).filter(([k]) => k !== 'version' && k !== 'projects'));
+  } catch { return {}; }
+};
+
+/** Writes the registry file atomically: a temporary file in the same folder, then a rename over the old one. */
+function writeRegistryFile(extra: Record<string, unknown>, entries: ProjectEntry[], env: NodeJS.ProcessEnv): void {
   const file = registryFile(env);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
   const sorted = [...entries].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   try {
-    fs.writeFileSync(temp, `${JSON.stringify({ version: 1, projects: sorted }, null, 2)}\n`);
+    fs.writeFileSync(temp, `${JSON.stringify({ version: 1, ...extra, projects: sorted }, null, 2)}\n`);
     fs.renameSync(temp, file);
   } catch (e) {
     try { fs.unlinkSync(temp); } catch { /* already gone */ }
     throw e;
   }
+}
+
+/** Saves the registry atomically; root keys besides "version" and "projects" are kept. */
+export function writeRegistry(entries: ProjectEntry[], env: NodeJS.ProcessEnv = process.env): void {
+  writeRegistryFile(keptRootKeys(env), entries, env);
+}
+
+/** The machine-wide editor setting saved in the registry file root ("editor", beside "projects"); undefined when never set. */
+export function readEditorSetting(env: NodeJS.ProcessEnv = process.env): EditorSetting | undefined {
+  const saved = checkedRoot(env)?.editor as { choice?: unknown; custom?: unknown } | undefined;
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return undefined;
+  const out: EditorSetting = {};
+  if (typeof saved.choice === 'string' && saved.choice) out.choice = saved.choice;
+  if (typeof saved.custom === 'string' && saved.custom.trim()) out.custom = saved.custom;
+  return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * Saves the machine-wide editor setting in the registry file root; <undefined> or an empty setting removes it (the
+ * default, VS Code, applies again). Throws RegistryError when the registry cannot be read, like every other change.
+ */
+export function writeEditorSetting(editor: EditorSetting | undefined, env: NodeJS.ProcessEnv = process.env): void {
+  const entries = readRegistry(env); // its errors are the caller's to report
+  const extra = keptRootKeys(env);
+  if (editor && Object.values(editor).some(v => v !== undefined)) extra.editor = editor;
+  else delete extra.editor;
+  writeRegistryFile(extra, entries, env);
 }
 
 /** A registry name from a folder name: lowercase letters, digits and dashes. */

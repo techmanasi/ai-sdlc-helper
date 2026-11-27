@@ -246,6 +246,8 @@ export function Run({ slug }: { slug: string }) {
   const [brief, setBrief] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
+  /** Why "Open in editor" failed (the server spawns the editor; its error shows here, not as a toast). */
+  const [editorErr, setEditorErr] = useState('');
   const syncLabel = useSyncLabel(busy === 'Sync PR', project, slug);
   const [confirm, setConfirm] = useState('');
   /** A run-level override picked but not confirmed yet: a popup explains what it overrides before it is applied. */
@@ -554,7 +556,13 @@ export function Run({ slug }: { slug: string }) {
     return [harness, model || `default ${harness} model`, effort].filter(Boolean).join(' · ');
   };
   const startArgs = ['start', slug, ...(v.resumeFrom && v.state !== 'not started' ? ['--from', v.resumeFrom] : [])];
-  const editorLink = v.worktree ? `vscode://file${v.worktree.startsWith('/') ? '' : '/'}${v.worktree}` : '';
+  /** Opens the run's worktree in the default editor saved on the Projects page; the server runs it without a shell. */
+  const openInEditor = async () => {
+    if (!v.worktree) return;
+    setBusy('Open in editor'); setEditorErr('');
+    try { await api.openInEditor(v.worktree, project); } catch (e) { setEditorErr((e as Error).message); }
+    setBusy('');
+  };
   const openFile = async (p: string) => { try { const text = (await api.file(project, slug, p)).text; setFileView('rendered'); setFile({ path: p, text }); } catch (e) { toast((e as Error).message); } };
   const docTree = useMemo(() => (v ? buildDocTree(v.docs) : []), [v?.docs.join('|')]);
 
@@ -704,7 +712,12 @@ export function Run({ slug }: { slug: string }) {
           {v.undo && (confirm === 'undo'
             ? <><button class="btn btn-d" type="button" disabled={!!busy} onClick={() => act('Undo', async () => { const o = await api.undo(project, slug); setConfirm(''); return o; })}>{busy === 'Undo' ? <><Spinner /> Undoing…</> : 'Confirm undo'}</button><button class="btn" type="button" disabled={!!busy} onClick={() => setConfirm('')}>Keep it</button></>
             : <button class="btn" type="button" disabled={!!busy} title={`Put the branch and files back as they were before the last start (${v.undo.from}, ${v.undo.at}). Stops the run if it is running; what is thrown away is saved in git.`} onClick={() => setConfirm('undo')}>Undo last start</button>)}
-          {editorLink && <a class="btn" href={editorLink}>Open in editor</a>}
+          {v.worktree && (
+            <span class="row" style={{ gap: '8px', flexWrap: 'wrap' }}>
+              <button class="btn" type="button" disabled={!!busy} onClick={openInEditor}>{busy === 'Open in editor' ? <><Spinner /> Opening…</> : 'Open in editor'}</button>
+              {editorErr && <span class="error" role="alert" style={{ padding: '8px 12px' }}>{editorErr}</span>}
+            </span>
+          )}
           {v.worktree && <CopyButton text={v.worktree} label="Copy path" />}
         </div>
         {picking && (

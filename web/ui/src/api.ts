@@ -169,6 +169,11 @@ export interface CompletedTaskDetail extends CompletedTask {
 export interface Outcome { ok: boolean; code: number; out: string[]; err: string[] }
 export interface Check { name: string; ok: boolean; required: boolean; detail: string; fix?: string }
 
+/** One editor the Default editor dialog offers; the server resolves the system one's command for this machine. */
+export interface EditorChoice { id: string; name: string; cmd: string }
+/** The saved default editor: the choice's id, and the custom command when one was saved. */
+export interface EditorSettingView { choice: string; custom?: string }
+
 export type TriageState = 'running' | 'choosing' | 'waiting' | 'ready' | 'interrupted' | 'stopped' | 'failed' | 'done';
 export type DraftStatus = 'pending' | 'saved' | 'skipped';
 export interface TriageItem { slug: string; type: string; priority: string; title: string; summary: string }
@@ -292,6 +297,9 @@ export const api = {
   runBehaviour: (project: string) => call<RunBehaviourView>('GET', `${p(project)}/run-behaviour`),
   saveRunBehaviour: (project: string, run: RunBehaviourSettings) =>
     call<{ ok: boolean; errors?: string[] }>('PUT', `${p(project)}/run-behaviour`, run),
+  editor: () => call<{ editor: EditorSettingView; editors: EditorChoice[] }>('GET', '/api/editor'),
+  saveEditor: (setting: { choice: string; custom?: string | null }) => call<{ ok: true; editor: EditorSettingView }>('PUT', '/api/editor', setting),
+  openInEditor: (path: string, project?: string) => call<{ ok: true }>('POST', '/api/editor/open', { path, project }),
   brief: (project: string, slug: string) => call<{ brief: string | null }>('GET', `${p(project)}/backlog/${encodeURIComponent(slug)}`),
   editView: (project: string, slug: string) => call<BacklogEditView>('GET', `${p(project)}/backlog/${encodeURIComponent(slug)}/edit`),
   editItem: (project: string, slug: string, body: { title: string; type: string; priority?: string; brief: string; hash: string }) =>
