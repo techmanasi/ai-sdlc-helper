@@ -380,6 +380,23 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .round-start, .round-end, .round-answered { margin: 0; font-size: 12px; }
 .round-end { color: var(--tx); }
 .round-answered { color: var(--fut); }
+/* Implement attempts: the pane's rows mirror the design's attempt list, using the app's own tokens. */
+.attempt-eyebrow { color: var(--fail); margin-top: 14px; }
+.attempt-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.attempt-row { display: flex; flex-direction: column; border: 1px solid var(--ln); border-left: 3px solid var(--done); border-radius: 8px; background: var(--pn); }
+.attempt-failed { border-left-color: var(--fail); }
+.attempt-running { border-left-color: var(--run); background: var(--run-bg); }
+.attempt-head { display: grid; grid-template-columns: 130px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; }
+.attempt-id, .attempt-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.attempt-id strong { font-size: 13px; }
+.attempt-failed .attempt-id strong { color: var(--fail); }
+.attempt-running .attempt-id strong { color: var(--run); }
+.attempt-status-failed { color: var(--fail); } .attempt-status-running { color: var(--run); } .attempt-status-done { color: var(--done); }
+.attempt-back { color: var(--fut); }
+.attempt-error { margin: 0 12px 12px; border: 1px solid var(--fail); border-radius: 8px; background: var(--fail-bg); overflow: hidden; }
+.attempt-error-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 10px; padding: 8px 12px; border-bottom: 1px solid var(--ln); }
+.attempt-error-text { margin: 0; padding: 10px 12px; max-height: 128px; overflow: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.55; color: var(--fail); }
+@media (max-width: 800px) { .attempt-head { grid-template-columns: minmax(0, 1fr); } }
 .phone-pane { margin: 4px 0 8px; }
 .phone-pane .stage-pane { border-radius: 0 0 8px 8px; }
 .rail2-phone .rail2 { flex-direction: column; overflow: visible; }

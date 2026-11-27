@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import { answeredBetween, backBar, doneFoldLabel, edgeScrollTarget, foldDone, followedStage, followNote, hiddenCounts, mayAutoScroll, paneTone, phoneOpens, pickRound, prBadge, roundEndText, roundLabel, roundMarks, roundMarksLabel, roundStartText, roundsOf, scrollTarget, shownStage, stepPills, waitsFor } from '../web/ui/src/stagePane.js';
-import type { StageRound } from '../web/ui/src/api.js';
+import { answeredBetween, attemptMarksLabel, backBar, backToImplementText, doneFoldLabel, edgeScrollTarget, foldDone, followedStage, followNote, hiddenCounts, mayAutoScroll, paneTone, phoneOpens, pickRound, prBadge, roundEndText, roundLabel, roundMarks, roundMarksLabel, roundStartText, roundsOf, scrollTarget, shownStage, stepPills, waitsFor } from '../web/ui/src/stagePane.js';
+import type { AttemptRound, StageRound } from '../web/ui/src/api.js';
+
+const attempt = (over: Partial<AttemptRound> = {}): AttemptRound => ({
+  at: '2026-11-28T10:00:00Z', stage: 'implement', agent: 'impl-1',
+  durationSec: 30, exitCode: 1, responseChars: 100, turns: 2, tokens: 100,
+  denied: [], filesChanged: [], warnings: [], ...over,
+});
 
 const stage = (name: string, state: string) => ({ name, key: name.toLowerCase().replace(' ', '-'), state: state as never });
 const rail = (states: Record<string, string>) => Object.entries(states).map(([n, s]) => stage(n, s));
@@ -200,6 +206,28 @@ describe('the rail on a narrow window', () => {
 describe('the phone', () => {
   test('the details open by themselves only for a stage that paused or failed', () => {
     expect([undefined, 'active', 'done', 'pending', 'paused', 'failed'].map(s => phoneOpens(s as never))).toEqual([false, false, false, false, true, true]);
+  });
+});
+
+describe('Implement attempts', () => {
+  test('the tile label counts failed and running attempts and the recorded attempts left', () => {
+    const rows = [attempt({ agent: 'impl-1' }), attempt({ agent: 'impl-2' }), attempt({ agent: 'impl-3', exitCode: 0, running: true })];
+    expect(attemptMarksLabel(rows, 5)).toBe('Attempts: 1 failed, 2 failed, 3 running, 2 left');
+  });
+
+  test('no "left" without a recorded max, and no label without recorded attempts', () => {
+    const rows = [attempt(), attempt({ agent: 'impl-2', exitCode: 0, running: true })];
+    expect(attemptMarksLabel(rows)).toBe('Attempts: 1 failed, 2 running');
+    expect(attemptMarksLabel([], 5)).toBe('');
+    // A max already used up adds no remaining marks.
+    expect(attemptMarksLabel(rows, 2)).toBe('Attempts: 1 failed, 2 running');
+  });
+
+  test('the back-to line uses the recorded gate failures, else the error first line, else nothing', () => {
+    expect(backToImplementText(attempt({ gate: { failing: ['a', 'b', 'c'], warnings: [] } }))).toBe('↩ Back to Implementing: 3 tests failing');
+    expect(backToImplementText(attempt({ error: 'Error: lint failed\n  at line 4', gate: { failing: ['a'], warnings: [] } }))).toBe('↩ Back to Implementing: 1 test failing');
+    expect(backToImplementText(attempt({ error: '  Error: lint failed  \n  at line 4' }))).toBe('↩ Back to Implementing: Error: lint failed');
+    expect(backToImplementText(attempt())).toBe('');
   });
 });
 

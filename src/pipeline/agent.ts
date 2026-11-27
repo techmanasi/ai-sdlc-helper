@@ -111,6 +111,11 @@ export interface AgentFailureInfo {
   details: string[];
 }
 
+/** The excerpt stored on a failed round: what the run output prints about the failure, capped for the JSONL row. */
+function failureExcerpt(failure: AgentFailureInfo): string {
+  return [failure.summary, ...failure.details.filter(d => d !== failure.summary)].join('\n').slice(0, 1500);
+}
+
 /** Extracts readable error details from an agent's stderr, JSON output, or stdout logs. */
 export function extractAgentFailure(base: string, rc: number): AgentFailureInfo {
   const details: string[] = [];
@@ -363,12 +368,13 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage, prompt
   try {
     pending = extract({ jsonFile: `${base}.json`, logFile: `${base}.log`, stateFile: at(ctx, `${ctx.log}/permissions.json`), stage, cwd: ctx.root, errFile: `${base}.err`, allowed });
   } catch { pending = 0; }
-  observeRound(ctx, name, stage, base, rc, before, roundStart);
+  // Read the failure before recording the round: the row carries the same summary and details the output below prints.
+  const failure = rc !== 0 ? extractAgentFailure(base, rc) : undefined;
+  observeRound(ctx, name, stage, base, rc, before, roundStart, failure);
   if (pending > 0) {
     stop(ctx, `   !! agent '${name}' was refused ${pending} action(s): allow or deny them in the pane (or: ai-sdlc-helper permit ${ctx.slug} allow|always|deny all), then resume at ${stage}`, 2, undefined, 'permission');
   }
-  if (rc !== 0) {
-    const failure = extractAgentFailure(base, rc);
+  if (failure) {
     if (/model.*(?:not supported|unknown|invalid|not found)/i.test(failure.summary)) {
       harness.catalog?.invalidateCache();
     }
@@ -393,7 +399,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage, prompt
 }
 
 /** Records what the round did (<log>/attempts.jsonl) and names in the run output whatever shows it did no work. */
-function observeRound(ctx: Ctx, name: string, stage: AgentStage, base: string, rc: number, before: Map<string, string>, started: number): void {
+function observeRound(ctx: Ctx, name: string, stage: AgentStage, base: string, rc: number, before: Map<string, string>, started: number, failure?: AgentFailureInfo): void {
   try {
     const facts = agentFacts(`${base}.json`);
     const filesChanged = changedBetween(before, snapshot(ctx.git));
@@ -409,6 +415,8 @@ function observeRound(ctx: Ctx, name: string, stage: AgentStage, base: string, r
       exitCode: rc, responseChars: facts.responseChars, turns: facts.turns, tokens: facts.tokens,
       ...(facts.usage ? { usage: facts.usage } : {}), ...(model ? { model } : {}),
       denied: facts.denied, filesChanged, warnings,
+      ...(rc !== 0 ? { error: failure ? failureExcerpt(failure) : `process exited with code ${rc}` } : {}),
+      ...(fs.existsSync(`${base}.log`) ? { log: `${name}.log` } : {}),
     });
     for (const w of warnings) ctx.out(`   !! observed in '${name}': ${w}`);
   } catch (e) {

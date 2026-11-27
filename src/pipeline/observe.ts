@@ -31,6 +31,10 @@ export interface AgentRound {
   /** Files whose content differs from before the round. */
   filesChanged: string[];
   warnings: string[];
+  /** A short excerpt of why a failed round failed; absent unless the round failed. */
+  error?: string;
+  /** The agent's log file, relative to the run's logs dir; absent when no such file was written. */
+  log?: string;
 }
 
 /** Written when a round starts, so the run page shows it at once; the finished round replaces it. */

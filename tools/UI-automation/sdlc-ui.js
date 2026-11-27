@@ -93,6 +93,13 @@
     roundStart: '.round-start',
     roundEnd: '.round-end',
     roundAnswered: '.round-answered',
+    // implement attempts
+    attemptRow: '.attempt-row',
+    attemptHead: '.attempt-head',
+    attemptBack: '.attempt-back',
+    attemptToggle: '.attempt-toggle',
+    attemptError: '.attempt-error',
+    attemptErrorText: '.attempt-error-text',
     output: '#run-output',
     usageTable: 'table.usage',
     resumePick: '#resume-pick',
@@ -357,6 +364,24 @@
       answered: text($(SELECTORS.roundAnswered, e)),
     }));
   }
+  /** The accessible label of the Implement tile's attempt marks, or '' when the tile shows none. */
+  async function attemptMarks() { return roundMarks('Implement'); }
+  /** The text of each recorded Implement attempt row in the shown stage pane. */
+  function attempts() {
+    const d = $(SELECTORS.stageDetail);
+    return d ? $$(SELECTORS.attemptRow, d).map(text) : [];
+  }
+  /** Opens or closes the recorded error of the <n>th attempt (1-based); fails loudly when that row has none. */
+  async function toggleError(n) {
+    const d = $(SELECTORS.stageDetail);
+    const row = d ? $$(SELECTORS.attemptRow, d)[n - 1] : null;
+    if (!row) throw new Error(`sdlcUI.toggleError: no attempt ${n}; ${attempts().length} attempt(s) shown`);
+    const b = $(SELECTORS.attemptToggle, row);
+    if (!b) throw new Error(`sdlcUI.toggleError: attempt ${n} has no recorded error`);
+    b.click();
+    await sleep(50);
+    return attempts();
+  }
   /** The last <n> lines of the run's output panel. */
   function output(n = 20) {
     const pre = $(SELECTORS.output);
@@ -472,6 +497,7 @@
       message: text($('.error', main())),
       guarantees: $$(SELECTORS.guarantee).map(g => `${stateOf(g, 'guar-')}: ${text(g)}`),
       stages: stages(),
+      attempts: attempts(),
       foldedDone: doneFold(),
       recovery: recovery(),
       stopKind: stopKind(),
@@ -696,7 +722,7 @@
     board, boardShow, boardFilter, pick, rowAction,
     completedTabs, completedFilter, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds, runBehaviour,
     // run page
-    run, stages, stage, roundMarks, rounds, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
+    run, stages, stage, roundMarks, rounds, attemptMarks, attempts, toggleError, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
     // new item
     newItem, newItemDefaults, newItemWhen, newItemStages, newItemBranch, newItemCommandText,
     // code search setup

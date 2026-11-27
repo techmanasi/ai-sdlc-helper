@@ -3,10 +3,10 @@
 import { memo } from 'preact/compat';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import type { LockOpen, LockView, RunView, StageRound, Timeline, UsageTotals } from './api';
+import type { AttemptRound, LockOpen, LockView, RunView, StageRound, Timeline, UsageTotals } from './api';
 import { cacheShare, costCell, costNotes, durationText, guarantees, hasUsage, lockSentence, openSentence, tileLine, tokensText, usageText, type TileState, totalCells } from './insights';
-import { doneFoldLabel, edgeScrollTarget, foldDone, hiddenCounts, mayAutoScroll, paneTone, prBadge, roundLabel, roundMarks, roundMarksLabel, scrollTarget, stepPills } from './stagePane';
-import { Panel, Spinner } from './ui';
+import { attemptMarks, attemptMarksLabel, backToImplementText, doneFoldLabel, edgeScrollTarget, foldDone, hiddenCounts, mayAutoScroll, paneTone, prBadge, roundLabel, roundMarks, roundMarksLabel, scrollTarget, stepPills, type AttemptMark } from './stagePane';
+import { CopyButton, Panel, Spinner } from './ui';
 
 /** The time now, refreshed every second while `on` (a running stage shows its elapsed time). */
 function useNow(on: boolean): number {
@@ -32,6 +32,7 @@ export function LockIcon({ open }: { open?: boolean }) {
 
 const ICON: Record<TileState, string> = { done: '✓', active: '', paused: '⏸', failed: '✕', pending: '', skipped: '–' };
 const MARK_GLYPH: Record<'done' | 'stop' | 'run' | 'idle', string> = { done: '✓', stop: '■', run: '●', idle: '○' };
+const ATTEMPT_GLYPH: Record<AttemptMark['tone'], string> = { done: '✓', stop: '✕', run: '●', idle: '○' };
 
 /** A small row of recorded round marks on a tile; the accessible name carries the whole story. */
 function RoundMarks({ rounds, label }: { rounds: readonly StageRound[]; label: string }) {
@@ -39,6 +40,71 @@ function RoundMarks({ rounds, label }: { rounds: readonly StageRound[]; label: s
     <span class="tile-marks" role="img" aria-label={label} title={label}>
       {roundMarks(rounds).map(m => <span class={`tile-mark mark-${m.tone}`} aria-hidden="true">{MARK_GLYPH[m.tone]}</span>)}
     </span>
+  );
+}
+
+/** The Implement tile's attempt marks, in the same pattern as a stage's round marks. */
+function AttemptMarks({ attempts, max, label }: { attempts: readonly AttemptRound[]; max?: number; label: string }) {
+  return (
+    <span class="tile-marks" role="img" aria-label={label} title={label}>
+      {attemptMarks(attempts, max).map(m => <span class={`tile-mark mark-${m.tone}`} aria-hidden="true">{ATTEMPT_GLYPH[m.tone]}</span>)}
+    </span>
+  );
+}
+
+const firstLine = (text: string): string => text.split('\n').map(l => l.trim()).find(Boolean) || '';
+
+/**
+ * One row per recorded Implement attempt: what its record says about the agent and exit code, why it went back, and
+ * its recorded error behind Show error. No row claims an error the run did not write.
+ */
+export function AttemptRows({ attempts, max, onOpenLog }: { attempts: readonly AttemptRound[]; max?: number; onOpenLog(path: string): void }) {
+  const [expanded, setExpanded] = useState<number | null>(null);
+  return (
+    <ol class="attempt-list" aria-label="Implement attempts">
+      {attempts.map((a, i) => {
+        const open = expanded === i;
+        const back = backToImplementText(a);
+        const failed = !a.running && (a.exitCode !== 0 || (a.gate?.failing?.length ?? 0) > 0);
+        const tone = a.running ? 'running' : failed ? 'failed' : 'done';
+        const errId = `attempt-error-${i}`;
+        const log = a.log;
+        return (
+          <li class={`attempt-row attempt-${tone}`} key={`${i}-${a.at}`}>
+            <div class="attempt-head">
+              <div class="attempt-id">
+                <strong>Attempt {i + 1}{max ? ` of ${max}` : ''}</strong>
+                <span class="small muted">{a.at.slice(11, 16)}</span>
+              </div>
+              <div class="attempt-meta">
+                <span class="mono small">{[a.agent, a.model].filter(Boolean).join(' · ')}</span>
+                <span class={`attempt-status small attempt-status-${tone}`}>{a.running ? 'running' : `exit ${a.exitCode}`}</span>
+                {back && <span class="attempt-back small">{back}</span>}
+              </div>
+              {a.error && (
+                <button type="button" class="btn btn-s attempt-toggle" aria-expanded={open} aria-controls={errId}
+                  onClick={() => setExpanded(open ? null : i)}>
+                  {open ? 'Hide error' : 'Show error'}
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style={open ? { transform: 'rotate(180deg)' } : undefined}><path d="M4 6l4 4 4-4" /></svg>
+                </button>
+              )}
+            </div>
+            {a.error && open && (
+              <div class="attempt-error" id={errId}>
+                <div class="attempt-error-head">
+                  <span class="small s-failed"><strong>{firstLine(a.error)}</strong>{log && <> · <span class="mono">{log}</span></>}</span>
+                  <span class="row">
+                    <CopyButton text={a.error} />
+                    {log && <button type="button" class="btn btn-s" onClick={() => onOpenLog(log)}>Open full log</button>}
+                  </span>
+                </div>
+                <pre class="attempt-error-text mono">{a.error}</pre>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -72,10 +138,14 @@ export function usePhone(): boolean {
  * wider than the window folds leading done stages and scrolls sideways, with an arrow at an edge that hides tiles;
  * on a phone it is a column and the pane opens under the tile.
  */
-export function StageRail({ stages, timeline, step, locked, lockOpen, shown, followed, pr, phone, phoneOpen, onSelect, children }: {
+export function StageRail({ stages, timeline, step, attempts, attemptMax, locked, lockOpen, shown, followed, pr, phone, phoneOpen, onSelect, children }: {
   stages: RailStage[];
   timeline?: Timeline;
   step?: RunView['step'];
+  /** Recorded Implement attempts; only the Implement tile draws their marks. */
+  attempts?: readonly AttemptRound[];
+  /** The iteration limit from the run's status, when it recorded one. */
+  attemptMax?: number;
   /** The test lock is recorded and confirmed (see verifiedLock): only then does Red tests carry the lock mark. */
   locked: boolean;
   /** Tests that were locked are being changed on purpose: Red tests carries an open lock instead. */
@@ -162,6 +232,9 @@ export function StageRail({ stages, timeline, step, locked, lockOpen, shown, fol
             // Only recorded rounds: a stage with one pass and no recorded cause has nothing to mark on the tile.
             const recorded = sp?.rounds ?? [];
             const marks = recorded.length >= 2 || recorded.some(r => r.cause) ? roundMarksLabel(recorded) : '';
+            // Implement's tile shows attempts instead of stage rounds: both are recorded in logs/attempts.jsonl.
+            const shownAttempts = s.key === 'implement' ? attempts || [] : [];
+            const attemptLabel = shownAttempts.length ? attemptMarksLabel(shownAttempts, attemptMax) : '';
             const tile = (
               <button
                 type="button" role="tab" aria-selected={on} aria-pressed={on} aria-controls="stage-detail" data-key={s.key}
@@ -178,7 +251,7 @@ export function StageRail({ stages, timeline, step, locked, lockOpen, shown, fol
                   {s.key === 'finalise' && pr && <span class={`tile-pr tile-pr-${pr.tone}`} title={pr.title}>{pr.text}</span>}
                 </span>
                 <span class="tile-model mono">{s.model || (s.key === 'finalise' ? 'no agent' : 'default')}</span>
-                {marks && <RoundMarks rounds={recorded} label={marks} />}
+                {attemptLabel ? <AttemptMarks attempts={shownAttempts} max={attemptMax} label={attemptLabel} /> : marks && <RoundMarks rounds={recorded} label={marks} />}
                 <span class="tile-line">{tileLine(s.state, sp, s.files, s.state === 'active' ? step?.label || '' : '', now)}</span>
                 {cost && <span class="tile-cost mono">{cost}</span>}
                 <span class="sr">{s.state}</span>
