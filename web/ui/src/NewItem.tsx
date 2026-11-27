@@ -332,7 +332,7 @@ export function NewItem({ taken, edit }: { taken: string[]; edit?: { slug: strin
           <div class="col" style={{ gap: '6px', gridColumn: '1 / -1' }}>
             <label class="lbl" for="title">Title (the index line)</label>
             <input id="title" class="inp" disabled={locked} value={title} onInput={e => setTitle((e.target as HTMLInputElement).value)} />
-            <span class="mono small muted new-item-branch">{branchLine(title, settings?.config?.git?.branchPrefix)}</span>
+            <span class="mono small muted new-item-branch">{branchLine(slug, settings?.config?.git?.branchPrefix)}</span>
           </div>
         </div>
         <div class="mono small muted" style={{ padding: '0 14px 12px' }}>index.md ← - [{loaded?.marker ?? ' '}] `{slug || '<slug>'}` - {type === 'bug' ? 'Bug' : 'Feature'}: {title || '<title>'}</div>
