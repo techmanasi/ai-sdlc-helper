@@ -92,4 +92,50 @@ describe('Completed tasks UX and PR feedback loop', () => {
 
     fs.rmSync(tmp, { recursive: true, force: true });
   });
+
+  it('listCompletedTasks exposes recorded stage spans and no stages without a timeline', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sdlc-completed-stages-'));
+    git(tmp, 'init', '-q');
+    git(tmp, 'config', 'user.email', 'test@example.com');
+    git(tmp, 'config', 'user.name', 'Test');
+    git(tmp, 'commit', '--allow-empty', '-m', 'initial');
+
+    const backlogDir = path.join(tmp, 'Docs/backlog');
+    const recorded = 'recorded-stages';
+    const withoutTimeline = 'without-timeline';
+    for (const slug of [recorded, withoutTimeline]) {
+      fs.mkdirSync(path.join(backlogDir, slug), { recursive: true });
+      fs.writeFileSync(path.join(backlogDir, slug, 'brief.md'), `# ${slug}\n`);
+    }
+    fs.writeFileSync(path.join(backlogDir, 'index.md'), [
+      '# Backlog',
+      `- [x] \`${recorded}\` - Recorded stages`,
+      `- [x] \`${withoutTimeline}\` - Without a timeline`,
+      '',
+    ].join('\n'));
+    git(tmp, 'add', '-A');
+    git(tmp, 'commit', '-m', 'add completed tasks');
+
+    const logs = path.join(backlogDir, recorded, 'logs');
+    fs.mkdirSync(logs, { recursive: true });
+    const rows = [
+      { kind: 'stage', stage: 'Spec', at: '2026-01-01T00:00:00.000Z' },
+      { kind: 'stage', stage: 'Test repair', at: '2026-01-01T00:01:00.000Z' },
+      { kind: 'stage', stage: 'Finalise', at: '2026-01-01T00:02:00.000Z' },
+      { kind: 'end', state: 'done', at: '2026-01-01T00:03:00.000Z' },
+    ];
+    fs.writeFileSync(path.join(logs, 'attempts.jsonl'), `${rows.map(row => JSON.stringify(row)).join('\n')}\n`);
+
+    const completed = listCompletedTasks(runContext(tmp));
+    expect(completed.find(t => t.slug === recorded)?.stages).toEqual([
+      { stage: 'Spec', status: 'completed' },
+      { stage: 'Test repair', status: 'completed' },
+      { stage: 'Finalise', status: 'completed' },
+    ]);
+    const noTimeline = completed.find(t => t.slug === withoutTimeline);
+    expect(noTimeline).toBeDefined();
+    expect(Object.prototype.hasOwnProperty.call(noTimeline, 'stages')).toBe(false);
+
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
 });

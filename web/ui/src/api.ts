@@ -115,6 +115,8 @@ export interface CompletedTask {
   prError?: string;
   /** Rows first: the PR is still being asked for; the settled list says whether the row stays. */
   prPending?: true;
+  /** Stages recorded in logs/attempts.jsonl; absent when that timeline is unavailable or holds no stage records. */
+  stages?: Array<{ stage: string; status: StageStatus }>;
 }
 
 /** Every PR whose check failed, also of tasks the list leaves out (absent when all answered). */

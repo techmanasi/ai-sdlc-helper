@@ -20,8 +20,12 @@
     navItem: 'nav.nav a.navi',
     error: '.error',
     banner: '.banner',
-    // board
+    // board / completed
     completedTab: '.completed-tab',
+    completedSearch: '#completed-search',
+    completedBranch: '.completed-branch',
+    completedStageBar: '.completed-stage-bar',
+    completedStageNote: '.completed-stage-note',
     boardRow: '.blist .brow',
     rowSlug: '.brow-slug',
     rowSub: '.brow-sub',
@@ -404,8 +408,17 @@
   }
 
   function completedTabs() {
-    return $$(SELECTORS.completedTab).map(t => ({ slug: text($('strong', t)), selected: t.getAttribute('aria-selected') === 'true' }));
+    return $$(SELECTORS.completedTab).map(t => {
+      const bar = $(SELECTORS.completedStageBar, t);
+      return {
+        slug: text($('strong', t)), branch: text($(SELECTORS.completedBranch, t)), selected: t.getAttribute('aria-selected') === 'true',
+        stages: bar ? bar.getAttribute('aria-label') || '' : '',
+        stageStates: bar ? $$('i', bar).map(i => stateOf(i, 'st-')) : [],
+        note: text($(SELECTORS.completedStageNote, t)),
+      };
+    });
   }
+  function completedFilter(value) { setValue($(SELECTORS.completedSearch), value); }
   function selectCompleted(slug) {
     const tab = $$(SELECTORS.completedTab).find(t => text($('strong', t)) === slug);
     if (!tab) throw new Error(`No completed task named ${slug}`);
@@ -456,7 +469,7 @@
     click, buttons, findButton, panel, panelTitles, setValue, setChecked, text,
     // board
     board, boardShow, boardFilter, pick, rowAction,
-    completedTabs, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds,
+    completedTabs, completedFilter, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds,
     // run page
     run, stages, stage, output, questions, answer, recovery, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
     // new item

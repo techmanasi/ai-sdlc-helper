@@ -11,6 +11,12 @@ import { keepError } from '../pipeline/errors.js';
 import { readRunDoc, saveRunDoc, type SavedRunDoc } from './run-docs.js';
 import { addNotice, recentNotices, type Notice } from './notices.js';
 import { fetchPrComments, findOrCreatePr, getPrFromBrief, getPrStatus, getPrStatusAsync, keepPrStatusIn, peekPrStatus, prefetchPrStatuses, PR_STATUS_FILE, prPollOptions, recordPrInBrief, type PrStatus } from '../pipeline/finalise.js';
+import { runTimeline, type StageStatus } from './timeline.js';
+
+export interface CompletedStageMark {
+  stage: string;
+  status: StageStatus;
+}
 
 export interface CompletedTask {
   slug: string;
@@ -30,6 +36,8 @@ export interface CompletedTask {
    * says whether it stays (a PR that turns out not merged takes it out). Absent in the settled list.
    */
   prPending?: true;
+  /** The run's recorded stage spans (logs/attempts.jsonl), absent when there is no stage record to show. */
+  stages?: CompletedStageMark[];
 }
 
 /** The Completed list as the web server answers it: the rows, and every PR whose check failed (also of tasks the list leaves out). */
@@ -344,6 +352,28 @@ export async function settleBriefCleanups(): Promise<void> {
   while (briefCleanups.size) await Promise.all([...briefCleanups]);
 }
 
+/** Only the stages the item's own attempts log records; a missing or unreadable timeline never turns into a guessed one. */
+function completedStageMarks(ctx: RunContext, slug: string): CompletedStageMark[] | undefined {
+  const dir = runWorktree(ctx, slug) || ctx.root;
+  const logs = path.join(dir, ctx.backlogDir, slug, 'logs');
+  const file = path.join(logs, 'attempts.jsonl');
+  let text: string;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    keepError({ root: logs, log: '' }, `completed tasks: read the stage timeline of ${slug}`, (e as Error).stack || String(e));
+    return undefined;
+  }
+  const rows: unknown[] = [];
+  for (const [index, line] of text.split('\n').entries()) {
+    if (!line.trim()) continue;
+    try { rows.push(JSON.parse(line) as unknown); } catch (e) {
+      keepError({ root: logs, log: '' }, `completed tasks: parse ${file} line ${index + 1}`, (e as Error).stack || String(e));
+    }
+  }
+  const stages = runTimeline(rows).stages.map(({ stage, status }) => ({ stage, status }));
+  return stages.length ? stages : undefined;
+}
+
 function completedTasks(ctx: RunContext, prOf: (key: string) => PrKnown, facts: GitFacts): CompletedTask[] {
   const { indexText, entries, completedSlugs } = completedSlugsOf(ctx);
   // The title and type backlogItems would give, without its branch lookup (git), which only the open items' status needs.
@@ -365,6 +395,7 @@ function completedTasks(ctx: RunContext, prOf: (key: string) => PrKnown, facts: 
     const branch = (rec && rec.branch) || `${ctx.branchPrefix}${slug}`;
     const base = (rec && rec.base) || defaultBase;
     const archived = isArchivedInIndex(indexText, slug);
+    const stages = completedStageMarks(ctx, slug);
 
     // Query live PR status
     const known = prOf(pr || branch);
@@ -374,6 +405,7 @@ function completedTasks(ctx: RunContext, prOf: (key: string) => PrKnown, facts: 
       out.push({
         slug, title: item ? item.title : slug, type: (item && item.type) || briefMeta.type, priority: briefMeta.priority,
         branch, base, pr, prState: null, archived, date: (rec && (rec.finished || rec.started)) || facts.dateOf(branch), prPending: true,
+        ...(stages ? { stages } : {}),
       });
       continue;
     }
@@ -408,6 +440,7 @@ function completedTasks(ctx: RunContext, prOf: (key: string) => PrKnown, facts: 
       prState,
       archived,
       date,
+      ...(stages ? { stages } : {}),
       ...(known.error ? { prError: known.error } : {}),
     });
   }
