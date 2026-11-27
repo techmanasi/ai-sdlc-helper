@@ -73,6 +73,8 @@
     tileModel: '.tile-model',
     tileLine: '.tile-line',
     tileCost: '.tile-cost',
+    costModes: '.cost-modes',
+    costModeButton: '.cost-modes .seg',
     tileLock: '.tile-lock',
     tileRound: '.tile-round',
     tileMarks: '.tile-marks',
@@ -503,6 +505,7 @@
       stopKind: stopKind(),
       questions: questions().length,
       cost: cost ? text($('.chip', cost)) : '',
+      costMode: costMode(),
       totals: $$(SELECTORS.totals).map(text),
       handoff: handoff(),
       // a run ready after a stage discard: which stage was discarded and how to retry it
@@ -537,6 +540,21 @@
   function costTable() {
     const t = $(SELECTORS.usageTable);
     return t ? $$('tr', t).map(r => $$('th, td', r).map(text)) : [];
+  }
+  /** The stage rail's Cost / Tokens / Off choice: pass a mode to pick it, leave it out to read the pressed one. */
+  function costMode(m) {
+    const group = $(SELECTORS.costModes);
+    if (!group) return '';
+    const modes = $$(SELECTORS.costModeButton, group);
+    if (m !== undefined) {
+      const want = String(m).toLowerCase();
+      const b = modes.find(x => text(x).toLowerCase() === want);
+      if (!b) throw new Error(`sdlcUI.costMode: no mode "${m}". Choices: ${modes.map(text).join(', ')}`);
+      b.click();
+      return want;
+    }
+    const on = modes.find(b => b.getAttribute('aria-pressed') === 'true');
+    return on ? text(on).toLowerCase() : '';
   }
   /** Opens a file from the Documents panel (or any button "Open <file>") and returns its text once shown. */
   async function openDoc(name) {
@@ -722,7 +740,7 @@
     board, boardShow, boardFilter, pick, rowAction,
     completedTabs, completedFilter, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds, runBehaviour,
     // run page
-    run, stages, stage, roundMarks, rounds, attemptMarks, attempts, toggleError, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
+    run, stages, stage, roundMarks, rounds, attemptMarks, attempts, toggleError, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, costMode, openDoc, closeDialog,
     // new item
     newItem, newItemDefaults, newItemWhen, newItemStages, newItemBranch, newItemCommandText,
     // code search setup

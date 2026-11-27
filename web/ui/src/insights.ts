@@ -162,6 +162,51 @@ export function cacheShare(u: UsageTotals): number | null {
 /** Whether a usage total holds anything worth a row. */
 export const hasUsage = (u: UsageTotals | undefined | null): u is UsageTotals => !!u && (u.rounds > 0 || u.tokens > 0);
 
+/** What the viewer wants on the stage tiles when a run has recorded a dollar cost. */
+export type CostMode = 'cost' | 'tokens' | 'off';
+const COST_MODE_KEY = 'sdlc.costMode';
+const COST_MODES: readonly CostMode[] = ['cost', 'tokens', 'off'];
+
+/**
+ * Whether the Cost / Tokens / Off toggle has anything to switch: a round recorded a dollar amount, not just tokens.
+ * A free model (cost 0) and a tokens-only run have no cost to show, so the tiles keep their token line.
+ */
+export function costModeShown(u: UsageTotals | null | undefined): boolean {
+  return hasUsage(u) && u.costUsd !== null && Number.isFinite(u.costUsd) && u.costUsd > 0;
+}
+
+/** The tile's cost line for the chosen mode: nothing when off, tokens only in tokens, cost with a token fallback in cost. */
+export function tileCostText(mode: CostMode, u: UsageTotals | null | undefined): string {
+  if (mode === 'off' || !u) return '';
+  const tok = u.tokens || u.input + u.output;
+  if (mode === 'tokens') return tok > 0 ? `${tokensText(tok)} tok` : '';
+  return usageText(u);
+}
+
+/**
+ * The viewer's saved mode, or the default: cost when the run recorded dollars, tokens otherwise. The choice persists per
+ * viewer in localStorage; a key that cannot be read (private window, blocked storage) falls back rather than throwing.
+ * `costData` accepts the run's totals, or the already-computed `costModeShown` answer.
+ */
+export function readCostMode(costData: boolean | UsageTotals | null | undefined = false): CostMode {
+  const fallback: CostMode = typeof costData === 'boolean' ? (costData ? 'cost' : 'tokens') : costModeShown(costData) ? 'cost' : 'tokens';
+  try {
+    const saved = globalThis.localStorage?.getItem(COST_MODE_KEY);
+    return COST_MODES.find(m => m === saved) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Remembers the chosen mode for this viewer; an unavailable storage leaves the choice to this view only. */
+export function saveCostMode(mode: CostMode): void {
+  try {
+    globalThis.localStorage?.setItem(COST_MODE_KEY, mode);
+  } catch {
+    // Storage is blocked: the mode still applies until the page is reloaded, and no error is worth showing for it.
+  }
+}
+
 /** The line under a stage's name on its tile. */
 export function tileLine(state: TileState, span: StageSpan | undefined, files: number, liveStep: string, now: number): string {
   if (state === 'skipped') return 'Not needed';

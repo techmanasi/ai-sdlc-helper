@@ -309,6 +309,9 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 
 /* the stage rail: one row of tiles; the pane under it always shows one stage and is joined to that stage's tile */
 .rail2-wrap { display: flex; flex-direction: column; padding: 12px 14px 14px; --tone: var(--ln2); }
+.rail2-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.rail2-head .lbl { font-size: 11px; letter-spacing: .08em; }
+.cost-modes .seg { min-height: 28px; font-size: 11px; }
 .rail2-frame { position: relative; z-index: 1; margin-bottom: -1px; }
 .rail2 { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 1px; scrollbar-width: thin; }
 .rail2-fade { position: absolute; top: 0; bottom: 0; z-index: 2; width: 56px; pointer-events: none; }
