@@ -15,6 +15,8 @@ export interface ProjectOverrides {
   ciWaitMinutes?: number;
   /** Personal agent, model and effort for the project (and per stage), above its sdlc.config.json. */
   agent?: Record<string, unknown>;
+  /** Personal run behaviour for the project (this machine): see src/config/run-behaviour.ts. */
+  run?: Record<string, unknown>;
 }
 
 /** A registered project: a unique name for the top of its git work tree. */

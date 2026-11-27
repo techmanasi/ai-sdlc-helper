@@ -9,6 +9,7 @@ import { CONFIG_FILE, exists, readSettings } from '../util.js';
 import { shellArgv } from '../shell.js';
 import { headBranchOf, isRunBranch } from '../gitdir.js';
 import { PERSONAL_ENV, personalAgentOf } from '../config/personal.js';
+import { CONTROL_ENV, runEnv, runBehaviourOf, RUN_ENV, type RunBehaviour } from '../config/run-behaviour.js';
 import { forceEnv, resolve, worktreeBase, type Force } from '../config/settings.js';
 import { findContaining, readRegistry, type ProjectOverrides } from '../registry/projects.js';
 import { forgetStage, stageWork, worktreeChanges } from '../changes/index.js';
@@ -27,7 +28,7 @@ import { previousBranch } from '../pipeline/status.js';
 import { nextRunBranch } from '../pipeline/branch-move.js';
 
 /** The controls' own environment variables: read here, never passed to the pipeline. */
-export const CONTROL_ENV = ['SDLC_BASE', 'SDLC_WT_BASE', 'SDLC_MAX_PARALLEL', 'SDLC_ALLOW_MERGED', 'FROM', 'AI_SDLC_HELPER_PIPELINE_CMD', 'WATCH_REPORT_DEPENDENCIES'];
+export { CONTROL_ENV };
 export const DEFAULT_MAX_PARALLEL = 2;
 
 /** Everything the controls need to know about one repository. */
@@ -79,6 +80,9 @@ export function runContext(dir: string, env: NodeJS.ProcessEnv = process.env): R
   const capEnv = env.SDLC_MAX_PARALLEL;
   if (capEnv !== undefined && capEnv !== '' && !positiveInt(capEnv)) throw new Error(`SDLC_MAX_PARALLEL must be a whole number of 1 or more, not '${capEnv}'`);
   const maxParallel = capEnv ? Number(capEnv) : (Number.isInteger(overrides.maxParallel) && overrides.maxParallel! > 0 ? overrides.maxParallel! : DEFAULT_MAX_PARALLEL);
+  // SDLC_ALLOW_MERGED is a control the run behaviour settings may also set; the server's own environment wins over them.
+  const allowMerged = runEnv(overrides.run as RunBehaviour | undefined, env)[RUN_ENV.allowMerged];
+  const ctxEnv = allowMerged ? { ...env, [RUN_ENV.allowMerged]: allowMerged } : env;
   return {
     root, reg: registryDir(root), backlogDir,
     branchPrefix: config ? config.git.branchPrefix : (fromFile('branchPrefix') || 'sdlc/'),
@@ -87,7 +91,7 @@ export function runContext(dir: string, env: NodeJS.ProcessEnv = process.env): R
     wtBase,
     links: config ? config.worktree.link : (file.worktree && Array.isArray(file.worktree.link) ? file.worktree.link : ['node_modules']),
     setup: config ? config.suites.filter(s => s.setup).map(s => ({ name: s.name, dir: s.dir, cmd: s.setup! })) : [],
-    maxParallel, env,
+    maxParallel, env: ctxEnv,
   };
 }
 
@@ -252,6 +256,10 @@ export function pipelineEnv(ctx: RunContext, slug: string): NodeJS.ProcessEnv {
   delete env[PERSONAL_ENV];
   const personal = personalAgentOf(ctx.root, ctx.env);
   if (personal) env[PERSONAL_ENV] = JSON.stringify(personal);
+  // The run behaviour settings: the retry/wait limits and the extra variables reach the pipeline. SDLC_ALLOW_MERGED is
+  // a control and stays out (the controls read it, see runContext); the server's own environment wins over each saved one.
+  const run = runEnv(runBehaviourOf(ctx.root, ctx.env), ctx.env);
+  for (const [name, value] of Object.entries(run)) if (name !== RUN_ENV.allowMerged) env[name] = value;
   return env;
 }
 

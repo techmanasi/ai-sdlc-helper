@@ -11,17 +11,13 @@ import { Settings } from './Settings';
 import { Ctx, ErrorBox, Future } from './ui';
 import { attentionFrom, channelsFor, readPrefs, titleFor, writePrefs, type NotifyMode, type NotifyPrefs } from './notify';
 import { permissionState, playChime, requestPermission, setFaviconBadge, showDesktop } from './notify-dom';
+import { applyTheme, readTheme, writeTheme, THEME_OPTIONS, type Theme } from './theme';
 
-type Theme = 'light' | 'dark' | 'system';
 const store = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private window */ } },
 };
-
-function applyTheme(t: Theme): void {
-  const light = t === 'light' || (t === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
-  document.documentElement.dataset.theme = light ? 'light' : 'dark';
-}
+const themeStore = { getItem: (k: string) => store.get(k), setItem: (k: string, v: string) => store.set(k, v) };
 
 const routeOf = () => (location.hash.replace(/^#/, '') || '/board').split('?')[0];
 
@@ -123,7 +119,7 @@ export function App() {
   const [board, setBoard] = useState<BoardData | null>(null);
   const [boardError, setBoardError] = useState('');
   const [fatal, setFatal] = useState('');
-  const [theme, setTheme] = useState<Theme>(() => (store.get('sdlc-theme') as Theme) || 'system');
+  const [theme, setTheme] = useState<Theme>(() => readTheme(themeStore));
   const [toasts, setToasts] = useState<{ id: number; text: string }[]>([]);
   const [palette, setPalette] = useState(false);
   const [notify, setNotifyState] = useState<NotifyPrefs>(() => readPrefs(store.get));
@@ -152,11 +148,7 @@ export function App() {
 
   useEffect(() => { loadProjects(); const h = () => { setRoute(routeOf()); setPalette(false); }; addEventListener('hashchange', h); return () => removeEventListener('hashchange', h); }, []);
   useEffect(() => {
-    applyTheme(theme); store.set('sdlc-theme', theme);
-    const mq = window.matchMedia('(prefers-color-scheme: light)');
-    const h = () => applyTheme(theme);
-    mq.addEventListener('change', h);
-    return () => mq.removeEventListener('change', h);
+    applyTheme(theme); writeTheme(themeStore, theme);
   }, [theme]);
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -228,7 +220,7 @@ export function App() {
   else screen = <Board board={board} error={boardError} onRefresh={() => { api.board(project).then(applyBoard).catch(() => {}); }} />;
 
   return (
-    <Ctx.Provider value={{ project, go, toast }}>
+    <Ctx.Provider value={{ project, go, toast, theme, setTheme }}>
       <header class="top">
         <a href="#/board" class="brand mono"><span class="brand-mark" aria-hidden="true">◆</span>ai-sdlc-helper <span class="muted small">{version}</span></a>
         <label class="sr" for="proj">Project</label>
@@ -243,7 +235,7 @@ export function App() {
         </div>
         <NotifyControl prefs={notify} set={setNotify} />
         <div class="segs" role="group" aria-label="Theme">
-          {(['light', 'dark', 'system'] as Theme[]).map(t => <button type="button" class={`seg ${theme === t ? 'seg-on' : ''}`} aria-pressed={theme === t} onClick={() => { applyTheme(t); setTheme(t); }}>{t[0].toUpperCase() + t.slice(1)}</button>)}
+          {THEME_OPTIONS.map(t => <button type="button" class={`seg ${theme === t ? 'seg-on' : ''}`} aria-pressed={theme === t} onClick={() => setTheme(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}
         </div>
       </header>
       <div class="frame">

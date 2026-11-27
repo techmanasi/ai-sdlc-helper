@@ -6,6 +6,7 @@ import path from 'node:path';
 import { CONFIG_FILE, type Json } from '../util.js';
 import { NAME, readRegistry, writeRegistry, RegistryError, type ProjectEntry, type ProjectOverrides } from '../registry/projects.js';
 import { fileErrors, personalErrors } from './settings.js';
+import { runBehaviourErrors } from './run-behaviour.js';
 
 /** A change to the settings file: objects merge, null removes a key, anything else replaces the value. */
 export type SettingsPatch = Json;
@@ -84,6 +85,7 @@ export function overrideErrors(o: Json): string[] {
     else if (k === 'ciWaitMinutes') { if (!(Number.isInteger(v) && (v as number) >= 1)) errors.push(`ciWaitMinutes: must be a whole number of minutes, 1 or more (got ${JSON.stringify(v)})`); }
     else if (k === 'boardSilenceSeconds') { if (!(Number.isInteger(v) && (v as number) >= 1)) errors.push('boardSilenceSeconds: must be a whole number of seconds, 1 or more'); }
     else if (k === 'agent') { if (!isObject(v)) errors.push('agent: must be an object'); else errors.push(...personalErrors(v).map(e => (e.startsWith('agent') ? e : `agent.${e}`))); }
+    else if (k === 'run') { if (!isObject(v)) errors.push('run: must be an object'); else errors.push(...runBehaviourErrors(v).map(e => `run.${e}`)); }
     else errors.push(`${k}: unknown override`);
   }
   return errors;
@@ -102,6 +104,25 @@ export function editOverrides(name: string, patch: Json, env: NodeJS.ProcessEnv 
   if (errors.length) return { ok: false, errors, hash: '' };
   const next: ProjectEntry = { ...entry, overrides: merged as ProjectOverrides };
   if (!Object.keys(merged).length) Reflect.deleteProperty(next, 'overrides');
+  writeRegistry(entries.map(e => (e === entry ? next : e)), env);
+  return { ok: true, errors: [], hash: '' };
+}
+
+/**
+ * Replaces the project's whole run behaviour (overrides.run) with <run>; a null (or an empty object) clears it. Unlike
+ * editOverrides it does not merge, so a field the user took back is removed rather than kept from the old value. Throws
+ * RegistryError for an unknown project.
+ */
+export function setRunBehaviour(name: string, run: Json | null, env: NodeJS.ProcessEnv = process.env): EditResult {
+  const entries = readRegistry(env);
+  const entry = entries.find(e => e.name === name);
+  if (!entry || !NAME.test(name)) throw new RegistryError(`no project called "${name}"`);
+  const overrides: Json = { ...(entry.overrides || {}) };
+  if (run && Object.keys(run).length) overrides.run = run;
+  else delete overrides.run;
+  const errors = overrideErrors(overrides);
+  if (errors.length) return { ok: false, errors, hash: '' };
+  const next: ProjectEntry = { ...entry, ...(Object.keys(overrides).length ? { overrides: overrides as ProjectOverrides } : {}) };
   writeRegistry(entries.map(e => (e === entry ? next : e)), env);
   return { ok: true, errors: [], hash: '' };
 }

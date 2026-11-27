@@ -9,10 +9,10 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readRunDoc, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, prPollOptions, PR_POLL_MS, createPrForCompleted, markPrReadyForRun,
-  decide, discard, doctor, editOverrides, editSettings, getCompletedTaskDetailAsync, hashOf, completedListAsync, primeRepoPaths, warmCompletedPrs, keepError, main, readRegistry, repoRulesFile, resolve,
+  decide, discard, doctor, editOverrides, editSettings, setRunBehaviour, getCompletedTaskDetailAsync, hashOf, completedListAsync, primeRepoPaths, warmCompletedPrs, keepError, main, readRegistry, repoRulesFile, resolve,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
   closeGoneRuns, loadOpencodePrices, parseReviewLimit, REVIEW_LIMIT_ENV, REVIEW_LIMIT_REQUIREMENT,
-  inspectCodeSearch, executableBuild, codeIndexers, fileErrors, applyPatch,
+  inspectCodeSearch, executableBuild, codeIndexers, fileErrors, applyPatch, runBehaviourErrors, runEnvSet, type RunBehaviour,
 } from 'ai-sdlc-helper';
 import { COOKIE, HttpError, guard, hasToken, readBody, sendJson, sendStatic } from './http.js';
 import { triageRoutes } from './triage.js';
@@ -294,7 +294,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
     const parts = url.pathname.split('/').filter(Boolean).slice(1).map(decodeURIComponent); // after "api"
     const method = req.method || 'GET';
-    const body = method === 'POST' ? await readBody(req) : {};
+    const body = (method === 'POST' || method === 'PUT') ? await readBody(req) : {};
     const send = (status: number, v: unknown) => sendJson(res, status, v);
     // Triage runs check their input (400) before the project is looked up (404).
     if (parts[0] === 'projects' && parts[1] && parts[2] === 'triage') return triage.handle(req, res, parts, url, body);
@@ -496,6 +496,27 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
           if (feed) feed.timings.silenceMs = silenceMsFor(p);
         }
         return send(r.ok ? 200 : 400, r.ok ? { ok: true } : r);
+      } catch (e) { throw new HttpError(404, (e as Error).message); }
+    }
+    if (what === 'run-behaviour' && method === 'GET') {
+      const entry = readRegistry(env).find(e => e.name === p.name);
+      const saved = (entry?.overrides?.run || null) as RunBehaviour | null;
+      return send(200, {
+        saved,
+        envSet: runEnvSet(saved ?? undefined, env),
+        registered: Boolean(entry),
+      });
+    }
+    if (what === 'run-behaviour' && method === 'PUT') {
+      if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'run behaviour must be an object');
+      const run: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(body as Record<string, unknown>)) if (v !== null && v !== undefined) run[k] = v;
+      const errors = runBehaviourErrors(run);
+      if (errors.length) return send(400, { ok: false, errors: errors.map(e => `run.${e}`) });
+      try {
+        const r = setRunBehaviour(p.name, run, env);
+        if (!r.ok) return send(400, { ok: false, errors: r.errors });
+        return send(200, { ok: true });
       } catch (e) { throw new HttpError(404, (e as Error).message); }
     }
     if (what === 'command' && method === 'POST') {

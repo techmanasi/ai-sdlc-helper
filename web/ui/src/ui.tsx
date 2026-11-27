@@ -5,13 +5,16 @@ import type { ComponentChildren } from 'preact';
 import { cliLine, type ViewState } from './api';
 import { parseMarkdown, type Inline } from './markdown';
 import { loadDismissed, saveDismissed, visibleNotices, type NoticeItem } from './notices';
+import type { Theme } from './theme';
 
 export interface AppContext {
   project: string;
   go(route: string): void;
   toast(text: string): void;
+  theme: Theme;
+  setTheme(t: Theme): void;
 }
-export const Ctx = createContext<AppContext>({ project: '', go: () => {}, toast: () => {} });
+export const Ctx = createContext<AppContext>({ project: '', go: () => {}, toast: () => {}, theme: 'system', setTheme: () => {} });
 export const useApp = () => useContext(Ctx);
 
 export const GLYPH: Record<ViewState, string> = {

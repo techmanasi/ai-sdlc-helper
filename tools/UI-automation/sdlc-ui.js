@@ -41,6 +41,12 @@
     segGroup: '.segs',
     seg: '.seg',
     segOn: 'seg-on',
+    // settings: run behaviour
+    runAllowMerged: '#run-allow-merged',
+    runRetryLimit: '#run-retry-limit',
+    runMaxWait: '#run-max-wait',
+    runVarName: 'input[aria-label="Variable name"]',
+    runVarValue: 'input[aria-label="Variable value"]',
     runningTag: '.tag',
     drawerOutput: 'pre.code',
     projectReviewLimit: '#review-loop-limit',
@@ -366,6 +372,19 @@
   }
   function projectReviewLimit() { return $(SELECTORS.projectReviewLimit)?.value ?? null; }
   function setProjectReviewLimit(value) { return setValue($(SELECTORS.projectReviewLimit), value); }
+  /** The "Run behaviour" panel's current values (the Settings screen). */
+  function runBehaviour() {
+    const p = panel('Run behaviour');
+    if (!p) return null;
+    const names = $$(SELECTORS.runVarName, p);
+    const values = $$(SELECTORS.runVarValue, p);
+    return {
+      allowMerged: $(SELECTORS.runAllowMerged, p) ? $(SELECTORS.runAllowMerged, p).checked : null,
+      retryLimit: $(SELECTORS.runRetryLimit, p) ? $(SELECTORS.runRetryLimit, p).value : null,
+      maxWait: $(SELECTORS.runMaxWait, p) ? $(SELECTORS.runMaxWait, p).value : null,
+      vars: Object.fromEntries(names.map((n, i) => [n.value, values[i] ? values[i].value : '']).filter(([k]) => k)),
+    };
+  }
   function setRunReviewLimit(value) {
     const input = $(SELECTORS.runReviewLimit);
     if (!input || input.disabled) throw new Error('Review loop limit override is unavailable');
@@ -542,7 +561,7 @@
     click, buttons, findButton, panel, panelTitles, setValue, setChecked, text,
     // board
     board, boardShow, boardFilter, pick, rowAction,
-    completedTabs, completedFilter, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds,
+    completedTabs, completedFilter, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds, runBehaviour,
     // run page
     run, stages, stage, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
     // new item
