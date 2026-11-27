@@ -1,6 +1,6 @@
 // Agent / model / effort choices for a stage: what the selectors show once the agent is changed, and which choices
 // may not be started. Plain functions so they are tested without a DOM.
-import type { ModelInfo } from './api';
+import type { ModelInfo } from './api.js';
 
 export interface StagePick { agent?: string; model?: string; effort?: string }
 

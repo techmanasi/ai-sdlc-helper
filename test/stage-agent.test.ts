@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agentChanged, defaultChoiceLabel, pickProblem } from '../web/ui/src/stageAgent';
+import { agentChanged, defaultChoiceLabel, pickProblem } from '../web/ui/src/stageAgent.js';
 
 const catalog = {
   agy: [{ id: 'gemini-3.8-flash-medium', name: 'Gemini 3.8 Flash (Medium)', supportsEffort: false, supportedEfforts: [] }],
