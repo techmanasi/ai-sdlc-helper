@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, openLock, openSentence, skipped, spanSeconds, stageStates, stripStates, tileLine, tokensText, verifiedLock, usageText, costCell, costNotes, totalCells, boardCost } from '../web/ui/src/insights.js';
+import { currentStage, cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, openLock, openSentence, skipped, spanSeconds, stageStates, stripStates, tileLine, tokensText, verifiedLock, usageText, costCell, costNotes, totalCells, boardCost } from '../web/ui/src/insights.js';
 
 const usage = (o: Partial<{ rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd: number; unpriced: number }> = {}) =>
   ({ rounds: 1, durationSec: 60, turns: 3, tokens: 1000, input: 200, output: 800, cacheRead: 600, cacheWrite: 200, costUsd: 0.5, ...o });
@@ -17,6 +17,8 @@ describe('a run ready to retry a discarded stage', () => {
     expect(stageStates({ state: 'failed', stage: 'Red tests' }, RAIL).slice(0, 4)).toEqual(['done', 'done', 'failed', 'pending']);
     expect(stageStates({ state: 'paused', stage: 'Plan' }, RAIL)[1]).toBe('paused');
     expect(stageStates({ state: 'running', stage: '', record: { from: 'implement' } }, RAIL).slice(2, 4)).toEqual(['done', 'active']);
+    expect(stageStates({ state: 'failed', stage: '', resumeFrom: 'implement' }, RAIL).slice(0, 5)).toEqual(['done', 'done', 'done', 'failed', 'pending']);
+    expect(stageStates({ state: 'failed', stage: '' }, RAIL).every(s => s === 'pending')).toBe(true);
     expect(stageStates({ state: 'done', stage: 'Finalise' }, RAIL).every(s => s === 'done')).toBe(true);
   });
 });
@@ -232,5 +234,29 @@ describe('cost totals: the run page strip and the board Cost column', () => {
     expect(boardCost(usage({ rounds: 0, tokens: 0 }))).toBeNull();
     expect(boardCost(null)).toBeNull();
     expect(boardCost(undefined)).toBeNull();
+  });
+});
+
+describe('stage statuses from the run log', () => {
+  const done = (stage: string) => ({ stage, status: 'completed' as const });
+  test('a stopped run with no stage shows the failure on the stage the log left open', () => {
+    const v = { state: 'failed', stage: '', timeline: { stages: [done('Spec'), done('Plan'), done('Red tests'), { stage: 'Implement', status: 'failed' as const }] } };
+    expect(stageStates(v, RAIL)).toEqual(['done', 'done', 'done', 'failed', 'pending', 'pending', 'pending', 'pending']);
+  });
+  test('a pause lands on the open stage; later stages stay pending', () => {
+    const v = { state: 'paused', stage: '', timeline: { stages: [done('Spec'), { stage: 'Plan', status: 'paused' as const }] } };
+    expect(stageStates(v, RAIL).slice(0, 3)).toEqual(['done', 'paused', 'pending']);
+  });
+  test('the board strip and column use the card stages', () => {
+    const r = { state: 'failed', stage: '', stages: [done('Spec'), done('Plan'), { stage: 'Red tests', status: 'failed' as const }] };
+    expect(currentStage(r, r.stages)).toBe('Red tests');
+    expect(stripStates(r).slice(0, 4)).toEqual(['done', 'done', 'failed', 'pending']);
+  });
+  test('all stages completed and the run stopped: stay after the last completed one', () => {
+    const r = { state: 'failed', stage: '', stages: [done('Spec'), done('Plan')] };
+    expect(currentStage(r, r.stages)).toBe('Red tests');
+  });
+  test('a ready run ignores the log', () => {
+    expect(currentStage({ state: 'ready', stage: '' }, [done('Spec')])).toBe('');
   });
 });

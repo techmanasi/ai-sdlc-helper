@@ -1,6 +1,7 @@
 // A pipeline run for one backlog item: settings, slug, branch, baseline, models and status, then the stages from FROM on.
 import fs from 'node:fs';
 import path from 'node:path';
+import { syncBranch } from './branch-sync.js';
 import { spawnSync } from '../trace.js';
 import { fileURLToPath } from 'node:url';
 import { exists, shellWord } from '../util.js';
@@ -174,6 +175,27 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
   return code;
 }
 
+/**
+ * AGENT_<STAGE> picks one stage's harness for this run, as MODEL_<STAGE> does its model. The stage's model and effort in
+ * sdlc.config.json were chosen for its own harness, so a different harness drops them. MODEL_<STAGE> and EFFORT_<STAGE>
+ * still apply on top, when set (the UI clears those two when the agent changes, and an empty value is no override).
+ * Returns an error message for an unknown harness, else null.
+ */
+export function applyStageAgentEnv(config: { agent: { stages: Record<string, any> } }, env: NodeJS.ProcessEnv): string | null {
+  for (const st of AGENT_STAGES) {
+    const key = st.toUpperCase().replace(/-/g, '_');
+    const v = env[`AGENT_${key}`];
+    if (!v) continue;
+    if (!(HARNESS_IDS as readonly string[]).includes(v)) return `ERROR: AGENT_${key} must be one of ${HARNESS_IDS.join(', ')} (got ${v})`;
+    const own = config.agent.stages[st] || {};
+    const same = !own.harness || own.harness === v;
+    const next: Record<string, unknown> = { ...own, harness: v as HarnessName };
+    if (!same) { delete next.model; delete next.effort; }
+    config.agent.stages = { ...config.agent.stages, [st]: next };
+  }
+  return null;
+}
+
 /** Everything before the first stage. Returns the run's context once its status file is being written. */
 async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, out: (l: string) => void, err: (l: string) => void): Promise<Ctx> {
   const root = gitTop(path.resolve(opts.cwd));
@@ -187,13 +209,8 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
     for (const e of errors) out(`ERROR: ${e}`);
     return stop(say, 'ERROR: fix the project settings above (ai-sdlc-helper show)');
   }
-  // AGENT_<STAGE> picks one stage's harness for this run, as MODEL_<STAGE> does its model.
-  for (const st of AGENT_STAGES) {
-    const v = env[`AGENT_${st.toUpperCase().replace(/-/g, '_')}`];
-    if (!v) continue;
-    if (!(HARNESS_IDS as readonly string[]).includes(v)) stop(say, `ERROR: AGENT_${st.toUpperCase().replace(/-/g, '_')} must be one of ${HARNESS_IDS.join(', ')} (got ${v})`);
-    config.agent.stages = { ...config.agent.stages, [st]: { ...(config.agent.stages[st] || {}), harness: v as HarnessName } };
-  }
+  const bad = applyStageAgentEnv(config, env);
+  if (bad) stop(say, bad);
   // --agent forces one harness for every stage, ahead of agent.stages. The project's model and effort were chosen for its
   // own harness, so they are dropped when another one is forced (--model and --effort still apply).
   if (opts.agent) {
@@ -263,8 +280,14 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
 }
 
 async function stages(ctx: Ctx): Promise<void> {
-  const { git, fromN } = ctx;
-  git.checkoutBranch(ctx.branch);
+  const { fromN } = ctx;
+  // Before every stage the branch is synced with GitHub (the first sync also checks the branch out); the first one runs at once.
+  let synced = false;
+  const sync = async (resume: From): Promise<void> => {
+    if (synced) await syncBranch(ctx, { caller: resume, resume });
+    else { synced = true; await syncBranch(ctx, { caller: resume, resume: ctx.from }); }
+  };
+  await sync(ctx.from);
   // "Fix with Implement": the kept merged result becomes the branch before anything else touches the logs it ended with.
   if (ctx.env.SDLC_ON_ATTEMPT === '1') adoptKeptAttempt(ctx);
   await tick();
@@ -299,12 +322,12 @@ async function stages(ctx: Ctx): Promise<void> {
   }
   await tick();
 
-  if (fromN <= 1) await specStage(ctx);
-  if (fromN <= 2) await planStage(ctx);
+  if (fromN <= 1) { await sync('spec'); await specStage(ctx); }
+  if (fromN <= 2) { await sync('plan'); await planStage(ctx); }
   // The push check: before Red tests commits and pushes anything, the branch is made pushable (or the run moves to a new
   // branch). (A kept attempt, SDLC_ON_ATTEMPT=1, starts at Implement only: adoptKeptAttempt stops any other start, so it
   // never gets here.)
-  if (fromN <= 3) await ensurePushable(ctx, { resume: 'red-tests', fresh: ctx.from === 'spec' || ctx.from === 'plan' });
+  if (fromN <= 3) { await sync('red-tests'); await ensurePushable(ctx, { resume: 'red-tests', fresh: ctx.from === 'spec' || ctx.from === 'plan' }); }
   if (fromN <= 3) await redTestsStage(ctx);
   else resumeAtTests(ctx);
   if (!ctx.origRedSha) ctx.origRedSha = ctx.redSha;
@@ -316,6 +339,7 @@ async function stages(ctx: Ctx): Promise<void> {
       resultsAt(ctx, ctx.origRedSha, `${ctx.log}/red.json`, redCommitTestFiles(ctx));
     }
     await tick();
+    if (fromN <= 4) await sync('implement');
     const green = fromN <= 4 ? await implementStage(ctx) : false;
     if (!green) {
       if (!exists(path.join(ctx.root, ctx.docs, 'test-issues.md'))) {
@@ -324,7 +348,7 @@ async function stages(ctx: Ctx): Promise<void> {
       await testRepairStage(ctx);
     }
   }
-  if (fromN <= 6) await reviewLoop(ctx);
-  if (fromN <= 7) await finaliseStage(ctx);
+  if (fromN <= 6) { await sync('review'); await reviewLoop(ctx, sync); }
+  if (fromN <= 7) { await sync('finalise'); await finaliseStage(ctx); }
   await resolveConflictsStage(ctx);
 }

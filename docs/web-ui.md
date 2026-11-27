@@ -216,6 +216,10 @@ Spec questions, allows a refused command, sees it ship, and discards another run
   (default 30 s, minimum 1 s, whole seconds) and applies dynamically at the next quiet-time timer cycle without requiring a
   server restart. When `SDLC_BOARD_SILENCE_MS` is set in the server environment, it takes precedence (the UI field is disabled
   and explains that the environment variable overrides config).
+- **Review loop limit.** In Config → Global settings, set how many fix cycles Review can request (default 2).
+  Each cycle returns findings to Red tests and Implement. With 0, open findings stop the run and a passing Review proceeds.
+  Run options → Review has an override for this run. Clear it to inherit the current project value at the next start or resume.
+  API clients can supply a nonnegative whole number in `env.SDLC_REVIEW_MAX_LOOPS` or omit the key to inherit.
 - **Prompts editor.** Each stage prompt (`prompt-spec.md` … `prompt-review.md`, `prompt-test-repair.md`,
   `prompt-test-audit.md`) and the parts (`parts/tools.md`, the code search parts) in a Markdown editor, with the
   placeholders (`{{TEST_CMD}}`, `{{SLUG}}` …) listed and a **Preview** that renders it for a chosen item. **Reset to

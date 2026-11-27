@@ -12,9 +12,15 @@ export interface StepSpan { key: string; label: string; started: string; ended: 
  */
 export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd: number; unpriced: number }
 /** One pass of a stage: when it began and ended and the steps it went through. */
-export interface StageRound { started: string; ended: string | null; steps: StepSpan[] }
+export interface StageRound { started: string; ended: string | null; status: StageStatus; steps: StepSpan[] }
+/**
+ * How a stage's pass stands: `started` while it runs (or when the log ends with no end row: the run was cut off), `completed`
+ * when the next stage began or the run ended done, `failed`/`paused` when the run ended so at that stage, `stopped` for any other
+ * end (stopped, interrupted). The time it happened is the pass's `ended` (or `started`).
+ */
+export type StageStatus = 'started' | 'completed' | 'failed' | 'paused' | 'stopped';
 /** `steps` are the latest pass's; `rounds` holds every pass, oldest first (empty for an old file with no stage rows). */
-export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; rounds: StageRound[]; usage: UsageTotals }
+export interface StageSpan { stage: string; started: string; ended: string | null; /** The last pass's status. */ status: StageStatus; passes: number; steps: StepSpan[]; rounds: StageRound[]; usage: UsageTotals }
 export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
 /**
  * The lock is open: tests that were locked are being changed on purpose, and stay open until they are committed again.
@@ -106,14 +112,15 @@ export function runTimeline(rows: unknown[], now?: string, prices: PriceTable = 
   };
 
   /** The stage's open pass ends at <at> (and the stage with it). */
-  const endStage = (s: StageSpan, at: string): void => {
+  const endStage = (s: StageSpan, at: string, status: StageStatus = 'completed'): void => {
     if (s.ended === null) s.ended = at;
     const r = s.rounds[s.rounds.length - 1];
-    if (r && r.ended === null) r.ended = at;
+    if (r && r.ended === null) { r.ended = at; r.status = status; }
+    if (r?.ended === at) s.status = r.status;
   };
   const spanFor = (name: string, started: string): StageSpan => {
     let s = stages.get(name);
-    if (!s) { s = { stage: name, started, ended: null, passes: 0, steps: [], rounds: [], usage: emptyUsage() }; stages.set(name, s); }
+    if (!s) { s = { stage: name, started, ended: null, status: 'started', passes: 0, steps: [], rounds: [], usage: emptyUsage() }; stages.set(name, s); }
     return s;
   };
 
@@ -139,10 +146,11 @@ export function runTimeline(rows: unknown[], now?: string, prices: PriceTable = 
         closeAt(at);
         const s = spanFor(name, at);
         s.passes++;
-        const round: StageRound = { started: at, ended: null, steps: [] };
+        const round: StageRound = { started: at, ended: null, status: 'started', steps: [] };
         s.rounds.push(round);
         s.steps = round.steps;
         s.ended = null;
+        s.status = 'started';
         current = s;
         break;
       }
@@ -159,7 +167,7 @@ export function runTimeline(rows: unknown[], now?: string, prices: PriceTable = 
       }
       case 'end': {
         if (open?.reason === 'test-repair') open = null;
-        if (current && at) endStage(current, at);
+        if (current && at) endStage(current, at, endStatus(str(r.state)));
         closeAt(at);
         current = null;
         break;
@@ -205,4 +213,9 @@ export function runTimeline(rows: unknown[], now?: string, prices: PriceTable = 
     guards,
   } : null;
   return { stages: list, lock, lockOpen: open, usage: sumUsage(list.map(s => s.usage)) };
+}
+
+/** The status a stage's last pass gets when the run ends in <state>. */
+function endStatus(state: string): StageStatus {
+  return state === 'done' ? 'completed' : state === 'failed' ? 'failed' : state === 'paused' ? 'paused' : 'stopped';
 }

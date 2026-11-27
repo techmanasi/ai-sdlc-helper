@@ -6,7 +6,7 @@ import { useSyncLabel } from './useSyncLabel';
 import { useStream } from './useStream';
 import { applyRunEvent } from './stream';
 import { awaitsMerge } from './stages';
-import { PIPELINE, boardCost, stageName, stripStates } from './insights';
+import { PIPELINE, boardCost, currentStage, stageName, stripStates } from './insights';
 import { PrCi } from './PrCi';
 import { Cli, ErrorBox, GLYPH, Notices, Panel, PrIcon, Spinner, stateClass, useApp } from './ui';
 
@@ -15,7 +15,8 @@ export const COLUMNS = ['Backlog', 'Spec', 'Plan', 'Red tests', 'Implement', 'Te
 /** The column a run's card sits in: its stage; Finalise when done, committing, finalising or resolving conflicts; Backlog before any stage. */
 export function columnOf(r: RunCard): string {
   if (r.state === 'done' || r.stage === 'Finalise' || r.stage === '6/6 Finalise' || r.stage === 'Resolve conflicts') return 'Finalise';
-  return COLUMNS.includes(r.stage) ? r.stage : 'Backlog';
+  const at = currentStage(r, r.stages);
+  return COLUMNS.includes(at) ? at : 'Backlog';
 }
 
 const clock = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null);

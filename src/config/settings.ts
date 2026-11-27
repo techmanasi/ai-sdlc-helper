@@ -10,6 +10,7 @@ import { INDEXER_SCHEMA, codeSearchErrors, codeSearchFor, type CodeIndexer } fro
 import { expandGlob, globToRegex } from './globs.js';
 import { NODE_MANAGERS, nodeRun, wrapCommand, type NodeRun } from './node.js';
 import { AGENT_STAGES } from '../pipeline/context.js';
+import { DEFAULT_REVIEW_LIMIT, parseReviewLimit, REVIEW_LIMIT_ENV, REVIEW_LIMIT_REQUIREMENT } from './review-limit.js';
 import { projectNoteProblems } from './toolNotes.js';
 import { traceSettings, type TraceSettings } from '../trace.js';
 import { PERSONAL_KEYS, mergeAgent, personalAgentOf } from './personal.js';
@@ -80,7 +81,11 @@ export interface Config {
   agent: { harness: HarnessName; model: string | null; effort: string | null; stages: Record<string, StageSetting>; allowCommands: string[]; codeSearch: string; codeIndexer: CodeIndexer | null; notesDir: string };
   finalise: { envExample: boolean; maxFileBytes: number };
   /** Review: how many times its findings may send the run back through Red tests and Implement, and whether one agent or several models review. */
-  review: { maxLoops: number; mode: 'single' | 'multi'; reviewers: number };
+  review: {
+    maxLoops: number; mode: 'single' | 'multi'; reviewers: number;
+    /** Sync the branch with GitHub before each Red tests, Implement and Review round of Review's own fix loop (default true); false syncs once before Review. */
+    syncEachRound: boolean;
+  };
   ui: { timezone: string };
   /** The trace of repeating actions (src/trace.ts): on by default, rotating by size and age. */
   trace: TraceSettings;
@@ -172,7 +177,7 @@ export const SCHEMA: Json = {
     stages: { '*': { harness: [...HARNESS_IDS], model: 'string', effort: [...EFFORT_LEVELS] } },
     allowCommands: 'string[]', notesDir: 'string', codeSearch: 'string', codeSearchOrder: 'string[]', codeIndexers: { '*': INDEXER_SCHEMA } },
   finalise: { envExample: 'boolean', maxFileBytes: 'integer' },
-  review: { maxLoops: 'integer', mode: ['single', 'multi'], reviewers: 'integer' },
+  review: { maxLoops: 'reviewLimit', mode: ['single', 'multi'], reviewers: 'integer', syncEachRound: 'boolean' },
   ui: { timezone: 'string' },
   trace: { enabled: 'boolean', maxSizeKb: 'number', keepFiles: 'integer', maxAgeHours: 'number' },
   node: { version: 'string', manager: ['auto', ...NODE_MANAGERS, 'none'] },
@@ -210,6 +215,8 @@ export function validate(value: unknown, schema: any, where: string, errors: str
     }
   } else if (schema === 'minutes') {
     if (!Number.isInteger(value) || (value as number) < 1) errors.push(`${at}: must be a whole number of minutes, 1 or more (got ${JSON.stringify(value)})`);
+  } else if (schema === 'reviewLimit') {
+    if (typeof value !== 'number' || parseReviewLimit(value) === undefined) errors.push(`${at}: ${REVIEW_LIMIT_REQUIREMENT}`);
   } else if (schema === 'integer') {
     if (!Number.isInteger(value) || (value as number) < 0) errors.push(`${at}: must be a whole number`);
   } else if (schema === 'number') {
@@ -288,16 +295,21 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
   // A run works in its own worktree, but its agent, model and effort come from the project it was started from (<agentFrom>):
   // that project's file, not the worktree's copy, which lacks whatever was saved after the branch was cut.
   let agentRoot = root;
+  let projectLimit = file.review?.maxLoops;
   if (agentFrom && path.resolve(agentFrom) !== root) {
     agentRoot = path.resolve(agentFrom);
     const projectFile = path.join(agentRoot, CONFIG_FILE);
     let theirs: Json = {};
-    try { theirs = exists(projectFile) ? readJson(projectFile) : {}; } catch { theirs = {}; }
+    try {
+      theirs = exists(projectFile) ? readJson(projectFile) : {};
+      projectLimit = theirs.review?.maxLoops;
+    } catch { theirs = {}; }
     const notesDir = file.agent && file.agent.notesDir;
     const agent = { ...(theirs.agent && typeof theirs.agent === 'object' ? theirs.agent : {}), ...(notesDir ? { notesDir } : {}) };
     if (!notesDir) delete agent.notesDir;
     file = { ...file, agent };
     const bad = fileErrors({ agent });
+    if (projectLimit !== undefined) validate(projectLimit, SCHEMA.review.maxLoops, 'review.maxLoops', bad);
     if (bad.length) return { config: null, errors: bad.map(e => `${CONFIG_FILE} of ${agentRoot}: ${e}`), warnings, file: fileName };
   }
 
@@ -316,6 +328,8 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
   const envMode = env.SDLC_FULL_SUITE || '';
   const envWait = env.SDLC_CI_WAIT_MINUTES || '';
   const settingErrors: string[] = [];
+  const runLimit = parseReviewLimit(env[REVIEW_LIMIT_ENV]);
+  if (env[REVIEW_LIMIT_ENV] !== undefined && runLimit === undefined) settingErrors.push(`${REVIEW_LIMIT_ENV} ${REVIEW_LIMIT_REQUIREMENT}`);
   if (envMode && !modes.includes(envMode)) settingErrors.push(`SDLC_FULL_SUITE: must be one of ${modes.join(', ')} (got ${JSON.stringify(envMode)})`);
   if (envWait && !(/^\d+$/.test(envWait) && Number(envWait) >= 1)) settingErrors.push(`SDLC_CI_WAIT_MINUTES: must be a whole number of minutes, 1 or more (got ${JSON.stringify(envWait)})`);
   const personalSettingErrors: string[] = [];
@@ -404,10 +418,12 @@ export function resolve(root: string, { env = process.env, agentFrom }: { env?: 
       maxFileBytes: (file.finalise && file.finalise.maxFileBytes) || 1024 * 1024,
     },
     review: {
-      maxLoops: file.review && Number.isInteger(file.review.maxLoops) ? file.review.maxLoops : 2,
+      maxLoops: runLimit ?? projectLimit ?? DEFAULT_REVIEW_LIMIT,
       // SDLC_REVIEW_MODE and SDLC_REVIEW_REVIEWERS are the run's own choice (Run options): they win over the file.
       mode: ['single', 'multi'].includes(String(env.SDLC_REVIEW_MODE)) ? env.SDLC_REVIEW_MODE as 'single' | 'multi' : (file.review && file.review.mode) || 'single',
       reviewers: Math.min(5, Math.max(2, /^\d+$/.test(env.SDLC_REVIEW_REVIEWERS || '') ? Number(env.SDLC_REVIEW_REVIEWERS) : (file.review && file.review.reviewers) || 2)),
+      // SDLC_REVIEW_SYNC_ROUNDS (0 or 1) is the run's own choice; else the file; else true.
+      syncEachRound: env.SDLC_REVIEW_SYNC_ROUNDS === '0' ? false : env.SDLC_REVIEW_SYNC_ROUNDS === '1' ? true : !(file.review && file.review.syncEachRound === false),
     },
     ui,
     trace,

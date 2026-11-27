@@ -1,5 +1,6 @@
 // ai-sdlc-helper as a library: project settings, detection, test framework setup and code search.
 export { CONFIG_FILE } from './util.js';
+export { parseReviewLimit, REVIEW_LIMIT_ENV, REVIEW_LIMIT_REQUIREMENT } from './config/review-limit.js';
 export { RUNNERS, detect, detectPackage, literalList, packageGlobs, type Detection, type Runner } from './config/detect.js';
 export { globToRegex, expandGlob } from './config/globs.js';
 export { projectNode, satisfiesMajor, nodeRun, wrapCommand, type NodeRun, type ProjectNode } from './config/node.js';
@@ -51,7 +52,7 @@ export {
 } from './runs/view.js';
 export { estimateUsd, isFree, loadOpencodePrices, loadPrices, priceOf, pricesFromOpencode, pricesNow, type Price, type PriceTable } from './models/prices.js';
 export { costLog, costMarkdown, costText, timeText, tokenText, type CostLog, type CostRun, type CostStage } from './runs/cost-log.js';
-export { runTimeline, type LockOpen, type LockView, type StageSpan, type StepSpan, type Timeline, type UsageTotals } from './runs/timeline.js';
+export { runTimeline, type LockOpen, type LockView, type StageSpan, type StageStatus, type StepSpan, type Timeline, type UsageTotals } from './runs/timeline.js';
 export { runPipeline, firstPending, type PipelineOptions } from './pipeline/run.js';
 export { spawnAgentProcess, spawnClaude, type AgentSpawn, type AgentRequest } from './pipeline/agent.js';
 export {

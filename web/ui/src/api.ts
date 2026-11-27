@@ -9,6 +9,7 @@ export interface StageSetting { harness?: string; model?: string; effort?: strin
 export interface ModelInfo { id: string; name: string; displayName?: string; supportsEffort: boolean; supportedEfforts?: string[]; defaultEffort?: string; providerId?: string; providerName?: string }
 export interface SettingsView {
   config: {
+    review?: { maxLoops: number };
     agent?: { harness: string; model: string | null; effort: string | null; stages: Record<string, StageSetting> };
     tests?: { retry: boolean | null; maxWorkers: number | 'auto' | null; preliminary?: 'scoped' | 'full' };
   } | null;
@@ -40,6 +41,8 @@ export interface RunCard {
   pullRequest?: PrCard | null;
   /** Tokens, time and cost of the whole run so far; null (or absent from an older server) before any agent round. */
   usage?: UsageTotals | null;
+  /** Each stage that began, with how it stands and when (absent from an older server). */
+  stages?: Array<{ stage: string; status: StageStatus; started: string; ended: string | null }>;
 }
 export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
 export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; isDraft: boolean; checkedAt: string | null; failed: boolean; ci: CiState | null; failing: string[]; conflicts: 'none' | 'conflicting' | 'unknown' | null }
@@ -80,8 +83,9 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
 }
 export interface StepSpan { key: string; label: string; started: string; ended: string | null }
 export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd?: number; unpriced?: number }
-export interface StageRound { started: string; ended: string | null; steps: StepSpan[] }
-export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; rounds?: StageRound[]; usage: UsageTotals }
+export type StageStatus = 'started' | 'completed' | 'failed' | 'paused' | 'stopped';
+export interface StageRound { started: string; ended: string | null; status?: StageStatus; steps: StepSpan[] }
+export interface StageSpan { stage: string; started: string; ended: string | null; status?: StageStatus; passes: number; steps: StepSpan[]; rounds?: StageRound[]; usage: UsageTotals }
 export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
 export interface LockOpen { at: string; reason: 'retry' | 'review-findings' | 'test-repair'; sha: string }
 export interface Timeline { stages: StageSpan[]; lock: LockView | null; lockOpen?: LockOpen | null; usage: UsageTotals }
@@ -293,8 +297,8 @@ export const api = {
   getRunPr: (project: string, slug: string) =>
     call<{ pr: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; markdown: string | null }>('GET', `${r(project, slug)}/pr`),
   testIssues: (project: string, slug: string) => call<{ slug: string; text: string | null }>('GET', `${r(project, slug)}/test-issues`),
-  saveTestIssues: (project: string, slug: string, text: string, resume = true) =>
-    call<{ ok: boolean; text: string; resumed: Outcome | null }>('POST', `${r(project, slug)}/test-issues`, { text, resume }),
+  saveTestIssues: (project: string, slug: string, text: string, resume = true, env?: Record<string, string>) =>
+    call<{ ok: boolean; text: string; resumed: Outcome | null }>('POST', `${r(project, slug)}/test-issues`, { text, resume, env }),
   completed: (project: string) => call<{ completed: CompletedTask[]; prErrors?: PrCheckErrors; notices?: NoticeItem[] }>('GET', `${p(project)}/completed`),
   /** The rows at once, from git and the cache: PRs not known yet are prPending (then ask completed for the settled list). */
   completedRows: (project: string) => call<{ completed: CompletedTask[]; prErrors?: PrCheckErrors; notices?: NoticeItem[] }>('GET', `${p(project)}/completed?rows=first`),

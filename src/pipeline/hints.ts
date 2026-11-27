@@ -63,6 +63,81 @@ export function resumeHint(ctx: Ctx): void {
   if (!errs.length) ctx.out(`Resume at Test repair once fixed: ${resumeCommand(ctx.slug, 'test-repair')}`);
 }
 
+
+/**
+ * The lines the branch sync writes to the run output, and the recovery hints that read them back: one source, so a changed
+ * wording cannot silence a hint.
+ */
+export const syncLines = {
+  stashKept: (sha: string, ref: string, stage: string, why: string): string =>
+    `BRANCH SYNC: your uncommitted changes from ${stage} are saved in the stash ${sha} (${ref}); ${why}. Get them back with: git stash apply ${sha}`,
+  stashParked: (sha: string, ref: string, stage: string, resume: string): string =>
+    `BRANCH SYNC: your uncommitted changes from ${stage} are saved in the stash ${sha} (${ref}); not put back, because this run restarts at ${resume}, earlier than ${stage}. Get them back with: git stash apply ${sha}`,
+  testsChanged: (files: string[]): string =>
+    `BRANCH SYNC: STOPPED: commits that came from GitHub changed the locked test files (${files.join(', ')}). The tests are no longer the ones Red tests locked: restart at Implement to work from them`,
+  docsChanged: (kind: 'Spec' | 'Plan', files: string[]): string =>
+    `BRANCH SYNC: WARNING: commits that came from GitHub changed the ${kind.toLowerCase()} (${files.join(', ')}) after ${kind} was done; resume at ${kind} to work from it`,
+  foreignMoved: (from: string, to: string, commits: string[]): string =>
+    `BRANCH SYNC: GitHub's ${from} has commits by someone else (${commits.join('; ')}); they are not brought into this run. The run goes on on ${to}, from its own work. To use those changes, stop the pipeline and make them yourself; to give the agents more context, use the note boxes on the run page`,
+  foreignStopped: (from: string, commits: string[]): string =>
+    `BRANCH SYNC: STOPPED: GitHub's ${from} has commits by someone else (${commits.join('; ')}), and SDLC_MOVE_BRANCH keeps the run on this branch. They are not brought in: bring them in yourself or let the run move to a new branch, then resume`,
+  offline: (why: string): string =>
+    `BRANCH SYNC: WARNING: origin could not be reached (${why}): going on offline, with no rebase and no lease push until a fetch succeeds`,
+};
+
+/** Recovery for what the branch sync reported, or null when the latest output has none of it. */
+function syncRecovery(ctx: RecoveryContext, latest: string, stopping: boolean): StageRecovery | null {
+  const stage = ctx.stage || 'Pipeline';
+  const stash = /BRANCH SYNC: your uncommitted changes from ([^\n]+?) are saved in the stash (\w+) \(([^)]+)\)/.exec(latest);
+  const tests = /BRANCH SYNC: STOPPED: commits that came from GitHub changed the locked test files \(([^)]*)\)/.exec(latest);
+  const foreign = /BRANCH SYNC: STOPPED: GitHub's (\S+) has commits by someone else/.exec(latest);
+  if (foreign) {
+    return {
+      stage,
+      diagnosis: `GitHub's ${foreign[1]} has commits by someone else, and SDLC_MOVE_BRANCH keeps the run on that branch, so the run stopped instead of taking them in.`,
+      autoAction: { label: `Resume at ${stage}`, command: resumeCommand(ctx.slug, toFromStage(ctx.stage)) },
+      manualAction: { instruction: 'Bring the commits in yourself (git pull --rebase), or clear SDLC_MOVE_BRANCH so the run moves to a new branch, then resume.' },
+    };
+  }
+  if (tests) {
+    return {
+      stage,
+      diagnosis: `Commits from GitHub changed the locked test files (${tests[1]}), so the red gate no longer describes the tests.`,
+      autoAction: { label: 'Restart at Implement', command: resumeCommand(ctx.slug, 'implement') },
+      manualAction: { instruction: 'Read the incoming change to the tests; Implement works from the tests as they are now.' },
+    };
+  }
+  if (stash) {
+    return {
+      stage,
+      diagnosis: `Your uncommitted changes from ${stash[1]} are saved in the stash ${stash[2].slice(0, 7)} (${stash[3]}) and were not put back.`,
+      autoAction: { label: 'Apply my saved changes', command: `git stash apply ${stash[2]}` },
+      manualAction: { instruction: `Resume at ${stage} when the branch is as you want it; the stash is kept until then.` },
+      escapeHatch: { label: `Resume at ${stage}`, command: resumeCommand(ctx.slug, toFromStage(stage, ctx.hasTestIssues)) },
+    };
+  }
+  if (stopping) return null;
+  const docs = /BRANCH SYNC: WARNING: commits that came from GitHub changed the (spec|plan)/.exec(latest);
+  if (docs) {
+    const which = docs[1] === 'spec' ? 'spec' : 'plan';
+    return {
+      stage: which === 'spec' ? 'Spec' : 'Plan',
+      diagnosis: `Commits from GitHub changed the ${which} after it was done.`,
+      autoAction: { label: `Resume at ${which === 'spec' ? 'Spec' : 'Plan'}`, command: resumeCommand(ctx.slug, which) },
+      manualAction: { instruction: 'The run went on with the changed document; resume at that stage to work from it.' },
+    };
+  }
+  if (/BRANCH SYNC: WARNING: origin could not be reached/.test(latest)) {
+    return {
+      stage,
+      diagnosis: 'origin could not be reached, so the branch was not synced with GitHub.',
+      autoAction: { label: `Resume at ${stage}`, command: resumeCommand(ctx.slug, toFromStage(stage, ctx.hasTestIssues)) },
+      manualAction: { instruction: 'Check the network and your git credentials, then resume.' },
+    };
+  }
+  return null;
+}
+
 /** Diagnoses a paused, failed, or stopped stage and provides 3-tuple recovery paths. */
 export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
   const normStage = (ctx.stage || '').toLowerCase().replace(/\s+/g, '-');
@@ -86,6 +161,10 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
       escapeHatch: { label: 'Resume at Review', command: resumeCommand(ctx.slug, 'review') },
     };
   }
+
+  // What the branch sync stopped for is the failure; its warnings only explain the fallback below.
+  const synced = syncRecovery(ctx, latest, true);
+  if (synced) return synced;
 
   // A stop before the first stage names no stage of its own, and guessing one would be a lie. The status keeps the stage
   // the run started from (resumeFrom): say that it stopped in setup, and resume there.
@@ -494,6 +573,8 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     };
   }
 
+  const warned = syncRecovery(ctx, latest, false);
+  if (warned) return warned;
   // Fallback recovery: a stage no rule above knows. The command resumes at the stage the run was in, and the bailout that
   // restarts from Spec is left out when it would repeat the auto command.
   const auto = resumeCommand(ctx.slug, toFromStage(ctx.stage));

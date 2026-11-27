@@ -9,7 +9,7 @@ import { resumeCommand } from './hints.js';
 import { consumeHandoff } from './handoff.js';
 import { keepError } from './errors.js';
 import { implementStage, redTestsStage, stage, testRepairStage } from './stages.js';
-import type { AgentStage } from './context.js';
+import type { AgentStage, From } from './context.js';
 
 export interface Finding { kind: 'blocker' | 'missing-test'; file: string; criterion: string; reason: string }
 export interface Verdict { verdict: 'pass' | 'changes'; findings: Finding[] }
@@ -176,7 +176,8 @@ const findingsText = (round: number, findings: Finding[]): string => [
 ].join('\n');
 
 /** Red tests with the findings in its prompt, then Implement (and Test repair, as in the main run). */
-async function fixCycle(ctx: Ctx, round: number, findings: Finding[]): Promise<void> {
+async function fixCycle(ctx: Ctx, round: number, findings: Finding[], sync: RoundSync): Promise<void> {
+  await sync('red-tests');
   ctx.promptExtra = { REVIEW_FINDINGS: findingsText(round, findings) };
   try {
     await redTestsStage(ctx);
@@ -192,6 +193,7 @@ async function fixCycle(ctx: Ctx, round: number, findings: Finding[]): Promise<v
   await tick();
   resultsAt(ctx, ctx.origRedSha, `${ctx.log}/red.json`, redCommitTestFiles(ctx));
   await tick();
+  await sync('implement');
   const green = await implementStage(ctx);
   if (!green) {
     if (!exists(at(ctx, `${ctx.docs}/test-issues.md`))) {
@@ -201,13 +203,21 @@ async function fixCycle(ctx: Ctx, round: number, findings: Finding[]): Promise<v
   }
 }
 
-/** Review: report, then loop Red tests -> Implement -> Review until it passes or review.maxLoops fixes were tried. */
-export async function reviewLoop(ctx: Ctx): Promise<void> {
-  const { maxLoops } = ctx.config.review;
+/** The branch sync the run does before a stage; Review's fix loop calls it before each of its rounds. */
+export type RoundSync = (stage: From) => Promise<void>;
+
+/**
+ * Review: report, then loop Red tests -> Implement -> Review until it passes or review.maxLoops fixes were tried. With
+ * review.syncEachRound (the default), each round inside the loop syncs the branch with GitHub first, as every stage does.
+ */
+export async function reviewLoop(ctx: Ctx, syncStage?: RoundSync): Promise<void> {
+  const { maxLoops, syncEachRound } = ctx.config.review;
+  const sync: RoundSync = async s => { if (syncEachRound && syncStage) await syncStage(s); };
   const rounds = readReviewRounds(ctx.root, ctx.log);
   let loops = 0;
   for (;;) {
     const round = rounds.length + 1;
+    if (loops > 0) await sync('review');
     stage(ctx, `5/6 Review${round > 1 ? ` (round ${round})` : ''}`);
     await tick();
     const v = await reviewRound(ctx, round);
@@ -235,6 +245,6 @@ export async function reviewLoop(ctx: Ctx): Promise<void> {
     loops++;
     entry.outcome = `fix loop ${loops} of ${maxLoops}`;
     saveRounds(ctx, rounds);
-    await fixCycle(ctx, round, v.findings);
+    await fixCycle(ctx, round, v.findings, sync);
   }
 }
