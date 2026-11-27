@@ -178,7 +178,11 @@ export function stopKind(v: RunView): StopKindView | null {
   };
 
   // 1. Questions: the run waits for an answer it asked for.
-  if (v.state === 'paused' && unanswered > 0) return build('questions');
+  if (v.state === 'paused' && unanswered > 0) {
+    // The cause is the questions file itself, not the stage's generic recovery text.
+    const first = (v.questions || []).find(q => !(q.answer || '').trim());
+    return build('questions', `${unanswered} question${unanswered > 1 ? 's' : ''} wait${unanswered > 1 ? '' : 's'} for an answer${first?.title ? `: ${first.title}` : ''}`);
+  }
 
   // 2. Permission: the agent was refused an action and waits for the answer to it.
   if (pendingPerms > 0) return build('permission');
@@ -191,7 +195,7 @@ export function stopKind(v: RunView): StopKindView | null {
   if (note && WAIT_NOTE.test(note)) return build('waiting', note);
 
   // 5. Stopped by you: the user stopped it (the record says interrupted, or the run is gone without finishing).
-  if (v.state === 'interrupted' || v.state === 'stopped') return build('stopped');
+  if (v.state === 'interrupted' || v.state === 'stopped') return build('stopped', `The run was stopped${v.stage ? ` during ${v.stage}` : ''}`);
 
   // 6. Repository: the stop was about the branch, the merge or the conflict, not the code. The structured marks come
   // first; the text is only read when the record names no kind, and then only for clearly git-specific words.
