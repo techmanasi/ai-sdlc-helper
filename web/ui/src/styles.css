@@ -161,8 +161,16 @@ textarea.inp { resize: vertical; }
 .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); display: flex; align-items: flex-start; justify-content: center; padding: 10vh 16px 16px; z-index: 10; }
 .dialog { width: min(760px, 100%); max-height: 80vh; overflow: auto; }
 .dialog-wide { width: min(1100px, 100%); max-height: 88vh; }
+.dialog-s { width: min(440px, 100%); }
 .overlay:has(.dialog-wide) { padding-top: 6vh; }
 .dialog .ph { position: sticky; top: 0; background: var(--pn); z-index: 2; border-top-left-radius: 8px; border-top-right-radius: 8px; }
+
+/* the Default editor dialog (Projects page): six radio rows, the custom command under the custom one */
+.ed-row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.ed-row:hover { background: var(--pn2); }
+.ed-on { background: var(--sel); }
+.ed-row input { flex: none; }
+.ed-cmd { font-family: var(--monof); font-size: 12px; color: var(--mu); }
 .toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 20; max-width: min(420px, calc(100vw - 32px)); }
 .toast { background: var(--pn); border: 1px solid var(--ln); border-radius: 8px; padding: 10px 14px; box-shadow: 0 4px 16px rgba(0, 0, 0, .25); }
 .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 10px 0 4px; font-size: 15px; } .md h1 { font-size: 19px; } .md h2 { font-size: 17px; } .md p, .md ul, .md ol { margin: 4px 0; }

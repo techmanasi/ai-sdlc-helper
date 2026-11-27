@@ -1,5 +1,10 @@
 {
   "extends": "../tsconfig.json",
-  "compilerOptions": { "noImplicitAny": false, "strictNullChecks": false, "noEmit": true },
+  "compilerOptions": {
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noEmit": true,
+    "paths": { "ai-sdlc-helper/editor": ["../src/config/editor.ts"] }
+  },
   "include": ["."]
 }

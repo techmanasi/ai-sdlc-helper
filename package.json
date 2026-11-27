@@ -30,6 +30,10 @@
       "types": "./dist/config/review-limit.d.ts",
       "import": "./dist/config/review-limit.js"
     },
+    "./editor": {
+      "types": "./dist/config/editor.d.ts",
+      "import": "./dist/config/editor.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

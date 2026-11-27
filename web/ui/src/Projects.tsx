@@ -1,15 +1,17 @@
 import { DEFAULT_REVIEW_LIMIT } from 'ai-sdlc-helper/review-limit';
+import { editorName } from 'ai-sdlc-helper/editor';
 import { reviewSettingsDraft, reviewSettingsPatch } from './env';
 // The registered projects (and the folder ui started in), their doctor checks, and adding one.
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { api, type Check, type ModelInfo, type Project, type SettingsView, type Source } from './api';
+import { api, type Check, type EditorChoice, type EditorSettingView, type ModelInfo, type Project, type SettingsView, type Source } from './api';
 import { dialogKey, firstFocusable, focusable } from './dialog';
 import { wrappers } from './dialogDom';
 import { CodeSearchModal } from './CodeSearchModal';
 import { doctorSetupAction, configuredChecks } from './codeSearchSetup';
 import { ModelSelect } from './ModelSelect';
 import { configValue } from './modelFilter';
-import { Cli, ErrorBox, useApp } from './ui';
+import { draftProblem, editorPatch, type EditorDraft } from './editorDialog';
+import { Cli, CopyButton, ErrorBox, useApp } from './ui';
 
 function Doctor({ name, onSetup, register }: {
   name: string;
@@ -339,6 +341,86 @@ function EditSetup({ name, onSaved }: { name: string; onSaved(): void }) {
   );
 }
 
+/**
+ * The Default editor dialog: which editor "Open in editor" opens, for this user on this machine (every project at
+ * once — it is saved in the registry, not in any project's settings). The six choices come from the server, which
+ * also says which one is saved; the custom command is checked here and again by the server when it is saved.
+ */
+function EditorDialog({ onClose, onSaved }: { onClose(): void; onSaved(editor: EditorSettingView): void }) {
+  const { toast } = useApp();
+  const dialog = useRef<HTMLDivElement>(null);
+  const [data, setData] = useState<{ editor: EditorSettingView; editors: EditorChoice[] } | null>(null);
+  const [draft, setDraft] = useState<EditorDraft>({ choice: 'vscode', custom: '' });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.editor()
+      .then(r => { setData(r); setDraft({ choice: r.editor.choice, custom: r.editor.custom || '' }); })
+      .catch(e => setError((e as Error).message));
+  }, []);
+  useEffect(() => { firstFocusable(wrappers(dialog.current))?.el.focus(); }, []);
+  const problem = draftProblem(draft);
+  const save = async () => {
+    if (problem) return; // the inline error is already showing
+    setBusy(true); setError('');
+    try {
+      const r = await api.saveEditor(editorPatch(draft));
+      toast('Default editor saved');
+      onSaved(r.editor);
+      onClose();
+    } catch (e) { setError((e as Error).message); }
+    setBusy(false);
+  };
+  return (
+    <div
+      class="overlay" role="dialog" aria-modal="true" aria-label="Default editor" ref={dialog} tabIndex={-1}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={e => {
+        const items = focusable(wrappers(dialog.current)).map(w => w.el);
+        const a = dialogKey(e, items, document.activeElement as HTMLElement | null);
+        if (a.kind === 'close') onClose();
+        else if (a.kind === 'focus') { e.preventDefault(); a.target.focus(); }
+        else if (a.kind === 'prevent') e.preventDefault();
+      }}
+    >
+      <section class="pn dialog dialog-s">
+        <div class="ph"><h2>Default editor</h2><button class="btn btn-s" type="button" onClick={onClose}>Close</button></div>
+        <div class="pb col" style={{ gap: '10px' }}>
+          <span class="small muted">Used by Open in editor on every page.</span>
+          {error && <ErrorBox error={error} />}
+          {!data && !error && <p class="small muted" style={{ margin: 0 }}>Loading…</p>}
+          {data && (
+            <form class="col" style={{ gap: '8px' }} onSubmit={e => { e.preventDefault(); save(); }}>
+              <fieldset class="col" style={{ gap: '4px', margin: 0, padding: 0, border: 0 }}>
+                <legend class="sr">Editor</legend>
+                {data.editors.map(o => (
+                  <label key={o.id} class={`ed-row ${draft.choice === o.id ? 'ed-on' : ''}`}>
+                    <input type="radio" name="editor" value={o.id} checked={draft.choice === o.id} onChange={() => setDraft({ ...draft, choice: o.id })} />
+                    <span class="grow">{o.name}</span>
+                    {o.cmd && <span class="mono small muted ed-cmd">{o.cmd}</span>}
+                  </label>
+                ))}
+              </fieldset>
+              {draft.choice === 'custom' && (
+                <label class="col" style={{ gap: '4px' }}>
+                  <span class="lbl">Command · {'{path}'} is the project folder</span>
+                  <input id="editor-custom" class="inp mono" placeholder="e.g. subl {path}" value={draft.custom}
+                    onInput={e => setDraft({ ...draft, custom: (e.target as HTMLInputElement).value })} />
+                </label>
+              )}
+              <ErrorBox error={problem} />
+              <div class="row">
+                <button class="btn btn-p" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+                <button class="btn" type="button" onClick={onClose}>Cancel</button>
+              </div>
+            </form>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function Projects({ projects, reload }: { projects: Project[]; reload(): void }) {
   const { project, go, toast } = useApp();
   const dialog = useRef<HTMLDivElement>(null);
@@ -351,6 +433,11 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
   const [editing, setEditing] = useState<string | null>(null);
   const [setupFor, setSetupFor] = useState<string | null>(null);
   const [rev, setRev] = useState(0);
+  const [edOpen, setEdOpen] = useState(false);
+  const [ed, setEd] = useState<EditorSettingView | null>(null);
+  const [opening, setOpening] = useState('');
+  const [openErr, setOpenErr] = useState<Record<string, string>>({});
+  const edOpener = useRef<HTMLElement | null>(null);
   const doctorRefresh = useRef(new Map<string, (checks?: Check[]) => void>());
   const register = (project: string, fn: (checks?: Check[]) => void) => { doctorRefresh.current.set(project, fn); };
   const close = () => setEditing(null);
@@ -362,6 +449,25 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
       opener.current = null;
     }
   }, [editing]);
+
+  // The saved choice names the "Editor" button and the cards' tooltips; a problem fetching it is said, not hidden.
+  useEffect(() => {
+    api.editor().then(r => setEd(r.editor)).catch(e => toast(`Default editor: ${(e as Error).message}`));
+  }, []);
+
+  useEffect(() => {
+    if (!edOpen && edOpener.current) {
+      if (edOpener.current.isConnected) edOpener.current.focus();
+      edOpener.current = null;
+    }
+  }, [edOpen]);
+
+  /** Opens a project's folder in the default editor: the server runs the command and reports its failure here. */
+  const openInEditor = async (p: Project) => {
+    setOpening(p.name); setOpenErr(err => ({ ...err, [p.name]: '' }));
+    try { await api.openInEditor(p.path, p.name); } catch (e) { setOpenErr(err => ({ ...err, [p.name]: (e as Error).message })); }
+    setOpening('');
+  };
 
   const add = async (dir: string, n?: string) => {
     setBusy(true); setError(''); setOut('');
@@ -375,7 +481,14 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
 
   return (
     <div class="col">
-      <div class="row"><h1 class="grow">Projects</h1><span class="mono small muted">~/.config/ai-sdlc-helper/projects.json</span></div>
+      <div class="row" style={{ alignItems: 'center', gap: '10px' }}>
+        <h1 class="grow">Projects</h1>
+        <span class="mono small muted">~/.config/ai-sdlc-helper/projects.json</span>
+        <button class="btn btn-s" type="button" aria-haspopup="dialog" aria-expanded={edOpen}
+          onClick={e => { edOpener.current = e.currentTarget as HTMLElement; setEdOpen(true); }}>
+          <span class="muted">Editor</span> {ed ? editorName(ed.choice) : ''} <span aria-hidden="true">▾</span>
+        </button>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '14px' }}>
         {projects.map(p => (
           <section class="pn" style={p.name === project ? { borderColor: 'var(--pri)' } : {}}>
@@ -385,10 +498,14 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
                 <button class="btn btn-s" type="button" onClick={e => { opener.current = e.currentTarget as HTMLElement; setEditing(p.name); }}>Config</button>
                 {p.name !== project && <button class="btn btn-s" type="button" onClick={() => go(`/board?project=${encodeURIComponent(p.name)}`)}>Open</button>}
                 {!p.registered && <button class="btn btn-s btn-p" type="button" disabled={busy} onClick={() => add(p.path)}>Register</button>}
+                <button class="btn btn-s" type="button" disabled={opening === p.name} title={ed ? `Opens with ${editorName(ed.choice)}` : undefined}
+                  onClick={() => openInEditor(p)}>{opening === p.name ? 'Opening…' : 'Open in editor'}</button>
+                <CopyButton text={p.path} label="Copy path" />
               </div>
             </div>
             <div class="pb col" style={{ gap: '8px' }}>
               <span class="mono small muted" style={{ overflowWrap: 'anywhere' }}>{p.path}</span>
+              {openErr[p.name] && <ErrorBox error={openErr[p.name]} />}
               <Doctor key={`${p.name}-${rev}`} name={p.name} onSetup={setSetupFor} register={fn => register(p.name, fn)} />
             </div>
           </section>
@@ -426,6 +543,7 @@ export function Projects({ projects, reload }: { projects: Project[]; reload(): 
           </section>
         </div>
       )}
+      {edOpen && <EditorDialog onClose={() => setEdOpen(false)} onSaved={setEd} />}
       <CodeSearchModal
         project={setupFor || project}
         open={setupFor !== null}

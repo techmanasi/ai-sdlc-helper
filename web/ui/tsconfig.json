@@ -9,7 +9,10 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "paths": { "ai-sdlc-helper/review-limit": ["../../src/config/review-limit.ts"] },
+    "paths": {
+      "ai-sdlc-helper/review-limit": ["../../src/config/review-limit.ts"],
+      "ai-sdlc-helper/editor": ["../../src/config/editor.ts"]
+    },
     "types": []
   },
   "include": ["src"]

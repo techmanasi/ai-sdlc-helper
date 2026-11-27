@@ -28,8 +28,13 @@ export { main, type Io } from './cli/main.js';
 export { configDir } from './configDir.js';
 export { TRACE_FILE, startTrace, stopTrace, trace, traceSettings, type TraceLine, type TraceSettings } from './trace.js';
 export {
-  readRegistry, writeRegistry, registryFile, projectDir, gitRoot, RegistryError, type ProjectEntry, type ProjectOverrides,
+  readRegistry, writeRegistry, registryFile, projectDir, gitRoot, findContaining, RegistryError, readEditorSetting, writeEditorSetting,
+  type ProjectEntry, type ProjectOverrides,
 } from './registry/projects.js';
+export {
+  DEFAULT_EDITOR, EDITORS, EDITOR_IDS, editorArgv, editorChoices, editorName, editorSettingErrors, normalizeEditor, splitWords,
+  systemEditorCmd, validateCustomEditor, type EditorId, type EditorInfo, type EditorSetting,
+} from './config/editor.js';
 export { doctor, type Check, type DoctorOptions, type Spawn } from './registry/doctor.js';
 export { ADAPTERS, runSuite, runSuites, mergeResults, summary, type RunOptions } from './runners/run.js';
 export type { RunResult, TestCase, SuiteError } from './runners/types.js';

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AGENT_STAGES, CONFIG_FILE, DefaultHarnessRegistry, configDir, TRACE_FILE, startTrace, stopTrace, trace, traceSettings, agentSources, mergeAgent, registryFile, EFFORT_LEVELS, HARNESS_IDS, STAGE_DEFAULTS, addBacklogItem, syncPr, writeCiFailure, readRunDoc, readBacklogEdit, editBacklogItem, BacklogEditError, answerQuestions, archiveCompleted, archiveTask, boardView, boardInputs, boardIgnores, stampOf as fingerprintOf, prPollOptions, PR_POLL_MS, createPrForCompleted, markPrReadyForRun,
   decide, discard, doctor, editOverrides, editSettings, setRunBehaviour, getCompletedTaskDetailAsync, hashOf, completedListAsync, primeRepoPaths, warmCompletedPrs, keepError, main, readRegistry, repoRulesFile, resolve,
+  editorArgv, editorChoices, editorSettingErrors, findContaining, normalizeEditor, readEditorSetting, registryDir, validateCustomEditor, writeEditorSetting,
   restart, discardStage, undoLast, readRecord, alive, runContext, runView, runPaths, runTail, RUN_PARTS, type RunPart, start, stop, type Outcome, type RunContext,
   closeGoneRuns, loadOpencodePrices, parseReviewLimit, REVIEW_LIMIT_ENV, REVIEW_LIMIT_REQUIREMENT,
   inspectCodeSearch, executableBuild, codeIndexers, fileErrors, applyPatch, runBehaviourErrors, runEnvSet, type RunBehaviour,
@@ -303,6 +304,56 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       let version = 'unknown';
       try { version = JSON.parse(fs.readFileSync(path.join(here, '..', '..', '..', 'package.json'), 'utf8')).version; } catch { /* source run */ }
       return send(200, { version, projects: await projects() });
+    }
+    // The machine-wide default editor (the registry file root's "editor"), used by "Open in editor" on every page.
+    if (parts[0] === 'editor' && parts.length === 1) {
+      if (method === 'GET') {
+        return send(200, { editor: normalizeEditor(readEditorSetting(env)), editors: editorChoices(process.platform) });
+      }
+      if (method === 'PUT') {
+        const errors = editorSettingErrors(body.choice, body.custom);
+        if (errors.length) throw new HttpError(400, errors.join('; '));
+        try {
+          writeEditorSetting({ choice: body.choice, ...(typeof body.custom === 'string' && body.custom.trim() ? { custom: body.custom } : {}) }, env);
+        } catch (e) { throw new HttpError(400, (e as Error).message); }
+        return send(200, { ok: true, editor: normalizeEditor(readEditorSetting(env)) });
+      }
+      throw new HttpError(405, 'use GET or PUT');
+    }
+    // Opens a folder with that editor: a project's path or a run's worktree, absolute, or relative to a named project.
+    if (parts[0] === 'editor' && parts[1] === 'open' && parts.length === 2 && method === 'POST') {
+      if (typeof body.path !== 'string' || !body.path.trim()) throw new HttpError(400, 'path is required');
+      let dir = body.path.trim();
+      if (!path.isAbsolute(dir)) {
+        if (typeof body.project !== 'string' || !body.project) throw new HttpError(400, `'${dir}' is not an absolute path; name its project to resolve it`);
+        dir = path.resolve((await project(body.project)).path, dir);
+      }
+      const setting = normalizeEditor(readEditorSetting(env));
+      const bad = setting.choice === 'custom' ? validateCustomEditor(setting.custom) : null;
+      if (bad) throw new HttpError(400, `the custom editor command is not valid: ${bad}`);
+      const argv = editorArgv(setting.choice, setting.custom, dir, process.platform);
+      // Spawned detached, without a shell: {path} went in as one argument, so nothing here builds a command string.
+      // The spawn itself is awaited, so "code is not installed or not on PATH" reaches the response instead of a console.
+      const opened = await new Promise<{ ok: boolean; error?: Error & { code?: string } }>(res => {
+        let child: ReturnType<typeof spawn>;
+        try { child = spawn(argv.cmd, argv.args, { detached: true, stdio: 'ignore', shell: false }); }
+        catch (e) { res({ ok: false, error: e as Error & { code?: string } }); return; }
+        let done = false;
+        child.once('spawn', () => { if (!done) { done = true; res({ ok: true }); } });
+        child.once('error', e => { if (!done) { done = true; res({ ok: false, error: e as Error & { code?: string } }); } });
+        child.unref();
+      });
+      if (opened.ok) return send(200, { ok: true, editor: setting.choice });
+      const code = opened.error?.code;
+      const message = code === 'ENOENT' ? `${argv.cmd} is not installed or not on PATH` : `${argv.cmd}: ${opened.error?.message || 'could not be started'}`;
+      // Recorded like other server errors: the errors.log of the named project, else of the registered project holding
+      // the folder. keepError never throws; the response carries the message either way.
+      try {
+        const entries = readRegistry(env);
+        const holder = (typeof body.project === 'string' && entries.find(e => e.name === body.project)) || findContaining(entries, dir);
+        if (holder) keepError({ root: registryDir(holder.path), log: '' }, `open in editor: ${dir}`, message);
+      } catch { /* the registry was readable when this request read the editor setting; the response already says this */ }
+      throw new HttpError(code === 'ENOENT' ? 400 : 500, message);
     }
     if (parts[0] === 'projects' && parts.length === 1) {
       if (method === 'GET') return send(200, { projects: await projects() });

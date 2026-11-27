@@ -111,6 +111,11 @@
     indexerStatus: '.indexer-status',
     indexerAction: '.indexer-action',
     buildOutput: 'pre.build-output',
+    // default editor (Projects page)
+    editorDialog: '[role="dialog"][aria-label="Default editor"]',
+    editorRow: '.ed-row',
+    editorCmd: '.ed-cmd',
+    editorCustom: '#editor-custom',
   };
 
   const $ = (sel, from) => (from || document).querySelector(sel);
@@ -536,6 +541,58 @@
   /** The preformatted process output of a failed build, if one is showing. */
   function codeSearchOutput() { return text($(SELECTORS.buildOutput)); }
 
+  // ---- default editor ----
+  /** The Projects page's editor button label ("Editor <name> ▾"); '' when it is not on this screen. */
+  function editorButton() {
+    const b = findButton('Editor');
+    return b ? text(b) : '';
+  }
+
+  /** The open Default editor dialog: the picked choice, the six rows, the custom command and any error; null when closed. */
+  function editorDialog() {
+    const d = $(SELECTORS.editorDialog);
+    if (!d) return null;
+    const rows = $$(SELECTORS.editorRow, d).map(r => {
+      const input = $('input[type="radio"]', r);
+      return { id: input ? input.value : '', name: text($('.grow', r)), cmd: text($(SELECTORS.editorCmd, r)), checked: input ? input.checked : false };
+    });
+    const field = $(SELECTORS.editorCustom, d);
+    return {
+      title: text($('h2', d)),
+      choice: (rows.find(r => r.checked) || {}).id || '',
+      rows,
+      custom: field ? field.value : null,
+      errors: $$(SELECTORS.error, d).map(text).filter(Boolean),
+      buttons: buttons(d).map(b => b.label),
+    };
+  }
+
+  /**
+   * Picks the default editor: opens the dialog when it is closed, clicks the row named by <choice> (its id or label),
+   * types <custom> into the command field when given, presses Save and reports the dialog once it settled (null once
+   * the save closed it; the dialog state when Save was refused).
+   */
+  async function setEditor(choice, custom) {
+    if (!$(SELECTORS.editorDialog)) click('Editor');
+    const d = await waitFor(SELECTORS.editorDialog);
+    await waitFor(() => $$(SELECTORS.editorRow, d).length >= 6, { timeout: 5000 }); // the rows render once loaded
+    const row = $$(SELECTORS.editorRow, d).find(r => {
+      const input = $('input[type="radio"]', r);
+      return input && (input.value === choice || text(r).toLowerCase().includes(String(choice).toLowerCase()));
+    });
+    if (!row) throw new Error(`sdlcUI.setEditor: no editor "${choice}"; choices: ${$$(SELECTORS.editorRow, d).map(r => $('input', r).value).join(', ')}`);
+    const input = $('input[type="radio"]', row);
+    if (!input.checked) input.click();
+    if (custom !== undefined) {
+      const field = String(choice).toLowerCase() === 'custom' ? await waitFor(SELECTORS.editorCustom, { timeout: 2000 }) : $(SELECTORS.editorCustom, d);
+      if (field) setValue(field, custom);
+    }
+    await sleep(50);
+    click('Save', d);
+    await sleep(300);
+    return editorDialog();
+  }
+
   /** A short summary of the current screen: start here. */
   function snapshot() {
     const r = route();
@@ -547,9 +604,11 @@
       return { ...base, board: { ...b, rows: b.rows.map(x => `${x.kind === 'run' ? '▶' : '·'} ${x.slug} | ${x.status} | ${x.where} | ${x.stages} | ${x.pr}`) } };
     }
     const dialog = codeSearchDialog();
+    const editor = editorDialog();
     return {
       ...base, heading: text($('h1', main())), panels: panelTitles(), buttons: buttons().map(b => b.label),
       ...(dialog ? { codeSearch: { dialog, indexers: codeSearchIndexers(), output: codeSearchOutput() } } : {}),
+      ...(editor ? { editor } : {}),
     };
   }
 
@@ -568,6 +627,8 @@
     newItem,
     // code search setup
     codeSearchDialog, codeSearchIndexers, codeSearchOutput,
+    // default editor
+    editorButton, editorDialog, setEditor,
   };
   api.help = () => Object.keys(api).filter(k => typeof api[k] === 'function').join(', ');
   root.sdlcUI = api;
