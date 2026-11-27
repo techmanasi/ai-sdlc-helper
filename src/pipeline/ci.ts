@@ -373,7 +373,7 @@ async function classify(ctx: Ctx, failed: FailedCheck[], startTime: number, limi
   if (failedTests.length || suiteErrors.length) {
     const owner = real.find(c => c.runId && reportRuns.has(c.runId)) || real[0];
     for (const t of failedTests) candidates.push(infoOf(owner, t.file as string, t.name, t.message || '', 'side-effect'));
-    for (const e of suiteErrors) candidates.push(infoOf(owner, e.file as string, '(test file failed to run)', e.message, 'side-effect'));
+    for (const e of suiteErrors) candidates.push(infoOf(owner, e.file as string, '', e.message, 'side-effect'));
     for (const c of real) if (c.runId && reportRuns.has(c.runId)) withTests.add(c);
   }
   const byCheck = real.filter(c => !withTests.has(c));
@@ -458,7 +458,11 @@ async function classify(ctx: Ctx, failed: FailedCheck[], startTime: number, limi
   for (const { c, log } of checkLevel) {
     const flaky = passedOnRerun(c);
     if (flaky) nonBlocking.push(strip(infoOf(c, '', '', 'passed on rerun', 'flaky')));
-    else sideEffects.push(strip(infoOf(c, '', '', log.trim().split('\n').slice(-20).join('\n'), 'side-effect')));
+    else {
+      const files = failingFilesOf(log).filter(file => !allow.some(e => matchesAllowEntry(e, file)) || isRed(file));
+      const message = log.trim().split('\n').slice(-20).join('\n');
+      for (const file of files.length ? files : ['']) sideEffects.push(strip(infoOf(c, file, '', message)));
+    }
   }
   const stillFailing = new Set(sideEffects.map(f => f.checkName));
 

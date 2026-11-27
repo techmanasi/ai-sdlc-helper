@@ -1,6 +1,7 @@
 // What an Implement round says about the full suite in CI: the status line, the run status, and the failure text the
 // next agent reads. Pure formatting; the orchestration is in stages.ts.
 import fs from 'node:fs';
+import { keepError } from './errors.js';
 import { at, type Ctx } from './context.js';
 import type { CiStatus } from './status.js';
 import type { CiClassification, CiStepResult, CiTestFailure } from './ci.js';
@@ -62,15 +63,15 @@ export function ciWarnings(r: CiStepResult): string[] {
   return r.nonBlocking.map(f => `${f.classification}: ${f.checkName}${f.file ? ` ${f.file}` : ''}${f.testName ? ` :: ${f.testName}` : ''}`);
 }
 
-/** What the next Implement agent reads in tests.log after a red CI: each side effect, and the files its local gate will run. */
-export function ciFailureText(r: CiStepResult, gateFiles: string[]): string {
+/** What the next Implement agent reads in tests.log after a red CI: each side effect, and the tests its local gate will run. */
+export function ciFailureText(r: CiStepResult, targets: string[]): string {
   const lines = ['CI FAILED: the full suite in CI found side effects of your change. Fix the source (never the tests).', ''];
   for (const f of r.sideEffects) {
     lines.push(`  FAIL  [${f.checkName}] ${f.file || '(check)'}${f.testName ? ` :: ${f.testName}` : ''}`);
     if (f.message) lines.push(...f.message.trim().split('\n').slice(0, 20).map(l => `      ${l}`));
     if (f.runUrl) lines.push(`      run: ${f.runUrl}`);
   }
-  if (gateFiles.length) lines.push('', `The local gate will run these test files: ${gateFiles.join(', ')}`);
+  if (targets.length) lines.push('', `The local gate will run these tests: ${targets.join(', ')}`);
   return `${lines.join('\n')}\n`;
 }
 
@@ -78,7 +79,7 @@ export function ciFailureText(r: CiStepResult, gateFiles: string[]): string {
 export function localCounts(ctx: Ctx): { total: number; failed: number } | null {
   try {
     const j = JSON.parse(fs.readFileSync(at(ctx, `${ctx.log}/tests.json`), 'utf8'));
-    if (!Array.isArray(j.tests)) return null;
-    return { total: j.tests.length, failed: j.tests.filter((t: { status: string }) => t.status === 'failed').length };
-  } catch { return null; }
+    if (!Array.isArray(j.tests)) throw new Error('tests.json has no test results');
+    return { total: j.tests.filter((t: { status: string }) => t.status === 'passed' || t.status === 'failed').length, failed: j.tests.filter((t: { status: string }) => t.status === 'failed').length };
+  } catch (e) { keepError(ctx, 'count local test results', (e as Error).message); return null; }
 }

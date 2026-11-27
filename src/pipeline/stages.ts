@@ -12,7 +12,7 @@ import { agentFor, harnessFor } from '../config/settings.js';
 import { at, setAside, stamp, stop, stopIfAborted, tick, type Ctx, type From } from './context.js';
 import { promptValues, runAgent, runAudit, stageFlags, stageNotes } from './agent.js';
 import {
-  newPassingTests, newTestFiles, repeatedTestNames, redCommitTestFiles, repairTestFiles, resultsAt, resultsNow, runToLog, successCheck, targetTestFiles, testsPass, testsPassAt,
+  newPassingTests, newTestFiles, repeatedTestNames, redCommitTestFiles, repairTestFiles, resultsAt, resultsNow, runToLog, successCheck, testsPass, testsPassAt,
 } from './gates.js';
 import { finalisePattern, implementPattern, redPattern, repairPattern } from './git.js';
 import { renderPrompt } from './prompts.js';
@@ -28,6 +28,7 @@ import { openMovedPr } from './branch-move.js';
 import { commitStageDocs } from './stage-docs.js';
 import { ensurePushable, pushCheckSkipped } from './push-check.js';
 import { checkCiAvailability, isRejectedPush, waitForCiAndClassify, type CiStepResult } from './ci.js';
+import { acceptRedTests, addTestEntries, readTestList } from './test-list.js';
 import { ciFailureText, ciState, ciStatusLine, ciWarnings, duration, localCounts, setCiStatus } from './ci-rounds.js';
 
 const short = (sha: string) => sha.slice(0, 7);
@@ -351,6 +352,8 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   stage(ctx, '3/6 Red tests (red gate)');
   await tick();
   if (!exists(at(ctx, `${ctx.docs}/plan-1.md`))) stop(ctx, `FROM=${ctx.from} but ${ctx.docs}/plan-1.md is missing: run Plan first`);
+  const fixing = !!ctx.promptExtra?.REVIEW_FINDINGS;
+  const priorList = fixing ? readTestList(ctx) : undefined;
   setAside(ctx, [`${ctx.log}/red.json`]);
   const existingRedShas = ctx.git.findCommits ? ctx.git.findCommits([redPattern(ctx.slug), repairPattern(ctx.slug)]) : [];
   const firstRedSha = (ctx.git.findCommits ? ctx.git.findCommits([redPattern(ctx.slug)])[0] : '') || existingRedShas[0] || '';
@@ -362,7 +365,6 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   const srcBefore = ctx.git.sourceHash ? ctx.git.sourceHash(ctx.layout.sourceDirs || [], ctx.layout.testPathspecs || [], ctx.config.backlogDir || '') : undefined;
   // What "new" means for the red gate: the tree before the agent ran, or before the first red commit on a resumed run.
   // Red tests for Review findings: the code is implemented already, so a new test must fail against the tree as it is now.
-  const fixing = !!ctx.promptExtra?.REVIEW_FINDINGS;
   let retryNote = '';
   // The handoff (pipeline finding and user instruction) is consumed by the first attempt; the retry still reads it, before its own note.
   const handed = ctx.handoff?.text ?? '';
@@ -454,6 +456,11 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
   }
   ctx.origRedSha = firstRedSha || ctx.redSha;
   ctx.lockSha = ctx.git.head();
+  const originalBase = firstRedSha ? ctx.git.run('rev-parse', `${firstRedSha}^`).trim() : baseSha;
+  const changedInReview = fixing && hasStaged
+    ? ctx.git.lines('diff', '--no-renames', '--name-only', `${ctx.redSha}^`, ctx.redSha, '--', ...ctx.layout.testPathspecs)
+    : [];
+  acceptRedTests(ctx, originalBase, gateFiles, priorList, changedInReview);
   recordLock(ctx, 'red-tests');
   // The full suite in CI: the tests are locked, so push and open the draft PR now (a failed red gate never gets here).
   if (ctx.config.tests.fullSuite === 'ci') await openCi(ctx);
@@ -470,6 +477,7 @@ function briefPr(ctx: Ctx): string | null {
 
 /** From now on the run behaves as if tests.fullSuite were "local": says why, and records it for the run page. */
 function fallBack(ctx: Ctx, reason: string): void {
+  keepError(ctx, 'CI unavailable', reason);
   ctx.ciAvailable = false;
   ctx.ciFallbackReason = reason;
   ctx.out(`CI unavailable (${reason}): running the full suite locally`);
@@ -558,8 +566,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
   if (ctx.fromN === 4) {
     const isScoped = ctx.config.tests?.preliminary !== 'full';
     ctx.status?.beginStep?.('baseline');
-    const targets = targetTestFiles(ctx);
-    testsPass(ctx, { targetFiles: targets, onlyTargets: (isScoped || ciOn(ctx)) && targets.length > 0 });
+    testsPass(ctx, isScoped ? { testList: true, onlyTargets: true } : { full: true });
     await tick();
   }
   // Fixed: the next CI run decides, and the merged result is checked before it is pushed.
@@ -598,8 +605,8 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
       stop(ctx, null);
     }
     await tick();
-    if (viaCi) ctx.out(`  Red tests: running locally (${new Set([...targetTestFiles(ctx), ...(ctx.ciSideEffectFiles || [])]).size} files)`);
-    const green = await successCheck(ctx);
+    if (viaCi) ctx.out('  Red tests: running locally');
+    const green = await successCheck(ctx, { testList: true });
     if (viaCi) {
       const n = localCounts(ctx);
       ctx.out(green ? `  Red tests: passed locally${n ? ` (${n.total} tests)` : ''}` : `  Red tests: failed locally${n ? ` (${n.failed} of ${n.total} tests failed)` : ''}`);
@@ -642,7 +649,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
         continue;
       }
       // CI has no workflow: the rest of the stage runs the full suite locally, starting with this attempt's gate.
-      if (await successCheck(ctx)) { fixed(); ctx.out(' tests and integration green'); return true; }
+      if (await successCheck(ctx, { testList: true })) { fixed(); ctx.out(' tests and integration green'); return true; }
     } else if (viaCi) endRound('Red - local gate failed (see the test log)');
     await tick();
     const fails = formatCheckFailures(ctx);
@@ -737,8 +744,11 @@ function settleCi(ctx: Ctx, result: CiStepResult, sha: string): 'green' | 'red' 
   const green = result.status === 'green' || result.status === 'green-with-warnings';
   setCiStatus(ctx, { state: ciState(result), failingChecks: result.failingChecks || failingChecks, warnings: ciWarnings(result), sha, ...(green ? { greenSha: sha } : {}) });
   if (result.status === 'red') {
-    ctx.ciSideEffectFiles = [...new Set([...(ctx.ciSideEffectFiles || []), ...result.testFiles])];
-    try { fs.writeFileSync(at(ctx, `${ctx.log}/tests.log`), ciFailureText(result, [...new Set([...targetTestFiles(ctx), ...ctx.ciSideEffectFiles])])); } catch (e) {
+    addTestEntries(ctx, 'ci', result.sideEffects.filter(f => f.file).map(f => ({ file: f.file, name: f.testName })));
+    const targets = readTestList(ctx).filter(t => t.state === 'active').map(t => t.name ? `${t.file} :: ${t.name}` : t.file);
+    const text = ciFailureText(result, targets);
+    keepError(ctx, 'Implement CI gate', text);
+    try { fs.writeFileSync(at(ctx, `${ctx.log}/tests.log`), text); } catch (e) {
       keepError(ctx, 'write the CI failures to tests.log', (e as Error).message);
       ctx.out(`WARNING: could not write CI's failures to ${ctx.log}/tests.log (see ${ctx.log}/errors.log)`);
     }
@@ -811,6 +821,7 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
     if (errs.length) { ctx.err('REJECT: claims would not pass the pre-check'); ctx.err(errs.map(e => `REJECT: ${e}`).join('\n')); stop(ctx, null); }
   }
   if (rejects(pre)) reject('claims fail pre-check (see above)', true);
+  const claimedTests = ctx.keys.claims(issues).map(c => ({ file: ctx.keys.rootPath(c.file), name: c.name }));
   ctx.status?.beginStep?.('hash');
   const srcBefore = ctx.git.sourceHash(ctx.layout.sourceDirs, specs, ctx.config.backlogDir);
   ctx.status.attempt = '1/1';
@@ -845,7 +856,8 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
   const verdict = audit.split('\n').filter(l => /^VERDICT: (VALID|INVALID)$/.test(l)).pop();
   if (verdict !== 'VERDICT: VALID') reject('independent auditor did not return VERDICT: VALID');
   await tick();
-  if (!(await successCheck(ctx))) reject(`checks still fail after an audited repair; see ${ctx.failLog}`);
+  addTestEntries(ctx, 'repair', claimedTests);
+  if (!(await successCheck(ctx, { testList: true }))) reject(`checks still fail after an audited repair; see ${ctx.failLog}`);
   ctx.status?.beginStep?.('commit');
   await writeCostLog(ctx);
   ctx.git.run('add', '-A', '--', ctx.docs);

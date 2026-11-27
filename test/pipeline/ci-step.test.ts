@@ -220,12 +220,12 @@ describe('real CI failure classification (spec 8)', () => {
     expect(result.nonBlocking).toEqual(expect.arrayContaining([expect.objectContaining({ classification: 'infrastructure', checkName: 'unit' })]));
   });
   it.each([
-    ['allowed', ['test/*.test.ts'], 'FAIL test/old.test.ts\nTests: 1 failed'],
-    ['side-effect', ['test/old.test.ts > suite rejects input'], 'FAIL test/old.test.ts\nTests: 1 failed'],
-    ['side-effect', ['test/old.test.ts'], 'FAIL test/old.test.ts\nFAIL test/new.test.ts\nTests: 2 failed'],
-    ['infrastructure', [], 'Runner could not start: service unavailable'],
-    ['side-effect', [], "web/test/x.test.ts(23,14): error TS18046: 'view' is of type 'unknown'.\n##[error]Process completed with exit code 2."],
-  ] as const)('I14 classifies missing-artifact logs as %s', async (classification, entries, log) => {
+    ['allowed', ['test/*.test.ts'], 'FAIL test/old.test.ts\nTests: 1 failed', []],
+    ['side-effect', ['test/old.test.ts > suite rejects input'], 'FAIL test/old.test.ts\nTests: 1 failed', ['test/old.test.ts']],
+    ['side-effect', ['test/old.test.ts'], 'FAIL test/old.test.ts\nFAIL test/new.test.ts\nTests: 2 failed', ['test/new.test.ts']],
+    ['infrastructure', [], 'Runner could not start: service unavailable', []],
+    ['side-effect', [], "web/test/x.test.ts(23,14): error TS18046: 'view' is of type 'unknown'.\n##[error]Process completed with exit code 2.", []],
+  ] as const)('I14 classifies missing-artifact logs as %s', async (classification, entries, log, expectedFiles) => {
     const { waitForCiAndClassify } = await import('../../src/pipeline/ci.js');
     vi.useFakeTimers(); classificationFixture({ artifact: false, log });
     const ctx = context(); ctx.config.tests.allowFailures = [...entries];
@@ -234,7 +234,7 @@ describe('real CI failure classification (spec 8)', () => {
     const result = await promise;
     expect(result.status).toBe(classification === 'side-effect' ? 'red' : 'green-with-warnings');
     expect([...result.nonBlocking, ...result.sideEffects]).toEqual(expect.arrayContaining([expect.objectContaining({ classification })]));
-    expect(result.testFiles).toEqual([]);
+    expect(result.testFiles).toEqual(expectedFiles);
     expect(ctx.out.mock.calls.flat().filter(line => line === 'CI test report not found: classifying by check')).toHaveLength(1);
   });
   it('I16 resolves base results from the merge-base rather than the current branch tip', async () => {

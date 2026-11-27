@@ -235,6 +235,26 @@ describe('running', () => {
     expect(r.ok).toBe(false);
   });
 
+  test('Jest receives the listed names as an anchored test name pattern for a file', () => {
+    const dir = project({ 'test/math.test.js': '' });
+    const calls: { command: string; cwd: string }[] = [];
+    runSuite(suite('jest'), {
+      root: dir, files: ['test/math.test.js'], names: ['math adds', 'a|b'],
+      spawn: fakeRunner(() => ({ report: fixture('jest.json') }), calls),
+    });
+    expect(calls[0].command).toContain("'test/math.test.js'");
+    expect(calls[0].command).toMatch(/(-t|--testNamePattern)[= ]'\^\(\?:math adds\|a\\\|b\)\$'/);
+  });
+
+  test('Mocha receives an anchored grep for the listed names in a file', () => {
+    const dir = project({ 'test/math.test.js': '' });
+    const r = runSuite(suite('mocha'), {
+      root: dir, files: ['test/math.test.js'], names: ['math adds', 'math [sum]'],
+      spawn: fakeRunner(() => ({ report: fixture('mocha.json').replace(/\/project/g, fs.realpathSync(dir)) }), []),
+    });
+    expect(r.command).toContain("'test/math.test.js' --grep '^(?:math adds|math \\[sum\\])$'");
+  });
+
   test('mocha: one file that fails to load stops mocha, so the files run one by one with a spec-less config', () => {
     const dir = project({ 'test/math.test.js': '', 'test/broken.test.js': '', '.mocharc.json': { spec: 'test/**/*.test.js', timeout: 100 } });
     const real = fs.realpathSync(dir);

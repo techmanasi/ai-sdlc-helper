@@ -100,8 +100,6 @@ export interface Ctx {
   /** Set when the run moved to a new branch: the branch it left and that branch's pull request. */
   movedFrom?: { branch: string; pr?: string | null; reason?: string };
   ciFallbackReason?: string;
-  /** Test files of CI side-effect failures so far: Implement's local gate runs them too. */
-  ciSideEffectFiles?: string[];
   /** The latest CI result of Implement. */
   ciLastResult?: CiStepResult;
   out(line: string): void;

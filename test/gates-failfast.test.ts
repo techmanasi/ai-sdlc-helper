@@ -4,12 +4,14 @@ import { describe, expect, test, vi, afterEach } from 'vitest';
 import * as runners from '../src/runners/run.js';
 import * as filesModule from '../src/runners/files.js';
 import type { RunResult } from '../src/runners/types.js';
+import { recordConflictChanges } from '../src/pipeline/test-list.js';
+import { Git } from '../src/pipeline/git.js';
 import { targetTestFiles, testsPass, successCheck } from '../src/pipeline/gates.js';
 import type { Ctx } from '../src/pipeline/context.js';
 import { renderPrompt } from '../src/pipeline/prompts.js';
 import { formatCheckFailures, lintFailures } from '../src/pipeline/stages.js';
 import { lintNote, promptValues } from '../src/pipeline/agent.js';
-import { tmp } from './helpers.js';
+import { project, tmp, write } from './helpers.js';
 
 function makeCtx(dir: string, overrides: Partial<Ctx> = {}): Ctx {
   const logDir = path.join(dir, 'logs');
@@ -262,6 +264,88 @@ describe('testsPass fail-fast behavior', () => {
       expect.not.objectContaining({ files: expect.anything() }),
     );
   });
+});
+
+describe('the by-name gate', () => {
+  const file = 'test/a.test.ts';
+  const body = (source: string) => `import { test } from 'vitest'; import fs from 'node:fs';
+${source}`;
+  function fixture(source: string, names: string[]) {
+    const dir = project({ 'package.json': { type: 'module' }, [file]: body(source) });
+    fs.symlinkSync(path.resolve('node_modules'), path.join(dir, 'node_modules'));
+    const ctx = makeCtx(dir, { env: process.env, ciAvailable: true });
+    ctx.config.tests.fullSuite = 'ci';
+    write(dir, 'logs/red.json', { tests: names.map(name => ({ file, name, status: 'failed' })), suiteErrors: [] });
+    return ctx;
+  }
+  const gate = (ctx: Ctx) => testsPass(ctx, { testList: true, onlyTargets: true });
+
+  test('a normalized title that misses the name filter must pass in the whole file', () => {
+    const ctx = fixture("test('one   two', () => {}); test('other', () => fs.writeFileSync('whole', 'ran'));", ['one two']);
+    expect(gate(ctx)).toBe(true);
+    expect(fs.readFileSync(path.join(ctx.root, 'whole'), 'utf8')).toBe('ran');
+    expect(fs.readFileSync(path.join(ctx.root, 'logs/errors.log'), 'utf8')).toMatch(/name filter.*one two/);
+    expect(ctx.out).toHaveBeenCalledWith(expect.stringMatching(/whole file.*one two/));
+  }, 30_000);
+
+  test.each(['skipped', 'renamed'])('%s expected test fails even if every other test passes', mode => {
+    const declaration = mode === 'skipped' ? "test.skip('expected', () => {});" : "test('renamed', () => {});";
+    const ctx = fixture(declaration + "test('other', () => fs.writeFileSync('whole', 'ran'));", ['expected']);
+    expect(gate(ctx)).toBe(false);
+    expect(fs.existsSync(path.join(ctx.root, 'whole'))).toBe(true);
+    const report = JSON.parse(fs.readFileSync(path.join(ctx.root, 'logs/tests.json'), 'utf8'));
+    expect(report.ok).toBe(false);
+    expect(report.suiteErrors).toContainEqual({ file, message: expect.stringContaining('expected') });
+  }, 30_000);
+
+  test('only active entries execute: already-failing, dropped and same-named tests elsewhere leave no marker', () => {
+    const marker = (n: string) => `fs.appendFileSync('ran-${n}', 'x')`;
+    const ctx = fixture(`test('active', () => ${marker('active')}); test('known broken', () => { ${marker('broken')}; throw new Error('old'); }); test('gone', () => ${marker('gone')}); test('sibling', () => ${marker('sibling')});`, []);
+    write(ctx.root, 'test/b.test.ts', body(`test('active', () => ${marker('other')});`));
+    const entry = (name: string, state: string, f = file) => ({ file: f, name, addedBy: ['red'], state, reason: 'fixture' });
+    write(ctx.root, 'logs/test-list.json', [entry('active', 'active'), entry('known broken', 'already-failing'), entry('gone', 'dropped')]);
+    expect(gate(ctx)).toBe(true);
+    expect(fs.existsSync(path.join(ctx.root, 'ran-active'))).toBe(true);
+    for (const n of ['broken', 'gone', 'sibling', 'other']) expect(fs.existsSync(path.join(ctx.root, `ran-${n}`))).toBe(false);
+  }, 30_000);
+
+  test('a Resolve conflicts rename can drop the missing name only after the whole file passes', () => {
+    const ctx = fixture("test('expected', () => {});", ['expected']);
+    ctx.git = new Git(ctx.root);
+    ctx.git.run('init', '-q');
+    ctx.git.run('add', file);
+    const commit = (message: string) => ctx.git.run('-c', 'user.email=test@example.org', '-c', 'user.name=Test', 'commit', '-qm', message);
+    commit('base');
+    expect(gate(ctx)).toBe(true);
+    write(ctx.root, file, body("test('replacement', () => { throw new Error('conflict regression'); });"));
+    ctx.git.run('add', file);
+    commit('resolved changes');
+    recordConflictChanges(ctx, [file], ctx.git.head());
+
+    expect(gate(ctx)).toBe(false);
+    const entries = () => JSON.parse(fs.readFileSync(path.join(ctx.root, 'logs/test-list.json'), 'utf8'));
+    expect(entries()[0].state).toBe('active');
+    write(ctx.root, file, body("test('replacement', () => fs.writeFileSync('whole', 'ran'));"));
+    expect(gate(ctx)).toBe(true);
+    expect(fs.existsSync(path.join(ctx.root, 'whole'))).toBe(true);
+    expect(entries()[0].state).toBe('dropped');
+    expect(ctx.out).toHaveBeenCalledWith(expect.stringMatching(/dropped.*expected/i));
+  }, 30_000);
+
+  test('a file that initially failed to load stays whole after it loads', () => {
+    const ctx = fixture("test('before', () => {}); test('later', () => { throw new Error('whole file ran'); });", []);
+    write(ctx.root, 'logs/red.json', { tests: [], suiteErrors: [{ file, message: 'module missing' }] });
+    expect(gate(ctx)).toBe(false);
+    ctx.config.tests.allowFailures = [file + ' > later'];
+    expect(gate(ctx)).toBe(true);
+    write(ctx.root, file, body("test('later', () => fs.writeFileSync('whole', 'ran'));"));
+    expect(gate(ctx)).toBe(true);
+    expect(fs.existsSync(path.join(ctx.root, 'whole'))).toBe(true);
+    expect(JSON.parse(fs.readFileSync(path.join(ctx.root, 'logs/test-list.json'), 'utf8')))
+      .toContainEqual(expect.objectContaining({ file, whole: true, state: 'active' }));
+    write(ctx.root, file, body("test.skip('later', () => {});"));
+    expect(gate(ctx)).toBe(false);
+  }, 30_000);
 });
 
 describe('successCheck', () => {

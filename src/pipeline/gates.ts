@@ -3,14 +3,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { runSuites, summary, holds, type RunAll } from '../runners/run.js';
+import { runSuites, summary, holds, mergeResults, type RunAll } from '../runners/run.js';
 import { suiteFiles } from '../runners/files.js';
 import { testRunDefaults } from '../config/settings.js';
 import { spawnShell } from '../shell.js';
-import type { RunResult } from '../runners/types.js';
+import { norm, type RunResult } from '../runners/types.js';
 import { at, tick, type Ctx } from './context.js';
 import { keepError } from './errors.js';
 import { checkAllowedFailures, isRedTest, type FailedTest } from './allow-failures.js';
+import { readTestList, dropTests, conflictChanged, type TestListEntry } from './test-list.js';
 import { redPattern, repairPattern } from './git.js';
 
 const firstLines = (s: string | null, n = 20) => String(s || '').trim().split('\n').slice(0, n).map(l => `      ${l}`).join('\n');
@@ -178,20 +179,21 @@ const PLACEHOLDER = /%[sdifjoOpc#]|\$\{[^}\n]*\}|\$[A-Za-z_][\w.]*/g;
  * ('the summariser\\'s union' holds "the summariser's union"). A literal with placeholders ('%s: the run stops',
  * `${name} stops`) holds every name it expands to, when it has enough fixed text (8 characters) not to match anything.
  */
-function titlesOf(text: string): BaseTitles {
+export function titlesOf(text: string): BaseTitles {
   const plain = text.replace(/\\(['"`\\])/g, '$1');
+  const normalized = norm(plain);
   const patterns: RegExp[] = [];
   for (const m of text.matchAll(/(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g)) {
     const literal = m[2].replace(/\\(.)/g, '$1');
-    const fixed = literal.split(PLACEHOLDER);
+    const fixed = norm(literal).split(PLACEHOLDER);
     if (fixed.length < 2 || fixed.join('').trim().length < 8) continue;
     patterns.push(new RegExp(`^${fixed.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*?')}$`, 's'));
   }
-  return { has: name => ['\'', '"', '`'].some(q => plain.includes(`${q}${name}${q}`)) || patterns.some(p => p.test(name)) };
+  return { has: name => ['\'', '"', '`'].some(q => normalized.includes(`${q}${name}${q}`)) || patterns.some(p => p.test(name)) };
 }
 
 /** A test's title alone: its name joins describe titles and the title with spaces, so a file holds the title, not the name. A title counts only as a whole string literal. */
-function leafNames(name: string): string[] {
+export function leafNames(name: string): string[] {
   const words = name.split(' ');
   return words.map((_, i) => words.slice(i).join(' ')).slice(1);
 }
@@ -213,6 +215,88 @@ export function redCommitTestFiles(ctx: Ctx): string[] {
   return [...files].filter(f => fs.existsSync(at(ctx, f)) && ctx.config.suites.some(s => holds(s, f)));
 }
 
+/** A gate error is part of the runner report too, so the next attempt sees why a green command failed. */
+function gateError(file: string | null, message: string): RunResult {
+  return { suite: 'test list', runner: 'gate', ok: false, command: '', exitCode: 1, tests: [], suiteErrors: [{ file, message }] };
+}
+
+function runTestList(ctx: Ctx, groups: Map<string, TestListEntry[]>, logFile: string): boolean {
+  const results: RunResult[] = [];
+  const fileResults = new Map<string, RunResult[]>();
+  const notes: string[] = [];
+  const note = (message: string) => {
+    notes.push(message);
+    keepError(ctx, 'test name filter', message);
+    ctx.out(message);
+  };
+  const run = (suite: string, files: string[], names?: string[]): RunResult => {
+    try {
+      const result = runSuites(ctx.config, { root: ctx.root, env: ctx.env, ...testRuns(ctx), suite, files, names });
+      return 'error' in result ? gateError(files[0], result.error) : result.merged;
+    } catch (e) {
+      return gateError(files[0], String(e));
+    }
+  };
+  const unsupported = new Set<string>();
+  const fileOnly = new Set<string>();
+  const pendingDrops: TestListEntry[] = [];
+  for (const suite of ctx.config.suites) {
+    const files = [...groups.keys()].filter(f => holds(suite, f));
+    if (!files.length) continue;
+    if (suite.runner === 'node-test' || suite.runner === 'generic-junit') {
+      unsupported.add(suite.runner);
+      for (const file of files) fileOnly.add(file);
+      results.push(run(suite.name, files));
+      continue;
+    }
+    for (const file of files) {
+      const entries = groups.get(file)!;
+      const start = results.length;
+      const names = entries.flatMap(e => e.name ? [e.name] : []);
+      const whole = entries.some(e => e.whole);
+      let result = run(suite.name, [file], whole ? undefined : names);
+      const reported = (name: string) => result.tests.filter(t => t.file === file && t.name === name);
+      const missed = names.filter(name => !reported(name).some(t => t.status !== 'skipped'));
+      if (!whole && missed.length) {
+        const why = missed.map(name => `${name} (${reported(name).length ? 'skipped' : 'missing'})`).join(', ');
+        note(`Running the whole file ${file} because the name filter did not run: ${why}`);
+        if (!result.ok) keepError(ctx, 'test name filter', resultText([result]));
+        result = run(suite.name, [file]);
+      }
+      results.push(result);
+      if (whole || missed.length) {
+        if (!result.tests.some(t => t.file === file && t.status !== 'skipped')) {
+          results.push(gateError(file, 'No test ran in the whole file'));
+        }
+        for (const entry of entries) {
+          if (!entry.name) continue;
+          const matches = reported(entry.name);
+          if (matches.some(t => t.status === 'passed')) continue;
+          if (!matches.length && conflictChanged(ctx, entry)) pendingDrops.push(entry);
+          else results.push(gateError(file, `Expected test did not pass in the whole file: ${entry.name}`));
+        }
+      }
+      fileResults.set(file, [...(fileResults.get(file) || []), ...results.slice(start)]);
+    }
+  }
+  if (unsupported.size) note(`${[...unsupported].join(', ')} runs the scoped files without a name filter`);
+  for (const file of groups.keys()) {
+    if (!ctx.config.suites.some(s => holds(s, file))) results.push(gateError(file, 'No configured suite holds this file'));
+  }
+  const merged = mergeResults(results);
+  recordResults(ctx, { results, merged }, logFile);
+  if (notes.length) fs.appendFileSync(logFile, notes.join('\n') + '\n');
+  const passed = passesWithAllowed(ctx, merged, (file, name) => !!groups.get(file)?.some(e => e.name === name)
+    || (fileOnly.has(file) && isRedTest(ctx, file, name)));
+  if (!passed) keepError(ctx, 'test list', resultText(results));
+  const dropped = pendingDrops.filter(e => {
+    const reports = fileResults.get(e.file)!;
+    return (passed || reports.every(r => r.ok)) && !reports.some(r => r.tests.some(t => t.name === e.name));
+  });
+  if (dropped.length) dropTests(ctx, dropped, 'Resolve conflicts changed the file and the whole file passed');
+  return passed;
+}
+
 /**
  * The unit tests of every suite, in the working tree, with tests.maxWorkers. Unless tests.retry is false, a failure is
  * run once more (the failed files) before it counts;
@@ -224,21 +308,31 @@ export function redCommitTestFiles(ctx: Ctx): string[] {
  * immediately without running the full test suite. Only when target tests pass (or if all suites were covered)
  * does it proceed to run the full suite for zero-trust verification (unless opts.onlyTargets is true).
  */
-export function testsPass(ctx: Ctx, opts: { targetFiles?: string[]; onlyTargets?: boolean; noAllowFailures?: boolean; root?: string } = {}): boolean {
+export function testsPass(ctx: Ctx, opts: { targetFiles?: string[]; testList?: boolean; full?: boolean; onlyTargets?: boolean; noAllowFailures?: boolean; root?: string } = {}): boolean {
+  if (opts.noAllowFailures) fs.rmSync(at(ctx, `${ctx.log}/tests.json`), { force: true });
   const runRoot = opts.root || ctx.root;
   const logFile = at(ctx, `${ctx.log}/tests.log`);
   // The red gate (noAllowFailures) wants the new tests to fail: an allow entry must not turn their failure into a pass.
   const passes = (merged: RunResult): boolean => (opts.noAllowFailures ? merged.ok : passesWithAllowed(ctx, merged));
   // With the full suite in CI (and CI reachable) the local gate runs the red tests, and in Implement the files of earlier
   // CI side effects, and nothing else.
-  const scoped = fullSuiteInCi(ctx);
-  const wanted = [...(opts.targetFiles || [])];
-  if (scoped && ctx.status && ctx.status.stage === 'Implement') wanted.push(...(ctx.ciSideEffectFiles || []));
-  const targets = [...new Set(wanted)].filter(f => ctx.config.suites.some(s => holds(s, f)));
+  const scoped = !opts.full && fullSuiteInCi(ctx);
+  if (opts.testList) {
+    const groups = new Map<string, TestListEntry[]>();
+    for (const entry of readTestList(ctx)) {
+      if (entry.state !== 'active') continue;
+      if (!groups.has(entry.file)) groups.set(entry.file, []);
+      groups.get(entry.file)!.push(entry);
+    }
+    if (!groups.size) ctx.out('No active tests in the test list');
+    if (!runTestList(ctx, groups, logFile)) return false;
+    if (scoped || (opts.onlyTargets && groups.size > 0)) return true;
+  }
+  const targets = [...new Set(opts.targetFiles)].filter(f => ctx.config.suites.some(s => holds(s, f)));
 
   if (targets.length > 0) {
     const fast = runSuites(ctx.config, { root: runRoot, ...testRuns(ctx), files: targets, env: ctx.env });
-    if ('error' in fast) { fs.writeFileSync(logFile, `ERROR: ${fast.error}\n`); return false; }
+    if ('error' in fast) { keepError(ctx, 'unit tests', fast.error); fs.writeFileSync(logFile, `ERROR: ${fast.error}\n`); return false; }
     const allFiles = ctx.config.suites.flatMap(s => suiteFiles(runRoot, s));
     const final = scoped || opts.onlyTargets || (allFiles.length > 0 && allFiles.every(f => targets.includes(f)));
     if (!fast.merged.ok || final) {
@@ -256,16 +350,18 @@ export function testsPass(ctx: Ctx, opts: { targetFiles?: string[]; onlyTargets?
     return true;
   }
   const r = runSuites(ctx.config, { root: runRoot, ...testRuns(ctx), env: ctx.env });
-  if ('error' in r) { fs.writeFileSync(logFile, `ERROR: ${r.error}\n`); return false; }
+  if ('error' in r) { keepError(ctx, 'unit tests', r.error); fs.writeFileSync(logFile, `ERROR: ${r.error}\n`); return false; }
   recordResults(ctx, r, logFile);
-  return passes(r.merged);
+  const passed = passes(r.merged);
+  if (!passed) keepError(ctx, 'unit tests', resultText(r.results));
+  return passed;
 }
 
 /**
  * Whether a run passes: it is ok, or every failure is waived by tests.allowFailures (each with a WARNING). A runner or file
  * error is never a waivable test, and a red test is never waived.
  */
-function passesWithAllowed(ctx: Ctx, merged: RunResult): boolean {
+function passesWithAllowed(ctx: Ctx, merged: RunResult, protectedTest = (file: string, name?: string) => isRedTest(ctx, file, name)): boolean {
   if (merged.ok) return true;
   const allow = ctx.config.tests.allowFailures || [];
   if (!allow.length || merged.suiteErrors.length) return false;
@@ -277,11 +373,11 @@ function passesWithAllowed(ctx: Ctx, merged: RunResult): boolean {
     failed.push({ file: t.file, name: t.name });
   }
   if (!failed.length) return false;
-  const { allowed, blocked } = checkAllowedFailures(failed, allow, (f, n) => isRedTest(ctx, f, n), msg => ctx.out(msg));
+  const { allowed, blocked } = checkAllowedFailures(failed, allow, protectedTest, msg => ctx.out(msg));
   for (const a of allowed) ctx.out(`WARNING: allowed failure (tests.allowFailures): ${a.file} :: ${a.name}`);
   if (allowed.length) {
     const list = allowed.map(a => `  ALLOWED  ${a.file} :: ${a.name}`).join('\n');
-    try { fs.appendFileSync(at(ctx, `${ctx.log}/tests.log`), `\nNot blocking (tests.allowFailures):\n${list}\n`); } catch { /* the WARNING lines say it */ }
+    try { fs.appendFileSync(at(ctx, `${ctx.log}/tests.log`), `\nNot blocking (tests.allowFailures):\n${list}\n`); } catch (e) { keepError(ctx, 'record allowed failures', String(e)); }
   }
   return blocked.length === 0;
 }
@@ -322,11 +418,10 @@ export async function lintPass(ctx: Ctx): Promise<boolean> {
 }
 
 /** The unit tests, then the linter, then the integration suite; ctx.failLog names the log of the check that failed. */
-export async function successCheck(ctx: Ctx, opts: { targetFiles?: string[] } = {}): Promise<boolean> {
+export async function successCheck(ctx: Ctx, opts: { targetFiles?: string[]; testList?: boolean } = {}): Promise<boolean> {
   await tick();
   ctx.status?.beginStep?.('tests');
-  const targets = opts.targetFiles ?? targetTestFiles(ctx);
-  const unit = testsPass(ctx, { targetFiles: targets });
+  const unit = testsPass(ctx, opts.testList ? opts : { targetFiles: opts.targetFiles ?? targetTestFiles(ctx) });
   await tick();
   if (!unit) { ctx.failLog = `${ctx.log}/tests.log`; return false; }
   if (ctx.config.lint) ctx.status?.beginStep?.('lint');
@@ -350,8 +445,9 @@ function writeResults(ctx: Ctx, root: string, out: string, files?: string[]): vo
     const opts: any = { root, maxWorkers: testRuns(ctx).maxWorkers, env: ctx.env };
     if (files && files.length > 0) opts.files = files;
     const r = runSuites(ctx.config, opts);
-    if (!('error' in r)) fs.writeFileSync(out, `${JSON.stringify(r.merged)}\n`);
-  } catch { /* the checks that read <out> report it */ }
+    if ('error' in r) keepError(ctx, 'test results', r.error);
+    else fs.writeFileSync(out, `${JSON.stringify(r.merged)}\n`);
+  } catch (e) { keepError(ctx, 'test results', String(e)); }
 }
 
 /** The test results of the working tree, in <outRel>. */
@@ -408,9 +504,9 @@ function withWorktreeAt<T>(ctx: Ctx, sha: string, files: string[], fn: (wt: stri
  * The test results on <sha>'s source, with <files> copied from the working tree, in <outRel>. The commit is checked out
  * in a temporary worktree that shares the settings' worktree links (node_modules and the like).
  */
-export function resultsAt(ctx: Ctx, sha: string, outRel: string, files: string[] = []): void {
+export function resultsAt(ctx: Ctx, sha: string, outRel: string, files: string[] = [], runFiles = files): void {
   withWorktreeAt(ctx, sha, files, wt => {
-    writeResults(ctx, wt, at(ctx, outRel), files.length > 0 ? files : undefined);
+    writeResults(ctx, wt, at(ctx, outRel), runFiles);
   });
 }
 

@@ -3,9 +3,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { implementStage, redTestsStage, testRepairStage, finaliseStage } from '../../src/pipeline/stages.js';
-import { runAgent } from '../../src/pipeline/agent.js';
+import { runAgent, runAudit } from '../../src/pipeline/agent.js';
 import { successCheck, testsPass } from '../../src/pipeline/gates.js';
+import { Git } from '../../src/pipeline/git.js';
+import { readTestList, addTestEntries, acceptRedTests } from '../../src/pipeline/test-list.js';
 import { finalise } from '../../src/pipeline/finalise.js';
+import { Keys } from '../../src/testcheck/keys.js';
 import { changed } from '../../src/changes/index.js';
 import type { Ctx } from '../../src/pipeline/context.js';
 
@@ -13,7 +16,7 @@ const ci = vi.hoisted(() => ({ available: vi.fn(), wait: vi.fn(), ready: vi.fn()
 vi.mock('../../src/pipeline/ci.js', async importOriginal => ({ ...await importOriginal<typeof import('../../src/pipeline/ci.js')>(), checkCiAvailability: ci.available, waitForCiAndClassify: ci.wait }));
 const pc = vi.hoisted(() => ({ ensure: vi.fn(async (_ctx: { branch: string }, _opts: { resume: string; fresh: boolean }) => {}) }));
 vi.mock('../../src/pipeline/push-check.js', () => ({ ensurePushable: pc.ensure, pushCheckSkipped: (env: NodeJS.ProcessEnv) => ['0', 'no', 'off'].includes(String(env.SDLC_PUSH_CHECK ?? '')) }));
-vi.mock('../../src/pipeline/agent.js', async importOriginal => ({ ...await importOriginal<typeof import('../../src/pipeline/agent.js')>(), runAgent: vi.fn(async () => {}), stageFlags: vi.fn(() => ({ model: 'fixture-model', effort: 'high' })) }));
+vi.mock('../../src/pipeline/agent.js', async importOriginal => ({ ...await importOriginal<typeof import('../../src/pipeline/agent.js')>(), runAgent: vi.fn(async () => {}), runAudit: vi.fn(), stageFlags: vi.fn(() => ({ model: 'fixture-model', effort: 'high' })) }));
 vi.mock('../../src/pipeline/deps.js', () => ({ installDeps: vi.fn() }));
 vi.mock('../../src/changes/index.js', async importOriginal => ({ ...await importOriginal<typeof import('../../src/changes/index.js')>(), mark: vi.fn(), changed: vi.fn() }));
 vi.mock('../../src/pipeline/gates.js', async importOriginal => ({
@@ -32,6 +35,9 @@ beforeEach(async () => {
   await fs.writeFile(path.join(root, 'docs/plan-1.md'), '');
   vi.mocked(successCheck).mockResolvedValue(true);
   vi.mocked(testsPass).mockReturnValue(false);
+  await fs.writeFile(path.join(root, 'docs/logs/tests.json'), JSON.stringify({ tests: [
+    { file: 'test/red.test.ts', name: 'regression', status: 'failed' },
+  ], suiteErrors: [] }));
   ci.available.mockReturnValue({ available: true });
   ci.wait.mockResolvedValue({ status: 'green', sideEffects: [], nonBlocking: [], testFiles: [] });
   ci.ready.mockReturnValue(true);
@@ -43,7 +49,6 @@ function context(mode = 'ci') {
   const git = { root, run: vi.fn((..._args: string[]) => ''), lines: vi.fn((..._args: string[]) => ['src/feature.ts']), addTests: vi.fn(), head: vi.fn(() => 'a'.repeat(40)), testsChangedSince: vi.fn(() => []) };
   return { root, slug: 'feature', branch: 'sdlc/feature', docs: 'docs', log: 'docs/logs', backlog: 'docs/index.md',
     redSha: 'red', origRedSha: 'red', lockSha: 'red', from: 'red-tests', fromN: 3, ciAvailable: true,
-    ciSideEffectFiles: [] as string[],
     config: { tests: { fullSuite: mode, preliminary: 'full', allowFailures: [] }, ci: { waitMinutes: 1 }, suites: [], integration: null,
       agent: { harness: 'claude', model: 'fixture-model', effort: 'high', stages: {} }, git: { base: 'release' }, finalise: { maxFileBytes: 1024, envExample: false } },
     env: { SDLC_CREATE_PR: '0' }, layout: { testPathspecs: ['test/**/*.test.ts'] }, limits: { maxAttempts: 2 }, git,
@@ -212,13 +217,24 @@ describe('CI stage orchestration (spec 4, 7, 9)', () => {
     expect(ci.wait).not.toHaveBeenCalled();
     expect(ctx.git.run.mock.calls.some(args => args.includes('commit') || args.includes('push'))).toBe(false);
   });
-  it('S07 CI side effects consume another attempt and accumulate files for the local gate', async () => {
+  it('S07 CI side effects consume another attempt and persist names for the local gate', async () => {
     const ctx = context();
+    Object.assign(ctx, { env: process.env });
+    Object.assign(ctx.config, { suites: [{ name: 'unit', dir: '.', runner: 'vitest', packageManager: 'npm', testGlobs: ['test/*.test.ts'] }] });
+    await fs.mkdir(path.join(root, 'test'));
+    await fs.symlink(path.resolve('node_modules'), path.join(root, 'node_modules'));
+    await fs.writeFile(path.join(root, 'package.json'), '{"type":"module"}');
+    await fs.writeFile(path.join(root, 'docs/logs/test-list.json'), '[]');
+    await fs.writeFile(path.join(root, 'test/old.test.ts'), "import { test } from 'vitest'; import fs from 'node:fs'; " +
+      "test('suite rejects input', () => fs.appendFileSync('checked', 'C')); test('other', () => fs.appendFileSync('checked', 'X'));");
+    const gates = await vi.importActual<typeof import('../../src/pipeline/gates.js')>('../../src/pipeline/gates.js');
+    vi.mocked(successCheck).mockImplementationOnce(gates.successCheck).mockImplementationOnce(gates.successCheck);
     ci.wait.mockResolvedValueOnce({ status: 'red', sideEffects: [{ checkName: 'unit', file: 'test/old.test.ts', testName: 'suite rejects input', message: 'expected true', runUrl: 'https://github.com/acme/repo/actions/runs/42', classification: 'side-effect' }], nonBlocking: [], testFiles: ['test/old.test.ts'] })
       .mockResolvedValueOnce({ status: 'green', sideEffects: [], nonBlocking: [], testFiles: [] });
     expect(await implementStage(cast(ctx))).toBe(true);
     expect(runAgent).toHaveBeenCalledTimes(2);
-    expect(ctx.ciSideEffectFiles).toContain('test/old.test.ts');
+    expect(readTestList(cast(context()))).toContainEqual(expect.objectContaining({ file: 'test/old.test.ts', name: 'suite rejects input', addedBy: ['ci'] }));
+    expect(await fs.readFile(path.join(root, 'checked'), 'utf8')).toBe('C');
     expect(ci.wait).toHaveBeenCalledTimes(2);
   });
   it('S08 non-blocking CI failures finish without another agent attempt', async () => {
@@ -286,6 +302,47 @@ describe('CI stage orchestration (spec 4, 7, 9)', () => {
   });
 });
 
+it('Test repair runs its claimed test after the audit and rejects a repair that still fails', async () => {
+  const ctx = cast(context());
+  const file = 'test/feature.test.js';
+  const testSource = (value: number) => "import { test, expect } from 'vitest'; " +
+    `test('claimed', () => expect(0).toBe(${value})); test('sibling', () => {});`;
+  await fs.mkdir(path.join(root, 'test'));
+  await fs.symlink(path.resolve('node_modules'), path.join(root, 'node_modules'));
+  await fs.writeFile(path.join(root, '.gitignore'), 'node_modules\ndocs\n');
+  await fs.writeFile(path.join(root, 'package.json'), '{"type":"module"}');
+  await fs.writeFile(path.join(root, file), testSource(1));
+  const git = new Git(root);
+  git.run('init', '-q');
+  git.run('add', '.');
+  git.run('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', 'commit', '-qm', 'fixture');
+  Object.assign(ctx, { git, redSha: git.head(), origRedSha: git.head(), lockSha: git.head(), env: process.env,
+    keys: new Keys({ keyDir: '.', testDirs: ['test'], pathspecs: ['test'] }, root) });
+  Object.assign(ctx.layout, { testPathspecs: ['test'], sourceDirs: ['.'] });
+  Object.assign(ctx.config.tests, { retry: false });
+  Object.assign(ctx.config, { backlogDir: 'docs', worktree: { link: ['node_modules'] },
+    suites: [{ name: 'unit', dir: '.', runner: 'vitest', packageManager: 'npm', tools: [], testGlobs: ['test/*.test.js'] }] });
+  const before = [{ file, name: 'claimed', status: 'failed' }, { file, name: 'sibling', status: 'passed' }];
+  await fs.writeFile(path.join(root, 'docs/logs/red.json'), JSON.stringify({ tests: before, suiteErrors: [] }));
+  await fs.writeFile(path.join(root, 'docs/logs/test-list.json'), '[]');
+  await fs.writeFile(path.join(root, 'docs/test-issues.md'), `${file} :: claimed :: expected value contradicts the spec\n`);
+  vi.mocked(runAgent).mockImplementationOnce(async () => { await fs.writeFile(path.join(root, file), testSource(2)); });
+  vi.mocked(runAudit).mockImplementationOnce(async () => { await fs.writeFile(path.join(root, 'docs/logs/test-audit.log'), 'VERDICT: VALID\n'); return 0; });
+  const gates = await vi.importActual<typeof import('../../src/pipeline/gates.js')>('../../src/pipeline/gates.js');
+  vi.mocked(successCheck).mockImplementationOnce(gates.successCheck);
+
+  await expect(testRepairStage(ctx)).rejects.toMatchObject({ code: 1 });
+  expect(ctx.out).toHaveBeenCalledWith(expect.stringContaining('checks still fail after an audited repair'));
+  expect(readTestList(ctx)).toContainEqual(expect.objectContaining({ file, name: 'claimed', addedBy: ['repair'], state: 'active' }));
+  for (const snapshot of ['now', 'after', 'repaired-on-red']) {
+    const report = JSON.parse(await fs.readFile(path.join(root, `docs/logs/${snapshot}.json`), 'utf8'));
+    expect(report.tests).toContainEqual(expect.objectContaining({ file, name: 'sibling', status: 'passed' }));
+  }
+  const report = JSON.parse(await fs.readFile(path.join(root, 'docs/logs/tests.json'), 'utf8'));
+  expect(report.tests).toContainEqual(expect.objectContaining({ file, name: 'claimed', status: 'failed' }));
+  expect(report.tests).not.toContainEqual(expect.objectContaining({ file, name: 'sibling', status: 'passed' }));
+}, 30_000);
+
 describe('Finalise waits for CI on the changes since Implement, and leaves the PR ready for review', () => {
   const PR = 'https://github.com/acme/repo/pull/12';
   const HEAD = 'a'.repeat(40);
@@ -332,6 +389,26 @@ describe('Finalise waits for CI on the changes since Implement, and leaves the P
     expect(await fs.readFile(path.join(root, 'docs/logs/tests.log'), 'utf8')).toContain('test/old.test.ts :: regression');
     expect(await fs.readFile(path.join(root, 'docs/ci-failure.md'), 'utf8')).toContain('unit (node 18)');
     expect(await fs.readFile(path.join(root, 'docs/logs/errors.log'), 'utf8')).toContain('unit (node 18)');
+  });
+
+  it('Finalise runs the full suite locally when CI becomes unavailable', async () => {
+    const ctx = finaliseCtx(['src/feature.ts']);
+    Object.assign(ctx.env, process.env);
+    // CI has not answered yet in this process (a resume), so "no workflow" falls back instead of pausing.
+    delete (ctx as { ciLastResult?: unknown }).ciLastResult;
+    Object.assign(ctx.config, { suites: [{ name: 'unit', runner: 'node-test', packageManager: 'npm', dir: '.', testGlobs: ['test/*.test.js'], testCmd: 'node --test test/*.test.js' }] });
+    await fs.mkdir(path.join(root, 'test'));
+    const file = 'test/listed.test.js';
+    await fs.writeFile(path.join(root, file), "require('node:test')('listed', () => {});");
+    await fs.writeFile(path.join(root, 'test/older.test.js'), "require('node:test')('unrelated', () => { throw new Error('unrelated regression'); });");
+    await fs.writeFile(path.join(root, 'docs/logs/test-list.json'), JSON.stringify([{ file, name: 'listed', addedBy: ['red'], state: 'active', reason: 'failed' }]));
+    const gates = await vi.importActual<typeof import('../../src/pipeline/gates.js')>('../../src/pipeline/gates.js');
+    vi.mocked(successCheck).mockImplementationOnce(gates.successCheck);
+    ci.wait.mockResolvedValue({ status: 'unavailable', reason: 'no workflow', sideEffects: [], nonBlocking: [], testFiles: [] });
+
+    await expect(finaliseStage(cast(ctx))).rejects.toMatchObject({ resumeFrom: 'implement' });
+    expect(await fs.readFile(path.join(root, 'docs/logs/tests.log'), 'utf8')).toContain('unrelated regression');
+    expect(ci.ready).not.toHaveBeenCalled();
   });
 
   it('only docs changed since CI was green: no second wait', async () => {
@@ -382,5 +459,90 @@ describe('Finalise waits for CI on the changes since Implement, and leaves the P
     await finaliseStage(cast(ctx));
     expect(ci.wait).toHaveBeenCalledTimes(1);
     expect(ci.ready).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the accepted Red tests list', () => {
+  it('compares existing names with the original file and source, then accumulates Review, repair and CI entries', async () => {
+    const git = new Git(root);
+    git.run('init', '-q');
+    git.run('config', 'user.email', 'tests@example.test');
+    git.run('config', 'user.name', 'Fixture');
+    const file = 'test/regression.test.cjs';
+    await fs.mkdir(path.join(root, 'test'));
+    const fixture = (cases: Record<string, string>) => [
+      "const {test} = require('node:test');", ...Object.entries(cases).map(([name, body]) => `test('${name}', () => { ${body} });`),
+    ].join('\n');
+    const broken = "throw new Error('broken')";
+    const original = {
+      'old red': broken, 'another old red': broken, 'changed expectation': '', 'works until Implement': "require('../feature.cjs')()",
+    };
+    const writeCases = (cases: Record<string, string>) => fs.writeFile(path.join(root, file), fixture(cases));
+    const commit = (title: string) => { git.run('add', '--', 'test', 'feature.cjs'); git.run('commit', '-qm', title); return git.head(); };
+    await writeCases(original);
+    await fs.writeFile(path.join(root, 'feature.cjs'), 'module.exports = () => {}');
+    const base = commit('base');
+
+    const ctx = cast(context());
+    ctx.git = git;
+    ctx.env = process.env;
+    Object.assign(ctx.config, { suites: [{ name: 'unit', dir: '.', runner: 'node-test', packageManager: 'npm', testCmd: 'node --test', testGlobs: ['test/**/*.cjs'] }] });
+    ctx.config.tests.allowFailures = [`${file} > allowed failure`];
+    const gates = await vi.importActual<typeof import('../../src/pipeline/gates.js')>('../../src/pipeline/gates.js');
+    const snapshot = () => gates.resultsNow(ctx, 'docs/logs/tests.json', [file]);
+
+    const red = { ...original, 'changed expectation': broken, 'new regression': broken, 'allowed failure': broken };
+    await writeCases(red);
+    commit('[red-tests] test(feature): add failing tests');
+    snapshot();
+    acceptRedTests(ctx, base, [file]);
+    const list = readTestList(ctx);
+    expect(list.map(t => [t.name, t.state])).toEqual([
+      ['old red', 'already-failing'], ['another old red', 'already-failing'], ['changed expectation', 'active'], ['new regression', 'active'],
+    ]);
+    expect(ctx.out).toHaveBeenCalledWith(expect.stringContaining('Already failing before the run: test/regression.test.cjs :: old red'));
+
+    await fs.writeFile(path.join(root, 'feature.cjs'), `module.exports = () => { ${broken} }`);
+    commit('[implement] feat(feature): implement');
+    const review = { ...original, 'changed expectation': '', 'renamed regression': broken, 'allowed failure': broken };
+    await writeCases(review);
+    commit('[red-tests] test(feature): add failing tests');
+    snapshot();
+    acceptRedTests(ctx, base, [file], readTestList(ctx), [file]);
+    const reviewed = readTestList(ctx);
+    expect(reviewed).toContainEqual(expect.objectContaining({ name: 'works until Implement', state: 'active' }));
+    expect(reviewed).toContainEqual(expect.objectContaining({ name: 'new regression', state: 'dropped' }));
+    expect(ctx.out).toHaveBeenCalledWith(expect.stringContaining('Dropped test/regression.test.cjs :: new regression'));
+    addTestEntries(ctx, 'repair', [{ file, name: 'old red' }]);
+    addTestEntries(ctx, 'ci', [{ file, name: 'another old red' }, { file }]);
+    const resumed = readTestList({ ...ctx });
+    expect(resumed).toContainEqual(expect.objectContaining({ name: 'old red', state: 'active', addedBy: ['red', 'repair'] }));
+    expect(resumed).toContainEqual(expect.objectContaining({ name: 'another old red', state: 'active', addedBy: ['red', 'ci'] }));
+    expect(resumed).toContainEqual(expect.objectContaining({ file, whole: true, state: 'active', addedBy: ['ci'] }));
+    expect(resumed.some(t => t.name === 'allowed failure')).toBe(false);
+
+    await writeCases({ 'only new name': broken });
+    snapshot();
+    const run = vi.spyOn(git, 'run');
+    acceptRedTests(ctx, base, [file]);
+    expect(run.mock.calls.some(args => args[0] === 'worktree')).toBe(false);
+    expect(readTestList(ctx)).toEqual([expect.objectContaining({ name: 'only new name', state: 'active' })]);
+  });
+
+  it('accepts a run that wrote no report (a red test file that cannot load) as the gate files, run whole', async () => {
+    const git = new Git(root);
+    git.run('init', '-q');
+    git.run('config', 'user.email', 'tests@example.test');
+    git.run('config', 'user.name', 'Fixture');
+    git.run('commit', '-q', '--allow-empty', '-m', 'base');
+    const ctx = cast(context());
+    ctx.git = git;
+    await fs.mkdir(path.join(root, 'docs/logs'), { recursive: true });
+    await fs.writeFile(path.join(root, 'docs/logs/tests.json'), JSON.stringify({
+      ok: false, exitCode: 1, noReport: true, tests: [],
+      suiteErrors: [{ file: null, message: "Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'src/truncate.js'" }],
+    }));
+    acceptRedTests(ctx, git.head(), ['test/truncate.test.js']);
+    expect(readTestList(ctx)).toEqual([expect.objectContaining({ file: 'test/truncate.test.js', whole: true, state: 'active' })]);
   });
 });
