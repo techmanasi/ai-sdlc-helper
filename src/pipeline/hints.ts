@@ -258,6 +258,14 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     const stageName = ctx.stage || (resumeAt ? FROM_NAMES[resumeAt] : 'Pipeline');
     const resumeKey = resumeAt || toFromStage(stageName, ctx.hasTestIssues);
 
+    if (/--effort is not supported for model/i.test(reason)) {
+      return {
+        stage: stageName,
+        diagnosis: `Agent '${agentName}' failed: ${reason}`,
+        autoAction: { label: `Retry ${stageName}`, command: resumeCommand(ctx.slug, toFromStage(stageName, ctx.hasTestIssues)) },
+        manualAction: { file: `logs/${agentName}.err`, instruction: 'Clear the separate effort setting for this model and retry the stage.' },
+      };
+    }
     if (isModelUnsupported) {
       return {
         stage: stageName,

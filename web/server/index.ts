@@ -166,7 +166,8 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   const dropContext = (name: string): void => { for (const id of contexts.keys()) if (id.startsWith(`${name}\n`)) contexts.delete(id); };
 
   /** The models each harness offers, with whether they take an effort and which providers offer them, for the pickers. */
-  const harnessModels = async (reg: DefaultHarnessRegistry) => {
+  const reg = new DefaultHarnessRegistry();
+  const harnessModels = async () => {
     const out: Record<string, { id: string; name: string; displayName?: string; supportsEffort: boolean; supportedEfforts?: string[]; defaultEffort?: string; providerId?: string; providerName?: string }[]> = {};
     for (const h of reg.list()) out[h.id] = (await h.listModels(env)).map(m => ({
       id: m.id, name: m.name, displayName: m.displayName, supportsEffort: m.supportsEffort, supportedEfforts: m.supportedEfforts,
@@ -468,14 +469,13 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       try { fileJson = raw ? JSON.parse(raw) : {}; } catch { /* the settings errors already say so */ }
       const fileAgent = Object.fromEntries(Object.entries((fileJson.agent || {}) as Record<string, unknown>).filter(([k]) => ['harness', 'model', 'effort', 'stages'].includes(k)));
       const personalAgent = (entry?.overrides?.agent || undefined) as Record<string, any> | undefined;
-      const reg = new DefaultHarnessRegistry();
       return send(200, {
         ...r, raw, hash: hashOf(raw ?? ''), overrides: entry?.overrides || {}, registered: Boolean(entry),
         boardSilenceEnvSeconds: envSilenceSeconds(),
         fileAgent, personalAgent: personalAgent || {}, sources: agentSources(mergeAgent(fileAgent, personalAgent), personalAgent),
         files: { project: path.join(p.path, 'sdlc.config.json'), personal: registryFile(env) },
         harnesses: [...HARNESS_IDS], stages: [...AGENT_STAGES], efforts: [...EFFORT_LEVELS], stageDefaults: STAGE_DEFAULTS,
-        models: await harnessModels(reg),
+        models: await harnessModels(),
         // Harnesses that run one model through several providers: their picker offers a provider filter.
         multipleProviderHarnesses: reg.list().filter(h => h.multipleProvider).map(h => h.id),
         activeRuns: activeRuns(p),

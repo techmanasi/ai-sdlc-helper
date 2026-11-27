@@ -336,6 +336,10 @@ export function Run({ slug }: { slug: string }) {
     setEnvVar(key, value);
     // A changed agent never keeps the old agent's model or effort.
     if (key === 'SDLC_FORCE_AGENT') { setEnvVar('SDLC_FORCE_MODEL', ''); setEnvVar('SDLC_FORCE_EFFORT', ''); }
+    if (key === 'SDLC_FORCE_MODEL') {
+      const levels = forceModels.find(m => m.id === value || configValue(m, forceModels) === value)?.supportedEfforts;
+      if (levels && !levels.includes(envObj.SDLC_FORCE_EFFORT)) setEnvVar('SDLC_FORCE_EFFORT', '');
+    }
     setForceAsk(null);
   };
   /** Clearing an override is safe; setting one overrides every stage, so it asks first. */
@@ -523,6 +527,8 @@ export function Run({ slug }: { slug: string }) {
     envObj.SDLC_FORCE_MODEL && `model ${envObj.SDLC_FORCE_MODEL}`,
     envObj.SDLC_FORCE_EFFORT && `effort ${envObj.SDLC_FORCE_EFFORT}`,
   ].filter(Boolean).join(', ');
+  const forceModels = catalog?.models[envObj.SDLC_FORCE_AGENT || catalog?.config?.agent?.harness || 'claude'] || [];
+  const forceModel = forceModels.find(m => m.id === envObj.SDLC_FORCE_MODEL || configValue(m, forceModels) === envObj.SDLC_FORCE_MODEL);
   const forceActive = !!(envObj.SDLC_FORCE_AGENT || envObj.SDLC_FORCE_MODEL || envObj.SDLC_FORCE_EFFORT);
   /** The "[override]" marker next to a stage's model: the run-level force, not the stage's own setting, decided it. */
   const overrideBadge = forceActive && (
@@ -550,8 +556,8 @@ export function Run({ slug }: { slug: string }) {
     const activeHarness = envObj[AGENT_ENV(key)] || catalog?.config?.agent?.stages?.[key]?.harness || catalog?.config?.agent?.harness || 'claude';
     const selectedModel = envObj[envKey('MODEL', key)] || '';
     const models: ModelInfo[] = catalog ? (catalog.models[activeHarness] || []) : MODELS.slice(1).map(id => ({ id, name: id, supportsEffort: false }));
-    // The config stores a display name; an id saved before this was so, or by a provider-shared name, must match too.
-    const selectedInfo = models.find(m => m.id === selectedModel || configValue(m, models) === selectedModel);
+    const effectiveModel = selectedModel || catalog?.config?.agent?.stages?.[key]?.model || catalog?.config?.agent?.model;
+    const selectedInfo = models.find(m => m.id === effectiveModel || configValue(m, models) === effectiveModel);
     const efforts = selectedInfo?.supportedEfforts !== undefined ? ['', ...selectedInfo.supportedEfforts] : EFFORTS;
     const multipleProvider = !!catalog?.multipleProviderHarnesses?.includes(activeHarness);
     return (
@@ -750,15 +756,15 @@ export function Run({ slug }: { slug: string }) {
                 </select>
                 <span style={{ display: 'inline-block', width: '220px', maxWidth: '100%' }}>
                   <ModelSelect name="run"
-                    models={catalog.models[envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'] || []}
+                    models={forceModels}
                     value={envObj.SDLC_FORCE_MODEL || ''}
                     harness={envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude'}
                     multipleProvider={!!catalog.multipleProviderHarnesses?.includes(envObj.SDLC_FORCE_AGENT || catalog.config?.agent?.harness || 'claude')}
                     defaultLabel="model: per stage" onChange={model => askForce('SDLC_FORCE_MODEL', model)} />
                 </span>
                 <select class="sel" aria-label="run effort" value={envObj.SDLC_FORCE_EFFORT || ''} onChange={e => askForce('SDLC_FORCE_EFFORT', (e.target as HTMLSelectElement).value)}>
-                  <option value="">effort: per stage</option>
-                  {unique(catalog.efforts).map(x => <option value={x}>{x}</option>)}
+                  <option value="">{forceModel?.supportsEffort === false ? 'not used' : 'effort: per stage'}</option>
+                  {unique(forceModel?.supportedEfforts ?? catalog.efforts).map(x => <option value={x}>{x}</option>)}
                 </select>
                 </div>
               </div>
