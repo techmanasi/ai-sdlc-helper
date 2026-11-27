@@ -15,6 +15,7 @@ import { resumeHint } from './hints.js';
 import { keepError } from './errors.js';
 import { agentFacts, appendRound, changedBetween, debugLeftovers, roundWarnings, snapshot } from './observe.js';
 import { defaultRegistry } from './harness/registry.js';
+import { noteStageRoundAgent } from './round-record.js';
 export { spawnAgentProcess, spawnClaude } from './agent-process.js';
 export type { AgentRequest, AgentSpawn } from './agent-process.js';
 
@@ -306,6 +307,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage, prompt
   const base = at(ctx, `${ctx.log}/${name}`);
 
   const selection = harnessSelection(ctx, stage, flags, harness);
+  noteStageRoundAgent(ctx, stage, harness.id, selection.model || flags.model);
 
   const invocation = harness.compileStageArgs({
     prompt,
@@ -339,11 +341,11 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage, prompt
       ctx.status.note = '';
       ctx.status.write();
       ctx.out(`   !! agent '${name}' hit the usage limit (${limit}); stopping immediately, see ${ctx.log}/${name}.err`);
-      stop(ctx, `agent '${name}' hit the usage limit: ${limit}`, 1);
+      stop(ctx, `agent '${name}' hit the usage limit: ${limit}`, 1, undefined, 'limit');
     }
     if (waited >= maxWait) {
       ctx.status.note = '';
-      stop(ctx, `   !! agent '${name}' hit the usage limit (${limit}) and it did not reset within ${maxWait}s`, 1);
+      stop(ctx, `   !! agent '${name}' hit the usage limit (${limit}) and it did not reset within ${maxWait}s`, 1, undefined, 'limit');
     }
     if (waited === 0) ctx.out(`   .. usage limit reached (${limit}): retrying '${name}' every ${retry}s`);
     ctx.status.note = `usage limit, ${limit}`;
@@ -363,7 +365,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage, prompt
   } catch { pending = 0; }
   observeRound(ctx, name, stage, base, rc, before, roundStart);
   if (pending > 0) {
-    stop(ctx, `   !! agent '${name}' was refused ${pending} action(s): allow or deny them in the pane (or: ai-sdlc-helper permit ${ctx.slug} allow|always|deny all), then resume at ${stage}`, 2);
+    stop(ctx, `   !! agent '${name}' was refused ${pending} action(s): allow or deny them in the pane (or: ai-sdlc-helper permit ${ctx.slug} allow|always|deny all), then resume at ${stage}`, 2, undefined, 'permission');
   }
   if (rc !== 0) {
     const failure = extractAgentFailure(base, rc);
@@ -381,7 +383,7 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage, prompt
     if (fs.existsSync(`${base}.err`) && fs.statSync(`${base}.err`).size > 0) {
       ctx.out(`      see ${ctx.log}/${name}.err`);
     }
-    stop(ctx, `agent '${name}' failed: ${failure.summary}`, 1);
+    stop(ctx, `agent '${name}' failed: ${failure.summary}`, 1, undefined, 'error');
   }
   // The agent that was given the handoff finished: the note is done (Review's note is set aside once its round ends, so every reviewer reads it).
   if (ctx.handoff && HANDOFF_STAGES.includes(stage as From) && !stage.startsWith('review') && !ctx.promptExtra?.HANDOFF) {
@@ -432,6 +434,7 @@ export async function runAudit(
   const harnessId = harnessFor(ctx.config, stage);
   const harness = defaultRegistry.get(harnessId) || defaultRegistry.get('claude')!;
   const selection = harnessSelection(ctx, stage, { model: flags.model || '', effort: flags.effort || '', hasEffort: Boolean(flags.effort) }, harness);
+  noteStageRoundAgent(ctx, stage, harness.id, selection.model || flags.model || '');
   const inv = harness.compileAuditArgs({
     prompt,
     model: selection.model,

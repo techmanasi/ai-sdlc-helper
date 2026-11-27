@@ -29,6 +29,7 @@ import { commitStageDocs } from './stage-docs.js';
 import { ensurePushable, pushCheckSkipped } from './push-check.js';
 import { checkCiAvailability, isRejectedPush, waitForCiAndClassify, type CiStepResult } from './ci.js';
 import { ciFailureText, ciState, ciStatusLine, ciWarnings, duration, localCounts, setCiStatus } from './ci-rounds.js';
+import { beginStageRound } from './round-record.js';
 
 const short = (sha: string) => sha.slice(0, 7);
 export { finalisePattern, implementPattern, redPattern, repairPattern };
@@ -44,10 +45,12 @@ export function markStage(ctx: Ctx, stage: string): void {
 /** Starts a stage: its header ("== 1/6 Spec"), the previous stage's files, and the status ("Spec"). */
 export function stage(ctx: Ctx, title: string): void {
   stopIfAborted(ctx);
+  const name = title.replace(/^[0-9a-z]+(\/[0-9]+)? /, '').replace(/ \(.*/, '');
+  beginStageRound(ctx, name);
   ctx.out('');
   ctx.out(`== ${title}`);
   markStage(ctx, ctx.status.stage);
-  ctx.status.stage = title.replace(/^[0-9a-z]+(\/[0-9]+)? /, '').replace(/ \(.*/, '');
+  ctx.status.stage = name;
   ctx.status.agent = '';
   ctx.status.attempt = '';
   ctx.status.step = null; // the new stage names its own first step
@@ -237,7 +240,7 @@ export function recordAnswers(ctx: Ctx): void {
   const total = countLines(questions, /^### Q/);
   const answered = countLines(questions, /^\*\*Answer:\*\*\s*\S/);
   if (total === 0 || answered < total) {
-    stop(ctx, `PAUSED: ${answered}/${total} questions answered in ${ctx.docs}/questions.md. Fill every '**Answer:**' line and rerun.`, 2);
+    stop(ctx, `PAUSED: ${answered}/${total} questions answered in ${ctx.docs}/questions.md. Fill every '**Answer:**' line and rerun.`, 2, undefined, 'questions');
   }
   const round = countLines(decisions, /^## Round /) + 1;
   if (!exists(decisions)) fs.writeFileSync(decisions, `# Decisions for ${ctx.slug}\n`);
@@ -250,7 +253,7 @@ export function recordAnswers(ctx: Ctx): void {
 /** The stop for a stage whose agent wrote no artifact: quote its last message and name its log, instead of stopping blankly. */
 function notProduced(ctx: Ctx, agent: string, stage: string): never {
   const said = firstLine(agentLastMessage(at(ctx, `${ctx.log}/${agent}.json`)));
-  return stop(ctx, `${stage} not produced${said ? `: ${agent} said "${said}"` : ''} (see ${ctx.log}/${agent}.log)`);
+  return stop(ctx, `${stage} not produced${said ? `: ${agent} said "${said}"` : ''} (see ${ctx.log}/${agent}.log)`, 1, undefined, 'check-failed');
 }
 
 /** Spec: the agent writes specs-1.md, or questions.md (the run pauses for answers). */
@@ -277,7 +280,7 @@ export async function specStage(ctx: Ctx): Promise<void> {
         recordAnswers(ctx);
         continue;
       }
-      stop(ctx, `PAUSED: new questions in ${ctx.docs}/questions.md. Fill each '**Answer:**' (write 'accept' to take the suggestion) and rerun.`, 2);
+      stop(ctx, `PAUSED: new questions in ${ctx.docs}/questions.md. Fill each '**Answer:**' (write 'accept' to take the suggestion) and rerun.`, 2, undefined, 'questions');
     }
     break;
   }
@@ -310,7 +313,7 @@ export async function planStage(ctx: Ctx): Promise<void> {
         recordAnswers(ctx);
         continue;
       }
-      stop(ctx, `PAUSED: the Plan agent has open questions in ${ctx.docs}/questions.md. Fill each '**Answer:**' (write 'accept' to take the suggestion) and resume: ${resumeCommand(ctx.slug, 'plan')}`, 2, 'plan');
+      stop(ctx, `PAUSED: the Plan agent has open questions in ${ctx.docs}/questions.md. Fill each '**Answer:**' (write 'accept' to take the suggestion) and resume: ${resumeCommand(ctx.slug, 'plan')}`, 2, 'plan', 'questions');
     }
     break;
   }
@@ -386,13 +389,13 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
     await tick();
     ctx.status?.beginStep?.('gate');
     if (srcBefore !== undefined && ctx.git.sourceHash!(ctx.layout.sourceDirs || [], ctx.layout.testPathspecs || [], ctx.config.backlogDir || '') !== srcBefore) {
-      stop(ctx, 'GUARD FAILED: source files were modified during Red tests');
+      stop(ctx, 'GUARD FAILED: source files were modified during Red tests', 1, undefined, 'check-failed');
     }
     // Only the tests this task added or changed (or existing red tests on a resumed run) are run: the rest of the suite is
     // slow, and an unrelated failure there must not make a new test that passes look red.
     const added = newTestFiles(ctx);
     const allTaskTests = [...new Set([...existingTests, ...added])];
-    if (allTaskTests.length === 0) stop(ctx, `RED GATE FAILED: the Red tests agent added or changed no test file. See ${ctx.log}/tests.log`);
+    if (allTaskTests.length === 0) stop(ctx, `RED GATE FAILED: the Red tests agent added or changed no test file. See ${ctx.log}/tests.log`, 1, undefined, 'check-failed');
     gateFiles = added.length > 0 ? added : existingTests;
     // A test file the project's lint or typecheck rejects fails CI after Implement, which may not edit it: catch it here,
     // where the agent that wrote the test can fix it, before the suite is even run.
@@ -408,12 +411,12 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
       }
       keepError(ctx, 'red gate', `${head}\n${staticFails.join('\n')}`);
       const shown = staticFails.slice(0, 20).concat(staticFails.length > 20 ? [`... and ${staticFails.length - 20} more`] : []);
-      stop(ctx, [head, ...shown, `See ${ctx.log}/red-checks.log`].join('\n'), 1, 'red-tests');
+      stop(ctx, [head, ...shown, `See ${ctx.log}/red-checks.log`].join('\n'), 1, 'red-tests', 'check-failed');
     }
     const redPassed = hasImplSince(ctx, firstRedSha) && !fixing
       ? testsPassAt(ctx, firstRedSha, allTaskTests, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true })
       : testsPass(ctx, { targetFiles: gateFiles, onlyTargets: true, noAllowFailures: true });
-    if (redPassed) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`);
+    if (redPassed) stop(ctx, `RED GATE FAILED: new tests pass before implementation. See ${ctx.log}/tests.log`, 1, undefined, 'check-failed');
     // A name that two new tests share cannot tell them apart in a result (and a re-run would mix them up): not in the fix loop.
     const repeated = fixing ? [] : repeatedTestNames(ctx, gateFiles);
     // Some new tests failing is not enough: a new test that already passes proves nothing about the new work.
@@ -430,13 +433,13 @@ export async function redTestsStage(ctx: Ctx): Promise<void> {
     if (repeated.length > 0) {
       const head = `RED GATE FAILED: ${repeated.length} test name(s) repeat in the new tests:`;
       keepError(ctx, 'red gate', `${head}\n${repeatedList.join('\n')}`);
-      stop(ctx, [head, ...repeatedList.slice(0, 20), ...(repeatedList.length > 20 ? [`... and ${repeatedList.length - 20} more`] : [])].join('\n'), 1, 'red-tests');
+      stop(ctx, [head, ...repeatedList.slice(0, 20), ...(repeatedList.length > 20 ? [`... and ${repeatedList.length - 20} more`] : [])].join('\n'), 1, 'red-tests', 'check-failed');
     }
     const shown = vacuousList.slice(0, 20).concat(vacuousList.length > 20 ? [`... and ${vacuousList.length - 20} more (see ${ctx.log}/red-passing.md)`] : []);
     const head = `RED GATE FAILED: ${vacuous.length} new test(s) already pass before implementation: they test behaviour that already exists, which the spec or plan did not identify as existing. Fix the spec or plan (mark that behaviour as existing), then run again from Spec or Plan.${maxAttempts > 1 ? ' (after one Red tests retry)' : ''}`;
     fs.writeFileSync(at(ctx, `${ctx.log}/red-passing.md`), `${head}\n${vacuousList.join('\n')}\n`);
     keepError(ctx, 'red gate', `${head}\n${vacuousList.join('\n')}`);
-    stop(ctx, [head, ...shown].join('\n'), 1, 'plan');
+    stop(ctx, [head, ...shown].join('\n'), 1, 'plan', 'check-failed');
   }
   await tick();
   ctx.status?.beginStep?.('commit');
@@ -595,7 +598,7 @@ export async function implementStage(ctx: Ctx): Promise<boolean> {
       ctx.out('GUARD FAILED: tests were modified during implementation');
       recordGuard(ctx, ctx.status.stage, touched);
       for (const f of touched) ctx.out(f);
-      stop(ctx, null);
+      stop(ctx, null, 1, undefined, 'check-failed');
     }
     await tick();
     if (viaCi) ctx.out(`  Red tests: running locally (${new Set([...targetTestFiles(ctx), ...(ctx.ciSideEffectFiles || [])]).size} files)`);
@@ -753,7 +756,7 @@ function retryUnclaimed(ctx: Ctx): void {
   const now = `${ctx.log}/now.json`;
   const issues = `${ctx.docs}/test-issues.md`;
   let keys: string[];
-  try { keys = unclaimed(ctx.keys, now, issues); } catch (e) { ctx.err(`ERROR: ${(e as Error).message}`); stop(ctx, null); }
+  try { keys = unclaimed(ctx.keys, now, issues); } catch (e) { ctx.err(`ERROR: ${(e as Error).message}`); stop(ctx, null, 1, undefined, 'error'); }
   if (!keys.length) return;
   setAside(ctx, fs.readdirSync(at(ctx, ctx.log)).filter(f => /^retry-.*\.json$/.test(f)).map(f => `${ctx.log}/${f}`));
   const outs: string[] = [];
@@ -788,7 +791,7 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
     ctx.git.restoreTests(ctx.lockSha, specs);
     ctx.out(`   tests restored to ${ctx.lockSha}. See ${ctx.log}/ and ${issues}`);
     if (hint) resumeHint(ctx);
-    return stop(ctx, null);
+    return stop(ctx, null, 1, undefined, 'check-failed');
   };
   const rejects = (check: () => string[]) => {
     let errs: string[];
@@ -808,7 +811,7 @@ export async function testRepairStage(ctx: Ctx): Promise<void> {
     // FROM=test-repair: fail early, before any agent runs and before anything is restored.
     const errs = pre();
     fs.writeFileSync(at(ctx, `${ctx.log}/precheck.err`), errs.map(e => `REJECT: ${e}\n`).join(''));
-    if (errs.length) { ctx.err('REJECT: claims would not pass the pre-check'); ctx.err(errs.map(e => `REJECT: ${e}`).join('\n')); stop(ctx, null); }
+    if (errs.length) { ctx.err('REJECT: claims would not pass the pre-check'); ctx.err(errs.map(e => `REJECT: ${e}`).join('\n')); stop(ctx, null, 1, undefined, 'check-failed'); }
   }
   if (rejects(pre)) reject('claims fail pre-check (see above)', true);
   ctx.status?.beginStep?.('hash');
@@ -963,12 +966,12 @@ async function ciAfterChanges(ctx: Ctx): Promise<void> {
     ctx.out(`WARNING: could not write ${ctx.docs}/ci-failure.md (see ${ctx.log}/errors.log)`);
   }
   for (const f of result.sideEffects.slice(0, 8)) ctx.out(`  ${f.file || f.checkName}${f.testName ? ` :: ${f.testName}` : ''}`);
-  stop(ctx, `CI FAILED on ${short(head)} after the changes since Implement: ${checks.join(', ') || 'see the pull request'}. Resume at Implement to fix it (${resumeCommand(ctx.slug, 'implement')})`, 1, 'implement');
+  stop(ctx, `CI FAILED on ${short(head)} after the changes since Implement: ${checks.join(', ') || 'see the pull request'}. Resume at Implement to fix it (${resumeCommand(ctx.slug, 'implement')})`, 1, 'implement', 'check-failed');
 }
 
 /** CI cannot be used in Finalise: the full suite runs here instead; a failure stops the run at Implement. */
 async function localAfterChanges(ctx: Ctx): Promise<void> {
   if (await successCheck(ctx)) return;
   keepError(ctx, 'finalise: local full suite', `checks failed after the changes since Implement; see ${ctx.failLog}`);
-  stop(ctx, `Checks failed after the changes since Implement. See ${ctx.failLog}. Resume at Implement to fix it (${resumeCommand(ctx.slug, 'implement')})`, 1, 'implement');
+  stop(ctx, `Checks failed after the changes since Implement. See ${ctx.failLog}. Resume at Implement to fix it (${resumeCommand(ctx.slug, 'implement')})`, 1, 'implement', 'check-failed');
 }

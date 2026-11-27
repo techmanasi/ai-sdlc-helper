@@ -31,6 +31,7 @@ import {
   implementStage, markStage, planStage, redTestsStage, resumeAtTests, finaliseStage, specStage,
   testRepairStage,
 } from './stages.js';
+import { endStageRound, type RoundOutcome } from './round-record.js';
 
 export interface PipelineOptions {
   /** The project checkout (a worktree or the main one); the run works at the top of its git tree. */
@@ -110,6 +111,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
   let code = 0;
   let reason: string | undefined;
   let resumeFrom: string | undefined;
+  let roundOutcome: RoundOutcome = { cause: 'passed', next: 'stop' };
   try {
     ctx = await setup(opts, from, env, out, err);
     // Resolved model and effort of every stage, for the status file (and a bad value fails here, before any agent).
@@ -118,9 +120,12 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
     ctx.status.write();
     await stages(ctx);
   } catch (e) {
-    if (e instanceof Exit) { code = e.code; reason = e.reason; resumeFrom = e.resumeFrom; }
-    else {
+    if (e instanceof Exit) {
+      code = e.code; reason = e.reason; resumeFrom = e.resumeFrom;
+      roundOutcome = { ...(e.cause ? { cause: e.cause } : {}), next: code === 2 ? 'pause' : 'stop' };
+    } else {
       code = 1;
+      roundOutcome = { cause: 'error', next: 'stop' };
       const msg = (e as Error).message;
       const line = e instanceof SetupError || /^ERROR/.test(msg) ? msg : `ERROR: ${msg}`;
       err(line);
@@ -135,6 +140,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
         keepError(ctx, sig.line ? 'run stopped: supervisor gone' : 'run stopped by a signal', line);
         out(line);
         reason = line;
+        roundOutcome = { cause: 'stopped', next: 'stop' };
       }
       markStage(ctx, ctx.status.stage);
       Object.assign(ctx.status, { state: finalState(code), agent: '', model: '', effort: '', attempt: '', step: null });
@@ -154,6 +160,8 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
       // the run resumes instead (the stage it started from), so the run page and the next start both know it.
       if (code !== 0 && !ctx.status.stage) ctx.status.resumeFrom = resumeFrom || from;
       ctx.status.write();
+      // The round the run ended in closes before the end row, so the timeline has its record when it reads the end.
+      endStageRound(ctx, roundOutcome);
       appendRound(at(ctx, ctx.log), { kind: 'end', at: stamp(), state: finalState(code), stage: ctx.status.stage });
       if (code !== 0) {
         try {

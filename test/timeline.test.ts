@@ -193,4 +193,33 @@ describe('runTimeline', () => {
     expect(impl.status).toBe('failed');
     expect(impl.rounds.map(r => r.status)).toEqual(['completed', 'failed']);
   });
+
+  test('round rows give each round why it ended, what came next, its agent and model, and what started it', () => {
+    const tl = runTimeline([
+      { kind: 'stage', at: t(0), stage: 'Plan' },
+      { kind: 'round', at: t(4), stage: 'Plan', cause: 'passed', next: 'next-stage', agent: 'opencode', model: 'm1', startedBy: 'run' },
+      { kind: 'stage', at: t(5), stage: 'Implement' },
+      { kind: 'round', at: t(9), stage: 'Implement', cause: 'questions', next: 'pause', startedBy: 'resume' },
+      { kind: 'end', at: t(9), state: 'paused', stage: 'Implement' },
+      { kind: 'answered', at: t(20), n: 1 },
+      { kind: 'answered', at: t(30), n: 2 },
+    ]);
+    const [plan, impl] = tl.stages;
+    expect(plan.rounds[0]).toMatchObject({ cause: 'passed', next: 'next-stage', agent: 'opencode', model: 'm1', startedBy: 'run' });
+    expect(plan.rounds[0].answeredAt).toBeUndefined();
+    expect(impl.rounds[0]).toMatchObject({ status: 'paused', cause: 'questions', next: 'pause', startedBy: 'resume', answeredAt: t(30) });
+    expect(impl.rounds[0].agent).toBeUndefined();
+  });
+
+  test('rounds from runs without round rows lack the fields, and bad round rows are ignored', () => {
+    const old = runTimeline([{ kind: 'stage', at: t(0), stage: 'Spec' }, { kind: 'end', at: t(3), state: 'done', stage: 'Spec' }]);
+    expect(Object.keys(old.stages[0].rounds[0]).sort()).toEqual(['ended', 'started', 'status', 'steps']);
+    const bad = runTimeline([
+      { kind: 'stage', at: t(0), stage: 'Spec' },
+      { kind: 'round', at: t(1), stage: 'Spec', cause: 'bored', next: 'later', startedBy: 'cat', agent: 7 },
+      { kind: 'round', at: t(1), stage: 'Plan', cause: 'passed' },
+    ]);
+    expect(Object.keys(bad.stages[0].rounds[0]).sort()).toEqual(['ended', 'started', 'status', 'steps']);
+    expect(bad.stages.map(s => s.stage)).toEqual(['Spec']);
+  });
 });

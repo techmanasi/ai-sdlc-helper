@@ -7,6 +7,7 @@ import type { AgentSpawn } from './agent.js';
 import type { Git } from './git.js';
 import type { Status } from './status.js';
 import type { CiStepResult } from './ci.js';
+import type { RoundCause } from './observe.js';
 
 /** The stages a run can start at (FROM), in order. */
 export const FROM_STAGES = ['spec', 'plan', 'red-tests', 'implement', 'test-repair', 'review', 'finalise', 'resolve-conflicts'] as const;
@@ -19,7 +20,7 @@ export type AgentStage = typeof AGENT_STAGES[number];
 /** Ends the run with an exit code: 0 done, 1 failed, 2 paused for the developer. What to say was printed already. */
 /** <resumeFrom>: the stage the run resumes at when that is not the stage shown (an inline Resolve conflicts stop after Plan resumes at Red tests). */
 export class Exit extends Error {
-  constructor(readonly code: number, readonly reason?: string, readonly resumeFrom?: From) { super(`exit ${code}`); }
+  constructor(readonly code: number, readonly reason?: string, readonly resumeFrom?: From, readonly cause?: RoundCause) { super(`exit ${code}`); }
 }
 
 /** A problem with the settings, the models or the prompts: printed on stderr, and the run fails (exit 1). */
@@ -124,12 +125,12 @@ export function setAside(ctx: Pick<Ctx, 'root' | 'log'>, files: string[]): void 
 }
 
 /** Prints <line> (stdout) and ends the run with <code>; <resumeFrom> is the stage to resume at, recorded in status.json. */
-export function stop(ctx: Pick<Ctx, 'out'>, line: string | null, code = 1, resumeFrom?: From): never {
+export function stop(ctx: Pick<Ctx, 'out'>, line: string | null, code = 1, resumeFrom?: From, cause?: RoundCause): never {
   if (line !== null) ctx.out(line);
-  throw new Exit(code, line ?? undefined, resumeFrom);
+  throw new Exit(code, line ?? undefined, resumeFrom, cause);
 }
 
 /** Ends the run (failed) once it was stopped from outside (a signal). */
 export function stopIfAborted(ctx: Pick<Ctx, 'out' | 'signal'>): void {
-  if (ctx.signal && ctx.signal.aborted) stop(ctx, 'STOPPED: the run was stopped');
+  if (ctx.signal && ctx.signal.aborted) stop(ctx, 'STOPPED: the run was stopped', 1, undefined, 'stopped');
 }

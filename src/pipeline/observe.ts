@@ -333,18 +333,37 @@ export interface PushCheckMark { kind: 'push-check'; at: string; branch: string;
 export interface StageMark { kind: 'stage'; at: string; stage: string }
 export interface StepMark { kind: 'step'; at: string; stage: string; key: string; label: string }
 export interface EndMark { kind: 'end'; at: string; state: string; stage: string }
+
+/** Why a stage round ended, when the pipeline knew it: a check passed or failed, a pause, or a failure. */
+export const ROUND_CAUSES = ['passed', 'check-failed', 'questions', 'permission', 'limit', 'error', 'stopped', 'review-changes'] as const;
+/** What the pipeline does after a round: the next stage, another round of it, a wait for the developer, or nothing. */
+export const ROUND_NEXT = ['next-stage', 'retry', 'pause', 'stop'] as const;
+/** What started a round: the run reaching the stage, a resume, a rerun, Review's fix loop, or a restart by the user. */
+export const ROUND_STARTED_BY = ['run', 'resume', 'retry', 'review', 'user'] as const;
+export type RoundCause = typeof ROUND_CAUSES[number];
+export type RoundNext = typeof ROUND_NEXT[number];
+export type RoundStartedBy = typeof ROUND_STARTED_BY[number];
+/** The recorded end of one stage round; every detail is optional when that run did not establish it. */
+export interface StageRoundMark {
+  kind: 'round'; at: string; stage: string;
+  cause?: RoundCause; next?: RoundNext; agent?: string; model?: string; startedBy?: RoundStartedBy;
+}
+/** A question was answered through a control that also knows the run's log directory. */
+export interface AnsweredMark { kind: 'answered'; at: string; n: number }
 /** The red tests were locked (Red tests commit, or an accepted Test repair); shas are full. */
 export interface LockMark { kind: 'lock'; at: string; sha: string; origRedSha: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null }
 /** A guard found locked tests changed by an agent. */
 export interface GuardMark { kind: 'guard'; at: string; stage: string; restored: string[] }
 
-export function appendRound(logDir: string, row: AgentRound | GateResult | RoundStart | RunMark | MoveMark | PushCheckMark | StageMark | StepMark | EndMark | LockMark | GuardMark): void {
+export function appendRound(logDir: string, row: AgentRound | GateResult | RoundStart | RunMark | MoveMark | PushCheckMark | StageMark | StepMark | EndMark | StageRoundMark | AnsweredMark | LockMark | GuardMark): boolean {
   try {
     fs.mkdirSync(logDir, { recursive: true });
     fs.appendFileSync(path.join(logDir, 'attempts.jsonl'), `${JSON.stringify(row)}\n`);
+    return true;
   } catch (e) {
     // Observability never stops a run; the row that could not be written is kept beside it, in errors.log.
     keepError({ root: logDir, log: '' }, 'write attempts.jsonl', `${(e as Error).message}\n${JSON.stringify(row)}`);
+    return false;
   }
 }
 
