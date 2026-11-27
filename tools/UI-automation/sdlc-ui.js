@@ -88,6 +88,12 @@
     tileMarks: '.tile-marks',
     tileMark: '.tile-mark',
     tilePr: '.tile-pr',
+    tileEdit: '.tile-edit',
+    stagePopover: '.stage-pop[role="dialog"]',
+    stagePopoverTitle: '.stage-pop-title',
+    stagePopoverClose: '.stage-pop-close',
+    modelSearch: '.pick-panel input[placeholder="Search models…"]',
+    modelGroup: '.pick-group',
     paneBack: '.pane-back',
     paneFollowing: '.pane-following',
     openOutput: '.open-output',
@@ -349,6 +355,45 @@
       steps: $$(SELECTORS.step, d).map(s => ({ label: text($(SELECTORS.stepLabel, s)), time: text($(SELECTORS.stepTime, s)), state: stateOf(s, 'step-') })),
       text: text(d).slice(0, 600),
     };
+  }
+  /** Opens the agent popover of a stage tile; folds leading done stages open first when the tile is hidden. */
+  async function openStagePopover(stage) {
+    if ($(SELECTORS.stagePopover)) await closeStagePopover();
+    const want = String(stage).toLowerCase();
+    const find = () => $$(SELECTORS.tile).find(x => text($(SELECTORS.tileName, x)).toLowerCase() === want);
+    let tile = find();
+    if (!tile && $(SELECTORS.foldDone)) {
+      unfoldDone();
+      await waitFor(() => !$(SELECTORS.foldDone));
+      tile = find();
+    }
+    if (!tile) throw new Error(`sdlcUI.openStagePopover: no stage ${stage}; stages: ${stages().map(s => s.name).join(', ')}`);
+    const button = $(SELECTORS.tileEdit, tile.parentElement || tile);
+    if (!button) throw new Error(`sdlcUI.openStagePopover: stage ${stage} has no agent edit button (done or no agent)`);
+    button.click();
+    const dialog = await waitFor(SELECTORS.stagePopover);
+    return {
+      name: text($(SELECTORS.stagePopoverTitle, dialog)),
+      controls: $$('select, button[aria-haspopup="listbox"]', dialog).map(el => el.getAttribute('aria-label') || text(el)).filter(Boolean),
+    };
+  }
+  /** Closes the stage agent popover; true when one was open. Focus goes back to the tile's edit button. */
+  async function closeStagePopover() {
+    if (!$(SELECTORS.stagePopover)) return false;
+    const close = $(SELECTORS.stagePopoverClose);
+    if (!close) return false;
+    close.click();
+    await waitFor(() => !$(SELECTORS.stagePopover), { timeout: 2000 });
+    return true;
+  }
+  /** Filters the open model listbox and returns the visible option labels, in their grouped order. */
+  async function searchModels(q) {
+    const input = $(SELECTORS.modelSearch);
+    if (!input) throw new Error('sdlcUI.searchModels: no open model search; open a model picker first');
+    setValue(input, String(q));
+    await sleep(0);
+    const list = $(SELECTORS.modelList, input.closest('.pick-panel') || document);
+    return list ? $$(SELECTORS.modelId, list).filter(visible).map(text) : [];
   }
   /** The accessible label of a stage's recorded round marks, or '' when the tile shows none. */
   async function roundMarks(name) {
@@ -771,7 +816,7 @@
     board, boardShow, boardFilter, pick, rowAction,
     completedTabs, completedFilter, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds, runBehaviour,
     // run page
-    run, stages, stage, roundMarks, rounds, attemptMarks, attempts, toggleError, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, costMode, openDoc, closeDialog,
+    run, stages, stage, openStagePopover, closeStagePopover, searchModels, roundMarks, rounds, attemptMarks, attempts, toggleError, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, costMode, openDoc, closeDialog,
     permissions, denyPermission, allowAllAndResume, resumeWithout, waitPanelText, stopWaiting,
     // new item
     newItem, newItemDefaults, newItemWhen, newItemStages, newItemBranch, newItemCommandText,

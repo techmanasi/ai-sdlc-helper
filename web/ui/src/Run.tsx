@@ -844,6 +844,10 @@ export function Run({ slug }: { slug: string }) {
         <StageRail
           stages={railStages} timeline={v.timeline} step={v.state === 'running' ? v.step : undefined} attempts={implementAttempts} attemptMax={attemptMax} locked={!!lock} lockOpen={lockOpen}
           shown={shownKey} followed={followedKey} pr={prBadge(v)} phone={phone} phoneOpen={phoneIsOpen} onSelect={pickStage}
+          agentStages={catalog?.stages || []}
+          stageEditor={stage => <div class="col" style={{ gap: '8px' }}>
+            {stagePickers({ key: stage.key, name: stage.name })}
+          </div>}
         >
           {paneStage && (() => {
               const s = paneStage;
