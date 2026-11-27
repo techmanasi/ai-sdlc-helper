@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, type CompletedTask, type CompletedTaskDetail, type PrCheckErrors } from './api';
 import { loadCompleted } from './completed-load';
+import { completedStageView, filterCompletedTasks } from './completedView';
 import type { NoticeItem } from './notices';
 import { ErrorBox, Markdown, Notices, Panel, Spinner, useApp } from './ui';
 
@@ -167,15 +168,11 @@ export function Completed() {
     }
   };
 
-  const filteredTasks = tasks.filter(t => {
+  const filteredTasks = filterCompletedTasks(tasks.filter(t => {
     if (filter === 'active' && t.archived) return false;
     if (filter === 'archived' && !t.archived) return false;
-    if (query) {
-      const q = query.toLowerCase();
-      return t.slug.toLowerCase().includes(q) || t.title.toLowerCase().includes(q);
-    }
     return true;
-  });
+  }), query);
 
   const visibleSlug = filteredTasks.find(t => t.slug === selectedSlug)?.slug ?? filteredTasks[0]?.slug ?? null;
   useEffect(() => {
@@ -221,9 +218,11 @@ export function Completed() {
 
       <div class="row" style={{ gap: '10px', alignItems: 'center' }}>
         <input
-          class="inp"
-          style={{ maxWidth: '300px' }}
-          placeholder="Filter by slug or title…"
+          id="completed-search"
+          class="inp completed-search"
+          type="search"
+          aria-label="Search completed items"
+          placeholder="Search items or branches"
           value={query}
           onInput={e => setQuery((e.target as HTMLInputElement).value)}
         />
@@ -246,29 +245,41 @@ export function Completed() {
           {!loading && filteredTasks.length === 0 && (
             <p class="muted">No completed tasks match your criteria.</p>
           )}
-          {filteredTasks.map((t, index) => (
-            <button key={t.slug} type="button" class="completed-tab" role="tab"
-              id={`completed-tab-${t.slug}`} aria-controls="completed-task-detail"
-              aria-selected={t.slug === selectedSlug} tabIndex={t.slug === visibleSlug ? 0 : -1}
-              onClick={() => setSelectedSlug(t.slug)}
-              onKeyDown={e => {
-                const count = filteredTasks.length;
-                const next = { ArrowDown: (index + 1) % count, ArrowUp: (index + count - 1) % count,
-                  Home: 0, End: count - 1 }[e.key];
-                if (next === undefined) return;
-                e.preventDefault();
-                const slug = filteredTasks[next].slug;
-                document.getElementById(`completed-tab-${slug}`)?.focus();
-                setSelectedSlug(slug);
-              }}>
-              <strong class="mono">{t.slug}</strong>
-              <span>{t.title}</span>
-              <span class="small muted">{[
-                t.date?.split('T')[0], t.archived && 'Archived',
-                t.prError ? 'PR check failed' : t.prPending ? 'Checking PR…' : t.pr && `PR ${t.prState?.toLowerCase() || 'linked'}`,
-              ].filter(Boolean).join(' · ')}</span>
-            </button>
-          ))}
+          {filteredTasks.map((t, index) => {
+            const stageView = completedStageView(t.stages);
+            return (
+              <button key={t.slug} type="button" class="completed-tab" role="tab"
+                id={`completed-tab-${t.slug}`} aria-controls="completed-task-detail"
+                aria-selected={t.slug === selectedSlug} tabIndex={t.slug === visibleSlug ? 0 : -1}
+                onClick={() => setSelectedSlug(t.slug)}
+                onKeyDown={e => {
+                  const count = filteredTasks.length;
+                  const next = { ArrowDown: (index + 1) % count, ArrowUp: (index + count - 1) % count,
+                    Home: 0, End: count - 1 }[e.key];
+                  if (next === undefined) return;
+                  e.preventDefault();
+                  const slug = filteredTasks[next].slug;
+                  document.getElementById(`completed-tab-${slug}`)?.focus();
+                  setSelectedSlug(slug);
+                }}>
+                <strong class="mono">{t.slug}</strong>
+                <span>{t.title}</span>
+                <span class="completed-branch mono small muted">{t.branch}</span>
+                <span class="small muted">{[
+                  t.date?.split('T')[0], t.archived && 'Archived',
+                  t.prError ? 'PR check failed' : t.prPending ? 'Checking PR…' : t.pr && `PR ${t.prState?.toLowerCase() || 'linked'}`,
+                ].filter(Boolean).join(' · ')}</span>
+                {stageView && (
+                  <span class="completed-stage-summary">
+                    <span class="strip completed-stage-bar" role="img" aria-label={`Stages that ran: ${stageView.segments.map(s => s.label).join(', ')}`}>
+                      {stageView.segments.map(s => <i key={s.stage} class={`st-${s.state}`} title={s.label} />)}
+                    </span>
+                    <span class="completed-stage-note small muted">{stageView.note}</span>
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         <div class="completed-detail" id="completed-task-detail" role="tabpanel" tabIndex={0}
