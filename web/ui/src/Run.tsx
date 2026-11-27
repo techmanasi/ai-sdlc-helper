@@ -6,7 +6,7 @@ import { api, type ModelInfo, type RunView, type SettingsView } from './api';
 import { configValue } from './modelFilter';
 import { ModelSelect } from './ModelSelect';
 import { elapsedText, linkPaths, resolveShown, showTestIssues, stepBanner } from './stages';
-import { BackBar, Guarantees, LockDetail, OutputPanel, RoundChips, StageRail, StepList, UsagePanel, usePhone, type RailStage } from './RunInsights';
+import { AttemptRows, BackBar, Guarantees, LockDetail, OutputPanel, RoundChips, StageRail, StepList, UsagePanel, usePhone, type RailStage } from './RunInsights';
 import { answeredBetween, backBar, followNote, followedStage, phoneOpens, pickRound, prBadge, roundEndText, roundStartText, roundsOf, shownStage, waitsFor } from './stagePane';
 import { stopKind } from './stopKind';
 import { hasUsage, openLock, skipped, stageStates, usageText, verifiedLock, type StageState } from './insights';
@@ -317,6 +317,10 @@ export function Run({ slug }: { slug: string }) {
     api.brief(project, slug).then(b => setBrief(b.brief)).catch(() => setBrief(null));
   }, [project, slug]);
   const streaming = v?.state === 'running' || v?.state === 'paused';
+  // status.json records the running stage's iteration as "<used>/<max>": only Implement's limit counts attempts, and no
+  // max in the record means no "N left" claim.
+  const attemptMax = (() => { const m = v?.stage === 'Implement' ? /^\d+\/(\d+)$/.exec(v?.attempt || '') : null; return m ? Number(m[1]) : undefined; })();
+  const implementAttempts = (v?.attempts || []).filter(r => r.stage === 'implement');
   usePoll(load, v?.state, `${project}/${slug}`, streaming);
   useStream({
     url: streaming ? api.runEventsUrl(project, slug) : null,
@@ -826,7 +830,7 @@ export function Run({ slug }: { slug: string }) {
 
       <Panel title="Stages" extra={<span class="small muted">Pick a stage to see its steps and set its agent, model and effort (they apply when the run starts or resumes)</span>}>
         <StageRail
-          stages={railStages} timeline={v.timeline} step={v.state === 'running' ? v.step : undefined} locked={!!lock} lockOpen={lockOpen}
+          stages={railStages} timeline={v.timeline} step={v.state === 'running' ? v.step : undefined} attempts={implementAttempts} attemptMax={attemptMax} locked={!!lock} lockOpen={lockOpen}
           shown={shownKey} followed={followedKey} pr={prBadge(v)} phone={phone} phoneOpen={phoneIsOpen} onSelect={pickStage}
         >
           {paneStage && (() => {
@@ -942,6 +946,10 @@ export function Run({ slug }: { slug: string }) {
                      );
                    })}
                   </div>
+                  {s.key === 'implement' && implementAttempts.length > 0 && <>
+                    <h3 class="eyebrow attempt-eyebrow">Attempts{attemptMax ? ` · ${implementAttempts.length} of ${attemptMax}` : ''}</h3>
+                    <AttemptRows attempts={implementAttempts} max={attemptMax} onOpenLog={log => openFile(`logs/${log}`)} />
+                  </>}
                   {(plan?.length || round?.steps.length) ? <p class="small muted pane-foot">A pill appears when its step starts. The running one counts up; the others keep their final time.</p> : null}
                   {s.key === 'red-tests' && <><h3 class="eyebrow test-lock-eyebrow" style={{ marginTop: '14px' }}>TEST LOCK</h3><LockDetail lock={lock} open={lockOpen} /></>}
                  </div>

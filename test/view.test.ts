@@ -6,6 +6,7 @@ import { answerQuestions, boardIgnores, boardInputs, boardView, clearGitFacts, p
 import { clearPrCache } from '../src/pipeline/finalise.js';
 import { liveBranch, liveBriefPr, runContext } from '../src/runs/index.js';
 import { moveReasonText } from '../src/pipeline/status.js';
+import { appendRound } from '../src/pipeline/observe.js';
 import { getPrFromBrief } from '../src/pipeline/finalise.js';
 import { addBacklogItem, backlogItems } from '../src/backlog/index.js';
 import { TRACE_DEFAULTS, startTrace, stopTrace } from '../src/trace.js';
@@ -606,5 +607,26 @@ describe('worktreeInputs', () => {
     expect(plain.slice(0, 2)).toEqual([path.join(root, '.git', 'HEAD'), path.join(root, '.git', 'index')]);
     expect(plain.slice(0, 2).every(f => fs.existsSync(f))).toBe(true);
     expect(worktreeInputs(root, null, '')).toHaveLength(2);
+  });
+});
+
+describe('attempt records on the run view', () => {
+  test('a failed round carries its recorded error excerpt and log path through to AttemptRound', () => {
+    const { ctx, wt } = repoWithRun('attempt-error', { state: 'exited', exit_code: '1' }, {
+      'logs/status.json': { slug: 'attempt-error', state: 'failed', stage: 'Implement', agent: 'impl-1', attempt: '1/5', note: '', updated: '2026-11-28T10:05:00', pid: 0 },
+    });
+    const logs = path.join(wt, 'Docs/backlog/attempt-error/logs');
+    const error = 'Error: unit tests failed\nFAIL test/gates.test.ts';
+    fs.mkdirSync(logs, { recursive: true });
+    fs.writeFileSync(path.join(logs, 'impl-1.log'), 'the whole agent log');
+    const ok = appendRound(logs, {
+      kind: 'agent', at: '2026-11-28T10:05:00', stage: 'implement', agent: 'impl-1',
+      durationSec: 4, exitCode: 1, responseChars: 12, turns: 1, tokens: 30,
+      denied: [], filesChanged: [], warnings: [], error, log: 'impl-1.log',
+    });
+    expect(ok).toBe(true);
+    const v = runView(ctx, 'attempt-error', { changes: false });
+    expect(v.attempts).toHaveLength(1);
+    expect(v.attempts?.[0]).toMatchObject({ stage: 'implement', agent: 'impl-1', exitCode: 1, error, log: 'impl-1.log' });
   });
 });

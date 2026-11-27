@@ -123,6 +123,10 @@ export interface AttemptRound {
   /** The round has started and not finished. */
   running?: boolean;
   gate?: { failing: string[]; warnings: string[] };
+  /** Short excerpt of the recorded failure of this round; absent when it did not fail. */
+  error?: string;
+  /** The agent's log file, relative to the run's logs dir; absent when no such file was written. */
+  log?: string;
 }
 export interface CompletedTask {
   slug: string;

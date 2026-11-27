@@ -1,7 +1,7 @@
 // The stage pane under the run page's stage rail: which stage it shows, the colour of its outline, what a stage that has
 // not started waits for, which round of a stage is on view, the pull request badge on Finalise, and when the rail may
 // scroll a stage into view by itself. Pure, so the decisions are tested without a browser; RunInsights.tsx draws them.
-import type { CiState, RoundCause, RoundNext, RoundStartedBy, StageRound, StageSpan } from './api.js';
+import type { AttemptRound, CiState, RoundCause, RoundNext, RoundStartedBy, StageRound, StageSpan } from './api.js';
 import { durationText, spanSeconds, type TileState } from './insights.js';
 
 export interface PaneStage { key: string; name: string; state: TileState }
@@ -141,6 +141,44 @@ export function roundMarks(rounds: readonly StageRound[]): RoundMark[] {
 export function roundMarksLabel(rounds: readonly StageRound[]): string {
   if (!rounds.length) return '';
   return `Rounds: ${roundMarks(rounds).map(m => (m.label ? `${m.n} ${m.label}` : `${m.n}`)).join(', ')}`;
+}
+
+export interface AttemptMark { n: number; tone: 'done' | 'stop' | 'run' | 'idle'; label: string }
+
+/**
+ * One mark per recorded Implement attempt, then one dashed mark for each attempt the recorded iteration limit still
+ * allows. Only recorded exit codes, gate failures and running rows decide a mark's state.
+ */
+export function attemptMarks(attempts: readonly AttemptRound[], maxAttempts?: number): AttemptMark[] {
+  const marks: AttemptMark[] = attempts.map((a, i) => {
+    const failed = !a.running && (a.exitCode !== 0 || (a.gate?.failing?.length ?? 0) > 0);
+    return {
+      n: i + 1,
+      tone: a.running ? 'run' as const : failed ? 'stop' as const : 'done' as const,
+      label: a.running ? 'running' : failed ? 'failed' : 'done',
+    };
+  });
+  const left = maxAttempts && Number.isFinite(maxAttempts) ? Math.max(0, Math.floor(maxAttempts) - attempts.length) : 0;
+  for (let i = 0; i < left; i++) marks.push({ n: attempts.length + i + 1, tone: 'idle', label: 'left' });
+  return marks;
+}
+
+/** The tile's accessible name: one entry per recorded attempt, plus the remaining attempts when a max is known. */
+export function attemptMarksLabel(attempts: readonly AttemptRound[], maxAttempts?: number): string {
+  if (!attempts.length) return '';
+  const marks = attemptMarks(attempts, maxAttempts);
+  const parts = marks.filter(m => m.tone !== 'idle').map(m => `${m.n} ${m.label}`);
+  const left = marks.filter(m => m.tone === 'idle').length;
+  return `Attempts: ${left ? [...parts, `${left} left`].join(', ') : parts.join(', ')}`;
+}
+
+/** Why an attempt went back to Implementing, only from the gate result or the recorded error's first line. */
+export function backToImplementText(attempt: AttemptRound): string {
+  const failing = attempt.gate?.failing ?? [];
+  const reason = failing.length
+    ? `${failing.length} test${failing.length === 1 ? '' : 's'} failing`
+    : (attempt.error || '').split('\n').map(l => l.trim()).find(Boolean) || '';
+  return reason ? `↩ Back to Implementing: ${reason}` : '';
 }
 
 /** Why a round began, only when the run recorded a reason. */
