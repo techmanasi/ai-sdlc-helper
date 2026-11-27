@@ -13,7 +13,7 @@ import { liveBranch, projectSlugs, readCheckpoint, runChanges, runWorktree, type
 import { moveReasonText } from '../pipeline/status.js';
 import { ciSummaryOf, getPrFromBrief, getPrStatusCached, keepPrStatusIn, PR_STATUS_FILE, prCommentsEmpty, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
 import { readRounds, type Round } from '../pipeline/observe.js';
-import { runTimeline, type Timeline, type UsageTotals } from './timeline.js';
+import { runTimeline, type StageStatus, type Timeline, type UsageTotals } from './timeline.js';
 import { pricesNow } from '../models/prices.js';
 import { STEPS } from '../pipeline/steps.js';
 import { stageRecoveryHint, type StageRecovery } from '../pipeline/hints.js';
@@ -521,6 +521,7 @@ export function runView(ctx: RunContext, slug: string, opts: {
           questions,
           permissions: permState ? permState.pending : [],
           hasTestIssues: exists(path.join(docsDir, 'test-issues.md')),
+          resumeFrom: typeof s.resume_from === 'string' && s.resume_from ? s.resume_from : undefined,
         })
       : null,
   };
@@ -536,6 +537,8 @@ export type RunCard = Pick<RunView, 'slug' | 'state' | 'stage' | 'agent' | 'mode
   pullRequest: PrCard | null;
   /** Tokens, time and cost of every start of the item so far (the run page's "Whole run"); null before any agent round. */
   usage: UsageTotals | null;
+  /** Where each stage that began stands (started, completed, failed, paused, stopped) and when, oldest first: the board strip reads it, not the order of the stages. */
+  stages: Array<{ stage: string; status: StageStatus; started: string; ended: string | null }>;
 };
 
 export interface PrCard {
@@ -659,6 +662,7 @@ export function boardView(ctx: RunContext, opts: { changes?: boolean } = {}): Bo
       // Never waits for gh: the last known status, asked again at most once an hour (a cold cache fills within a poll).
       pullRequest: pr ? prCard(v.pr || null, pr) : null,
       usage: v.timeline?.usage ?? null,
+      stages: (v.timeline?.stages ?? []).map(t => ({ stage: t.stage, status: t.status, started: t.started, ended: t.ended })),
     };
   });
   // A backlog item's PR link: the pipeline commits it on the run's branch and never writes the main checkout, whose brief has
