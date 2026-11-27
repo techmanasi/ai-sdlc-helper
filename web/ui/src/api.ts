@@ -14,7 +14,7 @@ export interface SettingsView {
     tests?: { retry: boolean | null; maxWorkers: number | 'auto' | null; preliminary?: 'scoped' | 'full' };
   } | null;
   errors: string[]; warnings: string[]; raw: string | null;
-  hash: string; overrides: { worktreeBase?: string; maxParallel?: number; boardSilenceSeconds?: number }; registered: boolean;
+  hash: string; overrides: { worktreeBase?: string; maxParallel?: number; boardSilenceSeconds?: number; run?: RunBehaviourSettings }; registered: boolean;
   boardSilenceEnvSeconds?: number | null;
   harnesses: string[]; stages: string[]; efforts: string[];
   /** Harnesses that run one model through several providers: their picker offers a provider filter (absent on an older server). */
@@ -30,6 +30,19 @@ export interface SettingsView {
 }
 export type Source = 'personal' | 'project';
 export interface AgentSources { harness?: Source; model?: Source; effort?: Source; stages: Record<string, { harness?: Source; model?: Source; effort?: Source }> }
+/** The run behaviour settings one user saves for a project, and the server's view of them (see src/config/run-behaviour.ts). */
+export interface RunBehaviourSettings {
+  allowMerged?: boolean;
+  limitRetry?: number;
+  limitMaxWait?: number;
+  env?: Record<string, string>;
+}
+export interface RunBehaviourView {
+  saved: RunBehaviourSettings | null;
+  /** The run-behaviour names the server's own environment sets, name → value: these win over the saved ones. */
+  envSet: Record<string, string>;
+  registered: boolean;
+}
 export interface Project { name: string; path: string; registered: boolean }
 export interface BacklogItem { status: string; slug: string; type: string | null; priority: string | null; title: string; note: string; hasBrief: boolean }
 export interface TestCounts { passed: number; failed: number; skipped: number; total: number }
@@ -269,6 +282,9 @@ export const api = {
     call<{ ok: boolean; errors: string[]; hash: string; activeRuns: string[] }>('POST', `${p(project)}/settings`, { patch, hash }),
   editOverrides: (project: string, patch: Record<string, unknown>) =>
     call<{ ok: boolean; errors: string[] }>('POST', `${p(project)}/overrides`, { patch }),
+  runBehaviour: (project: string) => call<RunBehaviourView>('GET', `${p(project)}/run-behaviour`),
+  saveRunBehaviour: (project: string, run: RunBehaviourSettings) =>
+    call<{ ok: boolean; errors?: string[] }>('PUT', `${p(project)}/run-behaviour`, run),
   brief: (project: string, slug: string) => call<{ brief: string | null }>('GET', `${p(project)}/backlog/${encodeURIComponent(slug)}`),
   editView: (project: string, slug: string) => call<BacklogEditView>('GET', `${p(project)}/backlog/${encodeURIComponent(slug)}/edit`),
   editItem: (project: string, slug: string, body: { title: string; type: string; priority?: string; brief: string; hash: string }) =>

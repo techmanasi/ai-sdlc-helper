@@ -10,7 +10,8 @@
 <script>
 try {
   var t = localStorage.getItem('sdlc-theme');
-  if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  if (t !== 'light' && t !== 'dark' && t !== 'system') t = 'system';
+  // 'system' is left as-is: styles.css follows prefers-color-scheme for it, and the app keeps it in sync.
   document.documentElement.dataset.theme = t;
 } catch (e) {}
 </script>
