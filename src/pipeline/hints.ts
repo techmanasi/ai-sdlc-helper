@@ -23,9 +23,19 @@ const FROM_NAMES: Record<string, string> = {
   'test-repair': 'Test repair', review: 'Review', finalise: 'Finalise', 'resolve-conflicts': 'Resolve conflicts',
 };
 
+/**
+ * What kind of stop the recovery describes, when the failure text says: 'account' for a billing, auth, login or
+ * quota-exhausted error, 'process' for a crash, a non-zero exit, a timeout or a runner error. Left undefined where the
+ * failure says none of these (a gate that failed, a branch that would not sync): the run page then reads the kind from
+ * what it knows, and never guesses one.
+ */
+export type RecoveryKind = 'account' | 'process';
+
 export interface StageRecovery {
   stage: string;
   diagnosis: string;
+  /** The kind of stop, when the failure text names one (see RecoveryKind). */
+  kind?: RecoveryKind;
   autoAction?: {
     label: string;
     command: string;
@@ -138,6 +148,26 @@ function syncRecovery(ctx: RecoveryContext, latest: string, stopping: boolean): 
   return null;
 }
 
+/**
+ * The kind of stop an agent's failure text describes: 'account' for a billing, auth, login or quota-exhausted error,
+ * 'process' for a crash, a non-zero exit, a timeout or a runner error. Null when the text says neither, so the run page
+ * does not claim a kind the failure does not name.
+ */
+export function recoveryKindOf(reason: string): RecoveryKind | null {
+  const text = reason || '';
+  if (/quota|rate limit|usage limit|RESOURCE_EXHAUSTED|insufficient[_ ]?(balance|quota|credit)|out of credit|billing|payment|unpaid|invoice|subscription|not entitled|insufficient credit/i.test(text)) {
+    return 'account';
+  }
+  if (/unauthori[sz]ed|unauthenticated|authentication|not logged in|login|log in|sign[- ]?in|invalid api key|api key|credential|permission denied by the provider|forbidden/i.test(text)) {
+    return 'account';
+  }
+  if (/model .*(?:not supported|not available|not found|unknown|invalid)/i.test(text)) return 'account';
+  if (/crash|crashed|exit(?:ed)? (?:with )?(?:code|non-zero)|exited non-zero|fatal|panic|uncaught|exception|segmentation|timed out|timeout|runner error|failed to run|spawn|ENOENT|EACCES|EPIPE|signal|killed/i.test(text)) {
+    return 'process';
+  }
+  return null;
+}
+
 /** Diagnoses a paused, failed, or stopped stage and provides 3-tuple recovery paths. */
 export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
   const normStage = (ctx.stage || '').toLowerCase().replace(/\s+/g, '-');
@@ -174,9 +204,13 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     const command = resumeCommand(ctx.slug, resumeAt);
     const error = latest.split('\n').filter(l => /^ERROR: /.test(l)).pop();
     const restart = resumeCommand(ctx.slug, 'spec');
+    // Setup fails for the account's sake too (a model the account may not use, a key that is not signed in): the error
+    // line says so, and then the kind is known.
+    const kind = error ? recoveryKindOf(error) : null;
     return {
       stage: `Setup (before ${name})`,
       diagnosis: error ? error.replace(/^ERROR: /, '') : `The run stopped before ${name} started.`,
+      ...(kind ? { kind } : {}),
       autoAction: { label: `Resume at ${name}`, command },
       manualAction: { file: 'logs/run.out', instruction: 'Fix what the error above names, then resume.' },
       // Restarting from Spec is a different command, so it stays on offer as the bailout; when it is the same, it is not.
@@ -192,6 +226,7 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     return {
       stage: stageName,
       diagnosis: agentName ? `Agent '${agentName}' was stopped by ${sig} (the run was killed from outside)` : `The run was stopped by ${sig} during ${during} (it was killed from outside)`,
+      kind: 'process',
       autoAction: { label: `Resume at ${stageName}`, command: resumeCommand(ctx.slug, toFromStage(stageName, ctx.hasTestIssues)) },
       manualAction: agentName ? { file: `logs/${agentName}.err`, instruction: 'Nothing is wrong with the agent: start the run again from this stage.' } : { instruction: 'Start the run again from this stage.' },
     };
@@ -204,6 +239,7 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     return {
       stage: stageName,
       diagnosis: `The run's supervisor (process ${orphaned[1]}) was killed from outside, so the run stopped itself during ${orphaned[2]}`,
+      kind: 'process',
       autoAction: { label: `Resume at ${stageName}`, command: resumeCommand(ctx.slug, toFromStage(stageName, ctx.hasTestIssues)) },
       manualAction: { instruction: 'Nothing is wrong with the agent: start the run again from this stage.' },
     };
@@ -270,6 +306,7 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
       return {
         stage: stageName,
         diagnosis: `Agent '${agentName}' failed: model not supported with current account (${reason})`,
+        kind: 'account',
         autoAction: {
           label: `Switch to supported model & retry ${stageName}`,
           command: `${resumeCommand(ctx.slug, resumeKey)} --model gpt-4o`,
@@ -285,11 +322,14 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
       };
     }
 
+    // A quota, rate or usage limit is the account's, not the code's; anything else the agent died of is the process's.
+    const kind: RecoveryKind | null = isQuota ? 'account' : recoveryKindOf(reason);
     return {
       stage: stageName,
       diagnosis: isQuota
         ? `Agent '${agentName}' reached quota or rate limit: ${reason}`
         : `Agent '${agentName}' crashed or failed: ${reason}`,
+      ...(kind ? { kind } : {}),
       autoAction: {
         label: isQuota ? `Retry ${stageName} after quota reset` : `Retry ${stageName} stage`,
         command: resumeCommand(ctx.slug, resumeKey),
@@ -404,6 +444,7 @@ export function stageRecoveryHint(ctx: RecoveryContext): StageRecovery {
     return {
       stage: 'Red tests',
       diagnosis: 'Test suite failed to run, timed out, or encountered a syntax/runner error.',
+      kind: 'process',
       autoAction: {
         label: 'Retry Red Tests stage',
         command: resumeCommand(ctx.slug, 'red-tests'),

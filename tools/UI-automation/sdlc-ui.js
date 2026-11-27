@@ -51,6 +51,8 @@
     heroTitle: '.hero h1',
     heroChip: '.hero .chip',
     heroTag: '.hero .tag',
+    stopKind: '#stop-kind',
+    stopCause: '#stop-cause',
     guarantee: '.guar .guar-item',
     recovery: 'section.recov',
     recoveryWays: '.recov-ways',
@@ -326,6 +328,13 @@
     if (!r) return null;
     return { text: text(r).slice(0, 800), buttons: buttons(r).map(b => b.label) };
   }
+  /** Why the run stopped: the kind's name and the cause the record gives; null while the run has not stopped. */
+  function stopKind() {
+    const k = $(SELECTORS.stopKind);
+    if (!k) return null;
+    const glyph = $('.stop-kind-glyph', k);
+    return { label: text(k).replace(/^\S+\s*/, ''), glyph: glyph ? text(glyph) : '', cause: text($(SELECTORS.stopCause)) };
+  }
   /** The "Environment for this run" rows as { NAME: value }. */
   function env() {
     const p = panel('Environment for this run');
@@ -403,6 +412,7 @@
       stages: stages(),
       foldedDone: doneFold(),
       recovery: recovery(),
+      stopKind: stopKind(),
       questions: questions().length,
       cost: cost ? text($('.chip', cost)) : '',
       totals: $$(SELECTORS.totals).map(text),
@@ -534,7 +544,7 @@
     board, boardShow, boardFilter, pick, rowAction,
     completedTabs, completedFilter, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds,
     // run page
-    run, stages, stage, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
+    run, stages, stage, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
     // new item
     newItem,
     // code search setup

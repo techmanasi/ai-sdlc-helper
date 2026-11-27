@@ -287,3 +287,70 @@ describe('stageRecoveryHint diagnostics engine', () => {
     expect(cliOutput).toContain('3. Bailout:');
   });
 });
+
+describe('the kind of stop a recovery names', () => {
+  it('names the account when the failure is a quota or a usage limit', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: 'Implement', state: 'failed', exitCode: 1,
+      runOut: ['SDLC: x on branch b', "agent 'impl-1' failed: quota exceeded: RESOURCE_EXHAUSTED"],
+    });
+    expect(recovery.kind).toBe('account');
+    expect(recovery.diagnosis).toContain('quota');
+  });
+
+  it('names the account when the model is not available to it', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: 'Implement', state: 'failed', exitCode: 1,
+      runOut: ['SDLC: x on branch b', "agent 'impl-1' failed: model not supported with current account"],
+    });
+    expect(recovery.kind).toBe('account');
+  });
+
+  it('names the account when the setup error is about billing or a signed-in session', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: '', state: 'failed', exitCode: 1, resumeFrom: 'implement',
+      runOut: ['SDLC: x starting from implement', 'ERROR: Insufficient balance'],
+    });
+    expect(recovery.kind).toBe('account');
+  });
+
+  it('names the process when the agent crashed', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: 'Implement', state: 'failed', exitCode: 1,
+      runOut: ['SDLC: x on branch b', "agent 'impl-1' failed: ENOENT: no such file or directory"],
+    });
+    expect(recovery.kind).toBe('process');
+  });
+
+  it('names the process when the run was killed from outside', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: 'Implement', state: 'failed', exitCode: 1,
+      runOut: ['SDLC: x on branch b', 'run stopped by SIGTERM (exit 143) during Implement'],
+    });
+    expect(recovery.kind).toBe('process');
+  });
+
+  it('names the process when the test runner failed to run', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: 'Red tests', state: 'failed', exitCode: 1,
+      runOut: ['SDLC: x on branch b', 'SyntaxError: Unexpected token'],
+    });
+    expect(recovery.kind).toBe('process');
+  });
+
+  it('names no kind when the failure says none of them', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: 'Implement', state: 'failed', exitCode: 1,
+      runOut: ['SDLC: x on branch b', 'RED GATE FAILED: 2 new test(s) already pass before implementation'],
+    });
+    expect(recovery.kind).toBeUndefined();
+  });
+
+  it('names no kind for a stage that halted on its own', () => {
+    const recovery = stageRecoveryHint({
+      slug: 'x', stage: 'Plan', state: 'failed', exitCode: 1,
+    });
+    expect(recovery.kind).toBeUndefined();
+  });
+});
+
