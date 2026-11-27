@@ -1,0 +1,281 @@
+{
+  "version": 1,
+  "slug": "fix-loop-red-gate-kind",
+  "generatedAt": "2026-11-27T01:51:03",
+  "priced": true,
+  "runs": [
+    {
+      "n": 0,
+      "started": "2026-11-26T20:15:12.415Z",
+      "from": "",
+      "ended": null,
+      "state": "stopped",
+      "wallSec": 0.078,
+      "stages": [],
+      "usage": {
+        "rounds": 0,
+        "durationSec": 0,
+        "turns": 0,
+        "tokens": 0,
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costUsd": null,
+        "estimatedUsd": 0,
+        "unpriced": 0
+      }
+    },
+    {
+      "n": 1,
+      "started": "2026-11-27T00:15:12",
+      "from": "spec",
+      "ended": "2026-11-27T00:19:11",
+      "state": "paused",
+      "wallSec": 239,
+      "stages": [
+        {
+          "stage": "Spec",
+          "passes": 1,
+          "wallSec": 152,
+          "models": [
+            "gemini-3.8-flash-medium"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 132.602917,
+            "turns": 1,
+            "tokens": 64313,
+            "input": 54211,
+            "output": 10102,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "costUsd": null,
+            "estimatedUsd": 0,
+            "unpriced": 1
+          }
+        },
+        {
+          "stage": "Plan",
+          "passes": 1,
+          "wallSec": 82,
+          "models": [
+            "gpt-6.2-sol"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 81.4,
+            "turns": 1,
+            "tokens": 527376,
+            "input": 525259,
+            "output": 2117,
+            "cacheRead": 474240,
+            "cacheWrite": 0,
+            "costUsd": 0.170632,
+            "estimatedUsd": 0.170632,
+            "unpriced": 0
+          }
+        }
+      ],
+      "usage": {
+        "rounds": 2,
+        "durationSec": 214.002917,
+        "turns": 2,
+        "tokens": 591689,
+        "input": 579470,
+        "output": 12219,
+        "cacheRead": 474240,
+        "cacheWrite": 0,
+        "costUsd": 0.170632,
+        "estimatedUsd": 0.170632,
+        "unpriced": 1
+      }
+    },
+    {
+      "n": 2,
+      "started": "2026-11-27T00:44:09",
+      "from": "plan",
+      "ended": "2026-11-27T01:01:52",
+      "state": "failed",
+      "wallSec": 1063,
+      "stages": [
+        {
+          "stage": "Plan",
+          "passes": 1,
+          "wallSec": 225,
+          "models": [
+            "gpt-6.2-sol"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 211.1,
+            "turns": 1,
+            "tokens": 1399073,
+            "input": 1391045,
+            "output": 8028,
+            "cacheRead": 1311488,
+            "cacheWrite": 0,
+            "costUsd": 0.37054280000000006,
+            "estimatedUsd": 0.37054280000000006,
+            "unpriced": 0
+          }
+        },
+        {
+          "stage": "Red tests",
+          "passes": 1,
+          "wallSec": 834,
+          "models": [],
+          "usage": {
+            "rounds": 0,
+            "durationSec": 0,
+            "turns": 0,
+            "tokens": 0,
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "costUsd": null,
+            "estimatedUsd": 0,
+            "unpriced": 0
+          }
+        }
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 211.1,
+        "turns": 1,
+        "tokens": 1399073,
+        "input": 1391045,
+        "output": 8028,
+        "cacheRead": 1311488,
+        "cacheWrite": 0,
+        "costUsd": 0.37054280000000006,
+        "estimatedUsd": 0.37054280000000006,
+        "unpriced": 0
+      }
+    },
+    {
+      "n": 3,
+      "started": "2026-11-27T01:20:44",
+      "from": "red-tests",
+      "ended": null,
+      "state": null,
+      "wallSec": 1819,
+      "stages": [
+        {
+          "stage": "Red tests",
+          "passes": 1,
+          "wallSec": 1811,
+          "models": [
+            "gemini-4-hydrogen-medium"
+          ],
+          "usage": {
+            "rounds": 1,
+            "durationSec": 746.435141,
+            "turns": 1,
+            "tokens": 60318,
+            "input": 54424,
+            "output": 5894,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "costUsd": null,
+            "estimatedUsd": 0,
+            "unpriced": 1
+          }
+        }
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 746.435141,
+        "turns": 1,
+        "tokens": 60318,
+        "input": 54424,
+        "output": 5894,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costUsd": null,
+        "estimatedUsd": 0,
+        "unpriced": 1
+      }
+    }
+  ],
+  "stages": [
+    {
+      "stage": "Spec",
+      "passes": 1,
+      "wallSec": 152,
+      "models": [
+        "gemini-3.8-flash-medium"
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 132.602917,
+        "turns": 1,
+        "tokens": 64313,
+        "input": 54211,
+        "output": 10102,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costUsd": null,
+        "estimatedUsd": 0,
+        "unpriced": 1
+      }
+    },
+    {
+      "stage": "Plan",
+      "passes": 2,
+      "wallSec": 307,
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "usage": {
+        "rounds": 2,
+        "durationSec": 292.5,
+        "turns": 2,
+        "tokens": 1926449,
+        "input": 1916304,
+        "output": 10145,
+        "cacheRead": 1785728,
+        "cacheWrite": 0,
+        "costUsd": 0.5411748000000001,
+        "estimatedUsd": 0.5411748000000001,
+        "unpriced": 0
+      }
+    },
+    {
+      "stage": "Red tests",
+      "passes": 2,
+      "wallSec": 2645,
+      "models": [
+        "gemini-4-hydrogen-medium"
+      ],
+      "usage": {
+        "rounds": 1,
+        "durationSec": 746.435141,
+        "turns": 1,
+        "tokens": 60318,
+        "input": 54424,
+        "output": 5894,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costUsd": null,
+        "estimatedUsd": 0,
+        "unpriced": 1
+      }
+    }
+  ],
+  "usage": {
+    "rounds": 4,
+    "durationSec": 1171.538058,
+    "turns": 4,
+    "tokens": 2051080,
+    "input": 2024939,
+    "output": 26141,
+    "cacheRead": 1785728,
+    "cacheWrite": 0,
+    "costUsd": 0.5411748000000001,
+    "estimatedUsd": 0.5411748000000001,
+    "unpriced": 2
+  },
+  "wallSec": 3121.078
+}
