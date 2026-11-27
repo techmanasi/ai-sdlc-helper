@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SettingsView } from '../web/ui/src/api.js';
-import { STAGES, branchLine, defaultsSummary, newItemCommand, slugFromTitle, stageEnv } from '../web/ui/src/newItemForm.js';
+import { STAGES, branchLine, defaultsSummary, newItemCommand, stageEnv } from '../web/ui/src/newItemForm.js';
 
 /** Only the fields the New item screen reads: the server sends the rest. */
 const settings = (patch: Partial<SettingsView> = {}): SettingsView => ({
@@ -9,14 +9,11 @@ const settings = (patch: Partial<SettingsView> = {}): SettingsView => ({
 } as SettingsView);
 
 describe('New item: title, stages and When', () => {
-  it('uses the repo slug rule for the live branch line', () => {
-    expect(slugFromTitle('Add Rate Limit!')).toBe('add-rate-limit');
-    expect(slugFromTitle('  Fix__the / Bug  ')).toBe('fix-the-bug');
-    expect(slugFromTitle('---')).toBe('');
-    expect(branchLine('Add Rate Limit!', 'sdlc/')).toBe('Branch: sdlc/add-rate-limit');
+  it('names the branch from the slug and the project branch prefix', () => {
+    expect(branchLine('add-rate-limit', 'work/')).toBe('Branch: work/add-rate-limit');
     expect(branchLine('', 'work/')).toBe('Branch: work/<slug>');
-    // Without a prefix from the project's settings, show no guessed one.
-    expect(branchLine('A B')).toBe('Branch: a-b');
+    // Without the project's settings, the pipeline's own default prefix applies.
+    expect(branchLine('search-sort')).toBe('Branch: sdlc/search-sort');
   });
 
   it('shows only the eight named stages of a run', () => {

@@ -20,17 +20,11 @@ export const STAGES: ReadonlyArray<{ key: string; name: string; tag: string }> =
 export interface ItemPick { harness: string; model: string; effort: string }
 
 /**
- * A title as a backlog slug. The rule is the repo's existing one (defaultName in src/registry/projects.ts): lowercase,
- * groups of anything else become one dash, and no dashes at either end. Here it only previews the slug; the field stays
- * editable, and the existing validity check still decides whether the item can be saved.
+ * The branch a run of this item gets: the git branch prefix plus the slug, as `branchExists` in src/backlog/index.ts
+ * names it. The prefix comes from the project's resolved settings; without them it is the same `sdlc/` default.
  */
-export const slugFromTitle = (title: string): string =>
-  title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-
-/** The branch a run of this item gets. The prefix comes from the project's resolved settings; without them, show no prefix. */
-export function branchLine(title: string, prefix?: string): string {
-  const s = slugFromTitle(title) || '<slug>';
-  return `Branch: ${prefix ? `${prefix}${s}` : s}`;
+export function branchLine(slug: string, prefix?: string): string {
+  return `Branch: ${prefix || 'sdlc/'}${slug.trim() || '<slug>'}`;
 }
 
 /** What the project will use for one stage, from the settings the screen already loads. */
