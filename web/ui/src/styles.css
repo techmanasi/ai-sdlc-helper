@@ -452,6 +452,22 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .way .lbl { display: flex; gap: 6px; align-items: center; }
 .way p { margin: 0; font-size: 13px; flex: 1 1 auto; }
 
+/* recovery options: top up, retry, switch model, a confirmed bailout, and the recorded error */
+.recov-options { margin-top: 10px; }
+.recov-options-head { background: var(--fail-bg); }
+.recov-cause { margin: 0; color: var(--tx); }
+.recov-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; padding: 14px 16px; }
+.recov-op { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--ln); border-radius: 8px; background: var(--pn2); }
+.recov-op-first { border-color: var(--pri); }
+.recov-detail { margin: 0; color: var(--mu); line-height: 1.45; }
+.recov-confirm { gap: 8px; margin-top: 4px; padding: 10px; border: 1px solid var(--wait); border-radius: 8px; background: var(--waitbg); }
+.recov-switch { gap: 8px; margin-top: 4px; padding: 10px; border: 1px dashed var(--ln2); border-radius: 8px; }
+.recov-error { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 12px; }
+.recov-error-text { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: 10px 12px; border: 1px solid var(--ln); border-radius: 6px; background: var(--code); color: var(--fail); font-size: 12px; }
+.recov-src { font-size: 10px; }
+.recov-cli { margin: 0 16px 14px; }
+.recov-cli code { font-family: var(--monof); font-size: 12px; color: var(--tx); overflow-wrap: anywhere; }
+
 /* the lock, the cost */
 .locklog { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
 .locklog li { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 10px; align-items: baseline; }
