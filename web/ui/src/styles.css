@@ -328,8 +328,8 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .rail2-scroll:hover { background: var(--ln); }
 .tile-wrap { position: relative; display: flex; flex: 1 1 0; min-width: 0; }
 .tile-wrap > .tile { flex: 1 1 auto; width: 100%; }
-.tile-wrap .tile-line { padding-right: 24px; }
-.tile-edit { position: absolute; right: 5px; bottom: 5px; z-index: 2; width: 22px; min-height: 22px; display: grid; place-items: center; border: 1px solid var(--ln2); border-radius: 5px; background: var(--pn2); color: var(--mu); font: inherit; font-size: 12px; cursor: pointer; opacity: .75; }
+.tile-wrap .tile-name { padding: 0 22px; }
+.tile-edit { position: absolute; right: 6px; top: 14px; z-index: 2; width: 22px; min-height: 22px; display: grid; place-items: center; border: 1px solid var(--ln2); border-radius: 5px; background: var(--pn2); color: var(--mu); font: inherit; font-size: 12px; cursor: pointer; opacity: .75; }
 .tile-edit:hover, .tile-edit:focus-visible, .tile-edit[aria-expanded='true'] { opacity: 1; border-color: var(--pri); color: var(--pri); }
 .stage-pop { position: fixed; z-index: 30; max-height: min(460px, calc(100vh - 16px)); overflow: auto; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--ln2); border-radius: 8px; background: var(--pn); box-shadow: 0 12px 32px rgba(0, 0, 0, .4); }
 .stage-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
