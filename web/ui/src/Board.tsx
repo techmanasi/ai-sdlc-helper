@@ -6,9 +6,10 @@ import { useSyncLabel } from './useSyncLabel';
 import { useStream } from './useStream';
 import { applyRunEvent } from './stream';
 import { awaitsMerge } from './stages';
-import { PIPELINE, boardCost, currentStage, stageName, stripStates } from './insights';
+import { PIPELINE, boardCost, currentStage, stageName } from './insights';
 import { PrCi } from './PrCi';
 import { Cli, ErrorBox, GLYPH, Notices, Panel, PrIcon, Spinner, stateClass, useApp } from './ui';
+import { segments, segmentLabel, boardStageText, relativeTime } from './boardStages';
 
 export const COLUMNS = ['Backlog', 'Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise'];
 
@@ -86,8 +87,16 @@ function RunCardView({ r, on, select, onRefresh }: { r: RunCard; on: boolean; se
         <span class="brow-sub mono">{[r.branch, r.model && `${r.model} · ${r.effort}`].filter(Boolean).join(' · ') || '—'}</span>
       </button>
       <div class="b-stages col" style={{ gap: '5px', minWidth: 0 }}>
-        <span class="strip" role="img" aria-label={`${stripStates(r).filter(x => x === 'done').length} of ${PIPELINE.length} stages done`}>{stripStates(r).map(x => <i class={`st-${x}`} />)}</span>
-        <span class="brow-sub" title={what || where}>{where}{what ? ` · ${what}` : r.tests ? ` · tests ${r.tests.passed}/${r.tests.total}` : ''}</span>
+        <span class="bseg" role="img" aria-label={`${segments(r.stages).filter(s => s.state === 'completed').length} of ${segments(r.stages).length} stages done`}>
+          {segments(r.stages).map(seg => (
+            <span
+              key={seg.name}
+              class={`bseg-seg bseg-${seg.state.replace(' ', '-')}${seg.dashed ? ' bseg-dash' : ''}`}
+              title={segmentLabel(seg)}
+            />
+          ))}
+        </span>
+        <span class="brow-sub" title={what || where}>{boardStageText(r)}{what ? ` · ${what}` : r.tests ? ` · tests ${r.tests.passed}/${r.tests.total}` : ''}</span>
       </div>
       <span><span class={`chip chip-${chip}`}>{label}</span></span>
       <div class="b-pr col small" style={{ gap: '4px', minWidth: 0 }}>
@@ -99,6 +108,10 @@ function RunCardView({ r, on, select, onRefresh }: { r: RunCard; on: boolean; se
         )}
         {r.state === 'done' && r.pullRequest?.state === 'OPEN' && <PrCi ci={r.pullRequest.ci} failing={r.pullRequest.failing} summary={summary} busy={fixing} onFix={fix} conflicts={r.pullRequest.conflicts} resolveBusy={resolving} onResolve={resolve} />}
       </div>
+      {(() => {
+        const upd = relativeTime(r.updated);
+        return <span class="b-updated small" title={upd.title}>{upd.text}</span>;
+      })()}
       <RunCost r={r} />
       <div class="brow-acts">
         {r.state === 'done' && <button type="button" class="btn btn-xs" disabled={syncing} onClick={sync} title={`Ask GitHub now for this PR's state, CI status and review comments (checked once an hour otherwise)${r.pullRequest?.checkedAt ? `; last checked ${clock(r.pullRequest.checkedAt)}` : ''}`}>{syncing ? <><Spinner /> {syncLabel || 'Syncing'}…</> : 'Sync PR'}</button>}
@@ -229,7 +242,7 @@ export function Board({ board, error, onRefresh }: { board: BoardData | null; er
       {board.items === null && <div class="banner">This project has no backlog index yet. <a href="#/new" onClick={e => { e.preventDefault(); go('/new'); }}>Write the first item</a>; it creates the index.</div>}
       {chosen.length > 0 && <Cli commands={chosen.map(s => ['start', s])} />}
       <section class="pn blist" aria-label="Items">
-        <div class="bhead lbl"><span /><span>Item</span><span>Stages</span><span>Status</span><span>Pull request</span><span>Cost</span><span /></div>
+        <div class="bhead lbl"><span /><span>Item</span><span>Stages</span><span>Status</span><span>Pull request</span><span>Updated</span><span>Cost</span><span /></div>
         {runs.map(r => <RunCardView key={r.slug} r={r} on={selected === r.slug} select={() => setSelected(s => (s === r.slug ? '' : r.slug))} onRefresh={onRefresh} />)}
         {items.map(i => (
           <div class={`brow ${picked[i.slug] ? 'brow-on' : ''}`} key={i.slug}>
@@ -244,6 +257,7 @@ export function Board({ board, error, onRefresh }: { board: BoardData | null; er
             </div>
             <span><span class="chip chip-pending">{i.status === 'completed' ? 'completed' : 'not started'}</span></span>
             <span class="b-pr muted small">—</span>
+            <span class="b-updated small">—</span>
             <span class="b-cost muted small">—</span>
             <div class="brow-acts">
               <a class="btn btn-xs" href={`#/edit/board/${i.slug}`} onClick={e => { e.preventDefault(); go(`/edit/board/${i.slug}`); }}>Edit</a>
