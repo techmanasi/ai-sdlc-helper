@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { backBar, followedStage, followNote, hiddenCounts, mayAutoScroll, paneTone, phoneOpens, pickRound, prBadge, roundLabel, roundsOf, scrollTarget, shownStage, stepPills, waitsFor } from '../web/ui/src/stagePane.js';
+import { backBar, doneFoldLabel, edgeScrollTarget, foldDone, followedStage, followNote, hiddenCounts, mayAutoScroll, paneTone, phoneOpens, pickRound, prBadge, roundLabel, roundsOf, scrollTarget, shownStage, stepPills, waitsFor } from '../web/ui/src/stagePane.js';
 
 const stage = (name: string, state: string) => ({ name, key: name.toLowerCase().replace(' ', '-'), state: state as never });
 const rail = (states: Record<string, string>) => Object.entries(states).map(([n, s]) => stage(n, s));
@@ -83,6 +83,25 @@ describe('the pull request badge', () => {
 
 describe('the rail on a narrow window', () => {
   const tiles = [0, 1, 2, 3, 4, 5].map(i => ({ left: i * 160, width: 150 }));
+  test('leading done stages fold only when the un-folded rail does not fit', () => {
+    const r = rail({ Spec: 'done', Plan: 'done', 'Red tests': 'done', Implement: 'done', 'Test repair': 'active', Review: 'pending' });
+    const fold = foldDone(r, false, 'test-repair');
+    expect(fold.folded.map(s => s.name)).toEqual(['Spec', 'Plan', 'Red tests', 'Implement']);
+    expect(fold.shown.map(s => s.name)).toEqual(['Test repair', 'Review']);
+    expect(doneFoldLabel(fold.folded)).toBe('4 stages done: Spec, Plan, Red tests, Implement');
+    expect(foldDone(r, true, 'test-repair')).toEqual({ folded: [], shown: r });
+  });
+  test('the fold never takes a live stage or the picked stage, and never leaves only a fold', () => {
+    const stopped = rail({ Spec: 'done', Plan: 'paused', 'Red tests': 'failed', Implement: 'active' });
+    expect(foldDone(stopped, false, '').folded.map(s => s.name)).toEqual(['Spec']);
+    expect(foldDone(stopped, false, '').shown.map(s => s.name)).toEqual(['Plan', 'Red tests', 'Implement']);
+    const picked = rail({ Spec: 'done', Plan: 'done', Implement: 'active' });
+    expect(foldDone(picked, false, 'plan').folded.map(s => s.name)).toEqual(['Spec']);
+    expect(foldDone(picked, false, 'spec').folded).toEqual([]);
+    expect(doneFoldLabel(foldDone(picked, false, 'plan').folded)).toBe('1 stage done: Spec');
+    const allDone = rail({ Spec: 'done', Plan: 'done' });
+    expect(foldDone(allDone, false, '').shown.map(s => s.name)).toEqual(['Plan']);
+  });
   test('hidden counts per edge: a tile counts once its middle is out of view', () => {
     expect(hiddenCounts(tiles, 0, 500)).toEqual({ left: 0, right: 3 });
     expect(hiddenCounts(tiles, 320, 500)).toEqual({ left: 2, right: 1 });
@@ -93,6 +112,12 @@ describe('the rail on a narrow window', () => {
     expect(scrollTarget(tiles[5], 0, 500)).toBe(800 + 150 - 500 + 48);
     expect(scrollTarget(tiles[1], 300, 500)).toBe(112);
     expect(scrollTarget(tiles[0], 100, 500)).toBe(0);
+  });
+  test('edge arrows bring the nearest hidden tile into view and disappear when that side has none', () => {
+    expect(edgeScrollTarget(tiles, 0, 500, 'right')).toBe(178);
+    expect(edgeScrollTarget(tiles, 320, 500, 'left')).toBe(112);
+    expect(edgeScrollTarget(tiles, 0, 2000, 'right')).toBeNull();
+    expect(edgeScrollTarget(tiles, 0, 500, 'left')).toBeNull();
   });
   test('auto scroll leaves the rail alone for a few seconds after the user scrolled it', () => {
     expect(mayAutoScroll(10_000, 12_000)).toBe(false);

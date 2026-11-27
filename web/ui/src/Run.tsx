@@ -409,6 +409,12 @@ export function Run({ slug }: { slug: string }) {
     if (phone && phoneIsOpen && key === shownKey) { setPhoneMode('shut'); return; }
     setPicked({ key, at: followedKey }); setPickedRound(0); setPhoneMode('open');
   };
+  const openOutput = () => {
+    const output = document.getElementById('run-output');
+    if (!output) return;
+    output.focus({ preventScroll: true });
+    output.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
   const unanswered = v.questions.filter(q => !(answers[q.n] !== undefined ? answers[q.n] : q.answer).trim()).length;
   // A run with no recorded stage resumes at Spec, named and sent as such: no button starts without saying where.
   const resumeKey = v.resumeFrom || 'spec';
@@ -813,6 +819,7 @@ export function Run({ slug }: { slug: string }) {
                 <div id="stage-detail" class="stage-detail" role="tabpanel" aria-label={s.name}>
                  {bar && <BackBar text={bar.text} back={bar.back} onBack={() => { setPicked({ key: '', at: '' }); setPickedRound(0); }} />}
                  {phoneAuto && !bar && <p class="pane-auto small muted">Opened by itself because the run stopped here</p>}
+                 {note && <div class="pane-following"><span>{note}</span>{st === 'active' && <button type="button" class="btn btn-s open-output" onClick={openOutput}>Open output</button>}</div>}
                  <div class="pane-grid">
                  <div class="rail-controls">
                   <h3 class="eyebrow">{s.name} · {s.key === 'finalise' ? 'options' : 'agent, model and effort'}</h3>
@@ -882,7 +889,7 @@ export function Run({ slug }: { slug: string }) {
                   {s.name === 'Finalise' && v.deniedPermissions && v.deniedPermissions.length > 0 && <span class="small s-failed">{v.deniedPermissions.length} denied</span>}
                  </div>
                  <div class="pane-steps">
-                  <h3 class="eyebrow">{st === 'pending' ? 'Steps · not started' : `Steps · round ${roundNo}`}{round?.started ? ` · started ${round.started.slice(11, 16)}` : ''}{note && <span class="pane-follow"> · {note}</span>}</h3>
+                  <h3 class="eyebrow">{st === 'pending' ? 'Steps · not started' : `Steps · round ${roundNo}`}{round?.started ? ` · started ${round.started.slice(11, 16)}` : ''}</h3>
                   {waits.length > 0 && <p class="small muted pane-waits">Starts after {waits.join(' and ')}</p>}
                   <RoundChips count={rounds.length} picked={roundNo} onPick={setPickedRound} />
                   <StepList round={round} state={latest ? st : 'done'} plan={plan} updated={v.updated} />

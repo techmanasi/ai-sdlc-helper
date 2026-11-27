@@ -54,7 +54,10 @@
     discardedStage: '#discarded-stage',
     panel: 'section.pn',
     panelHead: '.ph h2',
-    tile: '.rail2 .tile',
+    tile: '.rail2 .tile:not(.rail2-fold)',
+    foldDone: '.rail2-fold',
+    scrollStagesLeft: 'button[aria-label="Scroll stages left"]',
+    scrollStagesRight: 'button[aria-label="Scroll stages right"]',
     tileName: '.tile-name',
     tileModel: '.tile-model',
     tileLine: '.tile-line',
@@ -63,13 +66,15 @@
     tileRound: '.tile-round',
     tilePr: '.tile-pr',
     paneBack: '.pane-back',
+    paneFollowing: '.pane-following',
+    openOutput: '.open-output',
     stageDetail: '#stage-detail',
     paneHeading: '.rail-controls .eyebrow',
     lockBadge: '.lock-badge',
     step: '.steps .step',
     stepLabel: '.step-label',
     stepTime: '.step-time',
-    output: 'pre.out',
+    output: '#run-output',
     usageTable: 'table.usage',
     resumePick: '#resume-pick',
     openPick: '#open-pick',
@@ -230,11 +235,47 @@
       pr: text($(SELECTORS.tilePr, t)),
       lock: ($(SELECTORS.tileLock, t) || { getAttribute: () => '' }).getAttribute('aria-label') || '',
       selected: t.getAttribute('aria-selected') === 'true',
+      pressed: t.getAttribute('aria-pressed') === 'true',
     }));
+  }
+  /** The leading done-stage fold, or null when every leading done tile is visible. */
+  function doneFold() {
+    const b = $(SELECTORS.foldDone);
+    return b ? { text: text(b), label: b.getAttribute('aria-label') || '' } : null;
+  }
+  /** Unfolds the leading done stages; returns their fold label, or null when there was no fold. */
+  function unfoldDone() {
+    const b = $(SELECTORS.foldDone);
+    if (!b) return null;
+    const label = b.getAttribute('aria-label') || '';
+    b.click();
+    return label;
+  }
+  /** Scrolls to the nearest hidden tile on one side; false when that side has no scroll button. */
+  function scrollStages(direction) {
+    const sel = direction === 'left' ? SELECTORS.scrollStagesLeft : direction === 'right' ? SELECTORS.scrollStagesRight : '';
+    if (!sel) throw new Error('sdlcUI.scrollStages: direction must be "left" or "right"');
+    const b = $(sel);
+    if (!b) return false;
+    b.click();
+    return true;
+  }
+  /** Focuses and scrolls to the Output panel through the follow line's button. */
+  function openOutput() {
+    const b = $(SELECTORS.openOutput);
+    if (!b) throw new Error('sdlcUI.openOutput: no Open output button (the pane is not following the running stage)');
+    b.click();
+    return document.activeElement === $(SELECTORS.output);
   }
   /** Picks a stage on the rail (the pane under it always shows one) and returns its steps. */
   async function stage(name) {
-    const t = $$(SELECTORS.tile).find(x => text($(SELECTORS.tileName, x)).toLowerCase() === name.toLowerCase());
+    const find = () => $$(SELECTORS.tile).find(x => text($(SELECTORS.tileName, x)).toLowerCase() === name.toLowerCase());
+    let t = find();
+    if (!t && $(SELECTORS.foldDone)) {
+      unfoldDone();
+      await waitFor(() => !$(SELECTORS.foldDone));
+      t = find();
+    }
     if (!t) throw new Error(`sdlcUI.stage: no stage ${name}; stages: ${stages().map(s => s.name).join(', ')}`);
     if (t.getAttribute('aria-selected') !== 'true') t.click();
     const d = await waitFor(SELECTORS.stageDetail);
@@ -342,6 +383,7 @@
       message: text($('.error', main())),
       guarantees: $$(SELECTORS.guarantee).map(g => `${stateOf(g, 'guar-')}: ${text(g)}`),
       stages: stages(),
+      foldedDone: doneFold(),
       recovery: recovery(),
       questions: questions().length,
       cost: cost ? text($('.chip', cost)) : '',
@@ -474,7 +516,7 @@
     board, boardShow, boardFilter, pick, rowAction,
     completedTabs, completedFilter, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds,
     // run page
-    run, stages, stage, output, questions, answer, recovery, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
+    run, stages, stage, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
     // new item
     newItem,
     // code search setup
