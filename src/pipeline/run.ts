@@ -175,6 +175,27 @@ export async function runPipeline(opts: PipelineOptions): Promise<number> {
   return code;
 }
 
+/**
+ * AGENT_<STAGE> picks one stage's harness for this run, as MODEL_<STAGE> does its model. The stage's model and effort in
+ * sdlc.config.json were chosen for its own harness, so a different harness drops them. MODEL_<STAGE> and EFFORT_<STAGE>
+ * still apply on top, when set (the UI clears those two when the agent changes, and an empty value is no override).
+ * Returns an error message for an unknown harness, else null.
+ */
+export function applyStageAgentEnv(config: { agent: { stages: Record<string, any> } }, env: NodeJS.ProcessEnv): string | null {
+  for (const st of AGENT_STAGES) {
+    const key = st.toUpperCase().replace(/-/g, '_');
+    const v = env[`AGENT_${key}`];
+    if (!v) continue;
+    if (!(HARNESS_IDS as readonly string[]).includes(v)) return `ERROR: AGENT_${key} must be one of ${HARNESS_IDS.join(', ')} (got ${v})`;
+    const own = config.agent.stages[st] || {};
+    const same = !own.harness || own.harness === v;
+    const next: Record<string, unknown> = { ...own, harness: v as HarnessName };
+    if (!same) { delete next.model; delete next.effort; }
+    config.agent.stages = { ...config.agent.stages, [st]: next };
+  }
+  return null;
+}
+
 /** Everything before the first stage. Returns the run's context once its status file is being written. */
 async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, out: (l: string) => void, err: (l: string) => void): Promise<Ctx> {
   const root = gitTop(path.resolve(opts.cwd));
@@ -188,13 +209,8 @@ async function setup(opts: PipelineOptions, from: From, env: NodeJS.ProcessEnv, 
     for (const e of errors) out(`ERROR: ${e}`);
     return stop(say, 'ERROR: fix the project settings above (ai-sdlc-helper show)');
   }
-  // AGENT_<STAGE> picks one stage's harness for this run, as MODEL_<STAGE> does its model.
-  for (const st of AGENT_STAGES) {
-    const v = env[`AGENT_${st.toUpperCase().replace(/-/g, '_')}`];
-    if (!v) continue;
-    if (!(HARNESS_IDS as readonly string[]).includes(v)) stop(say, `ERROR: AGENT_${st.toUpperCase().replace(/-/g, '_')} must be one of ${HARNESS_IDS.join(', ')} (got ${v})`);
-    config.agent.stages = { ...config.agent.stages, [st]: { ...(config.agent.stages[st] || {}), harness: v as HarnessName } };
-  }
+  const bad = applyStageAgentEnv(config, env);
+  if (bad) stop(say, bad);
   // --agent forces one harness for every stage, ahead of agent.stages. The project's model and effort were chosen for its
   // own harness, so they are dropped when another one is forced (--model and --effort still apply).
   if (opts.agent) {
