@@ -178,6 +178,14 @@ describe('runView', () => {
     expect(runView(plain.ctx, 'add-tokens').resumeFrom).toBe('plan');
   });
 
+  test('a run that failed before any stage started offers a resume at the stage it named, with Spec as the escape hatch', () => {
+    const { ctx } = repoWithRun('add-tokens', { state: 'exited', exit_code: '1' }, { 'logs/status.json': { state: 'failed', stage: '', resume_from: 'implement' } });
+    const r = runView(ctx, 'add-tokens').recovery!;
+    expect(r.stage).toBe('Setup (before Implement)');
+    expect(r.autoAction!.label).toBe('Resume at Implement');
+    expect(r.escapeHatch!.label).toBe('Resume pipeline from Spec');
+  });
+
   test('the state follows the record: done, refused, interrupted, and not started without one', () => {
     expect(runView(repoWithRun('a', { state: 'exited', exit_code: '0' }).ctx, 'a', { changes: false }).state).toBe('done');
     expect(runView(repoWithRun('a', { state: 'exited', exit_code: '3', worktree: '', message: 'at most 2 pipelines' }).ctx, 'a', { changes: false }))

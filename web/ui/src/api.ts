@@ -41,6 +41,8 @@ export interface RunCard {
   pullRequest?: PrCard | null;
   /** Tokens, time and cost of the whole run so far; null (or absent from an older server) before any agent round. */
   usage?: UsageTotals | null;
+  /** Each stage that began, with how it stands and when (absent from an older server). */
+  stages?: Array<{ stage: string; status: StageStatus; started: string; ended: string | null }>;
 }
 export type CiState = 'in progress' | 'passed' | 'failed' | 'none';
 export interface PrCard { url: string | null; state: 'OPEN' | 'MERGED' | 'CLOSED' | null; number?: number; isDraft: boolean; checkedAt: string | null; failed: boolean; ci: CiState | null; failing: string[]; conflicts: 'none' | 'conflicting' | 'unknown' | null }
@@ -81,8 +83,9 @@ export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'ch
 }
 export interface StepSpan { key: string; label: string; started: string; ended: string | null }
 export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd?: number; unpriced?: number }
-export interface StageRound { started: string; ended: string | null; steps: StepSpan[] }
-export interface StageSpan { stage: string; started: string; ended: string | null; passes: number; steps: StepSpan[]; rounds?: StageRound[]; usage: UsageTotals }
+export type StageStatus = 'started' | 'completed' | 'failed' | 'paused' | 'stopped';
+export interface StageRound { started: string; ended: string | null; status?: StageStatus; steps: StepSpan[] }
+export interface StageSpan { stage: string; started: string; ended: string | null; status?: StageStatus; passes: number; steps: StepSpan[]; rounds?: StageRound[]; usage: UsageTotals }
 export interface LockView { sha: string; origRedSha: string; at: string; source: 'red-tests' | 'test-repair'; tests: number | null; files: number | null; relocks: number; guards: Array<{ at: string; stage: string; restored: string[] }> }
 export interface LockOpen { at: string; reason: 'retry' | 'review-findings' | 'test-repair'; sha: string }
 export interface Timeline { stages: StageSpan[]; lock: LockView | null; lockOpen?: LockOpen | null; usage: UsageTotals }

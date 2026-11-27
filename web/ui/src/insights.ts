@@ -17,6 +17,27 @@ export interface GuardedRun {
 export const PIPELINE = ['Spec', 'Plan', 'Red tests', 'Implement', 'Test repair', 'Review', 'Finalise'];
 export const AFTER_PR = 'Resolve conflicts';
 
+/** Where a stage stands, as the run log recorded it (the timeline's span status). */
+export type SpanStatus = 'started' | 'completed' | 'failed' | 'paused' | 'stopped';
+export interface StageMark { stage: string; status?: SpanStatus }
+const STOPPED = ['failed', 'paused', 'stopped', 'interrupted'];
+
+/**
+ * The stage a run is at. The status file's stage when it has one; otherwise (a stop before any stage began has none) the
+ * stage the log shows still open, failed or paused; otherwise, for a stopped run, the one after the last completed stage.
+ * '' when the log has nothing: the caller falls back to where the run was to resume.
+ */
+export function currentStage(r: { state: string; stage: string }, marks?: readonly StageMark[]): string {
+  if (r.stage) return stageName(r.stage);
+  if (!marks?.length || r.state === 'not started' || r.state === 'ready' || r.state === 'done') return '';
+  const open = [...marks].reverse().find(m => m.status && m.status !== 'completed');
+  if (open) return stageName(open.stage);
+  if (!STOPPED.includes(r.state)) return '';
+  const last = [...marks].reverse().find(m => PIPELINE.includes(stageName(m.stage)));
+  const next = last ? PIPELINE[PIPELINE.indexOf(stageName(last.stage)) + 1] : '';
+  return next || '';
+}
+
 export type TileState = 'done' | 'active' | 'paused' | 'failed' | 'pending' | 'skipped';
 
 /** Finalise is also written "6/6 Finalise" by older runs. */
@@ -26,8 +47,8 @@ export const stageName = (stage: string): string => (stage === '6/6 Finalise' ? 
  * One state per pipeline stage for the strip on a board row: the stages before the current one are done, the current
  * one takes the run's state, the rest wait. A run at Resolve conflicts has every pipeline stage done.
  */
-export function stripStates(r: { state: string; stage: string }): TileState[] {
-  const name = stageName(r.stage);
+export function stripStates(r: { state: string; stage: string; stages?: readonly StageMark[] }): TileState[] {
+  const name = currentStage(r, r.stages);
   const all = r.state === 'done' || name === AFTER_PR;
   const at = PIPELINE.indexOf(name);
   return PIPELINE.map((_, i) => {
@@ -47,12 +68,17 @@ export type StageState = 'done' | 'active' | 'paused' | 'failed' | 'pending';
  * run's state (a run ready after a stage discard has it waiting to run again), the rest wait. A running run with no stage yet shows
  * the stage it started from.
  */
-export function stageStates(v: { state: string; stage: string; record?: { from?: string } | null }, stages: readonly { name: string; key: string }[]): StageState[] {
-  const name = stageName(v.stage || (v.state === 'running' && v.record?.from ? (stages.find(s => s.key === v.record?.from)?.name || '') : ''));
+export function stageStates(v: { state: string; stage: string; resumeFrom?: string; record?: { from?: string } | null; timeline?: { stages: readonly StageMark[] } | null }, stages: readonly { name: string; key: string }[]): StageState[] {
+  // A run that stopped before any stage began stays at the stage it was to resume at, not at Spec.
+  const stopped = ['failed', 'paused', 'stopped', 'interrupted'].includes(v.state);
+  const from = v.state === 'running' ? v.record?.from : stopped ? v.resumeFrom : '';
+  const logged = currentStage(v, v.timeline?.stages);
+  const name = stageName(logged || (from ? (stages.find(s => s.key === from)?.name || '') : ''));
   const at = v.state === 'done' ? stages.length : Math.max(0, stages.findIndex(s => s.name === name));
   return stages.map((_, i) => {
     if (v.state === 'done' || i < at) return 'done';
-    if (i > at || v.state === 'not started' || (!v.stage && (v.state === 'ready' || (!v.record?.from && v.state !== 'running')))) return 'pending';
+    const pre = !v.stage && !logged && !(stopped && name);
+    if (i > at || v.state === 'not started' || (pre && (v.state === 'ready' || (!v.record?.from && v.state !== 'running')))) return 'pending';
     if (v.state === 'running') return 'active';
     if (v.state === 'paused') return 'paused';
     if (v.state === 'ready') return 'pending';

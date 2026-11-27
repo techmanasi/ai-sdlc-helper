@@ -10,6 +10,7 @@ import { BackBar, Guarantees, LockDetail, OutputPanel, RoundChips, StageRail, St
 import { backBar, followNote, followedStage, phoneOpens, pickRound, prBadge, roundsOf, shownStage, waitsFor } from './stagePane';
 import { hasUsage, openLock, skipped, stageStates, usageText, verifiedLock, type StageState } from './insights';
 import { PrCi } from './PrCi';
+import { agentChanged, defaultChoiceLabel, pickProblem } from './stageAgent';
 import { Cli, CopyButton, ErrorBox, GLYPH, Markdown, Panel, Spinner, stateClass, useApp } from './ui';
 import { defaultPick, needsResumeConfirm, resumeCommand, resumeOptions } from './resume';
 import { handoffBlocks, noteError, noteToSend } from './handoff';
@@ -333,11 +334,8 @@ export function Run({ slug }: { slug: string }) {
   /** Applies a confirmed run-level override; an agent change also drops a model the new agent does not offer. */
   const applyForce = (key: string, value: string) => {
     setEnvVar(key, value);
-    if (key === 'SDLC_FORCE_AGENT' && envObj.SDLC_FORCE_MODEL) {
-      const list = catalog?.models[value || catalog?.config?.agent?.harness || 'claude'] || [];
-      const held = envObj.SDLC_FORCE_MODEL;
-      if (!list.some(m => m.id === held || configValue(m, list) === held)) setEnvVar('SDLC_FORCE_MODEL', '');
-    }
+    // A changed agent never keeps the old agent's model or effort.
+    if (key === 'SDLC_FORCE_AGENT') { setEnvVar('SDLC_FORCE_MODEL', ''); setEnvVar('SDLC_FORCE_EFFORT', ''); }
     setForceAsk(null);
   };
   /** Clearing an override is safe; setting one overrides every stage, so it asks first. */
@@ -347,6 +345,26 @@ export function Run({ slug }: { slug: string }) {
   };
   /** The run-level overrides as they would be after <pending> is applied, for the popup's text. */
   const forceAfter = (pending: { key: string; value: string }): Record<string, string> => ({ ...envObj, [pending.key]: pending.value });
+
+  /** The first stage whose agent/model/effort pick cannot work, as a message; '' when all are fine. */
+  const pickError = (env: Record<string, string>): string => {
+    if (!catalog) return '';
+    for (const stage of STAGES) {
+      const k = stage.key;
+      const agent = env.SDLC_FORCE_AGENT || env[AGENT_ENV(k)] || catalog.config?.agent?.stages?.[k]?.harness || catalog.config?.agent?.harness || 'claude';
+      const model = env.SDLC_FORCE_MODEL || env[envKey('MODEL', k)] || '';
+      const effort = env.SDLC_FORCE_EFFORT || env[envKey('EFFORT', k)] || '';
+      const problem = pickProblem(stage.name || k, { agent, model, effort }, catalog.models, a => a !== 'claude');
+      if (problem) return problem;
+    }
+    return '';
+  };
+  /** Starts a run, refusing a stale agent/model/effort combination here, before any call to the backend. */
+  const startRun = (stage: string | undefined, env: Record<string, string>, note?: string) => {
+    const problem = pickError(env);
+    if (problem) return Promise.reject(new Error(problem));
+    return api.start(project, slug, stage, env, note);
+  };
 
   async function act(label: string, work: () => Promise<{ ok?: boolean; out?: string[]; err?: string[] } | unknown>) {
     setBusy(label); setConfirm('');
@@ -527,6 +545,8 @@ export function Run({ slug }: { slug: string }) {
 
   const stagePickers = ({ key, name, taken }: { key: string; name: string; /** "<agent>:<model>" choices other stages already hold: not offered again. */ taken?: string[] }) => {
     const inUse = v.models[key];
+    const fileHarness = catalog?.config?.agent?.stages?.[key]?.harness || catalog?.config?.agent?.harness;
+    const switched = agentChanged(envObj[AGENT_ENV(key)], fileHarness);
     const activeHarness = envObj[AGENT_ENV(key)] || catalog?.config?.agent?.stages?.[key]?.harness || catalog?.config?.agent?.harness || 'claude';
     const selectedModel = envObj[envKey('MODEL', key)] || '';
     const models: ModelInfo[] = catalog ? (catalog.models[activeHarness] || []) : MODELS.slice(1).map(id => ({ id, name: id, supportsEffort: false }));
@@ -548,10 +568,10 @@ export function Run({ slug }: { slug: string }) {
         )}
         <ModelSelect name={name} models={models} value={selectedModel} harness={activeHarness} taken={taken}
           multipleProvider={multipleProvider}
-          defaultLabel={inUse && inUse.model ? `default (${inUse.model})` : 'default'}
+          defaultLabel={defaultChoiceLabel(inUse && inUse.model, switched)}
           onChange={model => { setEnvVar(envKey('MODEL', key), model); setEnvVar(envKey('EFFORT', key), ''); }} />
         <select class="sel" aria-label={`${name} effort`} value={envObj[envKey('EFFORT', key)] || ''} onChange={e => setEnvVar(envKey('EFFORT', key), (e.target as HTMLSelectElement).value)}>
-          {unique(efforts).map(m => <option value={m}>{m || (selectedInfo?.supportsEffort === false ? 'not used' : inUse && inUse.effort ? `default (${inUse.effort})` : 'default')}</option>)}
+          {unique(efforts).map(m => <option value={m}>{m || (selectedInfo?.supportsEffort === false ? 'not used' : defaultChoiceLabel(inUse && inUse.effort, switched))}</option>)}
         </select>
       </div>
     );
@@ -610,23 +630,23 @@ export function Run({ slug }: { slug: string }) {
             if (auto.command.includes(' permit ')) {
               launch(auto.label, () => api.permit(project, slug, 'all', 'allow', envObj));
             } else if (auto.command.includes('--from spec')) {
-              launch(auto.label, () => api.start(project, slug, 'spec', customEnv));
+              launch(auto.label, () => startRun('spec', customEnv));
             } else if (auto.command.includes('--from plan')) {
-              launch(auto.label, () => api.start(project, slug, 'plan', customEnv));
+              launch(auto.label, () => startRun('plan', customEnv));
             } else if (auto.command.includes('--from red-tests')) {
-              launch(auto.label, () => api.start(project, slug, 'red-tests', customEnv));
+              launch(auto.label, () => startRun('red-tests', customEnv));
             } else if (auto.command.includes('--from implement')) {
-              launch(auto.label, () => api.start(project, slug, 'implement', customEnv));
+              launch(auto.label, () => startRun('implement', customEnv));
             } else if (auto.command.includes('--from test-repair')) {
-              launch(auto.label, () => api.start(project, slug, 'test-repair', customEnv));
+              launch(auto.label, () => startRun('test-repair', customEnv));
             } else if (auto.command.includes('--from review')) {
-              launch(auto.label, () => api.start(project, slug, 'review', customEnv));
+              launch(auto.label, () => startRun('review', customEnv));
             } else if (auto.command.includes('--from resolve-conflicts')) {
-              launch(auto.label, () => api.start(project, slug, 'resolve-conflicts', customEnv));
+              launch(auto.label, () => startRun('resolve-conflicts', customEnv));
             } else if (auto.command.includes('--from finalise')) {
-              launch(auto.label, () => api.start(project, slug, 'finalise', customEnv));
+              launch(auto.label, () => startRun('finalise', customEnv));
             } else {
-              launch(auto.label, () => api.start(project, slug, v.resumeFrom || undefined, customEnv));
+              launch(auto.label, () => startRun(v.resumeFrom || undefined, customEnv));
             }
           }}
           onOpenFile={openFile}
@@ -639,7 +659,7 @@ export function Run({ slug }: { slug: string }) {
               navigator.clipboard.writeText(esc.command).then(() => toast(`Copied: ${esc.command}`), () => toast(`Run in a terminal: ${esc.command}`));
               return;
             }
-            launch(esc.label, () => api.start(project, slug, fromMatch[1], envObj));
+            launch(esc.label, () => startRun(fromMatch[1], envObj));
           }}
         />
       )}
@@ -647,7 +667,7 @@ export function Run({ slug }: { slug: string }) {
       <div class="col" style={{ gap: '10px' }}>
         <div class="row" style={{ alignItems: 'center' }}>
           {!primaryDuplicated && (
-            <button class="btn btn-p" type="button" disabled={running || !!busy} onClick={() => launch(startLabel, () => api.start(project, slug, v.state === 'not started' ? undefined : v.state === 'refused' ? v.resumeFrom || undefined : resumeKey, envObj))}>{busy === startLabel ? <><Spinner /> Starting…</> : startLabel}</button>
+            <button class="btn btn-p" type="button" disabled={running || !!busy} onClick={() => launch(startLabel, () => startRun(v.state === 'not started' ? undefined : v.state === 'refused' ? v.resumeFrom || undefined : resumeKey, envObj))}>{busy === startLabel ? <><Spinner /> Starting…</> : startLabel}</button>
           )}
           <button class="btn" type="button" id="open-pick" aria-expanded={picking} aria-controls="resume-pick" disabled={v.state === 'not started' || !!busy} onClick={() => { setPick(defaultPick(options)); setPicking(!picking); }}>Resume at… {picking ? '▴' : '▾'}</button>
           {confirm === 'stop'
@@ -680,7 +700,7 @@ export function Run({ slug }: { slug: string }) {
                 const key = pick;
                 const name = STAGES.find(s => s.key === key)?.name || key;
                 if (needsResumeConfirm(key)) { setResumeAsk({ key, name }); return; }
-                launch(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj, noteToSend(note)); setPicking(false); setNote(''); return o; });
+                launch(`Resume at ${name}`, async () => { const o = await startRun(key, envObj, noteToSend(note)); setPicking(false); setNote(''); return o; });
               }}>{busy.startsWith('Resume at') ? <><Spinner /> Resuming…</> : 'Go'}</button>
               <button class="btn" type="button" onClick={() => { setPicking(false); document.getElementById('open-pick')?.focus(); }}>Cancel</button>
               {pick && <span class="mono small muted">{resumeCommand(slug, pick)}</span>}
@@ -1024,7 +1044,7 @@ export function Run({ slug }: { slug: string }) {
                     class="btn"
                     type="button"
                     disabled={running || !!busy}
-                    onClick={() => launch('Resume at Test repair', () => api.start(project, slug, 'test-repair', envObj))}
+                    onClick={() => launch('Resume at Test repair', () => startRun('test-repair', envObj))}
                   >
                     {busy === 'Resume at Test repair' ? <><Spinner /> Resuming…</> : 'Resume at Test repair'}
                   </button>
@@ -1157,7 +1177,7 @@ export function Run({ slug }: { slug: string }) {
                               class="btn btn-s btn-p"
                               type="button"
                               disabled={running || !!busy}
-                              onClick={() => launch('Resume to fix PR comments', () => api.start(project, slug, 'implement', envObj))}
+                              onClick={() => launch('Resume to fix PR comments', () => startRun('implement', envObj))}
                             >
                               {busy === 'Resume to fix PR comments' ? <><Spinner /> Resuming…</> : 'Resume at Implement to fix PR comments'}
                             </button>
@@ -1183,7 +1203,7 @@ export function Run({ slug }: { slug: string }) {
                           type="button"
                           disabled={running || !!busy}
                           title="Fetch the base, rebase this run's branch onto it, resolve the conflicts and push with --force-with-lease"
-                          onClick={() => launch('Resolve conflicts', () => api.start(project, slug, 'resolve-conflicts', envObj))}
+                          onClick={() => launch('Resolve conflicts', () => startRun('resolve-conflicts', envObj))}
                         >
                           {busy === 'Resolve conflicts' ? <><Spinner /> Starting…</> : rcState === 'failed' || rcState === 'paused' ? 'Resolve conflicts again' : 'Resolve conflicts'}
                         </button>
@@ -1194,7 +1214,7 @@ export function Run({ slug }: { slug: string }) {
                             type="button"
                             disabled={!!busy}
                             title="The merge was fixed but its tests fail. The agent repairs the merged result with the failing tests as context; Test repair and Review still apply, and the result is checked and pushed with the lease at the end."
-                            onClick={() => launch('Fix merged result', () => api.start(project, slug, 'implement', { ...envObj, SDLC_ON_ATTEMPT: '1' }))}
+                            onClick={() => launch('Fix merged result', () => startRun('implement', { ...envObj, SDLC_ON_ATTEMPT: '1' }))}
                           >
                             {busy === 'Fix merged result' ? <><Spinner /> Starting…</> : 'Fix with Implement'}
                           </button>
@@ -1436,7 +1456,7 @@ export function Run({ slug }: { slug: string }) {
               <button class="btn btn-p" type="button" id="confirm-resume-go" disabled={!!busy || running} onClick={() => {
                 const { key, name } = resumeAsk;
                 setResumeAsk(null);
-                launch(`Resume at ${name}`, async () => { const o = await api.start(project, slug, key, envObj, noteToSend(note)); setPicking(false); setNote(''); return o; });
+                launch(`Resume at ${name}`, async () => { const o = await startRun(key, envObj, noteToSend(note)); setPicking(false); setNote(''); return o; });
               }}>Confirm resume at {resumeAsk.name}</button>
             </div>
           </div>

@@ -167,4 +167,30 @@ describe('runTimeline', () => {
     expect(tl.stages.map(s => s.stage)).toEqual(['Spec']);
     expect(runTimeline([])).toMatchObject({ stages: [], lock: null, usage: { rounds: 0, costUsd: null } });
   });
+
+  test('a stage records started, completed, failed or paused with its times', () => {
+    const rows = (end: string | null) => [
+      { kind: 'stage', at: t(0), stage: 'Spec' },
+      { kind: 'stage', at: t(5), stage: 'Plan' },
+      ...(end ? [{ kind: 'end', at: t(9), state: end, stage: 'Plan' }] : []),
+    ];
+    const stages = (end: string | null) => runTimeline(rows(end)).stages;
+    expect(stages(null).map(s => s.status)).toEqual(['completed', 'started']);
+    expect(stages('failed')[1]).toMatchObject({ status: 'failed', started: t(5), ended: t(9) });
+    expect(stages('paused')[1].status).toBe('paused');
+    expect(stages('done')[1].status).toBe('completed');
+    expect(stages('failed')[0]).toMatchObject({ status: 'completed', ended: t(5) });
+  });
+
+  test('a stage run again reports the last pass', () => {
+    const tl = runTimeline([
+      { kind: 'stage', at: t(0), stage: 'Implement' },
+      { kind: 'stage', at: t(3), stage: 'Review' },
+      { kind: 'stage', at: t(6), stage: 'Implement' },
+      { kind: 'end', at: t(8), state: 'failed', stage: 'Implement' },
+    ]);
+    const impl = tl.stages.find(s => s.stage === 'Implement')!;
+    expect(impl.status).toBe('failed');
+    expect(impl.rounds.map(r => r.status)).toEqual(['completed', 'failed']);
+  });
 });
