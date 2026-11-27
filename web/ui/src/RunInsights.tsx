@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { LockOpen, LockView, RunView, StageRound, Timeline, UsageTotals } from './api';
 import { cacheShare, costCell, costNotes, durationText, guarantees, hasUsage, lockSentence, openSentence, tileLine, tokensText, usageText, type TileState, totalCells } from './insights';
-import { hiddenCounts, mayAutoScroll, paneTone, prBadge, roundLabel, scrollTarget, stepPills } from './stagePane';
+import { doneFoldLabel, edgeScrollTarget, foldDone, hiddenCounts, mayAutoScroll, paneTone, prBadge, roundLabel, scrollTarget, stepPills } from './stagePane';
 import { Panel, Spinner } from './ui';
 
 /** The time now, refreshed every second while `on` (a running stage shows its elapsed time). */
@@ -34,6 +34,14 @@ const ICON: Record<TileState, string> = { done: '✓', active: '', paused: '⏸'
 
 export interface RailStage { name: string; key: string; state: TileState; model: string; files: number; afterPr?: boolean }
 
+/** The tiles inside the scrollable rail (not the pane that a phone inserts between them). */
+function railTiles(el: HTMLElement): Array<{ left: number; width: number }> {
+  return Array.from(el.children).filter(c => !!(c as HTMLElement).dataset.key).map(c => ({
+    left: (c as HTMLElement).offsetLeft,
+    width: (c as HTMLElement).offsetWidth,
+  }));
+}
+
 /** True on a phone-width window; the rail is then a column and a stage's details open under it. */
 export function usePhone(): boolean {
   const q = '(max-width: 640px)';
@@ -51,8 +59,8 @@ export function usePhone(): boolean {
 /**
  * The stages in one row. Each tile shows a progress bar, the state, a Round pill, the model, and one line (the live step
  * and time, the files and time, or "Not started"). The shown tile is joined to the pane under the row like a tab. A row
- * wider than the window scrolls sideways, with the count of hidden stages at each edge; on a phone it is a column and
- * the pane opens under the tile.
+ * wider than the window folds leading done stages and scrolls sideways, with an arrow at an edge that hides tiles;
+ * on a phone it is a column and the pane opens under the tile.
  */
 export function StageRail({ stages, timeline, step, locked, lockOpen, shown, followed, pr, phone, phoneOpen, onSelect, children }: {
   stages: RailStage[];
@@ -77,20 +85,29 @@ export function StageRail({ stages, timeline, step, locked, lockOpen, shown, fol
   const span = (name: string) => timeline?.stages.find(s => s.stage === name);
   const track = useRef<HTMLDivElement>(null);
   const lastHand = useRef(0);
+  // Measure the un-folded rail once. Keeping that width prevents a fold that fits from immediately unfolding again.
+  const fullWidth = useRef(0);
+  const [widthFits, setWidthFits] = useState(true);
+  const [showDone, setShowDone] = useState(false);
   const [hidden, setHidden] = useState({ left: 0, right: 0 });
+  const fold = foldDone(stages, phone || widthFits || showDone, shown);
   const measure = () => {
     const el = track.current;
     if (!el) return;
-    const tiles = Array.from(el.children).map(c => ({ left: (c as HTMLElement).offsetLeft, width: (c as HTMLElement).offsetWidth }));
-    const h = hiddenCounts(tiles, el.scrollLeft, el.clientWidth);
+    if (!fold.folded.length) fullWidth.current = el.scrollWidth;
+    // Above the fixed-tile breakpoint the tiles flex to fit, so the saved narrow measurement no longer applies.
+    const flexible = typeof matchMedia === 'function' && !matchMedia('(max-width: 1100px)').matches;
+    const fits = flexible || (fullWidth.current || el.scrollWidth) <= el.clientWidth + 1;
+    setWidthFits(o => (o === fits ? o : fits));
+    const h = hiddenCounts(railTiles(el), el.scrollLeft, el.clientWidth);
     setHidden(o => (o.left === h.left && o.right === h.right ? o : h));
   };
   useEffect(() => {
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, [stages.length, phone]);
-  // The running stage is scrolled into view when it starts, unless the user has just scrolled the rail themselves.
+  }, [stages.length, phone, fold.folded.length, showDone]);
+  // The running stage is scrolled into view when it starts or the fold changes, unless the user just scrolled themselves.
   useEffect(() => {
     const el = track.current;
     if (!el || phone || !followed) return;
@@ -98,15 +115,35 @@ export function StageRail({ stages, timeline, step, locked, lockOpen, shown, fol
     if (!tile || !mayAutoScroll(lastHand.current, Date.now())) return;
     const to = scrollTarget({ left: tile.offsetLeft, width: tile.offsetWidth }, el.scrollLeft, el.clientWidth);
     if (to !== null) el.scrollTo({ left: to, behavior: 'smooth' });
-  }, [followed, phone]);
+  }, [followed, phone, fold.folded.length, showDone]);
   const hand = () => { lastHand.current = Date.now(); };
-  const nudge = (dir: number) => { hand(); track.current?.scrollBy({ left: dir * 240, behavior: 'smooth' }); };
+  const nudge = (direction: 'left' | 'right') => {
+    hand();
+    const el = track.current;
+    if (!el) return;
+    const to = edgeScrollTarget(railTiles(el), el.scrollLeft, el.clientWidth, direction);
+    if (to !== null) el.scrollTo({ left: to, behavior: 'smooth' });
+  };
+  const unfold = () => {
+    hand();
+    setShowDone(true);
+    requestAnimationFrame(() => track.current?.scrollTo({ left: 0, behavior: 'smooth' }));
+  };
   const shownState = stages.find(s => s.key === shown)?.state;
   return (
     <div class={`rail2-wrap ${phone ? 'rail2-phone' : ''}`}>
       <div class="rail2-frame">
         <div class="rail2" role="tablist" aria-label="Stages" ref={track} onScroll={measure} onWheel={hand} onTouchStart={hand} onPointerDown={hand}>
-          {stages.flatMap(s => {
+          {fold.folded.length > 0 && (
+            <button
+              type="button" class="tile tile-done rail2-fold tone-done" data-key="done-fold"
+              aria-label={doneFoldLabel(fold.folded)} onClick={unfold}
+            >
+              <span class="tile-bar" aria-hidden="true"><span class="tile-fill" style={{ width: '100%' }} /></span>
+              <span class="tile-head"><span class="tile-icon" aria-hidden="true">✓</span><span class="tile-name">{fold.folded.length} done</span></span>
+            </button>
+          )}
+          {fold.shown.flatMap(s => {
             const sp = span(s.name);
             const fill = s.state === 'active' && step && step.n > 0 ? Math.max(8, Math.round(((step.i - 0.5) / step.n) * 100)) : s.state === 'pending' ? 0 : 100;
             const cost = usageText(sp?.usage);
@@ -114,7 +151,7 @@ export function StageRail({ stages, timeline, step, locked, lockOpen, shown, fol
             const round = roundLabel(sp?.passes);
             const tile = (
               <button
-                type="button" role="tab" aria-selected={on} aria-controls="stage-detail" data-key={s.key}
+                type="button" role="tab" aria-selected={on} aria-pressed={on} aria-controls="stage-detail" data-key={s.key}
                 class={`tile tile-${s.state} tone-${paneTone(s.state)} ${on ? 'tile-on' : ''} ${s.afterPr ? 'tile-after' : ''}`}
                 onClick={() => onSelect(s.key)}
               >
@@ -136,8 +173,14 @@ export function StageRail({ stages, timeline, step, locked, lockOpen, shown, fol
             return phone && on && phoneOpen ? [tile, <div class="phone-pane" key={`${s.key}-pane`}>{children}</div>] : [tile];
           })}
         </div>
-        {!phone && hidden.left > 0 && <button type="button" class="rail2-edge rail2-edge-l" onClick={() => nudge(-1)} aria-label={`${hidden.left} stage${hidden.left > 1 ? 's' : ''} hidden on the left; scroll left`}>‹ {hidden.left}</button>}
-        {!phone && hidden.right > 0 && <button type="button" class="rail2-edge rail2-edge-r" onClick={() => nudge(1)} aria-label={`${hidden.right} stage${hidden.right > 1 ? 's' : ''} hidden on the right; scroll right`}>{hidden.right} ›</button>}
+        {!phone && hidden.left > 0 && <>
+          <span class="rail2-fade rail2-fade-l" aria-hidden="true" />
+          <button type="button" class="rail2-scroll rail2-scroll-l" onClick={() => nudge('left')} aria-label="Scroll stages left">‹</button>
+        </>}
+        {!phone && hidden.right > 0 && <>
+          <span class="rail2-fade rail2-fade-r" aria-hidden="true" />
+          <button type="button" class="rail2-scroll rail2-scroll-r" onClick={() => nudge('right')} aria-label="Scroll stages right">›</button>
+        </>}
       </div>
       {!phone && shownState && <div class={`stage-pane tone-${paneTone(shownState)}`}>{children}</div>}
     </div>
@@ -280,7 +323,7 @@ export const OutputPanel = memo(function OutputPanel({ tail, extra }: { tail: st
   return (
     <Panel title="Output" extra={extra}>
       <pre
-        ref={pre} class="code mono out" tabIndex={0} aria-label="Run output"
+        ref={pre} id="run-output" class="code mono out" tabIndex={0} aria-label="Run output"
         onScroll={e => { const el = e.currentTarget as HTMLPreElement; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; }}
       >{text || 'No output yet.'}</pre>
     </Panel>

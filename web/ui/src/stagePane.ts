@@ -140,6 +140,36 @@ export function mayAutoScroll(lastUserScroll: number, now: number): boolean {
 }
 
 /**
+ * On a rail that overflows, replace the leading done stages with one fold tile. Stop at the first stage that is not
+ * done or is on view: folding must never hide a running, paused, failed or picked stage. Keep one stage if every stage
+ * is done and there is no pick, so the rail never becomes only a fold tile.
+ */
+export function foldDone<T extends PaneStage>(tiles: readonly T[], widthFits: boolean, picked: string): { folded: T[]; shown: T[] } {
+  if (widthFits) return { folded: [], shown: [...tiles] };
+  let count = 0;
+  while (count < tiles.length && tiles[count].state === 'done' && tiles[count].key !== picked) count++;
+  if (count === tiles.length) count = Math.max(0, count - 1);
+  return { folded: tiles.slice(0, count), shown: tiles.slice(count) };
+}
+
+/** The fold button's accessible name, including exactly which recorded stages it represents. */
+export function doneFoldLabel(folded: readonly PaneStage[]): string {
+  if (!folded.length) return '';
+  return `${folded.length} stage${folded.length === 1 ? '' : 's'} done: ${folded.map(s => s.name).join(', ')}`;
+}
+
+/**
+ * Where an edge arrow scrolls: the nearest tile whose middle is beyond that edge, brought into view by scrollTarget.
+ * Null means that side has no hidden tile and its arrow is not shown.
+ */
+export function edgeScrollTarget(tiles: ReadonlyArray<{ left: number; width: number }>, scrollLeft: number, viewWidth: number, direction: 'left' | 'right'): number | null {
+  const end = scrollLeft + viewWidth;
+  const ordered = direction === 'left' ? [...tiles].reverse() : tiles;
+  const tile = ordered.find(t => direction === 'left' ? t.left + t.width / 2 < scrollLeft : t.left + t.width / 2 > end);
+  return tile ? scrollTarget(tile, scrollLeft, viewWidth) : null;
+}
+
+/**
  * How many tiles are cut off at each edge of a rail that scrolls sideways: a tile counts as hidden on a side when less
  * than half of it shows. <tiles> are each tile's left offset and width inside the scrolled content.
  */
