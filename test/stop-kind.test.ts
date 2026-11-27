@@ -30,7 +30,7 @@ describe('the kind of stop a run is in', () => {
     expect(k.label).toBe('Questions');
     expect(k.glyph).toBe('?');
     expect(k.tone).toBe('s-paused');
-    expect(k.cause).toContain('clarifying question');
+    expect(k.cause).toBe('1 question waits for an answer: Session TTL');
     expect(k.actions).toEqual([{ label: 'Answer questions', verb: 'answer' }]);
   });
 
@@ -89,6 +89,7 @@ describe('the kind of stop a run is in', () => {
       expect(k.label).toBe('Stopped by you');
       expect(k.glyph).toBe('■');
       expect(k.tone).toBe('s-not-started');
+      expect(k.cause).toBe('The run was stopped during Implement');
       expect(k.actions).toEqual([{ label: 'Resume from Plan', verb: 'resume' }]);
     }
   });
