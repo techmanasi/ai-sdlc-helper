@@ -8,6 +8,7 @@ import { ModelSelect } from './ModelSelect';
 import { elapsedText, linkPaths, resolveShown, showTestIssues, stepBanner } from './stages';
 import { BackBar, Guarantees, LockDetail, OutputPanel, RoundChips, StageRail, StepList, UsagePanel, usePhone, type RailStage } from './RunInsights';
 import { backBar, followNote, followedStage, phoneOpens, pickRound, prBadge, roundsOf, shownStage, waitsFor } from './stagePane';
+import { stopKind } from './stopKind';
 import { hasUsage, openLock, skipped, stageStates, usageText, verifiedLock, type StageState } from './insights';
 import { PrCi } from './PrCi';
 import { agentChanged, defaultChoiceLabel, pickProblem } from './stageAgent';
@@ -389,6 +390,8 @@ export function Run({ slug }: { slug: string }) {
   if (!v) return <div class="col"><div class="hero"><h1>{slug}</h1></div>{error ? <ErrorBox error={error} /> : <><div class="skel" style={{ height: '64px' }} /><div class="skel" style={{ height: '150px' }} /><div class="skel" style={{ height: '320px' }} /><span class="sr" role="status">Loading the run</span></>}</div>;
 
   const running = v.state === 'running';
+  // Why the run stopped, in one word: the kind, its mark and the cause the record gives (null while it runs).
+  const stop = stopKind(v);
   const states = stageStates(v, STAGES);
   const spanOf = (name: string) => v.timeline?.stages.find(x => x.stage === name);
   const lock = verifiedLock(v);
@@ -596,6 +599,11 @@ export function Run({ slug }: { slug: string }) {
         <h1>{slug}</h1>
         <a class="btn btn-s" href={`#/edit/run/${slug}`} onClick={e => { e.preventDefault(); go(`/edit/run/${slug}`); }}>Edit</a>
         <span class={`chip chip-${v.state.replace(' ', '-')}`}>{v.state === 'running' ? <Spinner /> : GLYPH[v.state]} {v.state}{v.stage ? ` · ${v.stage}` : ''}</span>
+        {stop && (
+          <span class={`chip stop-kind ${stop.tone}`} id="stop-kind" aria-label={`Stop kind: ${stop.label}`} title={stop.cause || `Why the run stopped: ${stop.label}`}>
+            <span aria-hidden="true" class="stop-kind-glyph">{stop.glyph}</span> {stop.label}
+          </span>
+        )}
         {v.attempt && (
           <span class={`tag ${v.state === 'running' ? 's-running' : v.state === 'paused' ? 's-paused' : ''}`}>
             {v.state === 'running' ? `running iteration ${v.attempt}` : `iteration ${v.attempt}`}
@@ -629,6 +637,14 @@ export function Run({ slug }: { slug: string }) {
       <ErrorBox error={error} />
       {v.message && <div class="error">{v.message}</div>}
       <Guarantees v={v} />
+
+      {/* The cause of the stop, as the record gives it, beside the ways on below. */}
+      {stop && stop.cause && (
+        <div class="stop-cause" id="stop-cause">
+          <span class={`stop-kind-glyph ${stop.tone}`} aria-hidden="true">{stop.glyph}</span>
+          <span>{stop.cause}</span>
+        </div>
+      )}
 
       {v.recovery && ['paused', 'failed', 'refused'].includes(v.state) && (
         <RecoveryCard

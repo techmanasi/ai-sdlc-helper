@@ -54,6 +54,8 @@ export interface Ask { stage: string; tool: string; detail: string; rule: string
 export interface StageRecovery {
   stage: string;
   diagnosis: string;
+  /** The kind of stop, when the failure text names one: 'account' (billing, auth, quota) or 'process' (a crash, a timeout). */
+  kind?: 'account' | 'process';
   autoAction?: { label: string; command: string; env?: Record<string, string> };
   manualAction?: { file?: string; instruction: string };
   escapeHatch?: { label: string; command: string };
