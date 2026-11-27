@@ -12,7 +12,7 @@ import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { liveBranch, projectSlugs, readCheckpoint, runChanges, runWorktree, type RunContext } from './index.js';
 import { moveReasonText } from '../pipeline/status.js';
 import { ciSummaryOf, getPrFromBrief, getPrStatusCached, keepPrStatusIn, PR_STATUS_FILE, prCommentsEmpty, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
-import { readRounds, type Round } from '../pipeline/observe.js';
+import { appendRound, readRounds, type Round } from '../pipeline/observe.js';
 import { runTimeline, type StageStatus, type Timeline, type UsageTotals } from './timeline.js';
 import { pricesNow } from '../models/prices.js';
 import { STEPS } from '../pipeline/steps.js';
@@ -213,6 +213,11 @@ export function answerQuestions(file: string, answers: Record<string, string>): 
     return /^\*\*Answer:\*\*/.test(line) && a ? `**Answer:** ${a}` : line;
   });
   fs.writeFileSync(file, lines.join('\n'));
+  // When each question was answered, beside the run's other rows (logs/ next to questions.md); a failed write is kept in errors.log.
+  const at = new Date().toISOString();
+  for (const k of Object.keys(answers)) {
+    if ((answers[k] ?? '').trim()) appendRound(path.join(path.dirname(file), 'logs'), { kind: 'answered', at, n: Number(k) });
+  }
   const after = parseQuestions(lines.join('\n'));
   return { total: after.length, answered: after.filter(q => q.answer).length };
 }

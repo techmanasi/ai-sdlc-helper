@@ -3,6 +3,7 @@
 // and passes the price table.
 
 import { estimateUsd, priceOf, type PriceTable } from '../models/prices.js';
+import { ROUND_CAUSES, ROUND_NEXT, ROUND_STARTED_BY, type RoundCause, type RoundNext, type RoundStartedBy } from '../pipeline/observe.js';
 
 export interface StepSpan { key: string; label: string; started: string; ended: string | null }
 /**
@@ -11,8 +12,15 @@ export interface StepSpan { key: string; label: string; started: string; ended: 
  * `unpriced` counts the rounds with tokens and neither a cost nor a known price, so the cost leaves them out.
  */
 export interface UsageTotals { rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd: number; unpriced: number }
-/** One pass of a stage: when it began and ended and the steps it went through. */
-export interface StageRound { started: string; ended: string | null; status: StageStatus; steps: StepSpan[] }
+/**
+ * One pass of a stage: when it began and ended and the steps it went through. The rest is what its round row recorded
+ * (why it ended, what came next, the agent and model it used, what started it) and when its questions were answered;
+ * a run that recorded none of it (older runs) leaves the fields out.
+ */
+export interface StageRound {
+  started: string; ended: string | null; status: StageStatus; steps: StepSpan[];
+  cause?: RoundCause; next?: RoundNext; agent?: string; model?: string; startedBy?: RoundStartedBy; answeredAt?: string;
+}
 /**
  * How a stage's pass stands: `started` while it runs (or when the log ends with no end row: the run was cut off), `completed`
  * when the next stage began or the run ended done, `failed`/`paused` when the run ended so at that stage, `stopped` for any other
@@ -95,6 +103,8 @@ export function runTimeline(rows: unknown[], now?: string, prices: PriceTable = 
   const stages = new Map<string, StageSpan>();
   const starts = new Map<string, string>(); // `${agent}` of the open round -> its start row's time
   let current: StageSpan | null = null;
+  /** The round that ended last: answers written while the run is paused belong to it. */
+  let lastEnded: StageRound | null = null;
   let openStep: StepSpan | null = null;
   const closeAt = (at: string) => {
     if (openStep && openStep.ended === null) openStep.ended = at;
@@ -115,7 +125,7 @@ export function runTimeline(rows: unknown[], now?: string, prices: PriceTable = 
   const endStage = (s: StageSpan, at: string, status: StageStatus = 'completed'): void => {
     if (s.ended === null) s.ended = at;
     const r = s.rounds[s.rounds.length - 1];
-    if (r && r.ended === null) { r.ended = at; r.status = status; }
+    if (r && r.ended === null) { r.ended = at; r.status = status; lastEnded = r; }
     if (r?.ended === at) s.status = r.status;
   };
   const spanFor = (name: string, started: string): StageSpan => {
@@ -163,6 +173,28 @@ export function runTimeline(rows: unknown[], now?: string, prices: PriceTable = 
         const span: StepSpan = { key, label: str(r.label) || key, started: at, ended: null };
         s.steps.push(span);
         openStep = span;
+        break;
+      }
+      case 'round': {
+        // The end record of the current stage's open round, written just before the next stage row or the end row.
+        const s = stages.get(str(r.stage));
+        const round = s && s === current ? s.rounds[s.rounds.length - 1] : undefined;
+        if (!round) break;
+        const pick = <T extends string>(v: unknown, set: readonly T[]): T | undefined => (set as readonly unknown[]).includes(v) ? v as T : undefined;
+        const cause = pick(r.cause, ROUND_CAUSES);
+        const next = pick(r.next, ROUND_NEXT);
+        const startedBy = pick(r.startedBy, ROUND_STARTED_BY);
+        if (cause) round.cause = cause;
+        if (next) round.next = next;
+        if (str(r.agent)) round.agent = str(r.agent);
+        if (str(r.model)) round.model = str(r.model);
+        if (startedBy) round.startedBy = startedBy;
+        break;
+      }
+      case 'answered': {
+        // Set inside endStage (a closure), which control-flow narrowing cannot see.
+        const ended = lastEnded as StageRound | null;
+        if (ended && at) ended.answeredAt = at;
         break;
       }
       case 'end': {
