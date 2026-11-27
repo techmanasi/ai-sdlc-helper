@@ -13,6 +13,7 @@ import { redCommitTestFiles } from './gates.js';
 import { redPattern, repairPattern } from './git.js';
 import { resumeHint } from './hints.js';
 import { keepError } from './errors.js';
+import { clearStopWait, stopWaitPresent, waitRecord, waitTick } from './status.js';
 import { agentFacts, appendRound, changedBetween, debugLeftovers, roundWarnings, snapshot } from './observe.js';
 import { defaultRegistry } from './harness/registry.js';
 import { noteStageRoundAgent } from './round-record.js';
@@ -204,9 +205,9 @@ export function limitWait(env: NodeJS.ProcessEnv): { retry: number; maxWait: num
   return { retry: num(env.SDLC_LIMIT_RETRY, 0), maxWait: num(env.SDLC_LIMIT_MAX_WAIT, 21600) };
 }
 
-/** Waits <seconds>, or less when the run is aborted. */
-const sleep = (seconds: number, signal?: AbortSignal) => new Promise<void>(resolve => {
-  const t = setTimeout(done, seconds * 1000);
+/** Waits <ms>, or less when the run is aborted. */
+const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>(resolve => {
+  const t = setTimeout(done, ms);
   function done() { clearTimeout(t); signal?.removeEventListener('abort', done); resolve(); }
   signal?.addEventListener('abort', done);
 });
@@ -344,24 +345,47 @@ export async function runAgent(ctx: Ctx, name: string, stage: AgentStage, prompt
     if (!limit) break;
     if (retry <= 0) {
       ctx.status.note = '';
+      ctx.status.wait = undefined;
       ctx.status.write();
       ctx.out(`   !! agent '${name}' hit the usage limit (${limit}); stopping immediately, see ${ctx.log}/${name}.err`);
       stop(ctx, `agent '${name}' hit the usage limit: ${limit}`, 1, undefined, 'limit');
     }
     if (waited >= maxWait) {
       ctx.status.note = '';
+      ctx.status.wait = undefined;
+      ctx.status.write();
       stop(ctx, `   !! agent '${name}' hit the usage limit (${limit}) and it did not reset within ${maxWait}s`, 1, undefined, 'limit');
     }
     if (waited === 0) ctx.out(`   .. usage limit reached (${limit}): retrying '${name}' every ${retry}s`);
     ctx.status.note = `usage limit, ${limit}`;
+    ctx.status.wait = waitRecord(limit);
     ctx.status.write();
-    await sleep(retry, ctx.signal);
+    const logDir = at(ctx, ctx.log);
+    const outcome = await waitTick({
+      seconds: retry,
+      sleep: ms => sleep(ms, ctx.signal),
+      stopRequested: () => stopWaitPresent(logDir),
+    });
+    if (outcome === 'stop') {
+      // The signal is a user decision, not an agent failure: the run pauses where it can be resumed.
+      try { clearStopWait(logDir); } catch (e) {
+        keepError(ctx, 'remove the stop-wait signal', (e as Error).message);
+        ctx.err(`WARNING: could not remove ${ctx.log}/stop-wait (see ${ctx.log}/errors.log)`);
+      }
+      ctx.status.note = '';
+      ctx.status.wait = undefined;
+      ctx.status.write();
+      const line = `   !! agent '${name}' stopped waiting for the usage limit at your request; resume at ${ctx.status.stage || stage}`;
+      keepError(ctx, 'stop waiting', line);
+      stop(ctx, line, 2, undefined, 'stopped');
+    }
     stopIfAborted(ctx);
     waited += retry;
   }
-  if (ctx.status.note) {
+  if (ctx.status.note || ctx.status.wait) {
     ctx.out(`   .. usage limit over, '${name}' ran`);
     ctx.status.note = '';
+    ctx.status.wait = undefined;
     ctx.status.write();
   }
   let pending = 0;

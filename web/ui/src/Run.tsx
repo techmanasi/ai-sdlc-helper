@@ -9,6 +9,7 @@ import { elapsedText, linkPaths, resolveShown, showTestIssues, stepBanner } from
 import { AttemptRows, BackBar, Guarantees, LockDetail, OutputPanel, RoundChips, StageRail, StepList, UsagePanel, usePhone, type RailStage } from './RunInsights';
 import { answeredBetween, backBar, followNote, followedStage, phoneOpens, pickRound, prBadge, roundEndText, roundStartText, roundsOf, shownStage, waitsFor } from './stagePane';
 import { stopKind } from './stopKind';
+import { waitText } from './waitPanel';
 import { hasUsage, openLock, skipped, stageStates, usageText, verifiedLock, type StageState } from './insights';
 import { PrCi } from './PrCi';
 import { agentChanged, defaultChoiceLabel, pickProblem } from './stageAgent';
@@ -391,6 +392,17 @@ export function Run({ slug }: { slug: string }) {
   function launch(label: string, work: () => Promise<unknown>) {
     if (!canLaunch) { toast(limitError); return; }
     return act(label, work);
+  }
+
+  /** One decision on every ask, then the resume the panel already uses (the server starts the refused stage). */
+  function decideAndResume(label: string, which: string, choice: 'allow' | 'deny') {
+    return launch(label, async () => {
+      const r = await api.permit(project, slug, which, choice, envObj, true);
+      toast(r.resumed
+        ? (r.resumed.ok ? `${label}: the run resumed` : `${label}: resume refused: ${r.resumed.err.join(' ')}`)
+        : `${label}: ${r.pending} action${r.pending === 1 ? '' : 's'} left to decide`);
+      return r;
+    });
   }
 
   if (!v) return <div class="col"><div class="hero"><h1>{slug}</h1></div>{error ? <ErrorBox error={error} /> : <><div class="skel" style={{ height: '64px' }} /><div class="skel" style={{ height: '150px' }} /><div class="skel" style={{ height: '320px' }} /><span class="sr" role="status">Loading the run</span></>}</div>;
@@ -1007,26 +1019,28 @@ export function Run({ slug }: { slug: string }) {
           )}
 
           {v.permissions.length > 0 && (
-            <Panel title={<span class="s-paused">{v.permissions.length} action{v.permissions.length > 1 ? 's were' : ' was'} refused</span>} extra={<span class="mono small muted">logs/permissions.json · .claude/sdlc-permissions.json</span>}>
-              <div class="pb col">
-                {v.permissions.map((a, i) => (
-                  <div class="col" style={{ gap: '8px' }}>
-                    <div class="code mono" style={{ borderRadius: '6px', padding: '8px 10px' }}>{a.tool}  {a.detail}  <span class="muted">({a.stage})</span></div>
-                    {a.protected && <span class="small s-paused">Protected path: allowing it runs the whole {a.stage} stage with permission checks off.</span>}
-                    <div class="row">
-                      <button class="btn btn-s btn-p" type="button" disabled={!!busy} onClick={() => launch('Allow', () => api.permit(project, slug, String(i), 'allow', envObj))}>{busy === 'Allow' ? <><Spinner /> Allowing…</> : (a.protected ? 'Allow (stage runs unchecked)' : `Allow this run (${a.rule})`)}</button>
-                      {!a.protected && <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => launch('Allow always', () => api.permit(project, slug, String(i), 'always', envObj))}>{busy === 'Allow always' ? <><Spinner /> Allowing…</> : 'Allow always'}</button>}
-                      <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => launch('Deny', () => api.permit(project, slug, String(i), 'deny', envObj))}>{busy === 'Deny' ? <><Spinner /> Denying…</> : 'Deny'}</button>
+            <div class="permission-panel">
+              <Panel title={<span class="s-paused">{STAGES.find(s => s.key === v.permissions[0]?.stage)?.name || v.stage || 'The stage'} was refused {v.permissions.length} action{v.permissions.length > 1 ? 's' : ''}</span>} extra={<span class="mono small muted">logs/permissions.json · .claude/sdlc-permissions.json</span>}>
+                <div class="pb col">
+                  {v.permissions.map((a, i) => (
+                    <div class="col permission-ask" style={{ gap: '8px' }}>
+                      <div class="code mono" style={{ borderRadius: '6px', padding: '8px 10px' }}>{a.tool}  {a.detail}  <span class="muted">({a.stage})</span></div>
+                      {a.protected && <span class="small s-paused">Protected path: allowing it runs the whole {a.stage} stage with permission checks off.</span>}
+                      <div class="row">
+                        <button class="btn btn-s btn-p" type="button" disabled={!!busy} onClick={() => launch('Allow', () => api.permit(project, slug, String(i), 'allow', envObj))}>{busy === 'Allow' ? <><Spinner /> Allowing…</> : (a.protected ? 'Allow (stage runs unchecked)' : `Allow this run (${a.rule})`)}</button>
+                        {!a.protected && <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => launch('Allow always', () => api.permit(project, slug, String(i), 'always', envObj))}>{busy === 'Allow always' ? <><Spinner /> Allowing…</> : 'Allow always'}</button>}
+                        <button class="btn btn-s btn-d" data-sdlc="deny-permission" type="button" disabled={!!busy} onClick={() => launch('Deny', () => api.permit(project, slug, String(i), 'deny', envObj))}>{busy === 'Deny' ? <><Spinner /> Denying…</> : 'Deny'}</button>
+                      </div>
                     </div>
+                  ))}
+                  <div class="row" style={{ borderTop: '1px solid var(--ln)', paddingTop: '12px' }}>
+                    <button class="btn btn-s btn-p" data-sdlc="allow-all-resume" type="button" disabled={!!busy} onClick={() => decideAndResume('Allow all and resume', 'all', 'allow')}>{busy === 'Allow all and resume' ? <><Spinner /> Allowing and resuming…</> : 'Allow all and resume'}</button>
+                    <button class="btn btn-s btn-d" data-sdlc="resume-without" type="button" disabled={!!busy} onClick={() => decideAndResume('Resume without them', 'all', 'deny')}>{busy === 'Resume without them' ? <><Spinner /> Resuming…</> : 'Resume without them'}</button>
+                    <span class="small muted" style={{ marginLeft: 'auto' }}>Allow always saves the rule for this repository.</span>
                   </div>
-                ))}
-                <div class="row" style={{ borderTop: '1px solid var(--ln)', paddingTop: '12px' }}>
-                  <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => launch('Allow all', () => api.permit(project, slug, 'all', 'allow', envObj))}>{busy === 'Allow all' ? <><Spinner /> Allowing all…</> : 'Allow all'}</button>
-                  <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => launch('Deny all', () => api.permit(project, slug, 'all', 'deny', envObj))}>{busy === 'Deny all' ? <><Spinner /> Denying all…</> : 'Deny all'}</button>
-                  <span class="mono small muted" style={{ marginLeft: 'auto' }}>$ ai-sdlc-helper permit {slug} allow all</span>
                 </div>
-              </div>
-            </Panel>
+              </Panel>
+            </div>
           )}
 
           {v.deniedPermissions && v.deniedPermissions.length > 0 && (
@@ -1039,7 +1053,7 @@ export function Run({ slug }: { slug: string }) {
                     <div class="row">
                       <button class="btn btn-s btn-p" type="button" disabled={!!busy} onClick={() => launch('Allow', () => api.permit(project, slug, `denied:${i}`, 'allow', envObj))}>{busy === 'Allow' ? <><Spinner /> Allowing…</> : (a.protected ? 'Allow (stage runs unchecked)' : `Allow this run (${a.rule})`)}</button>
                       {!a.protected && <button class="btn btn-s" type="button" disabled={!!busy} onClick={() => launch('Allow always', () => api.permit(project, slug, `denied:${i}`, 'always', envObj))}>{busy === 'Allow always' ? <><Spinner /> Allowing…</> : 'Allow always'}</button>}
-                      <button class="btn btn-s btn-d" type="button" disabled={!!busy} onClick={() => launch('Deny', () => api.permit(project, slug, `denied:${i}`, 'deny', envObj))}>{busy === 'Deny' ? <><Spinner /> Denying…</> : 'Keep denied'}</button>
+                      <button class="btn btn-s btn-d" data-sdlc="deny-permission" type="button" disabled={!!busy} onClick={() => launch('Deny', () => api.permit(project, slug, `denied:${i}`, 'deny', envObj))}>{busy === 'Deny' ? <><Spinner /> Denying…</> : 'Keep denied'}</button>
                     </div>
                   </div>
                 ))}
@@ -1050,6 +1064,23 @@ export function Run({ slug }: { slug: string }) {
                 </div>
               </div>
             </Panel>
+          )}
+
+          {v.wait && v.state === 'running' && (
+            <div class="wait-panel">
+              <Panel title={<span class="s-paused" id="wait-text">{waitText(v.wait)}</span>} extra={<span class="mono small muted">status.json · wait</span>}>
+                <div class="pb col" style={{ gap: '10px' }}>
+                  <p class="small muted" style={{ margin: 0 }}>Stop waiting ends the wait and pauses the run; resume when you are ready.</p>
+                  <div class="row">
+                    <button class="btn btn-s btn-d" data-sdlc="stop-waiting" type="button" disabled={!!busy} onClick={() => launch('Stop waiting', async () => {
+                      const r = await api.stopWait(project, slug);
+                      toast('Stop waiting: the run will pause at its next check');
+                      return r;
+                    })}>{busy === 'Stop waiting' ? <><Spinner /> Stopping wait…</> : 'Stop waiting'}</button>
+                  </div>
+                </div>
+              </Panel>
+            </div>
           )}
 
           {v.state === 'paused' && !v.questions.length && !v.permissions.length && (

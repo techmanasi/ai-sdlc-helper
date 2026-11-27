@@ -10,7 +10,7 @@ import { backlogItems, type BacklogItem } from '../backlog/index.js';
 import { isProtected, loadState, ruleFor, type Ask } from '../permissions/index.js';
 import { alive, readRecord, runState, type RunRecord } from './records.js';
 import { liveBranch, projectSlugs, readCheckpoint, runChanges, runWorktree, type RunContext } from './index.js';
-import { moveReasonText } from '../pipeline/status.js';
+import { moveReasonText, type WaitLine } from '../pipeline/status.js';
 import { ciSummaryOf, getPrFromBrief, getPrStatusCached, keepPrStatusIn, PR_STATUS_FILE, prCommentsEmpty, prPollOptions, syncPrStatus, type CiState, type PrRead } from '../pipeline/finalise.js';
 import { appendRound, readRounds, type Round } from '../pipeline/observe.js';
 import { runTimeline, type StageStatus, type Timeline, type UsageTotals } from './timeline.js';
@@ -48,6 +48,8 @@ export interface RunView {
   attempt: string;
   /** Why a running run waits, for example a usage limit; '' otherwise. */
   note: string;
+  /** Structured wait from status.json; absent when the run is not waiting on a recorded reason. */
+  wait?: WaitLine;
   agentStarted: string;
   /** What the stage is doing now (step i of n); absent when status.json carries none or it is malformed. */
   step?: { i: number; n: number; label: string; started: string };
@@ -434,6 +436,12 @@ export function runView(ctx: RunContext, slug: string, opts: {
     models: s.models && typeof s.models === 'object' ? s.models : {},
     attempt: s.attempt || '',
     note: s.note || '',
+    // Only a structured record makes the wait panel: a note's free text is never treated as proof of a wait.
+    wait: (() => {
+      const w = s.wait;
+      if (!w || typeof w !== 'object' || w.reason !== 'usage-limit' || typeof w.since !== 'string') return undefined;
+      return { reason: 'usage-limit' as const, since: w.since, ...(typeof w.until === 'string' ? { until: w.until } : {}) };
+    })(),
     agentStarted: s.agent_started || '',
     ...stepOf(s.step),
     runStarted: s.run_started || '',

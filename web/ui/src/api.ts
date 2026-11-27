@@ -75,7 +75,11 @@ export interface StageRecovery {
   manualAction?: { file?: string; instruction: string };
   escapeHatch?: { label: string; command: string };
 }
+/** The structured usage-limit wait of status.json; absent when the run is not waiting. */
+export interface WaitView { reason: 'usage-limit'; since: string; until?: string }
+
 export interface RunView extends Omit<RunCard, 'questions' | 'permissions' | 'changes' | 'deniedPermissions'> {
+  wait?: WaitView;
   models: Record<string, { model: string; effort: string }>;
   agentStarted: string; runStarted: string;
   step?: { i: number; n: number; label: string; started: string };
@@ -329,8 +333,9 @@ export const api = {
   restart: (project: string, slug: string, from?: string, env?: Record<string, string>, note?: string) => call<Outcome>('POST', `${r(project, slug)}/restart`, { from, env, note }),
   answers: (project: string, slug: string, answers: Record<number, string>, env?: Record<string, string>) =>
     call<{ total: number; answered: number; resumed: Outcome | null }>('POST', `${r(project, slug)}/answers`, { answers, env }),
-  permit: (project: string, slug: string, which: string, choice: 'allow' | 'always' | 'deny', env?: Record<string, string>) =>
-    call<{ pending: number; resumed: Outcome | null }>('POST', `${r(project, slug)}/permissions`, { which, choice, env }),
+  permit: (project: string, slug: string, which: string, choice: 'allow' | 'always' | 'deny', env?: Record<string, string>, resume?: boolean) =>
+    call<{ ok: boolean; pending: number; resumed: Outcome | null }>('POST', `${r(project, slug)}/permissions`, { which, choice, env, resume }),
+  stopWait: (project: string, slug: string) => call<{ ok: true }>('POST', `${r(project, slug)}/stop-wait`, {}),
   setOptions: (project: string, slug: string, options: { createPr?: boolean }) =>
     call<{ ok: boolean; createPr: boolean }>('POST', `${r(project, slug)}/options`, options),
   createRunPr: (project: string, slug: string) =>

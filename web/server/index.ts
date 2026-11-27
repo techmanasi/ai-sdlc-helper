@@ -691,6 +691,20 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const resumed = body.resume !== false && counts.answered === counts.total ? outcome(start(ctx, slug, { from: v.resumeFrom || undefined })) : null;
         return send(200, { ok: true, ...counts, resumed });
       }
+      if (action === 'stop-wait') {
+        const v = runView(ctx, slug, { changes: false, tailLines: 0 });
+        const log = path.join(ctx.backlogDir, slug, 'logs');
+        if (!v.dir || !v.wait) throw new HttpError(409, `${slug} has no recorded wait to stop`);
+        if (v.state !== 'running') throw new HttpError(409, `${slug} is not running: there is no wait to stop`);
+        try {
+          fs.mkdirSync(path.join(v.dir, log), { recursive: true });
+          fs.writeFileSync(path.join(v.dir, log, 'stop-wait'), `${new Date().toISOString()}\n`);
+        } catch (e) {
+          keepError({ root: v.dir, log }, 'stop waiting', (e as Error).message);
+          throw new HttpError(400, `could not write the stop-wait signal: ${(e as Error).message}`);
+        }
+        return send(200, { ok: true });
+      }
       if (action === 'permissions') {
         const v = runView(ctx, slug, { changes: false, tailLines: 0 });
         const whichStr = String(body.which ?? '');

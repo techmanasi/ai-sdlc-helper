@@ -68,6 +68,9 @@ h1.mono { font-size: 22px; } h2.mono { font-size: 15px; }
 .pn, .panel { background: var(--pn); border: 1px solid var(--ln); border-radius: var(--r); box-shadow: var(--shadow); }
 .ph { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--ln); }
 .pb { padding: 12px 14px; }
+.permission-panel .pn, .wait-panel .pn { border-color: var(--ln2); }
+.permission-ask + .permission-ask { padding-top: 10px; border-top: 1px solid var(--ln); }
+.wait-panel .pb p { color: var(--mu); }
 .lbl { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--mu); font-weight: 600; }
 .inp { font: inherit; font-size: 13px; background: var(--bg); border: 1px solid var(--ln); color: var(--tx); border-radius: 6px; padding: 8px 10px; min-height: 40px; width: 100%; }
 textarea.inp { resize: vertical; }
