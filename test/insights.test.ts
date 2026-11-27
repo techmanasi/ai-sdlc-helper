@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
-import { currentStage, cacheShare, costText, durationText, guarantees, hasUsage, lockSentence, openLock, openSentence, skipped, spanSeconds, stageStates, stripStates, tileLine, tokensText, verifiedLock, usageText, costCell, costNotes, totalCells, boardCost } from '../web/ui/src/insights.js';
+import { describe, expect, test, vi } from 'vitest';
+import { currentStage, cacheShare, costModeShown, costText, durationText, guarantees, hasUsage, lockSentence, openLock, openSentence, readCostMode, saveCostMode, skipped, spanSeconds, stageStates, stripStates, tileCostText, tileLine, tokensText, verifiedLock, usageText, costCell, costNotes, totalCells, boardCost, type CostMode } from '../web/ui/src/insights.js';
 
 const usage = (o: Partial<{ rounds: number; durationSec: number; turns: number; tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number | null; estimatedUsd: number; unpriced: number }> = {}) =>
   ({ rounds: 1, durationSec: 60, turns: 3, tokens: 1000, input: 200, output: 800, cacheRead: 600, cacheWrite: 200, costUsd: 0.5, ...o });
@@ -211,6 +211,69 @@ describe('cost and tokens together', () => {
     const notes = costNotes(usage({ estimatedUsd: 0.2, unpriced: 2 }));
     expect(notes).toHaveLength(2);
     expect(notes[1]).toMatch(/^2 agent rounds reported tokens but no cost/);
+  });
+});
+
+describe('the Cost / Tokens / Off choice', () => {
+  test('the toggle appears only for a recorded dollar amount, never for tokens alone or no usage', () => {
+    expect(costModeShown(null)).toBe(false);
+    expect(costModeShown(undefined)).toBe(false);
+    expect(costModeShown(usage({ rounds: 0, tokens: 0, input: 0, output: 0 }))).toBe(false);
+    expect(costModeShown(usage({ costUsd: null }))).toBe(false);
+    expect(costModeShown(usage({ costUsd: 0 }))).toBe(false);
+    expect(costModeShown(usage({ costUsd: 0.42 }))).toBe(true);
+  });
+
+  test('each mode gives the tile its own line, and Off gives it none', () => {
+    const u = usage({ costUsd: 0.42, tokens: 412_000 });
+    expect(tileCostText('cost', u)).toBe('$0.42 · 412k tok');
+    expect(tileCostText('tokens', u)).toBe('412k tok');
+    expect(tileCostText('off', u)).toBe('');
+    expect(tileCostText('cost', usage({ costUsd: 0.42, estimatedUsd: 0.1, tokens: 412_000 }))).toBe('≈$0.42 · 412k tok');
+  });
+
+  test('cost mode falls back to tokens on a stage with no cost, and tokens mode never shows dollars', () => {
+    expect(tileCostText('cost', usage({ costUsd: null, tokens: 5000 }))).toBe('5.0k tok');
+    expect(tileCostText('cost', usage({ costUsd: 0, tokens: 5000 }))).toBe('5.0k tok');
+    expect(tileCostText('tokens', usage({ costUsd: 0.42, tokens: 5000 }))).toBe('5.0k tok');
+    expect(tileCostText('cost', undefined)).toBe('');
+    expect(tileCostText('tokens', usage({ tokens: 0, input: 0, output: 0, costUsd: null }))).toBe('');
+  });
+
+  test('the choice persists, and defaults to cost only where dollars were recorded', () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => { store.set(k, v); },
+    });
+    try {
+      expect(readCostMode(usage())).toBe('cost');
+      expect(readCostMode(usage({ costUsd: null }))).toBe('tokens');
+      saveCostMode('tokens');
+      expect(store.get('sdlc.costMode')).toBe('tokens');
+      expect(readCostMode(usage())).toBe('tokens');
+      saveCostMode('off');
+      expect(readCostMode(usage())).toBe('off');
+      saveCostMode('bogus' as CostMode);
+      expect(readCostMode(usage())).toBe('cost'); // an unknown value is ignored, not treated as a mode
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test('a throwing localStorage neither throws nor loses the default', () => {
+    vi.stubGlobal('localStorage', {
+      getItem() { throw new Error('storage blocked'); },
+      setItem() { throw new Error('storage blocked'); },
+    });
+    try {
+      expect(readCostMode(usage())).toBe('cost');
+      expect(readCostMode(usage({ costUsd: null }))).toBe('tokens');
+      expect(readCostMode()).toBe('tokens');
+      expect(() => saveCostMode('off')).not.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

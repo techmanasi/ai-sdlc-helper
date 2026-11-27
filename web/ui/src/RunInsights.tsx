@@ -4,7 +4,7 @@ import { memo } from 'preact/compat';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { AttemptRound, LockOpen, LockView, RunView, StageRound, Timeline, UsageTotals } from './api';
-import { cacheShare, costCell, costNotes, durationText, guarantees, hasUsage, lockSentence, openSentence, tileLine, tokensText, usageText, type TileState, totalCells } from './insights';
+import { cacheShare, costCell, costModeShown, costNotes, durationText, guarantees, hasUsage, lockSentence, openSentence, readCostMode, saveCostMode, tileCostText, tileLine, tokensText, usageText, type CostMode, type TileState, totalCells } from './insights';
 import { attemptMarks, attemptMarksLabel, backToImplementText, doneFoldLabel, edgeScrollTarget, foldDone, hiddenCounts, mayAutoScroll, paneTone, prBadge, roundLabel, roundMarks, roundMarksLabel, scrollTarget, stepPills, type AttemptMark } from './stagePane';
 import { CopyButton, Panel, Spinner } from './ui';
 
@@ -132,6 +132,26 @@ export function usePhone(): boolean {
   return on;
 }
 
+const COST_MODES: readonly CostMode[] = ['cost', 'tokens', 'off'];
+const COST_MODE_LABELS: Record<CostMode, string> = { cost: 'Cost', tokens: 'Tokens', off: 'Off' };
+
+/** The viewer's choice of what the tiles show. Only drawn when a round recorded a dollar cost. */
+export function CostModeToggle({ mode, onPick }: { mode: CostMode; onPick(m: CostMode): void }) {
+  return (
+    <div class="rail2-head">
+      <span class="lbl">Show cost</span>
+      <span class="segs cost-modes" role="group" aria-label="Show cost">
+        {COST_MODES.map(m => (
+          <button
+            type="button" class={`seg ${mode === m ? 'seg-on' : ''}`}
+            aria-pressed={mode === m ? 'true' : 'false'} onClick={() => onPick(m)}
+          >{COST_MODE_LABELS[m]}</button>
+        ))}
+      </span>
+    </div>
+  );
+}
+
 /**
  * The stages in one row. Each tile shows a progress bar, the state, a Round pill, the model, and one line (the live step
  * and time, the files and time, or "Not started"). The shown tile is joined to the pane under the row like a tab. A row
@@ -162,6 +182,12 @@ export function StageRail({ stages, timeline, step, attempts, attemptMax, locked
 }) {
   const live = stages.some(s => s.state === 'active');
   const now = useNow(live);
+  const costShown = costModeShown(timeline?.usage);
+  const [costMode, setCostMode] = useState<CostMode>(() => readCostMode(timeline?.usage));
+  // The timeline arrives after the first render: read the saved choice (or the cost default) once dollars appear.
+  useEffect(() => { setCostMode(readCostMode(timeline?.usage)); }, [costShown]);
+  const tileMode: CostMode = costShown ? costMode : 'tokens';
+  const pickCostMode = (m: CostMode) => { saveCostMode(m); setCostMode(m); };
   const span = (name: string) => timeline?.stages.find(s => s.stage === name);
   const track = useRef<HTMLDivElement>(null);
   const lastHand = useRef(0);
@@ -212,6 +238,7 @@ export function StageRail({ stages, timeline, step, attempts, attemptMax, locked
   const shownState = stages.find(s => s.key === shown)?.state;
   return (
     <div class={`rail2-wrap ${phone ? 'rail2-phone' : ''}`}>
+      {costShown && <CostModeToggle mode={costMode} onPick={pickCostMode} />}
       <div class="rail2-frame">
         <div class="rail2" role="tablist" aria-label="Stages" ref={track} onScroll={measure} onWheel={hand} onTouchStart={hand} onPointerDown={hand}>
           {fold.folded.length > 0 && (
@@ -226,7 +253,7 @@ export function StageRail({ stages, timeline, step, attempts, attemptMax, locked
           {fold.shown.flatMap(s => {
             const sp = span(s.name);
             const fill = s.state === 'active' && step && step.n > 0 ? Math.max(8, Math.round(((step.i - 0.5) / step.n) * 100)) : s.state === 'pending' ? 0 : 100;
-            const cost = usageText(sp?.usage);
+            const cost = tileCostText(tileMode, sp?.usage);
             const on = shown === s.key;
             const round = roundLabel(sp?.passes);
             // Only recorded rounds: a stage with one pass and no recorded cause has nothing to mark on the tile.
