@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { backBar, doneFoldLabel, edgeScrollTarget, foldDone, followedStage, followNote, hiddenCounts, mayAutoScroll, paneTone, phoneOpens, pickRound, prBadge, roundLabel, roundsOf, scrollTarget, shownStage, stepPills, waitsFor } from '../web/ui/src/stagePane.js';
+import { answeredBetween, backBar, doneFoldLabel, edgeScrollTarget, foldDone, followedStage, followNote, hiddenCounts, mayAutoScroll, paneTone, phoneOpens, pickRound, prBadge, roundEndText, roundLabel, roundMarks, roundMarksLabel, roundStartText, roundsOf, scrollTarget, shownStage, stepPills, waitsFor } from '../web/ui/src/stagePane.js';
+import type { StageRound } from '../web/ui/src/api.js';
 
 const stage = (name: string, state: string) => ({ name, key: name.toLowerCase().replace(' ', '-'), state: state as never });
 const rail = (states: Record<string, string>) => Object.entries(states).map(([n, s]) => stage(n, s));
@@ -62,6 +63,76 @@ describe('rounds', () => {
     expect(roundLabel(1)).toBe('');
     expect(roundLabel(3)).toBe('Round 3');
     expect(roundLabel(undefined)).toBe('');
+  });
+});
+
+describe('round marks on the tile', () => {
+  const round = (extra: Partial<StageRound> = {}): StageRound => ({ started: '2026-11-28T10:00:00Z', ended: '2026-11-28T10:01:00Z', steps: [], ...extra });
+  test('one mark per round, with a tone taken only from the record', () => {
+    expect(roundMarks([
+      round({ cause: 'questions', next: 'pause' }),
+      round({ cause: 'passed', next: 'next-stage' }),
+      round({ cause: 'check-failed', next: 'retry' }),
+      round({ ended: null }),
+      round(),
+    ])).toEqual([
+      { n: 1, tone: 'stop', label: 'questions' },
+      { n: 2, tone: 'done', label: 'passed' },
+      { n: 3, tone: 'stop', label: 'check failed' },
+      { n: 4, tone: 'run', label: 'running' },
+      { n: 5, tone: 'idle', label: '' },
+    ]);
+  });
+  test('the accessible label names each recorded cause, a running round, and nothing for a missing cause', () => {
+    const rs = [round({ cause: 'questions' }), round({ cause: 'passed' }), round({ ended: null }), round()];
+    expect(roundMarksLabel(rs)).toBe('Rounds: 1 questions, 2 passed, 3 running, 4');
+    expect(roundMarksLabel([])).toBe('');
+    expect(roundMarksLabel([round()])).toBe('Rounds: 1');
+  });
+  test('every cause has its own word', () => {
+    const causes: StageRound['cause'][] = ['passed', 'check-failed', 'questions', 'permission', 'limit', 'error', 'stopped', 'review-changes'];
+    expect(roundMarks(causes.map(cause => round({ cause }))).map(m => m.label)).toEqual([
+      'passed', 'check failed', 'questions', 'permission', 'limit', 'error', 'stopped', 'review changes',
+    ]);
+  });
+});
+
+describe('the rounds in the pane', () => {
+  const round = (extra: Partial<StageRound> = {}): StageRound => ({ started: '2026-11-28T10:00:00Z', ended: '2026-11-28T10:01:00Z', steps: [], ...extra });
+  test('the start line uses only a recorded reason', () => {
+    expect((['run', 'resume', 'retry', 'review', 'user'] as const).map(startedBy => roundStartText(round({ startedBy })))).toEqual([
+      'started: the run reached this stage', 'started: resumed', 'started: retry', 'started: review asked for changes', 'started: you started it',
+    ]);
+    expect(roundStartText(round())).toBe('');
+    expect(roundStartText(undefined)).toBe('');
+  });
+  test('the end line names the cause and what came next, in words', () => {
+    expect(roundEndText(round({ cause: 'questions', next: 'pause' }))).toBe('Questions → paused for your answers');
+    expect(roundEndText(round({ cause: 'check-failed', next: 'retry' }))).toBe('Check failed → retry');
+    expect(roundEndText(round({ cause: 'passed', next: 'next-stage' }))).toBe('Passed → next stage');
+    expect(roundEndText(round({ cause: 'review-changes', next: 'retry' }))).toBe('Review changes → retry');
+    expect(roundEndText(round({ cause: 'stopped', next: 'stop' }))).toBe('Stopped → stop');
+    expect(roundEndText(round({ cause: 'permission', next: 'pause' }))).toBe('Permission → pause');
+    expect(roundEndText(round({ cause: 'limit', next: 'retry' }))).toBe('Limit → retry');
+    expect(roundEndText(round({ cause: 'error', next: 'stop' }))).toBe('Error → stop');
+  });
+  test('a missing field is no claim: no cause, no next, or still running', () => {
+    expect(roundEndText(round())).toBe('');
+    expect(roundEndText(undefined)).toBe('');
+    expect(roundEndText(round({ ended: null, cause: 'passed', next: 'next-stage' }))).toBe('');
+    expect(roundEndText(round({ cause: 'passed' }))).toBe('Passed');
+  });
+  test('the answered line needs both the end and the recorded answer time', () => {
+    const prev = round({ ended: '2026-11-28T10:00:00Z', answeredAt: '2026-11-28T10:00:58Z' });
+    const next = round({ started: '2026-11-28T10:00:58Z' });
+    expect(answeredBetween(prev, next)).toBe('You answered · 00:58');
+    expect(answeredBetween(prev, next, 3)).toBe('You answered 3 · 00:58');
+    expect(answeredBetween({ ...prev, answeredAt: '2026-11-28T10:02:05Z' }, next)).toBe('You answered · 02:05');
+    expect(answeredBetween({ ...prev, answeredAt: undefined }, next)).toBe('');
+    expect(answeredBetween({ ...prev, ended: null }, next)).toBe('');
+    expect(answeredBetween(prev, undefined)).toBe('');
+    expect(answeredBetween({ ...prev, answeredAt: '2026-11-28T09:59:00Z' }, next)).toBe('');
+    expect(answeredBetween({ ...prev, answeredAt: 'not a time' }, next)).toBe('');
   });
 });
 

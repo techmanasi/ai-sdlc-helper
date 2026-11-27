@@ -75,6 +75,8 @@
     tileCost: '.tile-cost',
     tileLock: '.tile-lock',
     tileRound: '.tile-round',
+    tileMarks: '.tile-marks',
+    tileMark: '.tile-mark',
     tilePr: '.tile-pr',
     paneBack: '.pane-back',
     paneFollowing: '.pane-following',
@@ -85,6 +87,12 @@
     step: '.steps .step',
     stepLabel: '.step-label',
     stepTime: '.step-time',
+    roundEntry: '.round-entry',
+    roundSection: '.round-section',
+    roundHeading: '.round-heading',
+    roundStart: '.round-start',
+    roundEnd: '.round-end',
+    roundAnswered: '.round-answered',
     output: '#run-output',
     usageTable: 'table.usage',
     resumePick: '#resume-pick',
@@ -318,6 +326,30 @@
       steps: $$(SELECTORS.step, d).map(s => ({ label: text($(SELECTORS.stepLabel, s)), time: text($(SELECTORS.stepTime, s)), state: stateOf(s, 'step-') })),
       text: text(d).slice(0, 600),
     };
+  }
+  /** The accessible label of a stage's recorded round marks, or '' when the tile shows none. */
+  async function roundMarks(name) {
+    const find = () => $$(SELECTORS.tile).find(x => text($(SELECTORS.tileName, x)).toLowerCase() === name.toLowerCase());
+    let t = find();
+    if (!t && $(SELECTORS.foldDone)) {
+      unfoldDone();
+      await waitFor(() => !$(SELECTORS.foldDone));
+      t = find();
+    }
+    if (!t) throw new Error(`sdlcUI.roundMarks: no stage ${name}; stages: ${stages().map(s => s.name).join(', ')}`);
+    const marks = $(SELECTORS.tileMarks, t);
+    return marks ? marks.getAttribute('aria-label') || '' : '';
+  }
+  /** The rounds in the shown pane: each heading, start and end line, and the answer hand-off before it. */
+  function rounds() {
+    const d = $(SELECTORS.stageDetail);
+    if (!d) return [];
+    return $$(SELECTORS.roundEntry, d).map(e => ({
+      heading: text($(SELECTORS.roundHeading, e)),
+      start: text($(SELECTORS.roundStart, e)),
+      end: text($(SELECTORS.roundEnd, e)),
+      answered: text($(SELECTORS.roundAnswered, e)),
+    }));
   }
   /** The last <n> lines of the run's output panel. */
   function output(n = 20) {
@@ -622,7 +654,7 @@
     board, boardShow, boardFilter, pick, rowAction,
     completedTabs, completedFilter, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds, runBehaviour,
     // run page
-    run, stages, stage, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
+    run, stages, stage, roundMarks, rounds, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, openDoc, closeDialog,
     // new item
     newItem,
     // code search setup

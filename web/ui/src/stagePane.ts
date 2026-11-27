@@ -1,7 +1,7 @@
 // The stage pane under the run page's stage rail: which stage it shows, the colour of its outline, what a stage that has
 // not started waits for, which round of a stage is on view, the pull request badge on Finalise, and when the rail may
 // scroll a stage into view by itself. Pure, so the decisions are tested without a browser; RunInsights.tsx draws them.
-import type { CiState, StageRound, StageSpan } from './api.js';
+import type { CiState, RoundCause, RoundNext, RoundStartedBy, StageRound, StageSpan } from './api.js';
 import { durationText, spanSeconds, type TileState } from './insights.js';
 
 export interface PaneStage { key: string; name: string; state: TileState }
@@ -92,6 +92,85 @@ export function roundsOf(span: StageSpan | undefined): StageRound[] {
   if (!span) return [];
   if (span.rounds && span.rounds.length) return span.rounds;
   return [{ started: span.started, ended: span.ended, steps: span.steps }];
+}
+
+/** The recorded words for a round's cause and next action. Nothing here is inferred from the stage's state. */
+const CAUSE_WORD: Record<RoundCause, string> = {
+  passed: 'passed',
+  'check-failed': 'check failed',
+  questions: 'questions',
+  permission: 'permission',
+  limit: 'limit',
+  error: 'error',
+  stopped: 'stopped',
+  'review-changes': 'review changes',
+};
+const NEXT_WORD: Record<RoundNext, string> = {
+  'next-stage': 'next stage',
+  retry: 'retry',
+  pause: 'pause',
+  stop: 'stop',
+};
+const START_WORD: Record<RoundStartedBy, string> = {
+  run: 'the run reached this stage',
+  resume: 'resumed',
+  retry: 'retry',
+  review: 'review asked for changes',
+  user: 'you started it',
+};
+
+export interface RoundMark { n: number; tone: 'done' | 'stop' | 'run' | 'idle'; label: string }
+
+/**
+ * One mark per recorded round, oldest first. An unclosed round is running; a passed one is done; a round whose end
+ * cause was recorded is a stop; a round with no cause recorded has no claim to make, so it is idle.
+ */
+export function roundMarks(rounds: readonly StageRound[]): RoundMark[] {
+  return rounds.map((round, i) => {
+    const running = !round.ended;
+    const cause = !running && round.cause ? CAUSE_WORD[round.cause] : '';
+    return {
+      n: i + 1,
+      tone: running ? 'run' as const : !cause ? 'idle' as const : round.cause === 'passed' ? 'done' as const : 'stop' as const,
+      label: running ? 'running' : cause || '',
+    };
+  });
+}
+
+/** The tile's accessible name: a cause or "running" per round; a round with no cause is just its number. */
+export function roundMarksLabel(rounds: readonly StageRound[]): string {
+  if (!rounds.length) return '';
+  return `Rounds: ${roundMarks(rounds).map(m => (m.label ? `${m.n} ${m.label}` : `${m.n}`)).join(', ')}`;
+}
+
+/** Why a round began, only when the run recorded a reason. */
+export function roundStartText(round: StageRound | undefined): string {
+  const reason = round?.startedBy ? START_WORD[round.startedBy] : '';
+  return reason ? `started: ${reason}` : '';
+}
+
+/** How a round ended and what came next, only when the run recorded an end cause; a running round has no end. */
+export function roundEndText(round: StageRound | undefined): string {
+  if (!round?.cause || !round.ended) return '';
+  const cause = CAUSE_WORD[round.cause];
+  if (!cause) return '';
+  const next = round.next ? (round.cause === 'questions' && round.next === 'pause' ? 'paused for your answers' : NEXT_WORD[round.next]) : '';
+  return `${cause[0].toUpperCase()}${cause.slice(1)}${next ? ` → ${next}` : ''}`;
+}
+
+/**
+ * The hand-off between two rounds, when the earlier round recorded both its end and the time the user answered.
+ * A count is used only when the caller has one recorded for that round.
+ */
+export function answeredBetween(prev: StageRound | undefined, next: StageRound | undefined, questions?: number): string {
+  if (!prev?.ended || !prev.answeredAt || !next) return '';
+  const from = Date.parse(prev.ended);
+  const to = Date.parse(prev.answeredAt);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return '';
+  const sec = Math.floor((to - from) / 1000);
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(sec % 60).padStart(2, '0');
+  return `You answered${questions && questions > 0 ? ` ${questions}` : ''} · ${mm}:${ss}`;
 }
 
 /** A normal end row closes the last step even on failure. An abrupt stop may only have a status timestamp. */
