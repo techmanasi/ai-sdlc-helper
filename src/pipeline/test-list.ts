@@ -37,8 +37,9 @@ function readJson(ctx: Ctx, file: string): unknown {
 
 function report(ctx: Ctx, file: string): RunParts {
   const data = readJson(ctx, file) as RunResult;
-  if (data?.noReport || ((data?.ok === false || data?.exitCode > 0)
-    && !data.tests?.some(t => t.status === 'failed') && !data.suiteErrors?.length)) {
+  // A run that wrote no report still carries its output as a suite error (no file: the caller maps it to the gate files).
+  if ((data?.noReport || data?.ok === false || data?.exitCode > 0)
+    && !data.tests?.some(t => t.status === 'failed') && !data.suiteErrors?.length) {
     const message = `No usable failing test report in ${file}: ${data.suiteErrors?.map(e => e.message).join('\n') || 'the runner reported no failures'}`;
     notice(ctx, message);
     throw new Error(message);

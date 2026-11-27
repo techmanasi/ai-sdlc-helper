@@ -528,4 +528,21 @@ describe('the accepted Red tests list', () => {
     expect(run.mock.calls.some(args => args[0] === 'worktree')).toBe(false);
     expect(readTestList(ctx)).toEqual([expect.objectContaining({ name: 'only new name', state: 'active' })]);
   });
+
+  it('accepts a run that wrote no report (a red test file that cannot load) as the gate files, run whole', async () => {
+    const git = new Git(root);
+    git.run('init', '-q');
+    git.run('config', 'user.email', 'tests@example.test');
+    git.run('config', 'user.name', 'Fixture');
+    git.run('commit', '-q', '--allow-empty', '-m', 'base');
+    const ctx = cast(context());
+    ctx.git = git;
+    await fs.mkdir(path.join(root, 'docs/logs'), { recursive: true });
+    await fs.writeFile(path.join(root, 'docs/logs/tests.json'), JSON.stringify({
+      ok: false, exitCode: 1, noReport: true, tests: [],
+      suiteErrors: [{ file: null, message: "Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'src/truncate.js'" }],
+    }));
+    acceptRedTests(ctx, git.head(), ['test/truncate.test.js']);
+    expect(readTestList(ctx)).toEqual([expect.objectContaining({ file: 'test/truncate.test.js', whole: true, state: 'active' })]);
+  });
 });
