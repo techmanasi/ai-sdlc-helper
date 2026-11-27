@@ -2,8 +2,9 @@
 // A native <select> cannot be filtered while it is open, and the stage rail is 150px wide, so a long
 // `provider/model` id overflows the card. The panel is fixed-positioned because the rail scrolls and would clip
 // an absolutely positioned popup.
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { configValue, filterModels, nextIndex } from './modelFilter';
+import { useEffect, useId, useMemo, useRef, useState } from 'preact/hooks';
+import { filterModels } from './stageAgent';
+import { configValue, nextIndex } from './modelFilter';
 
 export interface ModelChoice {
   id: string;
@@ -50,20 +51,29 @@ export function ModelSelect({ name, models, value, defaultLabel, harness, taken,
   const trigger = useRef<HTMLButtonElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  const listId = useId();
 
   const providers = useMemo(() => Array.from(new Map(models.filter(m => m.providerId).map(m => [m.providerId, m.providerName || m.providerId!])).entries()).sort((a, b) => (a[1] || '').localeCompare(b[1] || '')), [models]);
   const providerModels = useMemo(() => provider ? models.filter(m => m.providerId === provider) : models, [models, provider]);
-  const matching = useMemo(() => filterModels(providerModels, query), [providerModels, query]);
+  // Filtering and grouping are plain data work in stageAgent.ts, so the listbox and its tests share one logic path.
+  const groups = useMemo(() => filterModels(providerModels, query), [providerModels, query]);
   // A row's value is what the stage config stores: the display name, or the provider-routed id when providers share it.
+  const sections = useMemo(() => {
+    let index = 1; // row 0 is the "default" row
+    return groups.map(group => ({
+      group,
+      rows: group.models.map(model => {
+        const choice = configValue(model, models);
+        const providerLabel = model.providerName || model.providerId || '';
+        const detail = [model.name === choice ? '' : model.name, groups.length === 1 && multipleProvider && !provider ? providerLabel : ''].filter(Boolean).join(' · ');
+        return { index: index++, choice, label: choice, detail, disabled: choice !== value && !!taken?.includes(`${harness}:${choice}`) };
+      }),
+    }));
+  }, [groups, models, defaultLabel, harness, taken, value, multipleProvider, provider]);
   const rows = useMemo(() => [
     { choice: '', label: defaultLabel, detail: '', disabled: false },
-    ...matching.map(model => {
-      const choice = configValue(model, models);
-      const providerLabel = model.providerName || model.providerId || '';
-      const detail = [model.name === choice ? '' : model.name, multipleProvider && !provider ? providerLabel : ''].filter(Boolean).join(' · ');
-      return { choice, label: choice, detail, disabled: choice !== value && !!taken?.includes(`${harness}:${choice}`) };
-    }),
-  ], [matching, models, defaultLabel, harness, taken, value, multipleProvider, provider]);
+    ...sections.flatMap(section => section.rows.map(({ choice, label, detail, disabled }) => ({ choice, label, detail, disabled }))),
+  ], [sections, defaultLabel]);
 
   const show = () => {
     const el = trigger.current;
@@ -143,22 +153,33 @@ export function ModelSelect({ name, models, value, defaultLabel, harness, taken,
       </button>
       {open && panel && (
         <div ref={box} class="pick-panel" style={{ left: `${panel.left}px`, top: `${panel.top}px`, width: `${panel.width}px` }}>
-          <input ref={search} class="inp mono" aria-label={`${name} model search`} placeholder="Search models…" value={query}
+          <input ref={search} class="inp mono" aria-label={`${name} model search`} aria-controls={listId} aria-activedescendant={rows[active] ? `${listId}-opt-${active}` : undefined}
+            placeholder="Search models…" value={query}
             onInput={e => { setQuery((e.target as HTMLInputElement).value); setActive(0); }} onKeyDown={onKeyDown} />
           {multipleProvider && providers.length > 1 && <select class="sel pick-provider" aria-label={`${name} provider filter`} value={provider} onChange={e => { setProvider((e.target as HTMLSelectElement).value); setActive(0); }}>
             <option value="">All providers</option>
             {providers.map(([id, label]) => <option value={id}>{label}</option>)}
           </select>}
-          <div class="pick-list" role="listbox" aria-label={`${name} models`} style={{ maxHeight: `${panel.height - 44}px` }}>
-            {rows.map((row, i) => (
-              <button type="button" role="option" aria-selected={row.choice === value} disabled={row.disabled}
-                class={`pick-item${i === active ? ' pick-active' : ''}${row.choice === value ? ' pick-selected' : ''}`}
-                onMouseDown={e => e.preventDefault()} onMouseMove={() => { if (i !== active) setActive(i); }} onClick={() => choose(row.choice)}>
-                <span class="pick-id mono">{row.choice || row.label}</span>
-                {row.detail && <span class="pick-detail small muted">{row.detail}</span>}
-              </button>
+          <div class="pick-list" id={listId} role="listbox" aria-label={`${name} models`} style={{ maxHeight: `${panel.height - 44}px` }}>
+            <button type="button" id={`${listId}-opt-0`} role="option" aria-selected={!value} disabled={false}
+              class={`pick-item${active === 0 ? ' pick-active' : ''}${!value ? ' pick-selected' : ''}`}
+              onMouseDown={e => e.preventDefault()} onMouseMove={() => { if (active !== 0) setActive(0); }} onClick={() => choose('')}>
+              <span class="pick-id mono">{defaultLabel}</span>
+            </button>
+            {sections.map(section => (
+              <div class="pick-section" role="presentation">
+                {groups.length > 1 && <span class="pick-group">{section.group.name}</span>}
+                {section.rows.map(row => (
+                  <button type="button" id={`${listId}-opt-${row.index}`} role="option" aria-selected={row.choice === value} disabled={row.disabled}
+                    class={`pick-item${row.index === active ? ' pick-active' : ''}${row.choice === value ? ' pick-selected' : ''}`}
+                    onMouseDown={e => e.preventDefault()} onMouseMove={() => { if (row.index !== active) setActive(row.index); }} onClick={() => choose(row.choice)}>
+                    <span class="pick-id mono">{row.choice || row.label}</span>
+                    {row.detail && <span class="pick-detail small muted">{row.detail}</span>}
+                  </button>
+                ))}
+              </div>
             ))}
-            {query.trim() && matching.length === 0 && (
+            {query.trim() && groups.length === 0 && (
               <span role="presentation" class="pick-empty small muted">no models match “{query.trim()}”</span>
             )}
             {!query.trim() && models.length === 0 && (

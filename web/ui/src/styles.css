@@ -164,6 +164,8 @@ textarea.inp { resize: vertical; }
 .pick-panel { position: fixed; z-index: 20; display: flex; flex-direction: column; gap: 6px; padding: 6px; background: var(--pn); border: 1px solid var(--ln); border-radius: 6px; box-shadow: 0 10px 28px rgba(0, 0, 0, .35); }
 .pick-provider { width: 100%; min-height: 28px; }
 .pick-list { overscroll-behavior-y: contain; display: flex; flex-direction: column; gap: 1px; overflow-y: auto; }
+.pick-section { display: flex; flex-direction: column; gap: 1px; }
+.pick-group { padding: 6px 6px 2px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--mu); }
 .pick-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 4px 6px; border: 0; border-radius: 4px; background: none; color: var(--tx); font: inherit; text-align: left; cursor: pointer; }
 .pick-item:hover:not(:disabled), .pick-active { background: var(--sel); }
 .pick-item:disabled { color: var(--mu); cursor: not-allowed; }
@@ -324,6 +326,19 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .rail2-scroll-l { left: 4px; }
 .rail2-scroll-r { right: 4px; }
 .rail2-scroll:hover { background: var(--ln); }
+.tile-wrap { position: relative; display: flex; flex: 1 1 0; min-width: 0; }
+.tile-wrap > .tile { flex: 1 1 auto; width: 100%; }
+.tile-wrap .tile-line { padding-right: 24px; }
+.tile-edit { position: absolute; right: 5px; bottom: 5px; z-index: 2; width: 22px; min-height: 22px; display: grid; place-items: center; border: 1px solid var(--ln2); border-radius: 5px; background: var(--pn2); color: var(--mu); font: inherit; font-size: 12px; cursor: pointer; opacity: .75; }
+.tile-edit:hover, .tile-edit:focus-visible, .tile-edit[aria-expanded='true'] { opacity: 1; border-color: var(--pri); color: var(--pri); }
+.stage-pop { position: fixed; z-index: 30; max-height: min(460px, calc(100vh - 16px)); overflow: auto; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--ln2); border-radius: 8px; background: var(--pn); box-shadow: 0 12px 32px rgba(0, 0, 0, .4); }
+.stage-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.stage-pop-title { font-size: 14px; font-weight: 600; }
+.stage-pop-close { width: 26px; min-height: 26px; border: 0; border-radius: 5px; background: transparent; color: var(--mu); cursor: pointer; font: inherit; }
+.stage-pop-close:hover { background: var(--pn2); color: var(--tx); }
+.stage-pop-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.stage-pop-body .row { flex-wrap: nowrap; }
+.stage-pop-body .sel, .stage-pop-body .picker { min-width: 0; flex: 1 1 0; }
 .rail2-scroll:focus-visible, .rail2-fold:focus-visible { outline: 2px solid var(--pri); outline-offset: 2px; }
 .tile { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 3px; padding: 0 10px 10px; border-radius: 8px; border: 1px solid var(--ln); min-width: 0; min-height: 112px; flex: 1 1 0; transition: background-color .12s ease, border-color .12s ease; }
 @media (max-width: 1100px) { .tile { flex: 0 0 150px; } }
@@ -406,6 +421,7 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .phone-pane { margin: 4px 0 8px; }
 .phone-pane .stage-pane { border-radius: 0 0 8px 8px; }
 .rail2-phone .rail2 { flex-direction: column; overflow: visible; }
+.rail2-phone .tile-wrap { flex: 0 0 auto; }
 .rail2-phone .tile { flex: 0 0 auto; min-height: 0; }
 .stage-detail { display: block; }
 .eyebrow { margin: 0 0 8px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8f9baa; font-weight: 600; }

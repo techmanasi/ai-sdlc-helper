@@ -1,8 +1,8 @@
-/** Case-insensitive substring filtering for model dropdowns, over the id, display name, name and provider. */
+import { filterModels as groupModels } from './stageAgent.js';
+
+/** The flat matches for older callers; the filter itself lives with the grouping in stageAgent.ts. */
 export function filterModels<T extends { id: string; name: string; displayName?: string; providerName?: string }>(models: readonly T[], query: string): T[] {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return [...models];
-  return models.filter(model => `${model.id}\n${model.displayName ?? ''}\n${model.name}\n${model.providerName ?? ''}`.toLowerCase().includes(needle));
+  return groupModels(models, query).flatMap(group => group.models);
 }
 
 /**

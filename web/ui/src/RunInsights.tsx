@@ -6,6 +6,7 @@ import type { ComponentChildren } from 'preact';
 import type { AttemptRound, LockOpen, LockView, RunView, StageRound, Timeline, UsageTotals } from './api';
 import { cacheShare, costCell, costModeShown, costNotes, durationText, guarantees, hasUsage, lockSentence, openSentence, readCostMode, saveCostMode, tileCostText, tileLine, tokensText, usageText, type CostMode, type TileState, totalCells } from './insights';
 import { attemptMarks, attemptMarksLabel, backToImplementText, doneFoldLabel, edgeScrollTarget, foldDone, hiddenCounts, mayAutoScroll, paneTone, prBadge, roundLabel, roundMarks, roundMarksLabel, scrollTarget, stepPills, type AttemptMark } from './stagePane';
+import { popoverPosition } from './stageAgent';
 import { CopyButton, Panel, Spinner } from './ui';
 
 /** The time now, refreshed every second while `on` (a running stage shows its elapsed time). */
@@ -158,7 +159,7 @@ export function CostModeToggle({ mode, onPick }: { mode: CostMode; onPick(m: Cos
  * wider than the window folds leading done stages and scrolls sideways, with an arrow at an edge that hides tiles;
  * on a phone it is a column and the pane opens under the tile.
  */
-export function StageRail({ stages, timeline, step, attempts, attemptMax, locked, lockOpen, shown, followed, pr, phone, phoneOpen, onSelect, children }: {
+export function StageRail({ stages, timeline, step, attempts, attemptMax, locked, lockOpen, shown, followed, pr, phone, phoneOpen, onSelect, agentStages, stageEditor, children }: {
   stages: RailStage[];
   timeline?: Timeline;
   step?: RunView['step'];
@@ -177,6 +178,11 @@ export function StageRail({ stages, timeline, step, attempts, attemptMax, locked
   phone: boolean;
   phoneOpen: boolean;
   onSelect(key: string): void;
+  /** Stage keys the pipeline runs with an agent, from the server's settings. Finalise is not one of them. */
+  agentStages?: readonly string[];
+  /** The run pane's own agent / model / effort pickers: the popover renders them, so there is one save path. */
+  stageEditor?: (stage: RailStage) => ComponentChildren;
+  /** Read-only doubt-reviewer line for Resolve conflicts, built from resolved settings. */
   /** The pane for the shown stage. */
   children?: ComponentChildren;
 }) {
@@ -236,6 +242,43 @@ export function StageRail({ stages, timeline, step, attempts, attemptMax, locked
     requestAnimationFrame(() => track.current?.scrollTo({ left: 0, behavior: 'smooth' }));
   };
   const shownState = stages.find(s => s.key === shown)?.state;
+  // The popover holds the run pane's own pickers, not another copy of the save logic: they write the same env rows.
+  const [editorKey, setEditorKey] = useState('');
+  const [editorPos, setEditorPos] = useState<{ left: number; top: number; width: number } | null>(null);
+  const editorButton = useRef<HTMLButtonElement | null>(null);
+  const popover = useRef<HTMLDivElement | null>(null);
+  const editorStage = stages.find(s => s.key === editorKey);
+  const editable = (s: RailStage) => !!stageEditor && s.state !== 'done' && !!agentStages?.includes(s.key);
+  const closeEditor = (returnFocus = false) => {
+    setEditorKey('');
+    setEditorPos(null);
+    if (returnFocus) editorButton.current?.focus();
+  };
+  const toggleEditor = (s: RailStage, button: HTMLButtonElement) => {
+    if (editorKey === s.key) { closeEditor(false); return; }
+    editorButton.current = button;
+    setEditorPos(popoverPosition(button.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight }));
+    setEditorKey(s.key);
+  };
+  useEffect(() => {
+    if (!editorKey) return undefined;
+    const outside = (e: Event) => {
+      const target = e.target as Node;
+      if (popover.current?.contains(target) || editorButton.current?.contains(target)) return;
+      closeEditor(false);
+    };
+    // A model listbox inside the popover owns Escape while it is open; its own listener closes it first.
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || popover.current?.querySelector('.pick-panel')) return;
+      closeEditor(true);
+    };
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [editorKey]);
   return (
     <div class={`rail2-wrap ${phone ? 'rail2-phone' : ''}`}>
       {costShown && <CostModeToggle mode={costMode} onPick={pickCostMode} />}
@@ -263,26 +306,33 @@ export function StageRail({ stages, timeline, step, attempts, attemptMax, locked
             const shownAttempts = s.key === 'implement' ? attempts || [] : [];
             const attemptLabel = shownAttempts.length ? attemptMarksLabel(shownAttempts, attemptMax) : '';
             const tile = (
-              <button
-                type="button" role="tab" aria-selected={on} aria-pressed={on} aria-controls="stage-detail" data-key={s.key}
-                class={`tile tile-${s.state} tone-${paneTone(s.state)} ${on ? 'tile-on' : ''} ${s.afterPr ? 'tile-after' : ''}`}
-                onClick={() => onSelect(s.key)}
-              >
-                <span class="tile-bar" aria-hidden="true"><span class="tile-fill" style={{ width: `${fill}%` }} /></span>
-                <span class="tile-head">
-                  <span class="tile-icon" aria-hidden="true">{s.state === 'active' ? <Spinner /> : ICON[s.state]}</span>
-                  <span class="tile-name">{s.name}</span>
-                  {round && <span class="tile-round">{round}</span>}
-                  {s.name === 'Red tests' && lockOpen && <span class="tile-lock tile-lock-open" role="img" aria-label="Test lock open" title={openSentence(lockOpen)}><LockIcon open /> unlocked</span>}
-                  {s.name === 'Red tests' && locked && !lockOpen && <span class="tile-lock" role="img" aria-label="Tests locked" title="The tests are committed and locked: a later stage that changes them is stopped"><LockIcon /> locked</span>}
-                  {s.key === 'finalise' && pr && <span class={`tile-pr tile-pr-${pr.tone}`} title={pr.title}>{pr.text}</span>}
-                </span>
-                <span class="tile-model mono">{s.model || (s.key === 'finalise' ? 'no agent' : 'default')}</span>
-                {attemptLabel ? <AttemptMarks attempts={shownAttempts} max={attemptMax} label={attemptLabel} /> : marks && <RoundMarks rounds={recorded} label={marks} />}
-                <span class="tile-line">{tileLine(s.state, sp, s.files, s.state === 'active' ? step?.label || '' : '', now)}</span>
-                {cost && <span class="tile-cost mono">{cost}</span>}
-                <span class="sr">{s.state}</span>
-              </button>
+              <div class="tile-wrap" data-key={s.key}>
+                <button
+                  type="button" role="tab" aria-selected={on} aria-pressed={on} aria-controls="stage-detail" data-key={s.key}
+                  class={`tile tile-${s.state} tone-${paneTone(s.state)} ${on ? 'tile-on' : ''} ${s.afterPr ? 'tile-after' : ''}`}
+                  onClick={() => onSelect(s.key)}
+                >
+                  <span class="tile-bar" aria-hidden="true"><span class="tile-fill" style={{ width: `${fill}%` }} /></span>
+                  <span class="tile-head">
+                    <span class="tile-icon" aria-hidden="true">{s.state === 'active' ? <Spinner /> : ICON[s.state]}</span>
+                    <span class="tile-name">{s.name}</span>
+                    {round && <span class="tile-round">{round}</span>}
+                    {s.name === 'Red tests' && lockOpen && <span class="tile-lock tile-lock-open" role="img" aria-label="Test lock open" title={openSentence(lockOpen)}><LockIcon open /> unlocked</span>}
+                    {s.name === 'Red tests' && locked && !lockOpen && <span class="tile-lock" role="img" aria-label="Tests locked" title="The tests are committed and locked: a later stage that changes them is stopped"><LockIcon /> locked</span>}
+                    {s.key === 'finalise' && pr && <span class={`tile-pr tile-pr-${pr.tone}`} title={pr.title}>{pr.text}</span>}
+                  </span>
+                  <span class="tile-model mono">{s.model || (s.key === 'finalise' ? 'no agent' : 'default')}</span>
+                  {attemptLabel ? <AttemptMarks attempts={shownAttempts} max={attemptMax} label={attemptLabel} /> : marks && <RoundMarks rounds={recorded} label={marks} />}
+                  <span class="tile-line">{tileLine(s.state, sp, s.files, s.state === 'active' ? step?.label || '' : '', now)}</span>
+                  {cost && <span class="tile-cost mono">{cost}</span>}
+                  <span class="sr">{s.state}</span>
+                </button>
+                {editable(s) && (
+                  <button type="button" class="tile-edit" aria-label={`Edit ${s.name} agent`} aria-haspopup="dialog"
+                    aria-expanded={editorKey === s.key} title={`Edit ${s.name} agent`}
+                    onClick={e => toggleEditor(s, e.currentTarget)}>✎</button>
+                )}
+              </div>
             );
             return phone && on && phoneOpen ? [tile, <div class="phone-pane" key={`${s.key}-pane`}>{children}</div>] : [tile];
           })}
@@ -297,6 +347,18 @@ export function StageRail({ stages, timeline, step, attempts, attemptMax, locked
         </>}
       </div>
       {!phone && shownState && <div class={`stage-pane tone-${paneTone(shownState)}`}>{children}</div>}
+      {editorKey && editorStage && editorPos && (
+        <div ref={popover} class="stage-pop" role="dialog" aria-label={`Edit ${editorStage.name} agent`}
+          style={{ left: `${editorPos.left}px`, top: `${editorPos.top}px`, width: `${editorPos.width}px` }}>
+          <div class="stage-pop-head">
+            <strong class="stage-pop-title">{editorStage.name}</strong>
+            <button type="button" class="stage-pop-close" aria-label="Close" title="Close" onClick={() => closeEditor(true)}>✕</button>
+          </div>
+          <div class="stage-pop-body">
+            {stageEditor?.(editorStage)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
