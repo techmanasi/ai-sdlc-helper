@@ -210,7 +210,7 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 
 /* ---- the board as rows: one item, its stages, its state ---- */
 .blist { overflow: hidden; }
-.bhead, .brow { display: grid; grid-template-columns: 28px minmax(200px, 1.4fr) minmax(240px, 1.6fr) 150px minmax(120px, .8fr) 84px 110px; gap: 14px; align-items: center; padding: 10px 16px; }
+.bhead, .brow { display: grid; grid-template-columns: 28px minmax(200px, 1.4fr) minmax(240px, 1.6fr) 150px minmax(120px, .8fr) 84px 84px 110px; gap: 14px; align-items: center; padding: 10px 16px; }
 .bhead { border-bottom: 1px solid var(--ln); }
 .brow { border-bottom: 1px solid var(--ln); min-height: 62px; transition: background-color .12s ease; }
 .brow:last-child { border-bottom: 0; }
@@ -224,6 +224,19 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .strip { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; }
 .strip i { height: 5px; border-radius: 3px; background: var(--ln2); }
 .strip .st-done { background: var(--done); } .strip .st-active { background: var(--run); } .strip .st-paused { background: var(--wait); } .strip .st-failed { background: var(--fail); }
+
+/* Board segmented stage bar: one segment per stage, dashed for conditional stages that have not run yet. */
+.bseg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; }
+.bseg-seg { height: 6px; border-radius: 2px; box-sizing: border-box; border: 1px solid transparent; background: var(--ln2); }
+.bseg-completed { background: var(--done); border-color: transparent; }
+.bseg-running { background: var(--run); border-color: transparent; animation: pulse 1.6s ease-in-out infinite; }
+.bseg-failed { background: var(--fail); border-color: transparent; }
+.bseg-paused { background: var(--wait); border-color: transparent; }
+.bseg-not-reached { background: var(--ln2); border-color: transparent; }
+.bseg-dash { background: transparent; border: 1px dashed var(--ln2); }
+@media (prefers-reduced-motion: reduce) { .bseg-running { animation: none; } }
+
+.b-updated { color: var(--mu); font-size: 13px; white-space: nowrap; }
 @keyframes pulse { 50% { opacity: .45; } }
 .strip .st-active { animation: pulse 1.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .strip .st-active { animation: none; } }
@@ -233,7 +246,7 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
   .bhead { display: none; }
   .brow { grid-template-columns: 28px minmax(0, 1fr) auto; row-gap: 8px; }
   .brow > .b-stages { grid-column: 2 / -1; order: 5; }
-  .brow > .b-pr, .brow > .b-when, .brow > .b-cost { display: none; }
+  .brow > .b-pr, .brow > .b-when, .brow > .b-cost, .brow > .b-updated { display: none; }
 }
 
 /* ---- the run screen ---- */

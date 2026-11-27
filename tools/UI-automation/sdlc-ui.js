@@ -30,8 +30,11 @@
     rowSlug: '.brow-slug',
     rowSub: '.brow-sub',
     rowStrip: '.strip',
+    rowSeg: '.bseg',
+    rowSegItem: '.bseg-seg',
     rowChip: '.chip',
     rowPr: '.b-pr',
+    rowUpdated: '.b-updated',
     rowActions: '.brow-acts',
     rowCheckbox: 'input[type="checkbox"]',
     boardFilter: '#flt',
@@ -191,7 +194,21 @@
       const box = $(SELECTORS.rowCheckbox, row);
       const subs = $$(SELECTORS.rowSub, row).map(text);
       const strip = $(SELECTORS.rowStrip, row);
+      const seg = $(SELECTORS.rowSeg, row);
       const run = !box;
+      const updated = $(SELECTORS.rowUpdated, row);
+      let stageStates = [];
+      let stagesLabel = '';
+      if (seg) {
+        stageStates = $$(SELECTORS.rowSegItem, seg).map(s => {
+          const cls = Array.from(s.classList).find(c => c.startsWith('bseg-') && c !== 'bseg-seg' && c !== 'bseg-dash');
+          return cls ? cls.slice(5) : 'not-reached';
+        });
+        stagesLabel = seg.getAttribute('aria-label') || '';
+      } else if (strip) {
+        stageStates = $$('i', strip).map(i => stateOf(i, 'st-') || 'pending');
+        stagesLabel = strip.getAttribute('aria-label') || '';
+      }
       return {
         slug: text($(SELECTORS.rowSlug, row)),
         kind: run ? 'run' : 'item',
@@ -199,9 +216,10 @@
         detail: subs[0] || '',
         where: subs[1] || '',
         status: text($(SELECTORS.rowChip, row)),
-        stages: strip ? strip.getAttribute('aria-label') || '' : '',
-        stageStates: strip ? $$('i', strip).map(i => stateOf(i, 'st-') || 'pending') : [],
+        stages: stagesLabel,
+        stageStates,
         pr: text($(SELECTORS.rowPr, row)),
+        updated: updated ? text(updated) : '',
         cost: text($(SELECTORS.rowCost, row)),
         selected: box ? box.checked : row.classList.contains('brow-on'),
         actions: buttons($(SELECTORS.rowActions, row)).map(b => b.label),
