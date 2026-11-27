@@ -1,5 +1,6 @@
 // One run: its stages, the questions and refused actions it waits on, its environment, files and live output, and every
 // control the engine has (start, resume, restart from a stage, stop, discard). An item with no run shows its brief.
+import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { REVIEW_LIMIT_ENV, REVIEW_LIMIT_REQUIREMENT } from 'ai-sdlc-helper/review-limit';
 import { api, type ModelInfo, type RunView, type SettingsView } from './api';
@@ -15,6 +16,7 @@ import { PrCi } from './PrCi';
 import { agentChanged, defaultChoiceLabel, pickProblem } from './stageAgent';
 import { Cli, CopyButton, ErrorBox, GLYPH, Markdown, Panel, Spinner, stateClass, useApp } from './ui';
 import { defaultPick, needsResumeConfirm, resumeCommand, resumeOptions } from './resume';
+import { errorDetailsOf, recoveryCliLine, recoveryOptions, type RecoveryOption } from './recovery';
 import { handoffBlocks, noteError, noteToSend } from './handoff';
 import { isMarkdownPath } from './markdown';
 import { addEnvKey, quickKeys, reviewLimitOptions, setEnvValue } from './env';
@@ -229,6 +231,83 @@ function RecoveryCard({
   );
 }
 
+/** The options a stopped run can act on, each backed by a call the run page already makes. */
+function RecoveryOptionsCard({
+  options, kindLabel, cause, error, cli, busy, recoverAsk, switchStage,
+  switchPicker, onOption, onToggleError, errorOpen, onConfirm, onCancelConfirm, onSwitchRetry,
+}: {
+  options: RecoveryOption[];
+  kindLabel: string;
+  cause: string;
+  error: { text: string; source: string } | null;
+  cli: string;
+  busy: string;
+  recoverAsk: { key: string; name: string } | null;
+  switchStage: string;
+  switchPicker: ComponentChildren;
+  onOption: (o: RecoveryOption) => void;
+  onToggleError: () => void;
+  errorOpen: boolean;
+  onConfirm: () => void;
+  onCancelConfirm: () => void;
+  onSwitchRetry: () => void;
+}) {
+  const eyebrow = (id: string): string => id === 'top-up' ? 'RECOMMENDED' : id === 'switch-model' ? 'SWITCH MODEL' : id === 'resume-at' ? 'SKIP AHEAD' : 'RETRY';
+  const retry = options.find(o => o.id === 'resume');
+  return (
+    <section class="recov recov-options" aria-label="Recovery options">
+      <div class="recov-head recov-options-head">
+        <div class="col" style={{ gap: '4px' }}>
+          <div class="row" style={{ gap: '8px', alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <strong>Recovery options</strong>
+            {kindLabel && <span class="chip chip-failed">{kindLabel}</span>}
+          </div>
+          {cause && <p class="small recov-cause">{cause}</p>}
+        </div>
+        <span class="small muted">Each option keeps the run moving.</span>
+      </div>
+      {options.length > 0 && (
+        <div class="recov-opts" id="recovery-options">
+          {options.map(o => (
+            <div class={`recov-op ${o.id === 'top-up' ? 'recov-op-first' : ''}`}>
+              <span class="lbl">{eyebrow(o.id)}</span>
+              <strong>{o.label}</strong>
+              {o.detail && <p class="small recov-detail">{o.detail}</p>}
+              <div class="row" style={{ gap: '8px', flexWrap: 'wrap', marginTop: 'auto' }}>
+                <button class={`btn ${o.id === 'top-up' ? 'btn-p' : ''}`} type="button" disabled={!!busy} onClick={() => onOption(o)}>{o.label}</button>
+                {o.id === 'top-up' && retry && <button class="btn" type="button" disabled={!!busy} onClick={() => onOption(retry)}>{retry.label}</button>}
+              </div>
+              {o.id === 'resume-at' && recoverAsk && (
+                <div class="recov-confirm col" id="recovery-confirm">
+                  <strong>Resume at {recoverAsk.name}?</strong>
+                  <p class="small" style={{ margin: 0 }}>The run resumes on its existing branch from <strong>{recoverAsk.name}</strong>. The earlier stages do not run again.</p>
+                  <div class="row" style={{ gap: '8px', justifyContent: 'flex-end' }}>
+                    <button class="btn" type="button" id="recovery-confirm-keep" onClick={onCancelConfirm}>Keep it</button>
+                    <button class="btn btn-p" type="button" id="recovery-confirm-go" disabled={!!busy} onClick={onConfirm}>Resume at {recoverAsk.name}</button>
+                  </div>
+                </div>
+              )}
+              {o.id === 'switch-model' && switchStage === o.stage && (
+                <div class="recov-switch col" id="recovery-switch">
+                  {switchPicker}
+                  <button class="btn btn-p" type="button" disabled={!!busy} onClick={onSwitchRetry}>Retry with it</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {error && (
+        <div class="recov-error">
+          <button class="btn btn-s" type="button" id="recovery-error-button" aria-expanded={errorOpen} aria-controls="recovery-error" onClick={onToggleError}>Error details{error.source ? ` · ${error.source}` : ''}</button>
+          <pre class="code recov-error-text" id="recovery-error" hidden={!errorOpen}>{error.text}</pre>
+        </div>
+      )}
+      <div class="cli recov-cli" id="recovery-cli"><span>{cli}</span><CopyButton text={cli} /></div>
+    </section>
+  );
+}
+
 /** The Implement round blocks of the run log ("Round <n>: implement" and its indented lines, WARNINGs after it), each its own block. */
 function ciRounds(tail: string[]): string[][] {
   const blocks: string[][] = [];
@@ -263,6 +342,11 @@ export function Run({ slug }: { slug: string }) {
   /** The user's optional instruction for the agent of the stage picked (kept apart from the pipeline's finding). */
   const [note, setNote] = useState('');
   const [resumeAsk, setResumeAsk] = useState<{ key: string; name: string } | null>(null);
+  /** The recovery card's in-page confirmation, model pick and disclosure, all local to this screen. */
+  const [recoverAsk, setRecoverAsk] = useState<{ key: string; name: string } | null>(null);
+  const [recoverStage, setRecoverStage] = useState('');
+  const [switchStage, setSwitchStage] = useState('');
+  const [errorDetailsOpen, setErrorDetailsOpen] = useState(false);
   const [file, setFile] = useState<{ path: string; text: string } | null>(null);
   const [fileView, setFileView] = useState<'rendered' | 'source'>('rendered');
   const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
@@ -314,6 +398,7 @@ export function Run({ slug }: { slug: string }) {
     setAnswers({});
     setOpenDirs({});
     setStageDirs({});
+    setRecoverAsk(null); setRecoverStage(''); setSwitchStage(''); setErrorDetailsOpen(false);
     load();
     api.brief(project, slug).then(b => setBrief(b.brief)).catch(() => setBrief(null));
   }, [project, slug]);
@@ -441,6 +526,45 @@ export function Run({ slug }: { slug: string }) {
   const resumeKey = v.resumeFrom || 'spec';
   const startLabel = v.state === 'not started' || v.state === 'refused' ? 'Start' : `Resume from ${STAGES.find(s => s.key === resumeKey)?.name || resumeKey}`;
   const options = resumeOptions({ redCommit: v.redCommit, hasTestIssues: v.testIssues != null, resumeFrom: v.resumeFrom });
+  // The recovery card: only the kinds recovered above get options; each button acts on a call already in this file.
+  const recover = recoveryOptions(stop?.kind ?? null, v);
+  const recoverError = errorDetailsOf(v);
+  const chosenRecoverKey = recoverStage || recover.find(o => o.id === 'resume')?.stage || resumeKey;
+  const recoverCli = recoveryCliLine(slug, chosenRecoverKey);
+
+  const onRecoveryOption = (o: RecoveryOption) => {
+    setRecoverStage(o.stage);
+    if (o.action === 'top-up') {
+      const url = o.billingUrl;
+      launch(o.label, async () => {
+        if (!url) throw new Error('No billing link was recorded in the error');
+        const opened = window.open(url, '_blank', 'noopener,noreferrer');
+        if (!opened) throw new Error('The browser blocked the billing tab; open it yourself');
+      });
+      return;
+    }
+    if (o.action === 'resume-at') {
+      setRecoverAsk({ key: o.stage, name: o.stageName || STAGES.find(s => s.key === o.stage)?.name || o.stage });
+      return;
+    }
+    if (o.action === 'switch-model') { setSwitchStage(o.stage); return; }
+    launch(o.label, () => startRun(o.stage || resumeKey, envObj));
+  };
+  const confirmRecovery = () => {
+    const ask = recoverAsk;
+    if (!ask) return;
+    setRecoverAsk(null); setRecoverStage(ask.key);
+    launch(`Resume at ${ask.name}`, async () => {
+      const out = await startRun(ask.key, envObj, noteToSend(note));
+      setPicking(false); setNote('');
+      return out;
+    });
+  };
+  const retryWithModel = () => {
+    const key = switchStage || resumeKey;
+    setSwitchStage('');
+    launch('Retry with it', () => startRun(key, envObj));
+  };
   // The recovery card's Auto action already resumes at this stage: one button for it, not two.
   const autoStage = v.recovery?.autoAction?.command.match(/--from (\S+)/)?.[1];
   const primaryDuplicated = !!v.recovery && ['paused', 'failed'].includes(v.state) && autoStage === resumeKey;
@@ -713,6 +837,26 @@ export function Run({ slug }: { slug: string }) {
             }
             launch(esc.label, () => startRun(fromMatch[1], envObj));
           }}
+        />
+      )}
+
+      {recover.length > 0 && (
+        <RecoveryOptionsCard
+          options={recover}
+          kindLabel={stop?.label || ''}
+          cause={stop?.cause || ''}
+          error={recoverError}
+          cli={recoverCli}
+          busy={busy}
+          recoverAsk={recoverAsk}
+          switchStage={switchStage}
+          switchPicker={switchStage ? stagePickers({ key: switchStage, name: STAGES.find(s => s.key === switchStage)?.name || switchStage }) : null}
+          onOption={onRecoveryOption}
+          onToggleError={() => setErrorDetailsOpen(open => !open)}
+          errorOpen={errorDetailsOpen}
+          onConfirm={confirmRecovery}
+          onCancelConfirm={() => setRecoverAsk(null)}
+          onSwitchRetry={retryWithModel}
         />
       )}
 

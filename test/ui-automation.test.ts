@@ -125,6 +125,15 @@ describe('tools/UI-automation/sdlc-ui.js', () => {
     }
   });
 
+  test('exposes the recovery options, inline confirmation and recorded error hooks', () => {
+    const { api } = load();
+    for (const f of ['recoveryOptions', 'pickRecovery', 'confirmRecovery', 'toggleErrorDetails']) expect(api.help()).toContain(f);
+    for (const name of ['recoveryOptions', 'recoveryOption', 'recoveryDetail', 'recoveryErrorButton', 'recoveryError',
+      'recoveryConfirm', 'recoveryConfirmGo', 'recoveryConfirmKeep', 'recoverySwitch', 'recoveryCli']) {
+      expect(Object.keys(api.SELECTORS)).toContain(name);
+    }
+  });
+
   test('the drift check sees a selector that is not in the markup', () => {
     const src = markup();
     expect(new RegExp(`(^|[\\s"'\`{])${esc('no-such-class-xyz')}($|[\\s"'\`}])`).test(src)).toBe(false);
