@@ -578,9 +578,13 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       const ctx = contextFor(p);
       if (method === 'POST' && parts.length === 3) {
         try {
-          const r = addBacklogItem({ root: ctx.root, backlogDir: ctx.backlogDir }, { slug: body.slug, type: body.type, title: body.title, brief: body.brief });
+          // Per-stage picks travel as env overrides, the same way the run page starts one. A request with no overrides
+          // keeps the cached context. `start: false` (or absent) writes the item without starting a run.
+          const extra = envOf(body.env);
+          const startCtx = Object.keys(extra).length ? contextFor(p, extra) : ctx;
+          const r = addBacklogItem({ root: startCtx.root, backlogDir: startCtx.backlogDir }, { slug: body.slug, type: body.type, title: body.title, brief: body.brief });
           let started: unknown = null;
-          if (body.start === true) started = outcome(start(ctx, body.slug));
+          if (body.start === true) started = outcome(start(startCtx, body.slug));
           return send(200, { ok: true, ...r, started });
         } catch (e) { throw new HttpError(400, (e as Error).message); }
       }

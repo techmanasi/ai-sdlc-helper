@@ -12,6 +12,8 @@ export interface SettingsView {
     review?: { maxLoops: number };
     agent?: { harness: string; model: string | null; effort: string | null; stages: Record<string, StageSetting> };
     tests?: { retry: boolean | null; maxWorkers: number | 'auto' | null; preliminary?: 'scoped' | 'full' };
+    /** Resolved git settings: the prefix is what a new run's branch gets. */
+    git?: { branchPrefix?: string; base?: string | null };
   } | null;
   errors: string[]; warnings: string[]; raw: string | null;
   hash: string; overrides: { worktreeBase?: string; maxParallel?: number; boardSilenceSeconds?: number; run?: RunBehaviourSettings }; registered: boolean;
@@ -304,7 +306,7 @@ export const api = {
   editView: (project: string, slug: string) => call<BacklogEditView>('GET', `${p(project)}/backlog/${encodeURIComponent(slug)}/edit`),
   editItem: (project: string, slug: string, body: { title: string; type: string; priority?: string; brief: string; hash: string }) =>
     call<{ ok: true; index: string; brief: string; hash: string; notSaved: string[] }>('POST', `${p(project)}/backlog/${encodeURIComponent(slug)}`, body),
-  addItem: (project: string, item: { slug: string; type: string; title: string; brief: string; start?: boolean }) =>
+  addItem: (project: string, item: { slug: string; type: string; title: string; brief: string; start?: boolean; env?: Record<string, string> }) =>
     call<{ ok: boolean; started: Outcome | null }>('POST', `${p(project)}/backlog`, item),
   run: (project: string, slug: string, o: { parts?: string; refresh?: boolean } = {}) => {
     const q = [o.parts ? `parts=${o.parts}` : '', o.refresh ? 'refresh=1' : ''].filter(Boolean).join('&');
@@ -376,6 +378,10 @@ export function splitArgs(line: string): string[] {
   return out;
 }
 
+/** A word for a displayed command: quote it only when the shell would split it. */
+export const shellArg = (a: string): string =>
+  /^[\w./:=@%+,-]+$/.test(a) ? a : `'${a.replace(/'/g, "'\\''")}'`;
+
 /** A command line for display: arguments with spaces or quotes are quoted. */
 export const cliLine = (args: string[]): string =>
-  ['ai-sdlc-helper', ...args].map(a => (/^[\w./:=@%+,-]+$/.test(a) ? a : `'${a.replace(/'/g, "'\\''")}'`)).join(' ');
+  ['ai-sdlc-helper', ...args].map(shellArg).join(' ');

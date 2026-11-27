@@ -1,7 +1,10 @@
 // A new backlog item: slug, type, title and the brief (the triage skill's sections as a template), with a preview.
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { api, type DraftStatus, type TriageDraft, type TriageEvent, type TriageItem, type TriageQuestion, type TriageRun, type TriageState } from './api';
-import { ErrorBox, Future, Markdown, useApp } from './ui';
+import { api, type DraftStatus, type SettingsView, type TriageDraft, type TriageEvent, type TriageItem, type TriageQuestion, type TriageRun, type TriageState } from './api';
+import { STAGES, branchLine, defaultsSummary, newItemCommand, stageEnv, type ItemPick, type When } from './newItemForm';
+import { pickProblem } from './stageAgent';
+import { Pickers, type Pick } from './Projects';
+import { Cli, ErrorBox, Future, Markdown, useApp } from './ui';
 
 const template = (slug: string, type: string, priority: string) => `# ${slug || '<slug>'}
 
@@ -32,6 +35,7 @@ Priority: ${priority}
 `;
 
 const PRIORITIES = ['P0 (security or data loss)', 'P1 (high)', 'P2 (normal)', 'P3 (low)'];
+const EMPTY_PICK: Pick = { harness: '', model: '', effort: '' };
 
 /** The priority option a draft's `Priority:` line stands for (by its P0–P3 prefix); P2 with a note when it is none of them. */
 export function mapPriority(v: string): { value: string; note: string } {
@@ -213,6 +217,15 @@ export function NewItem({ taken, edit }: { taken: string[]; edit?: { slug: strin
   const [drawer, setDrawer] = useState(false);
   const [triageRun, setTriageRun] = useState<TriageRun | null>(null);
   const [priorityNote, setPriorityNote] = useState('');
+  // Stage choices and When are item-only: the project's own setup is never changed from here.
+  const [settings, setSettings] = useState<SettingsView | null>(null);
+  const [useDefaults, setUseDefaults] = useState(true);
+  const [when, setWhen] = useState<When>('now');
+  const [picks, setPicks] = useState<Record<string, Pick>>({});
+
+  useEffect(() => {
+    api.settings(project).then(setSettings).catch(e => setError((e as Error).message));
+  }, [project]);
 
   // A run that is still active when the page loads reopens the drawer.
   useEffect(() => {
@@ -255,10 +268,22 @@ export function NewItem({ taken, edit }: { taken: string[]; edit?: { slug: strin
   const slugFree = !taken.includes(slug);
   const empty = ['## Problem', '## Expected behaviour'].filter(h => { const m = brief.split(h)[1]; return m !== undefined && !m.split('\n## ')[0].trim(); });
 
+  const env = useDefaults ? {} : stageEnv(picks);
+  const pickIssue = !useDefaults && settings
+    ? STAGES.map(st => {
+      const p: ItemPick = picks[st.key] || { harness: '', model: '', effort: '' };
+      return pickProblem(st.name, { agent: p.harness, model: p.model, effort: p.effort }, settings.models);
+    }).find(Boolean) || ''
+    : '';
+
   const save = async (start: boolean) => {
+    if (start && pickIssue) { setError(pickIssue); return; }
     setBusy(true); setError('');
     try {
-      const r = await api.addItem(project, { slug, type, title, brief: brief.replace(/^# <slug>/, `# ${slug}`), start });
+      const r = await api.addItem(project, {
+        slug, type, title, brief: brief.replace(/^# <slug>/, `# ${slug}`), start,
+        ...(Object.keys(env).length ? { env } : {}),
+      });
       if (r.started && !r.started.ok) toast(`Saved ${slug}; start refused: ${r.started.err.join(' ')}`);
       else toast(start ? `Saved and started ${slug}` : `Saved ${slug}`);
       // A draft of the triage run that was saved is marked, so the run can finish.
@@ -307,9 +332,71 @@ export function NewItem({ taken, edit }: { taken: string[]; edit?: { slug: strin
           <div class="col" style={{ gap: '6px', gridColumn: '1 / -1' }}>
             <label class="lbl" for="title">Title (the index line)</label>
             <input id="title" class="inp" disabled={locked} value={title} onInput={e => setTitle((e.target as HTMLInputElement).value)} />
+            <span class="mono small muted new-item-branch">{branchLine(title, settings?.config?.git?.branchPrefix)}</span>
           </div>
         </div>
         <div class="mono small muted" style={{ padding: '0 14px 12px' }}>index.md ← - [{loaded?.marker ?? ' '}] `{slug || '<slug>'}` - {type === 'bug' ? 'Bug' : 'Feature'}: {title || '<title>'}</div>
+      </section>
+      <section class="pn" aria-label="Stages">
+        <div class="ph">
+          <div class="col" style={{ gap: '2px' }}>
+            <h2>Stages</h2>
+            <span class="small muted">{useDefaults ? 'Same agents and models as Settings › Stage defaults' : 'Only this item. Pick a different agent, model or effort for any stage.'}</span>
+          </div>
+          <label class="row small" style={{ gap: '8px', cursor: 'pointer' }}>
+            <input id="use-defaults" type="checkbox" checked={useDefaults} onChange={() => setUseDefaults(on => !on)} /> Use project defaults
+          </label>
+        </div>
+        {useDefaults ? (
+          <div class="stage-defaults">
+            {STAGES.map(st => (
+              <div class="stage-default-row" key={st.key}>
+                <span class="mono">{st.name}{st.tag && <span class="small muted"> {st.tag}</span>}</span>
+                <span class="small muted">{defaultsSummary(st.key, settings)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div class="stage-picks">
+            <div class="stage-pick-head"><span>STAGE</span><span>AGENT</span><span>MODEL</span><span>EFFORT</span></div>
+            {settings ? STAGES.map(st => {
+              const p = picks[st.key] || EMPTY_PICK;
+              const agent = p.harness || settings.config?.agent?.harness || settings.harnesses[0] || '';
+              const same = p.harness === '' || p.harness === settings.config?.agent?.harness;
+              const builtIn = settings.stageDefaults[st.key];
+              return (
+                <div class="stage-pick-row" data-stage={st.key} key={st.key}>
+                  <span class="mono">{st.name}{st.tag && <span class="small muted"> {st.tag}</span>}</span>
+                  {settings.stages.includes(st.key) ? (
+                    <Pickers id={`ni-${st.key}`} pick={p} data={settings} harness={agent}
+                      set={next => setPicks(prev => ({ ...prev, [st.key]: next }))}
+                      inherit={{ agent: settings.config?.agent?.harness || '', model: (same && settings.config?.agent?.model) || builtIn?.model || '', effort: (same && settings.config?.agent?.effort) || builtIn?.effort || '' }} />
+                  ) : <span class="small muted" style={{ gridColumn: 'span 3' }}>no agent · commits files and opens the PR</span>}
+                </div>
+              );
+            }) : <div class="small muted stage-note">Loading project settings…</div>}
+          </div>
+        )}
+      </section>
+      <section class="pn" aria-label="Run">
+        <div class="ph"><h2>Run</h2></div>
+        <div class="pb col" style={{ gap: '8px' }}>
+          <span class="lbl">When</span>
+          <label class={`when-choice ${when === 'now' ? 'when-on' : ''}`}>
+            <input type="radio" name="when" value="now" checked={when === 'now'} onChange={() => setWhen('now')} /> Start now
+          </label>
+          <label class={`when-choice ${when === 'later' ? 'when-on' : ''}`}>
+            <input type="radio" name="when" value="later" checked={when === 'later'} onChange={() => setWhen('later')} /> Add to board, start later
+          </label>
+        </div>
+      </section>
+      <section class="pn" aria-label="Command">
+        <div class="ph"><h2>Command</h2></div>
+        <div class="pb col" style={{ gap: '8px' }}>
+          <Cli line={`$ ${newItemCommand(when, slug || '<slug>', env)}`} />
+          <span class="small muted">{when === 'now' ? 'Same as the button, for the terminal.' : "Added to the board now; run this when you're ready."}</span>
+          {when === 'later' && Object.keys(env).length > 0 && <span class="small muted">The board does not keep this item's own stage picks: start it with this command, or set them again on its run page.</span>}
+        </div>
       </section>
       <section class="pn">
         <div class="ph">
@@ -343,10 +430,9 @@ export function NewItem({ taken, edit }: { taken: string[]; edit?: { slug: strin
         {edit ? (
           <button class="btn btn-p" type="button" disabled={locked || !title.trim() || !brief.trim()} onClick={saveEdit}>Save</button>
         ) : (
-          <>
-            <button class="btn btn-p" type="button" disabled={busy || !slugOk || !slugFree || !title.trim()} onClick={() => save(true)}>Save and start</button>
-            <button class="btn" type="button" disabled={busy || !slugOk || !slugFree || !title.trim()} onClick={() => save(false)}>Save</button>
-          </>
+          <button class="btn btn-p" type="button" disabled={busy || !slugOk || !slugFree || !title.trim()} onClick={() => save(when === 'now')}>
+            {when === 'now' ? 'Save and start' : 'Add to board'}
+          </button>
         )}
         <a class="btn" href={`#${edit ? edit.back : '/board'}`} onClick={e => { e.preventDefault(); go(edit ? edit.back : '/board'); }}>Cancel</a>
         <span class="mono small muted" style={{ marginLeft: 'auto' }}>writes in the main working tree · not committed</span>
