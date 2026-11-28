@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rounds: marks on the tile, side panel</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif}
+</style>
+</helmet>
+<div style="width: 1320px; height: 760px; box-sizing: border-box; padding: 24px; background: #0f1218; color: #e6e9ef">
+<section style="background: #151a23; border: 1px solid #262e3b; border-radius: 10px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #262e3b">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Stages</h2>
+<span style="font-size: 12px; color: #8e98a8">Pick a stage to see its steps</span>
+</div>
+<ol style="list-style: none; margin: 0; padding: 12px 12px 0; display: flex; gap: 6px">
+<sc-for list="{{tiles}}" as="t" hint-placeholder-count="7">
+<li style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px 8px {{t.radius}}; border: 1px solid {{t.border}}; border-bottom-color: {{t.bottom}}; background: {{t.bg}}">
+<span style="display: block; height: 3px; border-radius: 2px; background: #2c3544; overflow: hidden"><span style="display: block; height: 3px; width: {{t.pct}}; background: {{t.bar}}"></span></span>
+<span style="font-size: 14px; font-weight: 600; color: {{t.nameColor}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.icon}} {{t.name}}</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #9aa3b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.model}}</span>
+<sc-if value="{{t.hasMarks}}" hint-placeholder-val="{{false}}">
+<span role="img" aria-label="{{t.marksLabel}}" title="{{t.marksLabel}}" style="display: flex; gap: 4px; align-items: center">
+<sc-for list="{{t.marks}}" as="m" hint-placeholder-count="2"><span style="display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; background: {{m.bg}}; color: {{m.fg}}; font-size: 11px; font-weight: 700">{{m.g}}</span></sc-for>
+</span>
+</sc-if>
+<span style="font-size: 12px; color: {{t.subColor}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.sub}}</span>
+</li>
+</sc-for>
+</ol>
+<div style="flex: 1; min-height: 0; margin: 0 12px 12px; border: 1px solid #1f4a52; border-radius: 0 0 8px 8px; background: #122227; display: grid; grid-template-columns: 200px minmax(0, 1fr) 380px; overflow: hidden">
+<div style="padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">RED TESTS · AGENT, MODEL AND EFFORT</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: #aab3c2">gemini-4-hydrogen-medium · medium</span>
+<span style="font-size: 12px; color: #8e98a8">Locked while running</span>
+</div>
+<div style="padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">STEPS · ROUND 2 · RUNNING</span>
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+<button type="button" onClick="{{openPanel}}" aria-expanded="{{panelExp}}" style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #5a4713; background: #2a2210; color: #fbbf24; font: inherit; font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer"><span style="font-weight: 700">?</span> Round 1 · paused · 3 answered</button>
+<span aria-hidden="true" style="color: #5b6475">→</span>
+<span style="min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #1f4a52; background: #11262b; color: #5eead4; font-size: 12px; display: flex; align-items: center">● Round 2 · running</span>
+</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<span style="padding: 7px 12px; border-radius: 999px; border: 1px solid #5eead4; background: #11262b; color: #5eead4; font-size: 13px; font-weight: 600">● Writing the failing tests · 0:36</span>
+<span style="padding: 7px 12px; border-radius: 999px; border: 1px dashed #3a4558; color: #aab3c2; font-size: 13px">○ Committing the tests</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px dashed #2c3544">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">ROUND MARKS ON THE TILE</span>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; font-size: 12px; color: #c9d1dc">
+<sc-for list="{{legend}}" as="l" hint-placeholder-count="6"><span style="display: flex; align-items: center; gap: 8px"><span style="display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; background: {{l.bg}}; color: {{l.fg}}; font-size: 11px; font-weight: 700">{{l.g}}</span>{{l.t}}</span></sc-for>
+</div>
+</div>
+</div>
+
+<sc-if value="{{panel}}" hint-placeholder-val="{{true}}">
+<aside aria-label="Round 1: questions and answers" style="border-left: 1px solid #2c3544; background: #151a23; display: flex; flex-direction: column; min-height: 0">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid #262e3b">
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 600">Round 1 · questions</span><span style="font-size: 11px; color: #8e98a8">Paused at 00:47 + 13m 53s · answered 00:58</span></span>
+<button type="button" onClick="{{closePanel}}" aria-label="Close" style="width: 32px; height: 32px; border-radius: 6px; border: 0; background: transparent; color: #aab3c2; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button>
+</div>
+<ol style="list-style: none; margin: 0; padding: 12px 14px; display: flex; flex-direction: column; gap: 14px; overflow: auto; flex: 1">
+<sc-for list="{{qa}}" as="q" hint-placeholder-count="3">
+<li style="display: flex; flex-direction: column; gap: 6px">
+<span style="align-self: flex-start; max-width: 92%; padding: 8px 10px; border-radius: 10px 10px 10px 2px; background: #1f2735; font-size: 12px; line-height: 1.45; color: #e6e9ef"><span style="color: #8e98a8">Red tests asked</span><br>{{q.q}}<br><span style="color: #8e98a8">Suggested: <span style="font-family: ui-monospace, Menlo, monospace">{{q.s}}</span></span></span>
+<span style="align-self: flex-end; max-width: 80%; padding: 8px 10px; border-radius: 10px 10px 2px 10px; background: {{q.aBg}}; font-size: 12px; color: {{q.aColor}}">{{q.who}} <span style="font-family: ui-monospace, Menlo, monospace">{{q.a}}</span></span>
+</li>
+</sc-for>
+</ol>
+<div style="padding: 10px 14px; border-top: 1px solid #262e3b; font-size: 12px; color: #b8acdf">Your answers started round 2 and are in its prompt.</div>
+</aside>
+</sc-if>
+</div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1320,"height":760}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { panel: true };
+  }
+  renderVals() {
+    const G = {
+      q: { g: '?', bg: '#2a2210', fg: '#fbbf24' },
+      run: { g: '●', bg: '#11262b', fg: '#5eead4' },
+      fail: { g: '!', bg: '#2a1414', fg: '#f87171' },
+      perm: { g: 'P', bg: '#10202e', fg: '#9cc7ef' },
+      stop: { g: '■', bg: '#1c2230', fg: '#c9d1dc' },
+      done: { g: '✓', bg: '#132519', fg: '#6ee7a0' }
+    };
+    const T = (name, model, st, sub, marks, label) => {
+      const done = st === 'done', run = st === 'run';
+      return {
+        name: name, model: model, sub: sub, marks: marks || [], hasMarks: !!marks, marksLabel: label || '',
+        icon: done ? '✓' : (run ? '●' : '○'),
+        pct: done ? '100%' : (run ? '10%' : '0%'), bar: done ? '#6ee7a0' : '#5eead4',
+        nameColor: run ? '#5eead4' : (done ? '#e6e9ef' : '#aab3c2'),
+        subColor: run ? '#9fd8cf' : '#8e98a8',
+        bg: run ? '#122227' : 'transparent', border: run ? '#1f4a52' : '#262e3b',
+        bottom: run ? '#122227' : '#262e3b', radius: run ? '0 0' : '8px 8px'
+      };
+    };
+    return {
+      tiles: [
+        T('Spec', 'default', 'done', '4 files · 2m 32s'),
+        T('Plan', 'default', 'done', '5 files · 30m 09s', [G.q, G.done], 'Round 1 asked questions, round 2 done'),
+        T('Red tests', 'gemini-4-hydrogen-medium', 'run', 'Round 2 · after 3 answers', [G.q, G.run], 'Round 1 asked 3 questions, round 2 running'),
+        T('Implement', 'gemini-3.8-flash-medium', 'todo', 'Not started'),
+        T('Test repair', 'sonnet', 'todo', 'Not started'),
+        T('Review', 'opus', 'todo', 'Not started'),
+        T('Finalise', 'no agent', 'todo', 'Not started')
+      ],
+      legend: [
+        Object.assign({ t: 'Asked questions, you answered' }, G.q),
+        Object.assign({ t: 'Failed: quota, credits, crash, kill' }, G.fail),
+        Object.assign({ t: 'Needed a permission' }, G.perm),
+        Object.assign({ t: 'You stopped it' }, G.stop),
+        Object.assign({ t: 'Finished' }, G.done),
+        Object.assign({ t: 'Running now' }, G.run)
+      ],
+      qa: [
+        { q: 'Which gate kinds should fail first: unit, integration, or both?', s: 'unit', a: 'both', who: 'You:', aBg: '#1f1a33', aColor: '#ddd6fe' },
+        { q: 'Keep the old red kind as an alias for one release?', s: 'yes', a: 'yes', who: 'You took the suggestion:', aBg: '#1c2230', aColor: '#c9d1dc' },
+        { q: 'Where should the new fixtures live?', s: 'test/fixtures/gates', a: 'test/fixtures/loop', who: 'You:', aBg: '#1f1a33', aColor: '#ddd6fe' }
+      ],
+      panel: this.state.panel, panelExp: this.state.panel ? 'true' : 'false',
+      openPanel: () => this.setState({ panel: true }), closePanel: () => this.setState({ panel: false })
+    };
+  }
+}
+</script>
+</body>
+</html>
