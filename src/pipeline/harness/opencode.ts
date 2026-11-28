@@ -1,6 +1,7 @@
 import { EFFORT_LEVELS } from '../../config/settings.js';
 import { which } from '../../shell.js';
 import { defaultOpencodeCatalog, OpencodeModelCatalogAdapter, opencodeModelsFromPayload, queryOpencodeApi } from './opencode/catalog.js';
+import { mcpServers } from './types.js';
 import type { AgentHarness, HarnessDetection, HarnessInvocation, HarnessModel, HarnessResult, StageCompileOptions } from './types.js';
 
 export { defaultOpencodeCatalog, OpencodeModelCatalogAdapter, opencodeModelsFromPayload, queryOpencodeApi };
@@ -73,7 +74,14 @@ export class OpencodeHarness implements AgentHarness {
     // OpenCode uses --auto for both acceptEdits and bypass permission modes.
     args.push('--auto');
     args.push(opts.prompt);
-    return { command: this.defaultBinary, args, env: {} };
+    // --auto does not cover MCP tools: a stage that calls the code indexer's tools would wait on a prompt nobody answers.
+    // Allow the MCP servers named in the stage's rules (the indexer in use) through inline config, which OpenCode merges
+    // over the project's own. OpenCode's permission action for an MCP tool is "<server>_<tool>" (the server name with
+    // characters outside [A-Za-z0-9_-] made "_"), resource "*"; both are wildcard-matched, so "<server>_*" covers its tools.
+    const servers = mcpServers(opts.allowedCommands);
+    if (!servers.length) return { command: this.defaultBinary, args, env: {} };
+    const config = { permissions: servers.map(s => ({ action: `${s.replace(/[^a-zA-Z0-9_-]/g, '_')}_*`, resource: '*', effect: 'allow' })) };
+    return { command: this.defaultBinary, args, env: { OPENCODE_CONFIG_CONTENT: JSON.stringify(config) } };
   }
 
   compileAuditArgs(opts: { prompt: string; model?: string; effort?: string; cwd?: string }): HarnessInvocation {
