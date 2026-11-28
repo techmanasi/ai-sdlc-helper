@@ -95,6 +95,21 @@ describe('round marks on the tile', () => {
     expect(roundMarksLabel([])).toBe('');
     expect(roundMarksLabel([round()])).toBe('Rounds: 1');
   });
+  test('a round with no cause (an older run) is marked by the end state its run recorded', () => {
+    expect(roundMarks([
+      round({ status: 'paused' }),
+      round({ status: 'failed' }),
+      round({ status: 'stopped' }),
+      round({ status: 'completed' }),
+      round({ status: 'failed', cause: 'questions' }),
+    ])).toEqual([
+      { n: 1, tone: 'stop', label: 'paused' },
+      { n: 2, tone: 'stop', label: 'failed' },
+      { n: 3, tone: 'stop', label: 'stopped' },
+      { n: 4, tone: 'done', label: 'passed' },
+      { n: 5, tone: 'stop', label: 'questions' },
+    ]);
+  });
   test('every cause has its own word', () => {
     const causes: StageRound['cause'][] = ['passed', 'check-failed', 'questions', 'permission', 'limit', 'error', 'stopped', 'review-changes'];
     expect(roundMarks(causes.map(cause => round({ cause }))).map(m => m.label)).toEqual([
@@ -121,6 +136,19 @@ describe('the rounds in the pane', () => {
     expect(roundEndText(round({ cause: 'permission', next: 'pause' }))).toBe('Permission → pause');
     expect(roundEndText(round({ cause: 'limit', next: 'retry' }))).toBe('Limit → retry');
     expect(roundEndText(round({ cause: 'error', next: 'stop' }))).toBe('Error → stop');
+  });
+  test('a round with no cause says how it ended from the end row, and that the reason was not recorded', () => {
+    expect(roundEndText(round({ status: 'failed' }))).toBe('Failed · the reason was not recorded (a run from before round records)');
+    expect(roundEndText(round({ status: 'paused' }))).toBe('Paused · the reason was not recorded (a run from before round records)');
+    expect(roundEndText(round({ status: 'completed' }))).toBe('Passed');
+    expect(roundEndText(round({ status: 'started' }))).toBe('');
+    expect(roundEndText(round({ status: 'failed', ended: null }))).toBe('');
+    expect(roundEndText(round({ status: 'failed', cause: 'check-failed', next: 'retry' }))).toBe('Check failed → retry');
+  });
+  test('an earlier round that failed shows its last step cut, though the stage is shown as done', () => {
+    const r = round({ status: 'failed', steps: [{ key: 'agent', label: 'Writing the failing tests', started: '2026-11-28T10:00:00Z', ended: '2026-11-28T10:01:00Z' }] });
+    expect(stepPills(r, 'done', [], '2026-11-28T10:01:00Z', 0)[0]).toEqual({ label: 'Writing the failing tests', state: 'cut', time: 'failed at 1m 00s' });
+    expect(stepPills({ ...r, status: 'completed' }, 'done', [], '2026-11-28T10:01:00Z', 0)[0].state).toBe('done');
   });
   test('a missing field is no claim: no cause, no next, or still running', () => {
     expect(roundEndText(round())).toBe('');
