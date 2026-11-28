@@ -143,7 +143,7 @@ function actionsOf(v: RunView, kind: StopKind, unanswered: number): StopKindActi
 /**
  * The kind of stop the run is in, or null when the run has not stopped (it runs, it is done, it never started).
  * Where more than one kind fits, the first of them in this order wins: Questions, Permission, Account, Waiting,
- * Stopped by you, Repository, Stage check, Loop, Process.
+ * Stopped by you (only when Stop ended it), Repository, Stage check, Loop, Process.
  */
 export function stopKind(v: RunView): StopKindView | null {
   if (!v || !STOPPED.includes(v.state as (typeof STOPPED)[number])) return null;
@@ -194,8 +194,17 @@ export function stopKind(v: RunView): StopKindView | null {
   // 4. Waiting: the status note says the run waits for a limit to reset.
   if (note && WAIT_NOTE.test(note)) return build('waiting', note);
 
-  // 5. Stopped by you: the user stopped it (the record says interrupted, or the run is gone without finishing).
-  if (v.state === 'interrupted' || v.state === 'stopped') return build('stopped', `The run was stopped${v.stage ? ` during ${v.stage}` : ''}`);
+  // 5. Stopped by you, only when the record says Stop ended it. Killed from outside, or a supervisor found dead, is a
+  // Process stop that says nothing is wrong with the agent; an older record that does not say who is never claimed.
+  if (v.state === 'interrupted' || v.state === 'stopped') {
+    const during = v.stage ? ` during ${v.stage}` : '';
+    const by = v.record?.stoppedBy;
+    if (by === 'you') return build('stopped', `You stopped the run${during}`);
+    const cause = by === 'signal' ? `Killed from outside${during}, not by Stop; nothing is wrong with the agent`
+      : by === 'gone' || v.state === 'stopped' ? `The run's supervisor is gone (killed or crashed)${during}; nothing is wrong with the agent`
+        : `Interrupted${during}: by Stop or by a signal (this run's record does not say which)`;
+    return { ...build('process', cause), actions: actionsOf(v, 'stopped', unanswered).concat({ label: 'Open log', verb: 'open-log' }) };
+  }
 
   // 6. Repository: the stop was about the branch, the merge or the conflict, not the code. The structured marks come
   // first; the text is only read when the record names no kind, and then only for clearly git-specific words.

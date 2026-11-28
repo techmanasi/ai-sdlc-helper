@@ -491,7 +491,7 @@ async function stopRun(ctx: RunContext, slug: string, rec: Partial<RunRecord>): 
   // A supervisor killed hard leaves its record running: close it.
   const after = readRecord(ctx.reg, slug);
   if (after && after.state === 'running' && after.pid === rec.pid) {
-    writeRecord(ctx.reg, { ...(after as RunRecord), state: 'exited', interrupted: true, finished: now() });
+    writeRecord(ctx.reg, { ...(after as RunRecord), state: 'exited', interrupted: true, stoppedBy: 'you', finished: now() });
   }
   return true;
 }
@@ -513,7 +513,7 @@ export function closeIfGone(ctx: RunContext, slug: string): boolean {
   let stage = '';
   try { stage = String(JSON.parse(fs.readFileSync(path.join(dir, log, 'status.json'), 'utf8')).stage || ''); } catch { /* none yet */ }
   const message = `supervisor ${rec.pid} is gone (killed or crashed) during ${stage || 'setup'}`;
-  writeRecord(ctx.reg, { ...(again as RunRecord), state: 'exited', interrupted: true, finished: now(), message });
+  writeRecord(ctx.reg, { ...(again as RunRecord), state: 'exited', interrupted: true, stoppedBy: 'gone', finished: now(), message });
   keepError({ root: dir, log }, 'run supervisor gone', message);
   try { fs.appendFileSync(path.join(dir, log, 'run.out'), `${message}\n`); } catch { /* no logs folder: nothing to append to */ }
   return true;

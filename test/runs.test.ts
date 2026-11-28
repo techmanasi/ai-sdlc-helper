@@ -186,7 +186,7 @@ describe('start', () => {
     expect(await finished('fail-one')).toMatchObject({ exit_code: '1', interrupted: false });
     // A run that ended from a signal (exit 128+n) is interrupted even though nobody asked for a stop.
     await cli(['start', 'sig-one']);
-    expect(await finished('sig-one')).toMatchObject({ exit_code: '143', interrupted: true });
+    expect(await finished('sig-one')).toMatchObject({ exit_code: '143', interrupted: true, stoppedBy: 'signal', message: 'killed by signal 15 from outside, not by Stop' });
     await cli(['start', 'pause-one']);
     expect(await finished('pause-one')).toMatchObject({ exit_code: '2' });
 
@@ -403,7 +403,7 @@ describe('stop and status', () => {
     const r = await cli(['stop', 'slow-one']);
     expect(r.status).toBe(0);
     expect(r.stdout).toBe('stopped slow-one\n');
-    expect(record('slow-one')).toMatchObject({ state: 'exited', interrupted: true });
+    expect(record('slow-one')).toMatchObject({ state: 'exited', interrupted: true, stoppedBy: 'you' });
     expect(alive(pid)).toBe(false);
     await until(() => !alive(sleepPid));
     out = (await cli(['status'])).stdout;
@@ -420,7 +420,7 @@ describe('stop and status', () => {
     killTree(record('slow-one').pid, 'SIGKILL');
     await until(() => !alive(record('slow-one').pid));
     expect((await cli(['status'])).stdout).toMatch(/^interrupted\s+slow-one/m);
-    expect(record('slow-one')).toMatchObject({ state: 'exited', interrupted: true });
+    expect(record('slow-one')).toMatchObject({ state: 'exited', interrupted: true, stoppedBy: 'gone' });
     expect(record('slow-one').message).toMatch(/^supervisor \d+ is gone \(killed or crashed\) during /);
     expect((await cli(['watch', 'slow-one'])).stdout).toContain('run: interrupted');
   });

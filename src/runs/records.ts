@@ -24,6 +24,11 @@ export interface RunRecord {
   /** The pipeline's exit code as text, "" while running: 0 done, 1 failed, 2 paused for answers. */
   exit_code: string;
   interrupted: boolean;
+  /**
+   * Who ended an interrupted run: 'you' pressed Stop (the UI or `ai-sdlc-helper stop`), 'signal' killed the
+   * supervisor from outside, 'gone' found the supervisor dead without a final record. Absent on older records.
+   */
+  stoppedBy?: 'you' | 'signal' | 'gone';
   finished: string;
   /** Why a start was refused or a run could not begin. */
   message: string;

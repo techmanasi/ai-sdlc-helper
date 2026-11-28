@@ -40,7 +40,7 @@ describe('closeIfGone', () => {
     writeRecord(reg, rec(pid));
     expect(closeIfGone(ctx, 's1')).toBe(true);
     const after = readRecord(reg, 's1')!;
-    expect(after).toMatchObject({ state: 'exited', interrupted: true, message: `supervisor ${pid} is gone (killed or crashed) during Implement` });
+    expect(after).toMatchObject({ state: 'exited', interrupted: true, stoppedBy: 'gone', message: `supervisor ${pid} is gone (killed or crashed) during Implement` });
     expect(after.finished).toMatch(/^\d{4}-\d\d-\d\dT/);
     expect(fs.readFileSync(path.join(logs, 'errors.log'), 'utf8')).toContain(after.message!);
     expect(fs.readFileSync(path.join(logs, 'run.out'), 'utf8')).toContain(after.message!);
