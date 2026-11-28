@@ -94,7 +94,10 @@ export function roundsOf(span: StageSpan | undefined): StageRound[] {
   return [{ started: span.started, ended: span.ended, steps: span.steps }];
 }
 
-/** The recorded words for a round's cause and next action. Nothing here is inferred from the stage's state. */
+/**
+ * The recorded words for a round's cause and next action. Nothing here is inferred from the stage's state: a run from
+ * before round records still recorded how each round ended (the end row's state), and only that is used for it.
+ */
 const CAUSE_WORD: Record<RoundCause, string> = {
   passed: 'passed',
   'check-failed': 'check failed',
@@ -121,6 +124,10 @@ const START_WORD: Record<RoundStartedBy, string> = {
 
 export interface RoundMark { n: number; tone: 'done' | 'stop' | 'run' | 'idle'; label: string }
 
+/** How a round with no cause recorded ended, from the run's end row (older runs): passed, failed, paused or stopped. */
+const ENDED_WORD: Partial<Record<NonNullable<StageRound['status']>, string>> = { completed: 'passed', failed: 'failed', paused: 'paused', stopped: 'stopped' };
+const endedWord = (round: StageRound): string => (round.ended && !round.cause && round.status ? ENDED_WORD[round.status] || '' : '');
+
 /**
  * One mark per recorded round, oldest first. An unclosed round is running; a passed one is done; a round whose end
  * cause was recorded is a stop; a round with no cause recorded has no claim to make, so it is idle.
@@ -128,10 +135,10 @@ export interface RoundMark { n: number; tone: 'done' | 'stop' | 'run' | 'idle'; 
 export function roundMarks(rounds: readonly StageRound[]): RoundMark[] {
   return rounds.map((round, i) => {
     const running = !round.ended;
-    const cause = !running && round.cause ? CAUSE_WORD[round.cause] : '';
+    const cause = !running ? (round.cause ? CAUSE_WORD[round.cause] : endedWord(round)) : '';
     return {
       n: i + 1,
-      tone: running ? 'run' as const : !cause ? 'idle' as const : round.cause === 'passed' ? 'done' as const : 'stop' as const,
+      tone: running ? 'run' as const : !cause ? 'idle' as const : cause === 'passed' ? 'done' as const : 'stop' as const,
       label: running ? 'running' : cause || '',
     };
   });
@@ -189,6 +196,9 @@ export function roundStartText(round: StageRound | undefined): string {
 
 /** How a round ended and what came next, only when the run recorded an end cause; a running round has no end. */
 export function roundEndText(round: StageRound | undefined): string {
+  const ended = round ? endedWord(round) : '';
+  if (ended === 'passed') return 'Passed';
+  if (ended) return `${ended[0].toUpperCase()}${ended.slice(1)} · the reason was not recorded (a run from before round records)`;
   if (!round?.cause || !round.ended) return '';
   const cause = CAUSE_WORD[round.cause];
   if (!cause) return '';
@@ -215,7 +225,8 @@ export function answeredBetween(prev: StageRound | undefined, next: StageRound |
 export function stepPills(round: StageRound | undefined, state: TileState, plan: readonly string[], updated: string, now: number) {
   const steps = round?.steps ?? [];
   const recorded = steps.map((step, i) => {
-    const stopped = state === 'failed' || state === 'paused';
+    // An earlier round that failed or was stopped recorded that in its end row, whatever the stage's state is now.
+    const stopped = state === 'failed' || state === 'paused' || round?.status === 'failed' || round?.status === 'stopped';
     const cut = stopped && i === steps.length - 1 && (!step.ended || step.ended === round?.ended);
     const live = !step.ended && state === 'active';
     const end = step.ended || round?.ended || null;
