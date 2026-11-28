@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stop kinds</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif}
+</style>
+</helmet>
+<div style="width: 1320px; height: 980px; box-sizing: border-box; padding: 28px; background: #0f1218; color: #e6e9ef; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 16px">
+<h1 style="margin: 0; font-size: 22px; font-weight: 600">Why a stage stops, and how it resumes</h1>
+<span style="font-size: 13px; color: #8e98a8">Same kinds for every stage. The stage only adds its own checks.</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; flex: 1; min-height: 0">
+<sc-for list="{{kinds}}" as="k" hint-placeholder-count="9">
+<section style="border: 1px solid {{k.b}}; border-radius: 10px; background: {{k.cardBg}}; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-height: 0">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; background: {{k.bg}}; color: {{k.c}}; font-size: 14px; font-weight: 700">{{k.g}}</span>
+<span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 15px; font-weight: 600; color: {{k.textC}}">{{k.name}}</span><span style="font-size: 11px; letter-spacing: 0.06em; color: #8e98a8">{{k.group}}</span></span>
+</div>
+<ul style="margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; line-height: 1.4; color: #c9d1dc">
+<sc-for list="{{k.causes}}" as="c" hint-placeholder-count="3"><li>{{c}}</li></sc-for>
+</ul>
+<div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto">
+<sc-for list="{{k.actions}}" as="a" hint-placeholder-count="2"><span style="min-height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid {{a.b}}; background: {{a.bg}}; color: {{a.c}}; font-size: 12px; font-weight: {{a.fw}}; display: flex; align-items: center">{{a.label}}</span></sc-for>
+</div>
+<span style="font-size: 11px; color: #8e98a8">{{k.note}}</span>
+</section>
+</sc-for>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1320,"height":980}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const prim = (l) => ({ label: l, bg: '#5eead4', c: '#06231f', b: '#5eead4', fw: '600' });
+    const sec = (l) => ({ label: l, bg: 'transparent', c: '#e6e9ef', b: '#2c3544', fw: '400' });
+    const K = (g, c, bg, b, cardBg, textC) => ({ g: g, c: c, bg: bg, b: b, cardBg: cardBg, textC: textC });
+    return { kinds: [
+      Object.assign(K('?', '#fbbf24', '#2a2210', '#5a4713', '#1d1a10', '#f1e3b0'), { name: 'Questions', group: 'NEEDS YOU · PAUSED',
+        causes: ['Spec, Plan, Red tests or any agent asks', 'Resolve conflicts offers a follow-up item'],
+        actions: [prim('Answer here'), sec('Accept all suggestions')], note: 'Resumes on its own when every question has an answer.' }),
+      Object.assign(K('P', '#9cc7ef', '#10202e', '#1f3f5a', '#0f1a26', '#cfe3f7'), { name: 'Permission', group: 'NEEDS YOU · PAUSED',
+        causes: ['The agent was refused a command, fetch or path', 'Any agent stage'],
+        actions: [prim('Allow once'), sec('Always'), sec('Deny')], note: 'Resumes on its own when every request is answered.' }),
+      Object.assign(K('$', '#fdba74', '#2a1c10', '#5a3a13', '#1d150c', '#fde3c4'), { name: 'Account', group: 'STOPPED · NOT A CODE PROBLEM',
+        causes: ['Quota, usage or rate limit', 'Out of credits', 'Model not available to this account'],
+        actions: [prim('Retry'), sec('Switch model'), sec('Open billing')], note: 'Model picker shows only models the account can use.' }),
+      Object.assign(K('◷', '#5eead4', '#11262b', '#1f4a52', '#10201f', '#bdf3ea'), { name: 'Waiting', group: 'NOT A STOP',
+        causes: ['Usage limit with SDLC_LIMIT_RETRY on: countdown to reset', 'CI still running'],
+        actions: [prim('Retry now'), sec('Switch model'), sec('Stop waiting')], note: 'Shown on the tile as a wait, not an error.' }),
+      Object.assign(K('!', '#f87171', '#2a1414', '#5a2a2a', '#1a1214', '#f3b4b4'), { name: 'Process', group: 'STOPPED',
+        causes: ['Agent crashed or exited non-zero', 'Timed out (SDLC_AGENT_TIMEOUT_MS)', 'Killed from outside, supervisor gone'],
+        actions: [prim('Retry'), sec('Open log'), sec('Raise timeout')], note: 'Killed: says nothing is wrong with the agent.' }),
+      Object.assign(K('■', '#c9d1dc', '#1c2230', '#3a4558', '#161b24', '#c9d1dc'), { name: 'Stopped by you', group: 'STOPPED · ON PURPOSE',
+        causes: ['You pressed Stop', 'Neutral styling, never red'],
+        actions: [prim('Resume where it stopped')], note: 'Keeps the round count; nothing to fix.' }),
+      Object.assign(K('R', '#a5b4fc', '#191b33', '#33376a', '#141629', '#d4d9fe'), { name: 'Repository', group: 'STOPPED · BEFORE THE STAGE',
+        causes: ['Branch sync: stash kept, diverged, someone else’s commits, locked tests changed', 'Setup: model registry, prompts, dependency install, start lock'],
+        actions: [prim('The fix for that case'), sec('Resume')], note: 'One action per case, for example Apply my saved changes.' }),
+      Object.assign(K('✗', '#f3b4b4', '#2a1414', '#5a2a2a', '#1a1214', '#f3b4b4'), { name: 'Stage check', group: 'STOPPED · THE STAGE’S OWN GATE',
+        causes: ['Red tests: red gate, static checks, repeated names', 'Implement: attempts used up, tests changed, CI failed', 'Review: not resolved after the loop limit'],
+        actions: [prim('Stage-specific fix'), sec('Open details')], note: 'Skipping ahead only as a bailout, behind a confirmation.' }),
+      Object.assign(K('↻', '#c4b5fd', '#1f1a33', '#3b3260', '#17142a', '#ddd6fe'), { name: 'Loop', group: 'NOT A STOP · A NEW ROUND',
+        causes: ['Review sends findings back: fix loop N of max', 'Implement attempt loop inside a round'],
+        actions: [sec('Show findings')], note: 'Counted across starts; reset on restart or discard.' })
+    ] };
+  }
+}
+</script>
+</body>
+</html>

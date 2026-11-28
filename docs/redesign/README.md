@@ -114,6 +114,19 @@ changes above.)
 
 ![Resume at Review confirmation](screenshots/Recovery-bailout-confirm.png)
 
+## Implement loop
+
+![Attempts on the tile, attempt rows and error details](screenshots/LoopBC.png)
+
+Implement's check loop (Implementing, tests unchanged, unit tests, lint) repeats when a check fails. The tile shows
+one mark per attempt and "attempt 3/5"; the steps area has one row per attempt with why it looped and a Show error
+button with the failing output, its log and what was passed to the next attempt.
+
+## Stops, rounds and attempts
+
+Why a stage stops, how it resumes, and how rounds and attempts fit together across stages:
+[stop-kinds.md](stop-kinds.md).
+
 ## Other pages
 
 All pages share a left menu that collapses to an icon strip. Icons stay clickable when collapsed; the menu button

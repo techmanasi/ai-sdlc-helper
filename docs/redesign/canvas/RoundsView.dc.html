@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rounds and attempts</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1320px; height: {{h}}; box-sizing: border-box; padding: 24px; background: #0f1218; color: #e6e9ef; font-family: Inter, system-ui, sans-serif">
+<section style="background: #151a23; border: 1px solid #262e3b; border-radius: 10px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #262e3b">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Stages</h2>
+<span style="font-size: 12px; color: #8e98a8">{{caption}}</span>
+</div>
+<ol style="list-style: none; margin: 0; padding: 12px 12px 0; display: flex; gap: 6px">
+<sc-for list="{{tiles}}" as="t" hint-placeholder-count="7">
+<li style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px 8px {{t.radius}}; border: 1px {{t.bs}} {{t.border}}; border-bottom-color: {{t.bottom}}; background: {{t.bg}}">
+<span style="display: block; height: 3px; border-radius: 2px; background: #2c3544; overflow: hidden"><span style="display: block; height: 3px; width: {{t.pct}}; background: {{t.bar}}"></span></span>
+<span style="display: flex; align-items: center; gap: 6px; min-width: 0"><span style="font-size: 14px; font-weight: 600; color: {{t.nameColor}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.icon}} {{t.name}}</span><sc-if value="{{t.hasBadge}}" hint-placeholder-val="{{false}}"><span style="flex: none; font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid {{t.badgeBorder}}; color: {{t.badgeColor}}; white-space: nowrap">{{t.badge}}</span></sc-if></span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #9aa3b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.model}}</span>
+<sc-if value="{{t.hasMarks}}" hint-placeholder-val="{{false}}">
+<span role="img" aria-label="{{t.marksLabel}}" title="{{t.marksLabel}}" style="display: flex; gap: 6px; align-items: center; min-width: 0">
+<sc-for list="{{t.groups}}" as="g" hint-placeholder-count="2">
+<span style="display: flex; gap: 2px; align-items: center">
+<sc-for list="{{g.bars}}" as="b" hint-placeholder-count="3"><span style="width: 10px; height: 6px; border-radius: 2px; box-sizing: border-box; background: {{b.bg}}; border: 1px {{b.bs}} {{b.b}}"></span></sc-for>
+<sc-if value="{{g.hasEnd}}" hint-placeholder-val="{{false}}"><span style="display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; margin-left: 2px; border-radius: 4px; background: {{g.endBg}}; color: {{g.endC}}; font-size: 10px; font-weight: 700">{{g.end}}</span></sc-if>
+</span>
+</sc-for>
+</span>
+</sc-if>
+<span style="font-size: 12px; color: {{t.subColor}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.sub}}</span>
+<sc-if value="{{t.hasCost}}" hint-placeholder-val="{{false}}"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #9aa3b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.cost}}</span></sc-if>
+</li>
+</sc-for>
+</ol>
+
+<div style="flex: 1; min-height: 0; margin: 0 12px 12px; padding: 18px 20px; border: 1px solid {{paneBorder}}; border-radius: 0 0 8px 8px; background: {{paneBg}}; display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 28px; overflow: hidden">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">{{stageUpper}} · AGENT, MODEL AND EFFORT</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: #aab3c2">{{agentLine}}</span>
+<span style="font-size: 12px; line-height: 1.45; color: #8e98a8">{{agentNote}}</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; overflow: auto">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">{{stepsHeading}}</span>
+<sc-if value="{{hasCostData}}" hint-placeholder-val="{{false}}"><span role="group" aria-label="Show cost" style="display: flex; gap: 2px; padding: 2px; border-radius: 6px; border: 1px solid #262e3b; background: #0f1218"><sc-for list="{{modes}}" as="m" hint-placeholder-count="3"><button type="button" onClick="{{m.pick}}" aria-pressed="{{m.pressed}}" style="min-height: 28px; padding: 0 10px; border-radius: 4px; border: 0; background: {{m.bg}}; color: {{m.c}}; font: inherit; font-size: 11px; cursor: pointer">{{m.label}}</button></sc-for></span></sc-if>
+</div>
+
+<ol style="list-style: none; margin: 0; padding: 0 0 0 4px; display: flex; flex-direction: column; border-left: 2px solid #2c3544">
+<sc-for list="{{rounds}}" as="r" hint-placeholder-count="2">
+<li style="display: flex; flex-direction: column">
+<div style="position: relative; padding: 0 0 12px 22px; display: flex; flex-direction: column; gap: 8px">
+<span aria-hidden="true" style="position: absolute; left: -9px; top: 2px; width: 16px; height: 16px; border-radius: 50%; box-sizing: border-box; background: {{r.nodeBg}}; border: 2px solid {{r.nodeB}}"></span>
+<span style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap">
+<span style="font-size: 13px; font-weight: 600; color: {{r.titleC}}">{{r.title}}</span>
+<span style="font-size: 12px; color: #8e98a8">{{r.meta}}</span>
+<sc-if value="{{r.hasCost}}" hint-placeholder-val="{{false}}"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #c9d1dc">{{r.cost}}</span></sc-if>
+<sc-if value="{{r.hasStart}}" hint-placeholder-val="{{false}}"><span style="font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid {{r.startB}}; color: {{r.startC}}">{{r.start}}</span></sc-if>
+</span>
+<sc-if value="{{r.hasSteps}}" hint-placeholder-val="{{true}}">
+<span style="display: flex; gap: 6px; flex-wrap: wrap">
+<sc-for list="{{r.steps}}" as="s" hint-placeholder-count="2"><span style="padding: {{s.pad}}; border-radius: 999px; border: 1px {{s.bs}} {{s.b}}; background: {{s.bg}}; color: {{s.c}}; font-size: {{s.fs}}; font-weight: {{s.fw}}">{{s.label}}</span></sc-for>
+</span>
+</sc-if>
+<sc-if value="{{r.hasAttempts}}" hint-placeholder-val="{{false}}">
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid #262e3b; border-radius: 8px; overflow: hidden">
+<sc-for list="{{r.attempts}}" as="a" hint-placeholder-count="2">
+<li style="display: flex; flex-direction: column; background: {{a.bg}}; border-bottom: 1px solid #222a36">
+<div style="display: grid; grid-template-columns: 110px minmax(0, 1fr) 140px auto; gap: 12px; align-items: center; padding: 8px 12px">
+<span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 12px; font-weight: 600; color: {{a.titleC}}">{{a.title}}</span><span style="font-size: 11px; color: #8e98a8">{{a.time}}</span></span>
+<span style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+<span style="display: flex; gap: 6px; flex-wrap: wrap">
+<sc-for list="{{a.steps}}" as="s" hint-placeholder-count="3"><span style="padding: {{s.pad}}; border-radius: 999px; border: 1px {{s.bs}} {{s.b}}; background: {{s.bg}}; color: {{s.c}}; font-size: {{s.fs}}; font-weight: {{s.fw}}">{{s.label}}</span></sc-for>
+</span>
+<sc-if value="{{a.hasWhy}}" hint-placeholder-val="{{false}}"><span style="font-size: 11px; color: #b8acdf">↩ {{a.why}}</span></sc-if>
+</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #c9d1dc; text-align: right; white-space: nowrap">{{a.cost}}</span>
+<sc-if value="{{a.hasErr}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{a.toggle}}" aria-expanded="{{a.exp}}" style="min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #3a2020; background: {{a.btnBg}}; color: #f3b4b4; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap">{{a.btn}}</button></sc-if>
+</div>
+<sc-if value="{{a.open}}" hint-placeholder-val="{{false}}">
+<pre style="margin: 0 12px 10px 134px; padding: 8px 10px; border: 1px solid #5a2a2a; border-radius: 6px; background: #1a1214; color: #e0b4b4; font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap">{{a.err}}</pre>
+</sc-if>
+</li>
+</sc-for>
+</ol>
+</sc-if>
+</div>
+
+<sc-if value="{{r.hasEnd}}" hint-placeholder-val="{{false}}">
+<div style="position: relative; padding: 0 0 14px 22px">
+<span aria-hidden="true" style="position: absolute; left: -10px; top: 7px; width: 14px; height: 14px; box-sizing: border-box; transform: rotate(45deg); background: {{r.e.bg}}; border: 2px solid {{r.e.c}}"></span>
+<div style="border: 1px solid {{r.e.b}}; border-radius: 8px; background: {{r.e.cardBg}}; overflow: hidden">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px">
+<span style="display: flex; align-items: center; gap: 10px; min-width: 0">
+<span style="flex: none; display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 5px; background: {{r.e.bg}}; color: {{r.e.c}}; font-size: 12px; font-weight: 700">{{r.e.g}}</span>
+<span style="font-size: 13px; color: {{r.e.textC}}"><span style="font-weight: 600">{{r.e.cause}}</span> → {{r.e.action}} → {{r.e.next}}</span>
+<sc-if value="{{r.e.hasLost}}" hint-placeholder-val="{{false}}"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8e98a8; white-space: nowrap">lost {{r.e.lost}}</span></sc-if>
+</span>
+<sc-if value="{{r.e.hasDetail}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{r.e.toggle}}" aria-expanded="{{r.e.exp}}" style="flex: none; min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid {{r.e.b}}; background: transparent; color: {{r.e.textC}}; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap">{{r.e.btn}}</button></sc-if>
+</div>
+<sc-if value="{{r.e.open}}" hint-placeholder-val="{{false}}">
+<sc-if value="{{r.e.isQa}}" hint-placeholder-val="{{false}}">
+<ol style="list-style: none; margin: 0; padding: 0 12px 8px; display: flex; flex-direction: column">
+<sc-for list="{{r.e.qa}}" as="q" hint-placeholder-count="2">
+<li style="display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; padding: 7px 0; border-top: 1px solid {{r.e.b}}; font-size: 12px">
+<span style="color: #e6e9ef">{{q.q}}</span>
+<span style="color: #aab3c2">Suggested <span style="font-family: ui-monospace, Menlo, monospace">{{q.s}}</span> · <span style="color: {{q.ac}}">{{q.who}} <span style="font-family: ui-monospace, Menlo, monospace">{{q.a}}</span></span></span>
+</li>
+</sc-for>
+</ol>
+</sc-if>
+<sc-if value="{{r.e.isErr}}" hint-placeholder-val="{{false}}">
+<pre style="margin: 0; padding: 8px 12px; border-top: 1px solid {{r.e.b}}; color: {{r.e.textC}}; font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap">{{r.e.err}}</pre>
+</sc-if>
+</sc-if>
+</div>
+</div>
+</sc-if>
+</li>
+</sc-for>
+</ol>
+
+<sc-if value="{{hasPending}}" hint-placeholder-val="{{false}}">
+<div style="border: 1px solid {{p.b}}; border-radius: 10px; background: {{p.cardBg}}; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+<span style="display: flex; align-items: center; gap: 10px">
+<span style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; background: {{p.bg}}; color: {{p.c}}; font-size: 12px; font-weight: 700">{{p.g}}</span>
+<span style="font-size: 14px; font-weight: 600; color: {{p.textC}}">{{p.title}}</span>
+</span>
+<span style="font-size: 12px; line-height: 1.5; color: #c9d1dc">{{p.body}}</span>
+<sc-if value="{{p.hasItems}}" hint-placeholder-val="{{false}}">
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid {{p.b}}; border-radius: 8px; overflow: hidden">
+<sc-for list="{{p.items}}" as="i" hint-placeholder-count="2">
+<li style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid {{p.b}}; background: #12161d">
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #e6e9ef; overflow-wrap: anywhere">{{i.what}}</span><span style="font-size: 11px; color: #8e98a8">{{i.why}}</span></span>
+<span style="display: flex; gap: 6px">
+<button type="button" style="min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #2c3544; background: transparent; color: #e6e9ef; font: inherit; font-size: 12px; cursor: pointer">Allow once</button>
+<button type="button" style="min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #1f3f5a; background: #10202e; color: #9cc7ef; font: inherit; font-size: 12px; cursor: pointer">Always</button>
+<button type="button" style="min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #3a2020; background: transparent; color: #f3b4b4; font: inherit; font-size: 12px; cursor: pointer">Deny</button>
+</span>
+</li>
+</sc-for>
+</ol>
+</sc-if>
+<span style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+<sc-for list="{{p.actions}}" as="x" hint-placeholder-count="2"><button type="button" style="min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid {{x.b}}; background: {{x.bg}}; color: {{x.c}}; font: inherit; font-size: 13px; font-weight: {{x.fw}}; cursor: pointer">{{x.label}}</button></sc-for>
+<sc-if value="{{p.hasNote}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; color: #8e98a8">{{p.note}}</span></sc-if>
+</span>
+</div>
+</sc-if>
+</div>
+</div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"scenario":{"editor":"enum","options":["implement","red-tests","spec","plan","review"],"default":"implement"},"$preview":{"width":1320,"height":740}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { open: null, mode: 'cost' };
+  }
+  renderVals() {
+    const sc = this.props.scenario ?? 'implement';
+    const K = {
+      q: { g: '?', c: '#fbbf24', bg: '#2a2210', b: '#5a4713', cardBg: '#1d1a10', textC: '#f1e3b0' },
+      perm: { g: 'P', c: '#9cc7ef', bg: '#10202e', b: '#1f3f5a', cardBg: '#0f1a26', textC: '#cfe3f7' },
+      acct: { g: '$', c: '#fdba74', bg: '#2a1c10', b: '#5a3a13', cardBg: '#1d150c', textC: '#fde3c4' },
+      crash: { g: '!', c: '#f87171', bg: '#2a1414', b: '#5a2a2a', cardBg: '#1a1214', textC: '#f3b4b4' },
+      stopped: { g: '■', c: '#c9d1dc', bg: '#1c2230', b: '#3a4558', cardBg: '#161b24', textC: '#c9d1dc' },
+      repo: { g: 'R', c: '#a5b4fc', bg: '#191b33', b: '#33376a', cardBg: '#141629', textC: '#d4d9fe' },
+      check: { g: '✗', c: '#f3b4b4', bg: '#2a1414', b: '#5a2a2a', cardBg: '#1a1214', textC: '#f3b4b4' },
+      loop: { g: '↻', c: '#c4b5fd', bg: '#1f1a33', b: '#3b3260', cardBg: '#17142a', textC: '#ddd6fe' },
+      wait: { g: '◷', c: '#5eead4', bg: '#11262b', b: '#1f4a52', cardBg: '#10201f', textC: '#bdf3ea' }
+    };
+    const P = {
+      ok: { pre: '✓ ', bg: '#132519', c: '#6ee7a0', b: '#1f4a3a', bs: 'solid' },
+      bad: { pre: '✗ ', bg: '#2a1414', c: '#f3b4b4', b: '#5a2a2a', bs: 'solid' },
+      live: { pre: '● ', bg: '#11262b', c: '#5eead4', b: '#5eead4', bs: 'solid', fw: '600' },
+      todo: { pre: '○ ', bg: 'transparent', c: '#aab3c2', b: '#3a4558', bs: 'dashed' },
+      cut: { pre: '⏸ ', bg: '#2a1c10', c: '#fdba74', b: '#5a3a13', bs: 'solid' },
+      ask: { pre: '⏸ ', bg: '#2a2210', c: '#fbbf24', b: '#5a4713', bs: 'solid' },
+      halt: { pre: '■ ', bg: '#1c2230', c: '#c9d1dc', b: '#3a4558', bs: 'solid' }
+    };
+    const mode = this.state.mode;
+    const fmtTok = (t) => t >= 1e6 ? (t / 1e6).toFixed(2) + 'M' : Math.round(t / 1e3) + 'k';
+    const money = (usd, tok) => mode === 'off' ? '' : (mode === 'tokens' ? fmtTok(tok) + ' tok' : '≈$' + usd.toFixed(2) + ' · ' + fmtTok(tok) + ' tok');
+    const pill = (k, label, big, tok) => {
+      const s = P[k];
+      return { label: s.pre + label + (tok && mode !== 'off' ? ' · ' + fmtTok(tok) : ''), bg: s.bg, c: s.c, b: s.b, bs: s.bs, fw: s.fw || '400', pad: big ? '6px 12px' : '3px 9px', fs: big ? '13px' : '12px' };
+    };
+    const open = this.state.open;
+    const tog = (key) => () => this.setState({ open: open === key ? null : key });
+    const att = (rk, n, time, steps, opts) => {
+      const o = opts || {};
+      const key = rk + 'a' + n;
+      const isOpen = open === key || (open === null && o.defaultOpen);
+      return {
+        title: o.live ? 'Attempt ' + n + ' of 5' : 'Attempt ' + n, time: time, steps: steps,
+        cost: o.usd !== undefined ? money(o.usd, o.tok) : '',
+        titleC: o.live ? '#5eead4' : (o.err ? '#f3b4b4' : '#fdba74'),
+        bg: o.live ? '#11262b' : '#151a23',
+        hasWhy: !!o.why, why: o.why || '',
+        hasErr: !!o.err, err: o.err || '', open: !!o.err && isOpen, exp: isOpen ? 'true' : 'false',
+        btn: isOpen ? 'Hide error' : 'Show error', btnBg: isOpen ? '#2a1414' : 'transparent', toggle: tog(key)
+      };
+    };
+    const ev = (rk, kind, cause, action, next, detail) => {
+      const d = detail || {};
+      const key = rk + 'e';
+      const isOpen = open === key || (open === null && d.defaultOpen);
+      return Object.assign({}, K[kind], {
+        cause: cause, action: action, next: next,
+        hasLost: !!(d.lost && mode !== 'off'), lost: d.lost ? money(d.lost[0], d.lost[1]) : '',
+        hasDetail: !!(d.qa || d.err), isQa: !!d.qa, isErr: !!d.err, qa: d.qa || [], err: d.err || '',
+        open: isOpen, exp: isOpen ? 'true' : 'false', toggle: tog(key),
+        btn: isOpen ? 'Hide' : (d.qa ? 'Questions and answers (' + d.qa.length + ')' : 'Show error')
+      });
+    };
+    const round = (n, meta, o) => {
+      const live = !!o.live;
+      return {
+        title: live ? 'Round ' + n + ' · running' : (o.waiting ? 'Round ' + n + ' · waiting' : 'Round ' + n), meta: meta,
+        titleC: live ? '#5eead4' : (o.waiting ? '#5eead4' : '#e6e9ef'),
+        nodeBg: live ? '#5eead4' : '#1c2230', nodeB: live || o.waiting ? '#5eead4' : '#5b6475',
+        hasStart: !!o.start, start: o.start ? 'started: ' + o.start[1] : '', startB: o.start ? K[o.start[0]].b : '#2c3544', startC: o.start ? K[o.start[0]].c : '#aab3c2',
+        hasCost: !!(o.cost && mode !== 'off'), cost: o.cost ? money(o.cost[0], o.cost[1]) + (live ? ' so far' : '') : '',
+        hasSteps: !!o.steps, steps: o.steps || [],
+        hasAttempts: !!o.attempts, attempts: o.attempts || [],
+        hasEnd: !!o.end, e: o.end || {}
+      };
+    };
+    const bar = { fail: { bg: '#f87171', b: '#f87171', bs: 'solid' }, run: { bg: '#5eead4', b: '#5eead4', bs: 'solid' }, left: { bg: 'transparent', b: '#3a4558', bs: 'dashed' }, cut: { bg: '#fdba74', b: '#fdba74', bs: 'solid' }, done: { bg: '#6ee7a0', b: '#6ee7a0', bs: 'solid' } };
+    const grp = (bars, endKind) => ({ bars: bars, hasEnd: !!endKind, end: endKind ? K[endKind].g : '', endBg: endKind ? K[endKind].bg : '', endC: endKind ? K[endKind].c : '' });
+    const T = (name, model, st, sub, x) => {
+      const o = x || {};
+      const done = st === 'done', run = st === 'run', paused = st === 'paused', wait = st === 'wait', skip = st === 'skip';
+      const sel = !!o.sel;
+      const accent = paused ? K[o.kind || 'q'] : (wait ? K.wait : null);
+      return {
+        name: name, model: model, sub: sub,
+        icon: done ? '✓' : (run ? '●' : (paused ? accent.g : (wait ? '◷' : (skip ? '–' : '○')))),
+        pct: done ? '100%' : (run || wait ? '45%' : (paused ? '45%' : '0%')), bar: done ? '#6ee7a0' : (paused ? accent.c : '#5eead4'),
+        nameColor: run || wait ? '#5eead4' : (paused ? accent.c : (done ? '#e6e9ef' : '#aab3c2')),
+        subColor: run || wait ? '#9fd8cf' : (paused ? accent.c : '#8e98a8'),
+        bg: sel ? (paused ? accent.cardBg : '#122227') : 'transparent',
+        border: sel ? (paused ? accent.b : '#1f4a52') : '#262e3b', bs: skip ? 'dashed' : 'solid',
+        bottom: sel ? (paused ? accent.cardBg : '#122227') : '#262e3b', radius: sel ? '0 0' : '8px 8px',
+        hasBadge: !!o.badge, badge: o.badge || '', badgeBorder: o.badgeK ? K[o.badgeK].b : '#3a4558', badgeColor: o.badgeK ? K[o.badgeK].c : '#aab3c2',
+        hasMarks: !!o.groups, groups: o.groups || [], marksLabel: o.marksLabel || '',
+        hasCost: !!(o.cost && mode !== 'off'), cost: o.cost ? money(o.cost[0], o.cost[1]) : ''
+      };
+    };
+    const btn = (label, kind) => kind === 'primary'
+      ? { label: label, bg: '#5eead4', c: '#06231f', b: '#5eead4', fw: '600' }
+      : { label: label, bg: 'transparent', c: '#e6e9ef', b: '#2c3544', fw: '400' };
+
+    const S = {};
+    S.implement = {
+      h: '740px', caption: 'Implement · round 2 after a credits stop',
+      tiles: [
+        T('Spec', 'gemini-3.8-flash-medium', 'done', '3 files', { cost: [0.06, 180000] }),
+        T('Plan', 'gpt-6.2-sol', 'done', '1 file', { cost: [0.21, 640000] }),
+        T('Red tests', 'gpt-6.2-astra', 'done', '8 files', { cost: [0.18, 520000] }),
+        T('Implement', 'claude · sonnet', 'run', 'Round 2 · attempt 4/5', { sel: true, cost: [0.49, 1705000], groups: [grp([bar.fail, bar.cut], 'acct'), grp([bar.fail, bar.run, bar.left])], marksLabel: 'Round 1: attempt 1 failed, attempt 2 stopped by credits. Round 2: attempt 3 failed, attempt 4 running, 1 left' }),
+        T('Test repair', 'sonnet', 'todo', 'Not started'),
+        T('Review', 'opus', 'todo', 'Not started'),
+        T('Finalise', 'no agent', 'todo', 'Not started')
+      ],
+      stageUpper: 'IMPLEMENT', agentLine: 'claude · sonnet · medium', agentNote: 'Locked while running. Round 1 used opencode/gemini-4-carbon.',
+      stepsHeading: 'ROUNDS AND ATTEMPTS · NEWEST LAST',
+      rounds: [
+        round(1, 'opencode/gemini-4-carbon · 6m 40s', {
+          cost: [0.27, 915000],
+          start: ['loop', 'fresh start'],
+          steps: [pill('ok', 'Installing dependencies · 42s'), pill('ok', 'Running the tests to see where things stand · 1m 05s')],
+          attempts: [
+            att('r1', 1, '3m 10s', [pill('ok', 'Implementing · 2m 01s', false, 820000), pill('ok', 'Tests unchanged · 4s'), pill('bad', 'Unit tests · 2 failing')], { usd: 0.24, tok: 820000, why: 'Back to Implementing: 2 unit tests failed', err: "FAIL  test/pipeline/gates.test.ts > gates > fails when CI is red\n  AssertionError: expected 'pass' to be 'fail'\nFAIL  test/runs/status.test.ts > status > reports stale age\n\nTests  2 failed | 821 passed" }),
+            att('r1', 2, '0m 43s', [pill('cut', 'Implementing · stopped at 0:43', false, 95000)], { usd: 0.03, tok: 95000 })
+          ],
+          end: ev('r1', 'acct', 'Out of credits (opencode)', 'you switched Implement to claude · sonnet and retried at 01:15', 'round 2', { lost: [0.03, 95000], err: "Agent 'impl-2' crashed or failed: Insufficient balance. Top up at https://opencode.ai/console/org_[…]/billing?credits=1" })
+        }),
+        round(2, 'claude · sonnet · 2m 20s', {
+          cost: [0.22, 790000],
+          start: ['acct', 'retry with another model'],
+          attempts: [
+            att('r2', 3, '1m 42s', [pill('ok', 'Implementing · 1m 12s', false, 610000), pill('ok', 'Tests unchanged · 3s'), pill('ok', 'Unit tests · 21s'), pill('bad', 'Lint · 3 errors')], { usd: 0.17, tok: 610000, why: 'Back to Implementing: lint found 3 errors', err: "src/pipeline/gates.ts\n  162:53  error  Unsafe argument of type `any`  @typescript-eslint/no-unsafe-argument\n  171:9   error  'retries' is assigned a value but never used\nsrc/runs/status.ts\n  48:15   error  Unexpected console statement  no-console\n\n✖ 3 problems (3 errors, 0 warnings)" }),
+            att('r2', 4, 'running · 0:38', [pill('live', 'Implementing · 0:38', false, 180000), pill('todo', 'Tests unchanged'), pill('todo', 'Unit tests'), pill('todo', 'Lint')], { live: true, usd: 0.05, tok: 180000 })
+          ],
+          live: true
+        })
+      ]
+    };
+    S['red-tests'] = {
+      h: '820px', caption: 'Red tests · fix loop from Review, paused once for questions',
+      tiles: [
+        T('Spec', 'default', 'done', '4 files · 2m 32s', { cost: [0.02, 64300] }),
+        T('Plan', 'default', 'done', '5 files · 30m 09s', { cost: [0.54, 1930000] }),
+        T('Red tests', 'gemini-4-hydrogen-medium', 'run', 'Round 3 · writing tests · 36s', { sel: true, cost: [0.25, 770000], badge: 'fix loop 1 of 3', badgeK: 'loop', groups: [grp([bar.done], 'loop'), grp([bar.cut], 'q'), grp([bar.run])], marksLabel: 'Round 1 done, Review sent findings back. Round 2 asked questions. Round 3 running' }),
+        T('Implement', 'gemini-3.8-flash-medium', 'done', 'Waits for Red tests'),
+        T('Test repair', 'sonnet', 'skip', 'Not needed'),
+        T('Review', 'opus', 'done', '2 findings', { badge: 'round 1', badgeK: 'loop' }),
+        T('Finalise', 'no agent', 'todo', 'Not started')
+      ],
+      stageUpper: 'RED TESTS', agentLine: 'gemini-4-hydrogen-medium · medium', agentNote: 'Locked while running. If every finding is missing-test and no new test fails, Implement is skipped.',
+      stepsHeading: 'ROUNDS · NEWEST LAST',
+      rounds: [
+        round(1, 'gemini-4-hydrogen-medium · 9m 12s', {
+          cost: [0.14, 430000],
+          start: ['loop', 'fresh start'],
+          steps: [pill('ok', 'Writing the failing tests · 8m 40s', false, 430000), pill('ok', 'Committing the tests · 32s')],
+          end: ev('r1', 'loop', 'Review found 2 findings (1 blocker, 1 missing-test)', 'fix loop 1 of 3', 'round 2', {})
+        }),
+        round(2, 'gemini-4-hydrogen-medium · 14m 05s', {
+          cost: [0.09, 280000],
+          start: ['loop', 'fix loop from Review'],
+          steps: [pill('ask', 'Writing the failing tests · stopped to ask', false, 280000)],
+          end: ev('r2', 'q', 'Asked 2 questions', 'you answered at 00:58', 'round 3', { defaultOpen: true, qa: [
+            { q: 'The missing-test finding is about retry paths: test both, or only the new one?', s: 'only the new one', a: 'both', who: 'You:', ac: '#c4b5fd' },
+            { q: 'Keep the old red kind as an alias for one release?', s: 'yes', a: 'yes', who: 'You took it:', ac: '#aab3c2' }
+          ] })
+        }),
+        round(3, 'gemini-4-hydrogen-medium · 0:36', {
+          cost: [0.02, 60000],
+          start: ['q', 'your 2 answers'],
+          steps: [pill('live', 'Writing the failing tests · 0:36', true, 60000), pill('todo', 'Committing the tests', true)],
+          live: true
+        })
+      ]
+    };
+    S.spec = {
+      h: '700px', caption: 'Spec · waiting for your permission',
+      tiles: [
+        T('Spec', 'opencode/gemini-4-carbon', 'paused', 'Needs you · 2 permissions', { sel: true, kind: 'perm', groups: [grp([bar.cut], 'perm')], marksLabel: 'Round 1 stopped: needs 2 permissions' }),
+        T('Plan', 'gpt-6.2-sol', 'todo', 'Not started'),
+        T('Red tests', 'gpt-6.2-astra', 'todo', 'Not started'),
+        T('Implement', 'gemini-3.8-flash-medium', 'todo', 'Not started'),
+        T('Test repair', 'sonnet', 'todo', 'Only if needed'),
+        T('Review', 'opus', 'todo', 'Not started'),
+        T('Finalise', 'no agent', 'todo', 'Not started')
+      ],
+      stageUpper: 'SPEC', agentLine: 'opencode/gemini-4-carbon · high', agentNote: 'You can change it before resuming.',
+      stepsHeading: 'ROUNDS',
+      rounds: [
+        round(1, 'opencode/gemini-4-carbon · 3m 05s', { start: ['loop', 'fresh start'], steps: [pill('ok', 'Reading the brief · 40s'), pill('cut', 'Writing the spec · stopped at 2m 25s')] })
+      ],
+      pending: Object.assign({}, K.perm, {
+        title: 'Spec was refused 2 actions', body: 'Allow or deny each. Spec resumes on its own once every one is answered; denied actions are passed to the agent as refused.',
+        items: [
+          { what: 'Bash: npm view @types/node versions --json', why: 'Read package versions to pin the Node 18 types' },
+          { what: 'WebFetch: https://nodejs.org/api/fs.html', why: 'Check fs API behaviour on Node 18' }
+        ],
+        actions: [btn('Allow all and resume', 'primary'), btn('Resume without them')], note: 'Always saves the rule for this repository.'
+      })
+    };
+    S.plan = {
+      h: '720px', caption: 'Plan · waiting for the usage limit to reset',
+      tiles: [
+        T('Spec', 'gemini-3.8-flash-medium', 'done', '3 files'),
+        T('Plan', 'gpt-6.2-sol', 'wait', 'Waiting · resets 1:10am', { sel: true, groups: [grp([bar.cut], 'crash'), grp([bar.left], 'wait')], marksLabel: 'Round 1 timed out. Round 2 waiting for the usage limit' }),
+        T('Red tests', 'gpt-6.2-astra', 'todo', 'Not started'),
+        T('Implement', 'gemini-3.8-flash-medium', 'todo', 'Not started'),
+        T('Test repair', 'sonnet', 'todo', 'Only if needed'),
+        T('Review', 'opus', 'todo', 'Not started'),
+        T('Finalise', 'no agent', 'todo', 'Not started')
+      ],
+      stageUpper: 'PLAN', agentLine: 'gpt-6.2-sol · medium', agentNote: 'Switching the model ends the wait and retries now.',
+      stepsHeading: 'ROUNDS · NEWEST LAST',
+      rounds: [
+        round(1, 'gpt-6.2-sol · 30m 00s', {
+          start: ['loop', 'fresh start'],
+          steps: [pill('cut', 'Writing the plan · stopped at 30m 00s')],
+          end: ev('r1', 'crash', 'Timed out after 30 min', 'you retried at 02:40', 'round 2', { err: 'agent process timed out after 1800000ms (SDLC_AGENT_TIMEOUT_MS)\nlast output 4m 12s before the timeout' })
+        }),
+        round(2, 'gpt-6.2-sol · 1m 02s', { start: ['crash', 'you retried'], steps: [pill('cut', 'Writing the plan · stopped at 1m 02s')], waiting: true })
+      ],
+      pending: Object.assign({}, K.wait, {
+        title: 'Waiting for the usage limit to reset · resets 1:10am (Asia/Dubai)', body: 'Not a failure: Plan retries every 60s on its own (SDLC_LIMIT_RETRY), for up to 6 h (SDLC_LIMIT_MAX_WAIT). Waited 12 min so far.',
+        items: [], actions: [btn('Retry now', 'primary'), btn('Switch model and retry'), btn('Stop waiting')], note: ''
+      })
+    };
+    S.review = {
+      h: '740px', caption: 'Review · stopped by you, then killed from outside',
+      tiles: [
+        T('Spec', 'gemini-3.8-flash-medium', 'done', '3 files'),
+        T('Plan', 'gpt-6.2-sol', 'done', '1 file'),
+        T('Red tests', 'gpt-6.2-astra', 'done', '8 files'),
+        T('Implement', 'gemini-3.8-flash-medium', 'done', '16 files'),
+        T('Test repair', 'sonnet', 'skip', 'Not needed'),
+        T('Review', 'opus', 'run', 'Round 3 · reviewing · 1m 10s', { sel: true, groups: [grp([bar.cut], 'stopped'), grp([bar.cut], 'crash'), grp([bar.run])], marksLabel: 'Round 1 stopped by you. Round 2 killed (exit 137). Round 3 running' }),
+        T('Finalise', 'no agent', 'todo', 'Not started')
+      ],
+      stageUpper: 'REVIEW', agentLine: 'claude · opus · medium', agentNote: 'Locked while running.',
+      stepsHeading: 'ROUNDS · NEWEST LAST',
+      rounds: [
+        round(1, 'claude · opus · 4m 12s', {
+          start: ['loop', 'fresh start'],
+          steps: [pill('halt', 'Reviewing the diff · stopped at 4m 12s')],
+          end: ev('r1', 'stopped', 'You pressed Stop at 02:10', 'you resumed at 02:30', 'round 2', {})
+        }),
+        round(2, 'claude · opus · 0m 51s', {
+          start: ['stopped', 'you resumed'],
+          steps: [pill('cut', 'Reviewing the diff · stopped at 0:51')],
+          end: ev('r2', 'crash', 'Killed from outside (SIGKILL, exit 137)', 'you resumed at 02:34', 'round 3', { err: "run stopped by SIGKILL (exit 137) during Review, agent review-1\nNothing is wrong with the agent: the process was killed from outside (often out of memory)." })
+        }),
+        round(3, 'claude · opus · 1m 10s', {
+          start: ['crash', 'you resumed'],
+          steps: [pill('live', 'Reviewing the diff · 1m 10s', true), pill('todo', 'Summarising findings', true)],
+          live: true
+        })
+      ]
+    };
+    const d = S[sc] || S.implement;
+    const p = d.pending || null;
+    const paneK = sc === 'spec' ? K.perm : null;
+    return Object.assign({}, d, {
+      hasPending: !!p,
+      p: p ? Object.assign({}, p, { hasItems: !!(p.items && p.items.length), hasNote: !!p.note }) : { items: [], actions: [] },
+      paneBorder: paneK ? paneK.b : '#1f4a52', paneBg: paneK ? paneK.cardBg : '#122227',
+      hasCostData: sc === 'implement' || sc === 'red-tests',
+      modes: [['cost', 'Cost'], ['tokens', 'Tokens'], ['off', 'Off']].map((m) => ({ label: m[1], pressed: this.state.mode === m[0] ? 'true' : 'false', bg: this.state.mode === m[0] ? '#1f2735' : 'transparent', c: this.state.mode === m[0] ? '#e6e9ef' : '#8e98a8', pick: () => this.setState({ mode: m[0] }) }))
+    });
+  }
+}
+</script>
+</body>
+</html>

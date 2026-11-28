@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rounds: timeline with handoff events</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif}
+</style>
+</helmet>
+<div style="width: 1320px; height: 900px; box-sizing: border-box; padding: 24px; background: #0f1218; color: #e6e9ef">
+<section style="background: #151a23; border: 1px solid #262e3b; border-radius: 10px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #262e3b">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Stages</h2>
+<span style="font-size: 12px; color: #8e98a8">Pick a stage to see its steps</span>
+</div>
+<ol style="list-style: none; margin: 0; padding: 12px 12px 0; display: flex; gap: 6px">
+<sc-for list="{{tiles}}" as="t" hint-placeholder-count="7">
+<li style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px 8px {{t.radius}}; border: 1px solid {{t.border}}; border-bottom-color: {{t.bottom}}; background: {{t.bg}}">
+<span style="display: block; height: 3px; border-radius: 2px; background: #2c3544; overflow: hidden"><span style="display: block; height: 3px; width: {{t.pct}}; background: {{t.bar}}"></span></span>
+<span style="display: flex; align-items: center; gap: 6px; min-width: 0"><span style="font-size: 14px; font-weight: 600; color: {{t.nameColor}}; white-space: nowrap">{{t.icon}} {{t.name}}</span><sc-if value="{{t.hasRound}}" hint-placeholder-val="{{false}}"><span style="font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid #3a4558; color: #aab3c2; white-space: nowrap">{{t.round}}</span></sc-if></span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #9aa3b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.model}}</span>
+<span style="font-size: 12px; color: {{t.subColor}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.sub}}</span>
+</li>
+</sc-for>
+</ol>
+<div style="flex: 1; min-height: 0; margin: 0 12px 12px; padding: 18px 20px; border: 1px solid #1f4a52; border-radius: 0 0 8px 8px; background: #122227; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 28px">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">RED TESTS · AGENT, MODEL AND EFFORT</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: #aab3c2">claude · sonnet · medium</span>
+<span style="font-size: 12px; color: #8e98a8">Locked while running. Round 2 used gemini-4-hydrogen-medium.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px; min-width: 0">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">ROUNDS · NEWEST LAST</span>
+
+<ol style="list-style: none; margin: 0; padding: 0 0 0 4px; display: flex; flex-direction: column; border-left: 2px solid #2c3544">
+
+<li style="position: relative; padding: 0 0 12px 22px">
+<span aria-hidden="true" style="position: absolute; left: -9px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #1c2230; border: 2px solid #5b6475"></span>
+<span style="display: flex; align-items: baseline; gap: 10px"><span style="font-size: 13px; font-weight: 600">Round 1</span><span style="font-size: 12px; color: #8e98a8">gemini-4-hydrogen-medium · 14m 05s</span></span>
+<span style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; font-size: 12px"><span style="padding: 3px 9px; border-radius: 999px; background: #2a2210; color: #fbbf24">⏸ Writing the failing tests · 13m 53s</span></span>
+</li>
+
+<li style="position: relative; padding: 0 0 14px 22px">
+<span aria-hidden="true" style="position: absolute; left: -10px; top: 6px; width: 14px; height: 14px; transform: rotate(45deg); background: #2a2210; border: 2px solid #fbbf24"></span>
+<div style="border: 1px solid #5a4713; border-radius: 8px; background: #1d1a10; overflow: hidden">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px">
+<span style="font-size: 13px; color: #f1e3b0"><span style="font-weight: 600">Asked 3 questions</span> → you answered at 00:58 → round 2</span>
+<button type="button" onClick="{{toggleQa}}" aria-expanded="{{qaExp}}" style="flex: none; min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid #5a4713; background: transparent; color: #f1e3b0; font: inherit; font-size: 12px; cursor: pointer">{{qaLabel}}</button>
+</div>
+<sc-if value="{{qaOpen}}" hint-placeholder-val="{{true}}">
+<ol style="list-style: none; margin: 0; padding: 0 12px 8px; display: flex; flex-direction: column">
+<sc-for list="{{qa}}" as="q" hint-placeholder-count="3">
+<li style="display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; padding: 7px 0; border-top: 1px solid #2a2510; font-size: 12px">
+<span style="color: #e6e9ef">{{q.q}}</span>
+<span style="color: #aab3c2">Suggested <span style="font-family: ui-monospace, Menlo, monospace">{{q.s}}</span> · <span style="color: {{q.aColor}}">{{q.who}} <span style="font-family: ui-monospace, Menlo, monospace">{{q.a}}</span></span></span>
+</li>
+</sc-for>
+</ol>
+</sc-if>
+</div>
+</li>
+
+<li style="position: relative; padding: 0 0 12px 22px">
+<span aria-hidden="true" style="position: absolute; left: -9px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #1c2230; border: 2px solid #5b6475"></span>
+<span style="display: flex; align-items: baseline; gap: 10px"><span style="font-size: 13px; font-weight: 600">Round 2</span><span style="font-size: 12px; color: #8e98a8">gemini-4-hydrogen-medium · 2m 10s</span></span>
+<span style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; font-size: 12px"><span style="padding: 3px 9px; border-radius: 999px; background: #2a1414; color: #f3b4b4">✗ Writing the failing tests · 2m 04s</span></span>
+</li>
+
+<li style="position: relative; padding: 0 0 14px 22px">
+<span aria-hidden="true" style="position: absolute; left: -10px; top: 6px; width: 14px; height: 14px; transform: rotate(45deg); background: #2a1414; border: 2px solid #f87171"></span>
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid #5a2a2a; border-radius: 8px; background: #1a1214">
+<span style="font-size: 13px; color: #f3b4b4"><span style="font-weight: 600">Out of credits</span> (opencode) → you switched to claude · sonnet and retried at 01:15 → round 3</span>
+<button type="button" style="flex: none; min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid #5a2a2a; background: transparent; color: #f3b4b4; font: inherit; font-size: 12px; cursor: pointer">Show error</button>
+</div>
+</li>
+
+<li style="position: relative; padding: 0 0 4px 22px">
+<span aria-hidden="true" style="position: absolute; left: -9px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #5eead4; border: 2px solid #5eead4"></span>
+<span style="display: flex; align-items: baseline; gap: 10px"><span style="font-size: 13px; font-weight: 600; color: #5eead4">Round 3 · running</span><span style="font-size: 12px; color: #9fd8cf">claude · sonnet · 0:36</span></span>
+<span style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; font-size: 13px">
+<span style="padding: 6px 12px; border-radius: 999px; border: 1px solid #5eead4; color: #5eead4; font-weight: 600">● Writing the failing tests · 0:36</span>
+<span style="padding: 6px 12px; border-radius: 999px; border: 1px dashed #3a4558; color: #aab3c2">○ Committing the tests</span>
+</span>
+</li>
+</ol>
+
+<div style="display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px dashed #2c3544">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">OTHER WAYS A ROUND ENDS · SAME ROW SHAPE</span>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px">
+<span style="padding: 5px 10px; border-radius: 6px; border: 1px solid #1f3f5a; background: #10202e; color: #9cc7ef">Needed permission: npm ci → you allowed it</span>
+<span style="padding: 5px 10px; border-radius: 6px; border: 1px solid #3a4558; background: #1c2230; color: #c9d1dc">■ You stopped it → you resumed</span>
+<span style="padding: 5px 10px; border-radius: 6px; border: 1px solid #5a2a2a; background: #1a1214; color: #f3b4b4">✗ Process killed (exit 137) → restarted on its own</span>
+<span style="padding: 5px 10px; border-radius: 6px; border: 1px solid #5a2a2a; background: #1a1214; color: #f3b4b4">✗ Rate limit → waited 4m, retried on its own</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1320,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { qa: true };
+  }
+  renderVals() {
+    const T = (name, model, st, sub, round) => {
+      const done = st === 'done', run = st === 'run';
+      return {
+        name: name, model: model, sub: sub, round: round || '', hasRound: !!round,
+        icon: done ? '✓' : (run ? '●' : '○'),
+        pct: done ? '100%' : (run ? '10%' : '0%'), bar: done ? '#6ee7a0' : '#5eead4',
+        nameColor: run ? '#5eead4' : (done ? '#e6e9ef' : '#aab3c2'),
+        subColor: run ? '#9fd8cf' : '#8e98a8',
+        bg: run ? '#122227' : 'transparent', border: run ? '#1f4a52' : '#262e3b',
+        bottom: run ? '#122227' : '#262e3b', radius: run ? '0 0' : '8px 8px'
+      };
+    };
+    return {
+      tiles: [
+        T('Spec', 'default', 'done', '4 files · 2m 32s'),
+        T('Plan', 'default', 'done', '5 files · 30m 09s', 'Round 2'),
+        T('Red tests', 'claude · sonnet', 'run', 'Writing the failing tests · 36s', 'Round 3'),
+        T('Implement', 'gemini-3.8-flash-medium', 'todo', 'Not started'),
+        T('Test repair', 'sonnet', 'todo', 'Not started'),
+        T('Review', 'opus', 'todo', 'Not started'),
+        T('Finalise', 'no agent', 'todo', 'Not started')
+      ],
+      qa: [
+        { q: 'Which gate kinds should fail first: unit, integration, or both?', s: 'unit', a: 'both', who: 'You:', aColor: '#c4b5fd' },
+        { q: 'Keep the old red kind as an alias for one release?', s: 'yes', a: 'yes', who: 'You took it:', aColor: '#aab3c2' },
+        { q: 'Where should the new fixtures live?', s: 'test/fixtures/gates', a: 'test/fixtures/loop', who: 'You:', aColor: '#c4b5fd' }
+      ],
+      qaOpen: this.state.qa, qaExp: this.state.qa ? 'true' : 'false', qaLabel: this.state.qa ? 'Hide Q&A' : 'Questions and answers (3)',
+      toggleQa: () => this.setState({ qa: !this.state.qa })
+    };
+  }
+}
+</script>
+</body>
+</html>

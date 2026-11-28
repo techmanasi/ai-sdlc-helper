@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rounds: tabs with end reasons</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif}
+</style>
+</helmet>
+<div style="width: 1320px; height: 760px; box-sizing: border-box; padding: 24px; background: #0f1218; color: #e6e9ef">
+<section style="background: #151a23; border: 1px solid #262e3b; border-radius: 10px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #262e3b">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Stages</h2>
+<span style="font-size: 12px; color: #8e98a8">Pick a stage to see its steps</span>
+</div>
+<ol style="list-style: none; margin: 0; padding: 12px 12px 0; display: flex; gap: 6px">
+<sc-for list="{{tiles}}" as="t" hint-placeholder-count="7">
+<li style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px 8px {{t.radius}}; border: 1px solid {{t.border}}; border-bottom-color: {{t.bottom}}; background: {{t.bg}}">
+<span style="display: block; height: 3px; border-radius: 2px; background: #2c3544; overflow: hidden"><span style="display: block; height: 3px; width: {{t.pct}}; background: {{t.bar}}"></span></span>
+<span style="display: flex; align-items: center; gap: 6px; min-width: 0"><span style="font-size: 14px; font-weight: 600; color: {{t.nameColor}}; white-space: nowrap">{{t.icon}} {{t.name}}</span><sc-if value="{{t.hasRound}}" hint-placeholder-val="{{false}}"><span style="font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid #3a4558; color: #aab3c2; white-space: nowrap">{{t.round}}</span></sc-if></span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #9aa3b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.model}}</span>
+<span style="font-size: 12px; color: {{t.subColor}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.sub}}</span>
+</li>
+</sc-for>
+</ol>
+<div style="flex: 1; min-height: 0; margin: 0 12px 12px; padding: 18px 20px; border: 1px solid #1f4a52; border-radius: 0 0 8px 8px; background: #122227; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 28px">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">RED TESTS · AGENT, MODEL AND EFFORT</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: #aab3c2">gemini-4-hydrogen-medium · medium</span>
+<span style="font-size: 12px; color: #8e98a8">Locked while running</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 14px; min-width: 0">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">ROUNDS</span>
+
+<div role="tablist" aria-label="Rounds" style="display: flex; align-items: stretch; gap: 0">
+<button type="button" role="tab" aria-selected="{{r1Sel}}" onClick="{{pick1}}" style="min-height: 52px; padding: 6px 14px; border-radius: 10px; border: 1px solid {{r1Border}}; background: {{r1Bg}}; color: #e6e9ef; font: inherit; text-align: left; display: flex; flex-direction: column; gap: 2px; cursor: pointer">
+<span style="font-size: 13px; font-weight: 600">Round 1</span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #fbbf24"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M6.4 6.2a1.7 1.7 0 1 1 2.4 1.6c-.5.3-.8.6-.8 1.2M8 11.3v.1"></path></svg>Paused · 3 questions · 14m 05s</span>
+</button>
+<span style="display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; padding: 0 10px; min-width: 150px">
+<span style="font-size: 11px; color: #c4b5fd">You answered 3 · 00:58</span>
+<svg width="140" height="10" viewBox="0 0 140 10" fill="none" stroke="#5b6475" stroke-width="1.4" aria-hidden="true"><path d="M2 5h134M130 1l6 4-6 4"></path></svg>
+</span>
+<button type="button" role="tab" aria-selected="{{r2Sel}}" onClick="{{pick2}}" style="min-height: 52px; padding: 6px 14px; border-radius: 10px; border: 1px solid {{r2Border}}; background: {{r2Bg}}; color: #e6e9ef; font: inherit; text-align: left; display: flex; flex-direction: column; gap: 2px; cursor: pointer">
+<span style="font-size: 13px; font-weight: 600">Round 2</span>
+<span style="font-size: 12px; color: #5eead4">● Running · 36s</span>
+</button>
+</div>
+
+<sc-if value="{{show1}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<span style="padding: 6px 12px; border-radius: 999px; border: 1px solid #5a4713; background: #2a2210; color: #fbbf24; font-size: 13px">⏸ Writing the failing tests · 13m 53s · stopped to ask</span>
+</div>
+<div style="border: 1px solid #5a4713; border-radius: 10px; background: #1d1a10; overflow: hidden">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #3a3115">
+<span style="font-size: 13px; color: #f1e3b0"><span style="font-weight: 600">How round 1 ended:</span> Red tests asked 3 questions. You answered at 00:58 and round 2 started.</span>
+<button type="button" onClick="{{toggleQa}}" aria-expanded="{{qaExp}}" style="flex: none; min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid #5a4713; background: transparent; color: #f1e3b0; font: inherit; font-size: 12px; cursor: pointer">{{qaLabel}}</button>
+</div>
+<sc-if value="{{qaOpen}}" hint-placeholder-val="{{true}}">
+<ol style="list-style: none; margin: 0; padding: 4px 14px 10px; display: flex; flex-direction: column">
+<sc-for list="{{qa}}" as="q" hint-placeholder-count="3">
+<li style="display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; padding: 8px 0; border-top: 1px solid #2a2510">
+<span style="font-size: 12px; color: #8e98a8">{{q.n}}</span>
+<span style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+<span style="font-size: 13px; color: #e6e9ef">{{q.q}}</span>
+<span style="font-size: 12px; color: #aab3c2">Suggested: <span style="font-family: ui-monospace, Menlo, monospace">{{q.s}}</span> · <span style="color: {{q.aColor}}">{{q.who}}: <span style="font-family: ui-monospace, Menlo, monospace">{{q.a}}</span></span></span>
+</span>
+</li>
+</sc-for>
+</ol>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{show2}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<span style="padding: 6px 12px; border-radius: 999px; border: 1px solid #5eead4; background: #11262b; color: #5eead4; font-size: 13px; font-weight: 600">● Writing the failing tests · 0:36</span>
+<span style="padding: 6px 12px; border-radius: 999px; border: 1px dashed #3a4558; color: #aab3c2; font-size: 13px">○ Committing the tests</span>
+</div>
+<div style="font-size: 12px; color: #b8acdf">Started because you answered round 1's 3 questions. The answers are in the agent's prompt.</div>
+</sc-if>
+</div>
+</div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1320,"height":760}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { r: 1, qa: true };
+  }
+  renderVals() {
+    const T = (name, model, st, sub, round) => {
+      const done = st === 'done', run = st === 'run';
+      return {
+        name: name, model: model, sub: sub, round: round || '', hasRound: !!round,
+        icon: done ? '✓' : (run ? '●' : '○'),
+        pct: done ? '100%' : (run ? '10%' : '0%'), bar: done ? '#6ee7a0' : '#5eead4',
+        nameColor: run ? '#5eead4' : (done ? '#e6e9ef' : '#aab3c2'),
+        subColor: run ? '#9fd8cf' : '#8e98a8',
+        bg: run ? '#122227' : 'transparent', border: run ? '#1f4a52' : '#262e3b',
+        bottom: run ? '#122227' : '#262e3b', radius: run ? '0 0' : '8px 8px'
+      };
+    };
+    const r = this.state.r;
+    const qa = [
+      { n: '1', q: 'Which gate kinds should fail first: unit, integration, or both?', s: 'unit', a: 'both', who: 'You', aColor: '#c4b5fd' },
+      { n: '2', q: 'Keep the old red kind as an alias for one release?', s: 'yes', a: 'yes', who: 'You took the suggestion', aColor: '#aab3c2' },
+      { n: '3', q: 'Where should the new fixtures live?', s: 'test/fixtures/gates', a: 'test/fixtures/loop', who: 'You', aColor: '#c4b5fd' }
+    ];
+    return {
+      tiles: [
+        T('Spec', 'default', 'done', '4 files · 2m 32s'),
+        T('Plan', 'default', 'done', '5 files · 30m 09s', 'Round 2'),
+        T('Red tests', 'gemini-4-hydrogen-medium', 'run', 'Writing the failing tests · 36s', 'Round 2'),
+        T('Implement', 'gemini-3.8-flash-medium', 'todo', 'Not started'),
+        T('Test repair', 'sonnet', 'todo', 'Not started'),
+        T('Review', 'opus', 'todo', 'Not started'),
+        T('Finalise', 'no agent', 'todo', 'Not started')
+      ],
+      qa: qa,
+      show1: r === 1, show2: r === 2,
+      r1Sel: r === 1 ? 'true' : 'false', r2Sel: r === 2 ? 'true' : 'false',
+      r1Bg: r === 1 ? '#1f2735' : 'transparent', r1Border: r === 1 ? '#5a4713' : '#2c3544',
+      r2Bg: r === 2 ? '#11262b' : 'transparent', r2Border: r === 2 ? '#1f4a52' : '#2c3544',
+      pick1: () => this.setState({ r: 1 }), pick2: () => this.setState({ r: 2 }),
+      qaOpen: this.state.qa, qaExp: this.state.qa ? 'true' : 'false', qaLabel: this.state.qa ? 'Hide questions and answers' : 'Show questions and answers',
+      toggleQa: () => this.setState({ qa: !this.state.qa })
+    };
+  }
+}
+</script>
+</body>
+</html>

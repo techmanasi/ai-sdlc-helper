@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Implement loop: tile marks and attempt rows</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif}
+</style>
+</helmet>
+<div style="width: 1320px; height: 780px; box-sizing: border-box; padding: 24px; background: #0f1218; color: #e6e9ef">
+<section style="background: #151a23; border: 1px solid #262e3b; border-radius: 10px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #262e3b">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Stages</h2>
+<span style="font-size: 12px; color: #8e98a8">Pick a stage to see its steps</span>
+</div>
+<ol style="list-style: none; margin: 0; padding: 12px 12px 0; display: flex; gap: 6px">
+<sc-for list="{{tiles}}" as="t" hint-placeholder-count="7">
+<li style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px 8px {{t.radius}}; border: 1px solid {{t.border}}; border-bottom-color: {{t.bottom}}; background: {{t.bg}}">
+<span style="display: block; height: 3px; border-radius: 2px; background: #2c3544; overflow: hidden"><span style="display: block; height: 3px; width: {{t.pct}}; background: {{t.bar}}"></span></span>
+<span style="font-size: 14px; font-weight: 600; color: {{t.nameColor}}">{{t.icon}} {{t.name}}</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #9aa3b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.model}}</span>
+<sc-if value="{{t.run}}" hint-placeholder-val="{{false}}">
+<span role="img" aria-label="Attempts: 1 failed, 2 failed, 3 running, 2 left" title="Attempt 1: unit tests failed · Attempt 2: lint failed · Attempt 3: running" style="display: flex; gap: 3px">
+<sc-for list="{{marks}}" as="m" hint-placeholder-count="5"><span style="flex: 1; height: 6px; border-radius: 2px; background: {{m.bg}}; border: 1px {{m.style}} {{m.border}}; box-sizing: border-box"></span></sc-for>
+</span>
+</sc-if>
+<span style="font-size: 12px; color: {{t.subColor}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.sub}}</span>
+</li>
+</sc-for>
+</ol>
+<div style="flex: 1; min-height: 0; margin: 0 12px 12px; padding: 18px 20px; border: 1px solid #1f4a52; border-radius: 0 0 8px 8px; background: #122227; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 28px">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">IMPLEMENT · AGENT, MODEL AND EFFORT</span>
+<span style="font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: #aab3c2">gemini-3.8-flash-medium · medium</span>
+<span style="font-size: 12px; color: #8e98a8">Locked while running</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #8e98a8">STEPS · RUNNING · 6m 12s</span>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<span style="padding: 6px 12px; border-radius: 999px; border: 1px solid #1f4a3a; background: #132519; color: #6ee7a0; font-size: 13px">✓ Installing dependencies · 42s</span>
+<span style="padding: 6px 12px; border-radius: 999px; border: 1px solid #1f4a3a; background: #132519; color: #6ee7a0; font-size: 13px">✓ Running the tests to see where things stand · 1m 05s</span>
+</div>
+
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid #262e3b; border-radius: 10px; overflow: hidden">
+<sc-for list="{{attempts}}" as="a" hint-placeholder-count="2">
+<li style="display: flex; flex-direction: column; background: #151a23; border-bottom: 1px solid #222a36">
+<div style="display: grid; grid-template-columns: 130px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 10px 14px">
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; font-weight: 600; color: #f3b4b4">Attempt {{a.n}}</span><span style="font-size: 11px; color: #8e98a8">{{a.time}}</span></span>
+<span style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+<span style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px">
+<sc-for list="{{a.steps}}" as="s" hint-placeholder-count="3"><span style="padding: 3px 9px; border-radius: 999px; background: {{s.bg}}; color: {{s.color}}">{{s.label}}</span></sc-for>
+</span>
+<span style="font-size: 12px; color: #b8acdf">↩ {{a.why}}</span>
+</span>
+<button type="button" onClick="{{a.toggle}}" aria-expanded="{{a.expanded}}" aria-controls="err-{{a.n}}" style="min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid {{a.btnBorder}}; background: {{a.btnBg}}; color: #f3b4b4; font: inherit; font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap">{{a.btnLabel}}<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform: rotate({{a.rot}})"><path d="M4 6l4 4 4-4"></path></svg></button>
+</div>
+<sc-if value="{{a.open}}" hint-placeholder-val="{{false}}">
+<div id="err-{{a.n}}" style="margin: 0 14px 12px 158px; border: 1px solid #5a2a2a; border-radius: 8px; background: #1a1214; overflow: hidden">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #3a2020">
+<span style="font-size: 12px; color: #f3b4b4"><span style="font-weight: 600">{{a.errTitle}}</span> · <span style="font-family: ui-monospace, Menlo, monospace; color: #e0b4b4">{{a.log}}</span></span>
+<span style="display: flex; gap: 6px">
+<button type="button" style="min-height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #3a2020; background: transparent; color: #e6e9ef; font: inherit; font-size: 12px; cursor: pointer">Copy</button>
+<button type="button" style="min-height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #3a2020; background: transparent; color: #e6e9ef; font: inherit; font-size: 12px; cursor: pointer">Open full log</button>
+</span>
+</div>
+<pre style="margin: 0; padding: 10px 12px; max-height: 128px; overflow: auto; font-family: ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.55; color: #e0b4b4; white-space: pre-wrap">{{a.err}}</pre>
+<div style="padding: 6px 12px; border-top: 1px solid #3a2020; font-size: 11px; color: #b8acdf">{{a.fed}}</div>
+</div>
+</sc-if>
+</li>
+</sc-for>
+<li style="display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 14px; align-items: center; padding: 12px 14px; background: #11262b">
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; font-weight: 600; color: #5eead4">Attempt 3 of 5</span><span style="font-size: 11px; color: #9fd8cf">running · 0:38</span></span>
+<span style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 13px">
+<span style="padding: 6px 12px; border-radius: 999px; border: 1px solid #5eead4; color: #5eead4; font-weight: 600">● Implementing · 0:38</span>
+<span style="padding: 6px 12px; border-radius: 999px; border: 1px dashed #3a4558; color: #aab3c2">○ Checking the tests were not changed</span>
+<span style="padding: 6px 12px; border-radius: 999px; border: 1px dashed #3a4558; color: #aab3c2">○ Running the unit tests</span>
+<span style="padding: 6px 12px; border-radius: 999px; border: 1px dashed #3a4558; color: #aab3c2">○ Running lint</span>
+</span>
+</li>
+</ol>
+
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<span style="padding: 6px 12px; border-radius: 999px; border: 1px dashed #3a4558; color: #aab3c2; font-size: 13px">○ Running the integration tests</span>
+</div>
+</div>
+</div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1320,"height":780}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { open: 2 };
+  }
+  renderVals() {
+    const T = (name, model, st, sub) => {
+      const done = st === 'done', run = st === 'run';
+      return {
+        name: name, model: model, sub: sub, run: run,
+        icon: done ? '✓' : (run ? '●' : '○'),
+        pct: done ? '100%' : (run ? '45%' : '0%'), bar: done ? '#6ee7a0' : '#5eead4',
+        nameColor: run ? '#5eead4' : (done ? '#e6e9ef' : '#aab3c2'),
+        subColor: run ? '#9fd8cf' : '#8e98a8',
+        bg: run ? '#122227' : 'transparent', border: run ? '#1f4a52' : '#262e3b',
+        bottom: run ? '#122227' : '#262e3b', radius: run ? '0 0' : '8px 8px'
+      };
+    };
+    const ok = (l) => ({ label: '✓ ' + l, bg: '#132519', color: '#6ee7a0' });
+    const bad = (l) => ({ label: '✗ ' + l, bg: '#2a1414', color: '#f3b4b4' });
+    const raw = [
+      {
+        n: 1, time: '3m 10s',
+        steps: [ok('Implementing · 2m 01s'), ok('Tests unchanged · 4s'), bad('Unit tests · 2 failing')],
+        why: 'Back to Implementing: 2 unit tests failed',
+        errTitle: 'Running the unit tests failed', log: 'logs/implement-1.unit.log',
+        err: 'FAIL  test/pipeline/gates.test.ts > gates > fails when CI is red\n  AssertionError: expected \'pass\' to be \'fail\'\nFAIL  test/runs/status.test.ts > status > reports stale age\n  TypeError: Cannot read properties of undefined (reading \'age\')\n\nTests  2 failed | 821 passed',
+        fed: 'Passed to attempt 2 as feedback for Implementing.'
+      },
+      {
+        n: 2, time: '1m 42s',
+        steps: [ok('Implementing · 1m 12s'), ok('Tests unchanged · 3s'), ok('Unit tests · 21s'), bad('Lint · 3 errors')],
+        why: 'Back to Implementing: lint found 3 errors',
+        errTitle: 'Running lint failed', log: 'logs/implement-2.lint.log',
+        err: 'src/pipeline/gates.ts\n  162:53  error  Unsafe argument of type `any` assigned to a parameter of type `FailedTest[]`  @typescript-eslint/no-unsafe-argument\n  171:9   error  \'retries\' is assigned a value but never used  @typescript-eslint/no-unused-vars\nsrc/runs/status.ts\n  48:15   error  Unexpected console statement  no-console\n\n✖ 3 problems (3 errors, 0 warnings)',
+        fed: 'Passed to attempt 3 as feedback for Implementing.'
+      }
+    ];
+    const attempts = raw.map((a) => {
+      const open = this.state.open === a.n;
+      return Object.assign({}, a, {
+        open: open, expanded: open ? 'true' : 'false', rot: open ? '180deg' : '0deg',
+        btnLabel: open ? 'Hide error' : 'Show error',
+        btnBorder: open ? '#5a2a2a' : '#3a2020', btnBg: open ? '#2a1414' : 'transparent',
+        toggle: () => this.setState({ open: open ? null : a.n })
+      });
+    });
+    const marks = [
+      { bg: '#f87171', border: '#f87171', style: 'solid' },
+      { bg: '#f87171', border: '#f87171', style: 'solid' },
+      { bg: '#5eead4', border: '#5eead4', style: 'solid' },
+      { bg: 'transparent', border: '#3a4558', style: 'dashed' },
+      { bg: 'transparent', border: '#3a4558', style: 'dashed' }
+    ];
+    return { attempts: attempts, marks: marks, tiles: [
+      T('Spec', 'gemini-3.8-flash-medium', 'done', '3 files'),
+      T('Plan', 'gpt-6.2-sol', 'done', '1 file'),
+      T('Red tests', 'gpt-6.2-astra', 'done', '8 files'),
+      T('Implement', 'gemini-3.8-flash-medium', 'run', 'Implementing · attempt 3/5'),
+      T('Test repair', 'sonnet', 'todo', 'Not started'),
+      T('Review', 'opus', 'todo', 'Not started'),
+      T('Finalise', 'no agent', 'todo', 'Not started')
+    ] };
+  }
+}
+</script>
+</body>
+</html>
