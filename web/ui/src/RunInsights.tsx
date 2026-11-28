@@ -4,7 +4,7 @@ import { memo } from 'preact/compat';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { AttemptRound, LockOpen, LockView, RunView, StageRound, Timeline, UsageTotals } from './api';
-import { cacheShare, costCell, costModeShown, costNotes, durationText, guarantees, hasUsage, lockSentence, openSentence, readCostMode, saveCostMode, tileCostText, tileLine, tokensText, usageText, type CostMode, type TileState, totalCells } from './insights';
+import { cacheShare, costCell, costModeShown, costNotes, durationText, hasUsage, lockSentence, openSentence, readCostMode, saveCostMode, tileCostText, tileLine, tokensText, usageText, type CostMode, type TileState, totalCells } from './insights';
 import { attemptMarks, attemptMarksLabel, backToImplementText, doneFoldLabel, edgeScrollTarget, foldDone, hiddenCounts, mayAutoScroll, paneTone, prBadge, roundLabel, roundMarks, roundMarksLabel, scrollTarget, stepPills, type AttemptMark } from './stagePane';
 import { popoverPosition } from './stageAgent';
 import { CopyButton, Panel, Spinner } from './ui';
@@ -403,20 +403,6 @@ export function RoundChips({ count, picked, onPick }: { count: number; picked: n
         <button type="button" class={`rchip ${n === picked ? 'rchip-on' : ''}`} aria-pressed={n === picked} onClick={() => onPick(n)}>Round {n}</button>
       ))}
     </div>
-  );
-}
-
-/** How the pipeline protects a run, and what this run's records show of its worktree and pull request. */
-export function Guarantees({ v }: { v: Parameters<typeof guarantees>[0] }) {
-  return (
-    <ul class="guar" aria-label="What protects this run">
-      {guarantees(v).map(g => (
-        <li class={`guar-item guar-${g.state}`}>
-          <span class="guar-mark" aria-hidden="true">{g.key === 'gates' ? '⛩' : g.key === 'isolated' ? '⑂' : '✓'}</span>
-          <span class="guar-text"><strong>{g.title}</strong><span class="small muted">{g.detail}</span></span>
-        </li>
-      ))}
-    </ul>
   );
 }
 
