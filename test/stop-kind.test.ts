@@ -82,29 +82,38 @@ describe('the kind of stop a run is in', () => {
     expect(k.actions.map(a => a.verb)).toEqual(['retry']);
   });
 
-  test('Stopped by you: the user stopped the run', () => {
-    for (const state of ['stopped', 'interrupted'] as const) {
-      const k = stopKind(view({ state, resumeFrom: 'plan' })) as StopKindView;
-      expect(k.kind).toBe('stopped');
-      expect(k.label).toBe('Stopped by you');
-      expect(k.glyph).toBe('■');
-      expect(k.tone).toBe('s-not-started');
-      expect(k.cause).toBe('The run was stopped during Implement');
-      expect(k.actions).toEqual([{ label: 'Resume from Plan', verb: 'resume' }]);
+  test('Stopped by you: only when the record says Stop ended the run', () => {
+    const k = stopKind(view({ state: 'interrupted', resumeFrom: 'plan', record: { stoppedBy: 'you' } })) as StopKindView;
+    expect(k.kind).toBe('stopped');
+    expect(k.label).toBe('Stopped by you');
+    expect(k.glyph).toBe('■');
+    expect(k.tone).toBe('s-not-started');
+    expect(k.cause).toBe('You stopped the run during Implement');
+    expect(k.actions).toEqual([{ label: 'Resume from Plan', verb: 'resume' }]);
+  });
+
+  test('killed from outside is a Process stop that blames nothing, with resume first', () => {
+    const k = stopKind(view({ state: 'interrupted', resumeFrom: 'implement', record: { stoppedBy: 'signal' } })) as StopKindView;
+    expect(k.kind).toBe('process');
+    expect(k.label).not.toBe('Stopped by you');
+    expect(k.cause).toBe('Killed from outside during Implement, not by Stop; nothing is wrong with the agent');
+    expect(k.actions).toEqual([{ label: 'Resume from Implement', verb: 'resume' }, { label: 'Open log', verb: 'open-log' }]);
+  });
+
+  test('a supervisor found dead, or a run gone without finishing, says so', () => {
+    for (const over of [{ state: 'interrupted' as const, record: { stoppedBy: 'gone' } }, { state: 'stopped' as const }]) {
+      const k = stopKind(view(over)) as StopKindView;
+      expect(k.kind).toBe('process');
+      expect(k.cause).toBe("The run's supervisor is gone (killed or crashed) during Implement; nothing is wrong with the agent");
     }
   });
 
-  test('Repository: the stop was about the branch, not the code', () => {
-    const k = stopKind(view({
-      state: 'failed',
-      recovery: { stage: 'Plan', diagnosis: "GitHub's main has commits by someone else, and SDLC_MOVE_BRANCH keeps the run on that branch, so the run stopped instead of taking them in." },
-    })) as StopKindView;
-    expect(k.kind).toBe('repository');
-    expect(k.label).toBe('Repository');
-    expect(k.glyph).toBe('R');
-    expect(k.cause).toContain('commits by someone else');
-    expect(k.actions.map(a => a.verb)).toEqual(['resume']);
+  test('an older interrupted record that does not say who is never called Stopped by you', () => {
+    const k = stopKind(view({ state: 'interrupted' })) as StopKindView;
+    expect(k.kind).toBe('process');
+    expect(k.cause).toBe('Interrupted during Implement: by Stop or by a signal (this run\'s record does not say which)');
   });
+
 
   test('Repository: a conflicting pull request is a repository stop', () => {
     const k = stopKind(view({ state: 'failed', prConflicts: 'conflicting' })) as StopKindView;
@@ -211,7 +220,7 @@ describe('which kind wins when more than one fits', () => {
   });
 
   test('Stopped by you comes before Repository', () => {
-    expect(kindOf(view({ state: 'interrupted', recovery: { stage: 'Plan', diagnosis: 'merge conflict with base branch' } }))).toBe('stopped');
+    expect(kindOf(view({ state: 'interrupted', record: { stoppedBy: 'you' }, recovery: { stage: 'Plan', diagnosis: 'merge conflict with base branch' } }))).toBe('stopped');
   });
 
   test('Repository comes before Stage check', () => {

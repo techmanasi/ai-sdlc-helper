@@ -61,9 +61,14 @@ function finish(rc, message) {
     const own = job.prefix + job.slug;
     if (r.status === 0 && (b === own || (b.startsWith(own + '_') && /^[1-9][0-9]*$/.test(b.slice(own.length + 1)) && Number(b.slice(own.length + 1)) >= 2))) branch = b;
   } catch (e) { /* keep the old one */ }
+  // Who interrupted it: Stop writes the interrupt file first; a signal exit without it came from outside.
+  const asked = fs.existsSync(job.interruptFile);
+  const signalled = rc > 128 && rc < 160;
+  const stoppedBy = asked ? 'you' : signalled ? 'signal' : '';
+  if (stoppedBy === 'signal' && !message) message = 'killed by signal ' + (rc - 128) + ' from outside, not by Stop';
   const rec = Object.assign({}, job.record, branch ? { branch } : {}, {
-    pid: process.pid, state: 'exited', exit_code: String(rc), interrupted: fs.existsSync(job.interruptFile) || (rc > 128 && rc < 160), finished: now(), message: message || '',
-  });
+    pid: process.pid, state: 'exited', exit_code: String(rc), interrupted: asked || signalled, finished: now(), message: message || '',
+  }, stoppedBy ? { stoppedBy } : {});
   const tmp = job.recordFile + '.' + process.pid + '.tmp';
   try { fs.writeFileSync(tmp, JSON.stringify(rec) + '\n'); fs.renameSync(tmp, job.recordFile); } catch (e) { log('cannot write the run record: ' + e.message); }
   log('== ' + now() + ' finished ' + job.slug + ' exit ' + rc);
