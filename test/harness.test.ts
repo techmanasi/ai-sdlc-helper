@@ -321,11 +321,33 @@ esac
         mode: 'acceptEdits',
         allowedCommands: [],
       });
-      expect(inv).toEqual({
-        command: 'opencode',
-        args: ['run', '--model', 'opencode/claude-fable-5-2#high', '--format', 'json', '--auto', 'test prompt'],
-        env: {},
-      });
+      expect(inv.command).toBe('opencode');
+      expect(inv.args).toEqual(['run', '--model', 'opencode/claude-fable-5-2#high', '--format', 'json', '--auto', 'test prompt']);
+      // No code-indexer tools in the rules (Grep/Glob, or graphify, which is shell-only): nothing extra to allow.
+      expect(inv.env.OPENCODE_CONFIG_CONTENT).toBeUndefined();
+    });
+
+    it('allows the code indexer in use up front, for every harness, so no stage waits on a permission prompt', async () => {
+      const h = harness();
+      await h.listModels();
+      const base = { prompt: 'p', stage: 'implement' as const, effort: 'high', mode: 'acceptEdits' as const };
+      // graft: an MCP server.
+      const graft = h.compileStageArgs({ ...base, allowedCommands: ['Read', 'mcp__graft', 'Bash(graft:*)'] });
+      expect(JSON.parse(graft.env.OPENCODE_CONFIG_CONTENT).permissions)
+        .toEqual([{ action: 'graft_*', resource: '*', effect: 'allow' }]);
+      // A server name with characters OpenCode replaces in tool names gets the same replacement.
+      const dotted = h.compileStageArgs({ ...base, allowedCommands: ['mcp__my.idx__search'] });
+      expect(JSON.parse(dotted.env.OPENCODE_CONFIG_CONTENT).permissions)
+        .toEqual([{ action: 'my_idx_*', resource: '*', effect: 'allow' }]);
+      const agy = new AgyHarness().compileStageArgs({ ...base, allowedCommands: ['mcp__graft', 'Bash(graft:*)'] });
+      expect(JSON.parse(agy.args[agy.args.indexOf('--settings') + 1]).permissions.allow)
+        .toEqual(['mcp(graft/*)', 'command(graft:*)']);
+      expect(new ClaudeHarness().compileStageArgs({ ...base, allowedCommands: ['mcp__graft'] }).args).toContain('mcp__graft');
+      // graphify: shell commands only, no MCP server to allow.
+      const graphify = h.compileStageArgs({ ...base, allowedCommands: ['Bash(graphify:*)'] });
+      expect(graphify.env.OPENCODE_CONFIG_CONTENT).toBeUndefined();
+      const agyGraphify = new AgyHarness().compileStageArgs({ ...base, allowedCommands: ['Bash(graphify:*)'] });
+      expect(JSON.parse(agyGraphify.args[agyGraphify.args.indexOf('--settings') + 1]).permissions.allow).toEqual(['command(graphify:*)']);
     });
 
     it('omits unsupported variants and omits --model for the account default', async () => {

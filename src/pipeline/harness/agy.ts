@@ -172,6 +172,9 @@ export class AgyHarness implements AgentHarness {
  */
 export function agyRule(rule: string): string {
   if (rule === 'Bash') return 'command(*)';
+  // An MCP server's tools (the code indexer's): agy asks for them as mcp permissions on <server>/<tool>.
+  const mcp = /^mcp__([^_(][^(]*?)(?:__.*)?$/.exec(rule);
+  if (mcp) return `mcp(${mcp[1]}/*)`;
   // A refused agy tool other than a command (read_file, write_file, …) is allowed under its own name, for any target.
   if (/^[a-z]+(?:_[a-z]+)+$/.test(rule)) return `${rule}(*)`;
   const target = rule.match(/^Bash\((.*)\)$/);
