@@ -238,8 +238,6 @@ textarea.inp { resize: vertical; }
 /* why a run stopped: the kind's mark in the kind's colour, beside the run's own state chip */
 .stop-kind { font-weight: 600; }
 .stop-kind-glyph { font-size: 13px; font-weight: 700; line-height: 1; }
-.stop-cause { display: flex; gap: 8px; align-items: baseline; padding: 10px 14px; border: 1px solid var(--ln); border-radius: var(--r); background: var(--pn); font-size: 13px; }
-.stop-cause .stop-kind-glyph { flex: 0 0 auto; }
 
 /* loading: the shape of what is coming, not a word */
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
@@ -303,14 +301,6 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .hero .chip { font-size: 13px; padding: 5px 12px; }
 
 /* what protects this run */
-.guar { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
-.guar-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: var(--r); border: 1px solid var(--ln); background: var(--pn); }
-.guar-mark { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--pn2); color: var(--mu); flex: 0 0 auto; font-size: 13px; }
-.guar-text { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
-.guar-held { border-color: color-mix(in srgb, var(--done) 45%, var(--ln)); }
-.guar-held .guar-mark { background: var(--done-bg); color: var(--done); }
-.guar-broken { border-color: color-mix(in srgb, var(--fail) 55%, var(--ln)); }
-.guar-broken .guar-mark { background: var(--fail-bg); color: var(--fail); }
 
 /* the stage rail: one row of tiles; the pane under it always shows one stage and is joined to that stage's tile */
 .rail2-wrap { display: flex; flex-direction: column; padding: 12px 14px 14px; --tone: var(--ln2); }
@@ -400,6 +390,8 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .round-heading { margin: 0; font-size: 13px; font-weight: 600; }
 .round-start, .round-end, .round-answered { margin: 0; font-size: 12px; }
 .round-end { color: var(--tx); }
+.round-way { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; margin-top: 4px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--fail) 45%, var(--ln)); border-radius: 8px; background: var(--fail-bg); }
+.round-way-cause { margin: 0; color: var(--tx); overflow-wrap: anywhere; }
 .round-answered { color: var(--fut); }
 /* Implement attempts: the pane's rows mirror the design's attempt list, using the app's own tokens. */
 .attempt-eyebrow { color: var(--fail); margin-top: 14px; }
@@ -439,34 +431,6 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--pri); }
 .lock-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; line-height: 1; padding: 4px 7px; border-radius: 999px; white-space: nowrap; }
 .lock-badge-closed { color: var(--done); background: var(--done-bg); }
 .lock-badge-open { color: var(--wait); background: transparent; border: 1px dashed var(--wait); }
-
-/* recovery: the cause, then three ways on */
-.recov { border: 1px solid color-mix(in srgb, var(--wait) 55%, var(--ln)); border-radius: var(--r); background: var(--pn); box-shadow: var(--shadow); overflow: hidden; }
-.recov-failed { border-color: color-mix(in srgb, var(--fail) 55%, var(--ln)); }
-.recov-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--wait-bg); }
-.recov-failed .recov-head { background: var(--fail-bg); }
-.recov-head strong { font-size: 15px; }
-.recov-ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; padding: 14px 16px; }
-.way { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--ln); border-radius: 8px; background: var(--pn2); }
-.way-first { border-color: var(--pri); }
-.way .lbl { display: flex; gap: 6px; align-items: center; }
-.way p { margin: 0; font-size: 13px; flex: 1 1 auto; }
-
-/* recovery options: top up, retry, switch model, a confirmed bailout, and the recorded error */
-.recov-options { margin-top: 10px; }
-.recov-options-head { background: var(--fail-bg); }
-.recov-cause { margin: 0; color: var(--tx); }
-.recov-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; padding: 14px 16px; }
-.recov-op { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--ln); border-radius: 8px; background: var(--pn2); }
-.recov-op-first { border-color: var(--pri); }
-.recov-detail { margin: 0; color: var(--mu); line-height: 1.45; }
-.recov-confirm { gap: 8px; margin-top: 4px; padding: 10px; border: 1px solid var(--wait); border-radius: 8px; background: var(--waitbg); }
-.recov-switch { gap: 8px; margin-top: 4px; padding: 10px; border: 1px dashed var(--ln2); border-radius: 8px; }
-.recov-error { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 12px; }
-.recov-error-text { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: 10px 12px; border: 1px solid var(--ln); border-radius: 6px; background: var(--code); color: var(--fail); font-size: 12px; }
-.recov-src { font-size: 10px; }
-.recov-cli { margin: 0 16px 14px; }
-.recov-cli code { font-family: var(--monof); font-size: 12px; color: var(--tx); overflow-wrap: anywhere; }
 
 /* the lock, the cost */
 .locklog { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }

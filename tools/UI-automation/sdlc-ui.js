@@ -67,19 +67,8 @@
     waitPanel: '.wait-panel section.pn',
     waitText: '#wait-text',
     stopWaiting: '[data-sdlc="stop-waiting"]',
-    guarantee: '.guar .guar-item',
-    recovery: 'section.recov',
-    recoveryWays: '.recov-ways',
-    recoveryOptions: '#recovery-options',
-    recoveryOption: '.recov-op',
-    recoveryDetail: '.recov-detail',
-    recoveryErrorButton: '#recovery-error-button',
-    recoveryError: '#recovery-error',
-    recoveryConfirm: '#recovery-confirm',
-    recoveryConfirmGo: '#recovery-confirm-go',
-    recoveryConfirmKeep: '#recovery-confirm-keep',
-    recoverySwitch: '#recovery-switch',
-    recoveryCli: '#recovery-cli',
+    wayOn: '#way-on',
+    wayOnButton: '#way-on-button',
     discardedStage: '#discarded-stage',
     panel: 'section.pn',
     panelHead: '.ph h2',
@@ -485,43 +474,21 @@
     });
   }
   function answer(n, value) { return setValue($(`#q${n}`), value); }
+  /** The one way on a stopped run, under the stopped stage's last round: the cause and the button's label. */
   function recovery() {
-    const r = $(SELECTORS.recovery);
+    const r = $(SELECTORS.wayOn);
     if (!r) return null;
-    return { text: text(r).slice(0, 800), buttons: buttons(r).map(b => b.label) };
+    return { cause: text($(SELECTORS.stopCause, r)).slice(0, 800), button: text($(SELECTORS.wayOnButton, r)) };
   }
-  /** The recovery options, in the order they are offered (the labels a caller can press with pickRecovery). */
-  function recoveryOptions() {
-    const box = $(SELECTORS.recoveryOptions);
-    return box ? buttons(box).map(b => b.label) : [];
-  }
-  /** Presses one recovery option by its label. */
-  async function pickRecovery(label) {
-    const box = $(SELECTORS.recoveryOptions);
-    if (!box) throw new Error('sdlcUI.pickRecovery: no recovery options on this screen');
-    const pressed = click(label, box);
-    await sleep(50);
-    return pressed;
-  }
-  /** Confirms the in-page "Resume at <Stage>?" row. */
-  async function confirmRecovery() {
-    const row = $(SELECTORS.recoveryConfirm);
-    if (!row) throw new Error('sdlcUI.confirmRecovery: no "Resume at …?" confirmation on this screen');
-    const go = $(SELECTORS.recoveryConfirmGo, row);
-    if (!go) throw new Error('sdlcUI.confirmRecovery: the confirmation has no Resume button');
-    if (go.disabled) throw new Error('sdlcUI.confirmRecovery: the Resume button is disabled');
-    const label = text(go);
-    go.click();
-    await sleep(50);
-    return label;
-  }
-  /** Opens or closes the recorded "Error details" disclosure and returns what it now shows. */
-  async function toggleErrorDetails() {
-    const b = $(SELECTORS.recoveryErrorButton);
-    if (!b) throw new Error('sdlcUI.toggleErrorDetails: no "Error details" disclosure on this screen');
+  /** Presses the one way on (open the stopped stage first, so its last round is in view). */
+  async function wayOn() {
+    const b = $(SELECTORS.wayOnButton);
+    if (!b) throw new Error('sdlcUI.wayOn: no way on in the stage on view; open the stopped stage first');
+    if (b.disabled) throw new Error('sdlcUI.wayOn: the button is disabled');
+    const label = text(b);
     b.click();
     await sleep(50);
-    return { expanded: b.getAttribute('aria-expanded') === 'true', text: text($(SELECTORS.recoveryError)) };
+    return label;
   }
   /** Why the run stopped: the kind's name and the cause the record gives; null while the run has not stopped. */
   function stopKind() {
@@ -616,12 +583,10 @@
       state: text($(SELECTORS.heroChip)),
       tags: $$(SELECTORS.heroTag).map(text),
       message: text($('.error', main())),
-      guarantees: $$(SELECTORS.guarantee).map(g => `${stateOf(g, 'guar-')}: ${text(g)}`),
       stages: stages(),
       attempts: attempts(),
       foldedDone: doneFold(),
       recovery: recovery(),
-      recoveryOpts: recoveryOptions(),
       stopKind: stopKind(),
       questions: questions().length,
       cost: cost ? text($('.chip', cost)) : '',
@@ -860,7 +825,7 @@
     board, boardShow, boardFilter, pick, rowAction,
     completedTabs, completedFilter, selectCompleted, handoff, resumeWithNote, projectReviewLimit, setProjectReviewLimit, setRunReviewLimit, setSyncRounds, runBehaviour,
     // run page
-    run, stages, stage, openStagePopover, closeStagePopover, searchModels, roundMarks, rounds, attemptMarks, attempts, toggleError, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, recoveryOptions, pickRecovery, confirmRecovery, toggleErrorDetails, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, costMode, openDoc, closeDialog,
+    run, stages, stage, openStagePopover, closeStagePopover, searchModels, roundMarks, rounds, attemptMarks, attempts, toggleError, doneFold, unfoldDone, scrollStages, openOutput, output, questions, answer, recovery, wayOn, stopKind, env, setEnv, modelOptions, runOptions, autoAccept, costTable, costMode, openDoc, closeDialog,
     permissions, denyPermission, allowAllAndResume, resumeWithout, waitPanelText, stopWaiting,
     // new item
     newItem, newItemDefaults, newItemWhen, newItemStages, newItemBranch, newItemCommandText,

@@ -125,13 +125,12 @@ describe('tools/UI-automation/sdlc-ui.js', () => {
     }
   });
 
-  test('exposes the recovery options, inline confirmation and recorded error hooks', () => {
+  test('exposes the one way on under the stopped round', () => {
     const { api } = load();
-    for (const f of ['recoveryOptions', 'pickRecovery', 'confirmRecovery', 'toggleErrorDetails']) expect(api.help()).toContain(f);
-    for (const name of ['recoveryOptions', 'recoveryOption', 'recoveryDetail', 'recoveryErrorButton', 'recoveryError',
-      'recoveryConfirm', 'recoveryConfirmGo', 'recoveryConfirmKeep', 'recoverySwitch', 'recoveryCli']) {
-      expect(Object.keys(api.SELECTORS)).toContain(name);
-    }
+    for (const f of ['recovery', 'wayOn']) expect(api.help()).toContain(f);
+    expect(api.SELECTORS.wayOn).toBe('#way-on');
+    expect(api.SELECTORS.wayOnButton).toBe('#way-on-button');
+    for (const gone of ['recoveryOptions', 'recoveryConfirm', 'recoveryErrorButton', 'guarantee']) expect(Object.keys(api.SELECTORS)).not.toContain(gone);
   });
 
   test('the drift check sees a selector that is not in the markup', () => {

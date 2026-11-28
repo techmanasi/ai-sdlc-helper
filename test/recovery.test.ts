@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { RunView } from '../web/ui/src/api.js';
 import {
-  billingUrlOf, errorDetailsOf, recoveryCliLine, recoveryOptions,
+  billingUrlOf, errorDetailsOf, recoveryCliLine, recoveryOptions, wayOn, wayOnStage,
   type RecoveryOption,
 } from '../web/ui/src/recovery.js';
 import { stopKind } from '../web/ui/src/stopKind.js';
@@ -108,5 +108,21 @@ describe('the record behind the disclosure, the reviewers and the CLI line', () 
   test('the copied CLI line names the slug and the stage', () => {
     expect(recoveryCliLine('item', 'review')).toBe('ai-sdlc-helper start item --from review');
     expect(recoveryCliLine('item', '')).toBe('ai-sdlc-helper start item');
+  });
+});
+
+describe('the one way on', () => {
+  const opt = (action: RecoveryOption['action'], label: string): RecoveryOption => ({ id: action, label, action, stage: 'implement' });
+  const auto = { autoAction: { label: 'Retry Implement stage', command: 'ai-sdlc-helper pipeline item --from implement' } } as unknown as RunView['recovery'];
+  test('a top-up comes first, then the recommended fix, then a retry; skipping ahead is never the button', () => {
+    expect(wayOn([opt('resume', 'Retry Implement'), opt('top-up', 'Open billing')], auto, 'failed')).toMatchObject({ from: 'option', label: 'Open billing' });
+    expect(wayOn([opt('resume', 'Retry Implement'), opt('resume-at', 'Resume at Review')], auto, 'failed')).toEqual({ from: 'auto', label: 'Retry Implement stage' });
+    expect(wayOn([opt('resume-at', 'Resume at Review'), opt('resume', 'Retry Implement')], null, 'failed')).toMatchObject({ from: 'option', label: 'Retry Implement' });
+    expect(wayOn([opt('resume-at', 'Resume at Review')], null, 'failed')).toBeNull();
+    expect(wayOn([], auto, 'running')).toBeNull();
+  });
+  test('it sits under the stage the record names', () => {
+    expect(wayOnStage(view({ stage: 'Implement' }))).toBe('implement');
+    expect(wayOnStage(view({ stage: 'Red tests' }))).toBe('red-tests');
   });
 });

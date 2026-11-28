@@ -152,3 +152,25 @@ export function recoveryOptions(kind: StopKind | null, view: RecoveryView): Reco
   }
   return out;
 }
+
+/** The one way on a stopped run offers, shown under its failed round. */
+export type WayOn =
+  | { from: 'option'; label: string; option: RecoveryOption }
+  | { from: 'auto'; label: string };
+
+/**
+ * One button, not a menu: a top-up when a limit was recorded with a billing link (a retry cannot help before it), else
+ * the fix the server recommends, else a retry. Skipping ahead stays in "Resume at…", so it is never this button.
+ */
+export function wayOn(options: readonly RecoveryOption[], recovery: RecoveryView['recovery'], state: string): WayOn | null {
+  const topUp = options.find(o => o.action === 'top-up');
+  if (topUp) return { from: 'option', label: topUp.label, option: topUp };
+  if (recovery?.autoAction && ['paused', 'failed', 'refused'].includes(state)) return { from: 'auto', label: recovery.autoAction.label };
+  const retry = options.find(o => o.action === 'resume');
+  return retry ? { from: 'option', label: retry.label, option: retry } : null;
+}
+
+/** The stage the way on belongs under: the one the record names, matched by name or key. */
+export function wayOnStage(view: RecoveryView): string {
+  return stoppedStageOf(view).key;
+}
