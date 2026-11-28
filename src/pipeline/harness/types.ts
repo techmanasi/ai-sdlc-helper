@@ -231,3 +231,8 @@ export interface HarnessRegistry {
   listAllModels(env?: NodeJS.ProcessEnv): Promise<HarnessModel[]>;
   loadPluginsFromDir(dir: string, env?: NodeJS.ProcessEnv): Promise<void>;
 }
+
+/** MCP servers named by Claude-style rules (`mcp__graft`, `mcp__graft__graft_find_code`): the code indexer's tools. */
+export function mcpServers(rules: string[]): string[] {
+  return [...new Set(rules.map(r => /^mcp__([^_(][^(]*?)(?:__.*)?$/.exec(r)?.[1]).filter((s): s is string => !!s))];
+}
